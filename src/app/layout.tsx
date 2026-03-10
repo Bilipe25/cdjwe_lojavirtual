@@ -49,6 +49,7 @@ export default function RootLayout({
     <html lang="pt-BR" suppressHydrationWarning>
       <body
         className={`${inter.variable} ${outfit.variable} antialiased`}
+        suppressHydrationWarning
       >
         <QueryProvider>
           <TooltipProvider>
