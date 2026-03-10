@@ -13,7 +13,11 @@ import {
     ChevronDown,
     ChevronRight,
     Paintbrush,
+    Image as ImageIcon,
+    Upload,
+    X,
 } from 'lucide-react'
+import Image from 'next/image'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -68,6 +72,10 @@ export default function AdminFabricsPage() {
     const [colorName, setColorName] = useState('')
     const [colorHex, setColorHex] = useState('#8B7355')
     const [colorActive, setColorActive] = useState(true)
+    const [colorImageFile, setColorImageFile] = useState<File | null>(null)
+    const [colorImagePreview, setColorImagePreview] = useState<string | null>(null)
+    const [colorImageUrl, setColorImageUrl] = useState<string | null>(null)
+    const [uploadingImage, setUploadingImage] = useState(false)
 
     useEffect(() => { loadFabrics() }, [])
 
@@ -147,23 +155,76 @@ export default function AdminFabricsPage() {
             setColorName(color.name)
             setColorHex(color.hex_code || '#8B7355')
             setColorActive(color.is_active)
+            setColorImageUrl(color.image_url || null)
+            setColorImagePreview(color.image_url || null)
         } else {
             setEditingColor(null)
             setColorName('')
             setColorHex('#8B7355')
             setColorActive(true)
+            setColorImageUrl(null)
+            setColorImagePreview(null)
         }
+        setColorImageFile(null)
         setColorDialogOpen(true)
+    }
+
+    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0]
+            setColorImageFile(file)
+            setColorImagePreview(URL.createObjectURL(file))
+        }
+    }
+
+    const removeImage = () => {
+        setColorImageFile(null)
+        setColorImagePreview(null)
+        setColorImageUrl(null)
+    }
+
+    const uploadImage = async (file: File): Promise<string | null> => {
+        const supabase = createClient()
+        const fileExt = file.name.split('.').pop()
+        const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`
+        const filePath = `colors/${fileName}`
+
+        const { error: uploadError } = await supabase.storage
+            .from('products')
+            .upload(filePath, file)
+
+        if (uploadError) {
+            console.error('Error uploading image:', uploadError)
+            return null
+        }
+
+        const { data } = supabase.storage.from('products').getPublicUrl(filePath)
+        return data.publicUrl
     }
 
     const saveColor = async () => {
         if (!colorName) { toast.error('Informe o nome da cor'); return }
         setSavingColor(true)
+
+        let finalImageUrl = colorImageUrl
+
+        if (colorImageFile) {
+            setUploadingImage(true)
+            const uploadedUrl = await uploadImage(colorImageFile)
+            setUploadingImage(false)
+            if (uploadedUrl) {
+                finalImageUrl = uploadedUrl
+            } else {
+                toast.error('Falha ao fazer upload da imagem. Tentando salvar sem a nova imagem.')
+            }
+        }
+
         const supabase = createClient()
         const data = {
             fabric_id: colorFabricId,
             name: colorName,
             hex_code: colorHex,
+            image_url: finalImageUrl,
             is_active: colorActive,
         }
         if (editingColor) {
@@ -257,7 +318,13 @@ export default function AdminFabricsPage() {
                                                 <div className="flex flex-wrap gap-2">
                                                     {fabric.colors.map((color) => (
                                                         <div key={color.id} className="group relative flex items-center gap-2 px-3 py-2 rounded-lg border bg-white/60 hover:shadow-sm transition-shadow">
-                                                            <div className="h-6 w-6 rounded-full border shadow-inner" style={{ backgroundColor: color.hex_code || '#ccc' }} />
+                                                            {color.image_url ? (
+                                                                <div className="h-6 w-6 rounded-full border shadow-inner relative overflow-hidden">
+                                                                    <Image src={color.image_url} alt={color.name} fill className="object-cover" sizes="24px" />
+                                                                </div>
+                                                            ) : (
+                                                                <div className="h-6 w-6 rounded-full border shadow-inner" style={{ backgroundColor: color.hex_code || '#ccc' }} />
+                                                            )}
                                                             <span className="text-sm">{color.name}</span>
                                                             {!color.is_active && <span className="text-[10px] text-red-500">inativo</span>}
                                                             <div className="hidden group-hover:flex absolute -top-1 -right-1 gap-0.5">
@@ -283,18 +350,30 @@ export default function AdminFabricsPage() {
 
             {/* Fabric Dialog */}
             <Dialog open={fabricDialogOpen} onOpenChange={setFabricDialogOpen}>
-                <DialogContent className="max-w-md">
-                    <DialogHeader><DialogTitle className="font-[family-name:var(--font-heading)]">{editingFabric ? 'Editar Tecido' : 'Novo Tecido'}</DialogTitle></DialogHeader>
-                    <div className="space-y-4">
-                        <div className="space-y-2"><Label>Nome *</Label><Input value={fabricName} onChange={(e: any) => setFabricName(e.target.value)} placeholder="Ex: Suede" className="bg-white/60" /></div>
-                        <div className="space-y-2"><Label>Descrição</Label><Textarea value={fabricDescription} onChange={(e: any) => setFabricDescription(e.target.value)} placeholder="Descrição do tecido..." className="bg-white/60 resize-none" rows={2} /></div>
-                        <div className="space-y-2"><Label>Adicional de Preço (R$)</Label><Input type="number" step="0.01" value={fabricPriceMod} onChange={(e: any) => setFabricPriceMod(e.target.value)} placeholder="0,00" className="bg-white/60" /></div>
-                        <div className="flex items-center gap-2"><Switch checked={fabricActive} onCheckedChange={setFabricActive} /><Label>Ativo</Label></div>
+                <DialogContent className="!max-w-[600px] !w-[95vw] sm:!w-[90vw] overflow-hidden flex flex-col p-0">
+                    <DialogHeader className="px-6 pt-6 pb-2 border-b">
+                        <DialogTitle className="font-[family-name:var(--font-heading)] text-2xl text-navy">
+                            {editingFabric ? 'Editar Tecido' : 'Novo Tecido'}
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="flex-1 overflow-y-auto px-6 pb-6 pt-4">
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b">Informações Básicas</h3>
+                            <div className="space-y-2"><Label className="text-navy font-medium">Nome *</Label><Input value={fabricName} onChange={(e: any) => setFabricName(e.target.value)} placeholder="Ex: Suede" className="bg-white/60" /></div>
+                            <div className="space-y-2"><Label className="text-navy font-medium">Descrição</Label><Textarea value={fabricDescription} onChange={(e: any) => setFabricDescription(e.target.value)} placeholder="Descrição do tecido..." className="bg-white/60 resize-none" rows={2} /></div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2"><Label className="text-navy font-medium">Adicional de Preço (R$)</Label><Input type="number" step="0.01" value={fabricPriceMod} onChange={(e: any) => setFabricPriceMod(e.target.value)} placeholder="0,00" className="bg-white/60" /></div>
+                                <div className="space-y-2 flex flex-col justify-end"><div className="flex items-center gap-2 mb-2"><Switch checked={fabricActive} onCheckedChange={setFabricActive} /><Label className="font-medium text-navy">Visível no Catálogo</Label></div></div>
+                            </div>
+                        </div>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setFabricDialogOpen(false)}>Cancelar</Button>
-                        <Button className="gradient-navy border-0 text-white" onClick={saveFabric} disabled={savingFabric}>
-                            {savingFabric ? <Loader2 className="h-4 w-4 animate-spin" /> : editingFabric ? 'Salvar' : 'Criar'}
+
+                    <DialogFooter className="px-6 pb-6 pt-4 border-t bg-muted/10">
+                        <Button variant="outline" onClick={() => setFabricDialogOpen(false)} disabled={savingFabric}>Cancelar</Button>
+                        <Button className="gradient-navy border-0 text-white min-w-[120px]" onClick={saveFabric} disabled={savingFabric}>
+                            {savingFabric ? <Loader2 className="h-4 w-4 animate-spin" /> : editingFabric ? 'Salvar Alterações' : 'Criar Tecido'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -302,24 +381,67 @@ export default function AdminFabricsPage() {
 
             {/* Color Dialog */}
             <Dialog open={colorDialogOpen} onOpenChange={setColorDialogOpen}>
-                <DialogContent className="max-w-md">
-                    <DialogHeader><DialogTitle className="font-[family-name:var(--font-heading)]">{editingColor ? 'Editar Cor' : 'Nova Cor'}</DialogTitle></DialogHeader>
-                    <div className="space-y-4">
-                        <div className="space-y-2"><Label>Nome *</Label><Input value={colorName} onChange={(e: any) => setColorName(e.target.value)} placeholder="Ex: Bege Dourado" className="bg-white/60" /></div>
-                        <div className="space-y-2">
-                            <Label>Cor</Label>
-                            <div className="flex items-center gap-3">
-                                <input type="color" value={colorHex} onChange={(e: any) => setColorHex(e.target.value)} className="h-10 w-14 rounded border cursor-pointer" />
-                                <Input value={colorHex} onChange={(e: any) => setColorHex(e.target.value)} className="bg-white/60 flex-1" placeholder="#000000" />
-                                <div className="h-10 w-10 rounded-full border shadow-inner" style={{ backgroundColor: colorHex }} />
+                <DialogContent className="!max-w-[700px] !w-[95vw] sm:!w-[90vw] overflow-hidden flex flex-col p-0">
+                    <DialogHeader className="px-6 pt-6 pb-2 border-b">
+                        <DialogTitle className="font-[family-name:var(--font-heading)] text-2xl text-navy">
+                            {editingColor ? 'Editar Cor' : 'Nova Cor'}
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="flex-1 overflow-y-auto px-6 pb-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                            {/* Left Column: Details */}
+                            <div className="space-y-4">
+                                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b">Configurações</h3>
+                                <div className="space-y-2"><Label className="text-navy font-medium">Nome *</Label><Input value={colorName} onChange={(e: any) => setColorName(e.target.value)} placeholder="Ex: Bege Dourado" className="bg-white/60" /></div>
+
+                                <div className="space-y-2">
+                                    <Label className="text-navy font-medium">Cor de Fundo (Hex)</Label>
+                                    <div className="flex items-center gap-3">
+                                        <input type="color" value={colorHex} onChange={(e: any) => setColorHex(e.target.value)} className="h-10 w-14 rounded border cursor-pointer" />
+                                        <Input value={colorHex} onChange={(e: any) => setColorHex(e.target.value)} className="bg-white/60 flex-1 font-mono uppercase" placeholder="#000000" />
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-1">Essa cor será exibida se você não anexar uma foto (textura).</p>
+                                </div>
+                                <div className="flex items-center gap-2 pt-2"><Switch checked={colorActive} onCheckedChange={setColorActive} /><Label className="font-medium text-navy">Visível no Catálogo</Label></div>
+                            </div>
+
+                            {/* Right Column: Image */}
+                            <div className="space-y-4">
+                                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b">Amostra (Textura)</h3>
+
+                                <div className="grid gap-4">
+                                    {colorImagePreview ? (
+                                        <div className="relative aspect-square rounded-xl overflow-hidden border bg-muted/30 max-h-[220px] max-w-[220px]">
+                                            <Image src={colorImagePreview} alt="Amostra" fill className="object-cover" />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                <Button size="sm" variant="destructive" onClick={removeImage} className="gap-2">
+                                                    <X className="h-4 w-4" /> Remover
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <Label className="relative aspect-square max-h-[220px] max-w-[220px] rounded-xl border-2 border-dashed border-muted-foreground/30 hover:border-bronze hover:bg-bronze/5 transition-colors flex flex-col items-center justify-center cursor-pointer text-muted-foreground hover:text-bronze">
+                                            <Upload className="h-8 w-8 mb-2 opacity-50" />
+                                            <span className="text-sm font-medium text-center px-4">Adicionar Foto Real do Tecido</span>
+                                            <span className="text-xs opacity-70 mt-1 px-4 text-center">JPG ou PNG (Proporção 1:1 Quadrado)</span>
+                                            <Input
+                                                type="file"
+                                                className="hidden"
+                                                accept="image/*"
+                                                onChange={handleImageChange}
+                                            />
+                                        </Label>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-2"><Switch checked={colorActive} onCheckedChange={setColorActive} /><Label>Ativo</Label></div>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setColorDialogOpen(false)}>Cancelar</Button>
-                        <Button className="gradient-navy border-0 text-white" onClick={saveColor} disabled={savingColor}>
-                            {savingColor ? <Loader2 className="h-4 w-4 animate-spin" /> : editingColor ? 'Salvar' : 'Criar'}
+
+                    <DialogFooter className="px-6 pb-6 pt-4 border-t bg-muted/10">
+                        <Button variant="outline" onClick={() => setColorDialogOpen(false)} disabled={savingColor || uploadingImage}>Cancelar</Button>
+                        <Button className="gradient-navy border-0 text-white min-w-[120px]" onClick={saveColor} disabled={savingColor || uploadingImage}>
+                            {(savingColor || uploadingImage) ? <Loader2 className="h-4 w-4 animate-spin" /> : editingColor ? 'Salvar Alterações' : 'Criar Cor'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
