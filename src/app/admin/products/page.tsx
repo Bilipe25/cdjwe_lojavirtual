@@ -371,124 +371,130 @@ export default function AdminProductsPage() {
 
             {/* Product Dialog */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="!max-w-[1000px] !w-[95vw] sm:!w-[90vw] max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
+                <DialogContent className="!max-w-[1000px] !w-[95vw] sm:!w-[90vw] max-h-[90vh] flex flex-col p-0 overflow-hidden">
+                    <DialogHeader className="px-6 pt-6 pb-2 border-b">
                         <DialogTitle className="font-[family-name:var(--font-heading)] text-2xl text-navy">
                             {editingProduct ? 'Editar Produto' : 'Novo Produto'}
                         </DialogTitle>
                     </DialogHeader>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-                        {/* Left Column: Form Details */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b">Informações Básicas</h3>
+                    <div className="flex-1 overflow-y-auto px-6 pb-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                            {/* Left Column: Form Details */}
+                            <div className="space-y-4">
+                                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b">Informações Básicas</h3>
 
-                            <div className="space-y-2">
-                                <Label className="text-navy font-medium">Nome do Produto *</Label>
-                                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Sofá Retrátil Florença" className="bg-white/60" />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <Label className="text-navy font-medium">Categoria *</Label>
-                                    <Select value={categoryId} onValueChange={(v) => v && setCategoryId(v)}>
-                                        <SelectTrigger className="bg-white/60"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                                        <SelectContent>
-                                            {categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
+                                    <Label className="text-navy font-medium">Nome do Produto *</Label>
+                                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Sofá Retrátil Florença" className="bg-white/60" />
                                 </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label className="text-navy font-medium">Categoria *</Label>
+                                        <Select value={categoryId} onValueChange={(v) => v && setCategoryId(v)}>
+                                            <SelectTrigger className="bg-white/60">
+                                                <SelectValue placeholder="Selecione">
+                                                    {categoryId ? categories.find(c => c.id === categoryId)?.name || 'Selecione' : 'Selecione'}
+                                                </SelectValue>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-navy font-medium">Preço Base (R$) *</Label>
+                                        <Input type="number" step="0.01" value={basePrice} onChange={(e) => setBasePrice(e.target.value)} placeholder="0.00" className="bg-white/60" />
+                                    </div>
+                                </div>
+
                                 <div className="space-y-2">
-                                    <Label className="text-navy font-medium">Preço Base (R$) *</Label>
-                                    <Input type="number" step="0.01" value={basePrice} onChange={(e) => setBasePrice(e.target.value)} placeholder="0.00" className="bg-white/60" />
+                                    <Label className="text-navy font-medium">Tamanho / Dimensões</Label>
+                                    <Input value={size} onChange={(e) => setSize(e.target.value)} placeholder="Ex: 3 Lugares (2.50m x 1.10m)" className="bg-white/60" />
+                                    <p className="text-[11px] text-muted-foreground">Informe as medidas descritivas para facilitar a escolha do lojista.</p>
                                 </div>
-                            </div>
 
-                            <div className="space-y-2">
-                                <Label className="text-navy font-medium">Tamanho / Dimensões</Label>
-                                <Input value={size} onChange={(e) => setSize(e.target.value)} placeholder="Ex: 3 Lugares (2.50m x 1.10m)" className="bg-white/60" />
-                                <p className="text-[11px] text-muted-foreground">Informe as medidas descritivas para facilitar a escolha do lojista.</p>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label className="text-navy font-medium">Descrição Detalhada</Label>
-                                <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descreva os diferenciais, espumas utilizadas, etc..." className="bg-white/60 resize-none" rows={4} />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 pt-2">
-                                <div className="flex items-center space-x-2 border p-3 rounded-lg bg-white/40">
-                                    <Switch checked={isActive} onCheckedChange={setIsActive} id="active-mode" />
-                                    <Label htmlFor="active-mode" className="cursor-pointer">Ativo na Loja</Label>
+                                <div className="space-y-2">
+                                    <Label className="text-navy font-medium">Descrição Detalhada</Label>
+                                    <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descreva os diferenciais, espumas utilizadas, etc..." className="bg-white/60 resize-none" rows={4} />
                                 </div>
-                                <div className="flex items-center space-x-2 border p-3 rounded-lg bg-white/40">
-                                    <Switch checked={isFeatured} onCheckedChange={setIsFeatured} id="featured-mode" />
-                                    <Label htmlFor="featured-mode" className="cursor-pointer">Destaque</Label>
-                                </div>
-                            </div>
-                        </div>
 
-                        {/* Right Column: Images Gallery */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b flex items-center justify-between">
-                                <span>Galeria de Imagens</span>
-                                <span className="text-xs lowercase normal-case bg-muted px-2 py-0.5 rounded-full">{existingImages.length + previewUrls.length}/5 max</span>
-                            </h3>
-
-                            <div className="grid grid-cols-3 gap-3">
-                                {/* Existing Images */}
-                                {existingImages.map((img) => (
-                                    <div key={img.id} className={`relative aspect-square rounded-lg border-2 overflow-hidden group ${primaryImageId === img.id ? 'border-bronze' : 'border-border'}`}>
-                                        <Image src={img.url} alt="Produto" fill className="object-cover" />
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-                                            {primaryImageId !== img.id && (
-                                                <Button size="sm" variant="secondary" className="h-7 text-[10px] w-20" onClick={() => setPrimaryImageId(img.id)}>Capa</Button>
-                                            )}
-                                            <Button size="icon" variant="destructive" className="h-7 w-7" onClick={() => removeExistingImage(img.id)}><Trash2 className="h-3 w-3" /></Button>
-                                        </div>
-                                        {primaryImageId === img.id && <Badge className="absolute top-1 left-1 bg-bronze text-white text-[9px] px-1 py-0 h-4 border-0">Capa</Badge>}
+                                <div className="grid grid-cols-2 gap-4 pt-2">
+                                    <div className="flex items-center space-x-2 border p-3 rounded-lg bg-white/40">
+                                        <Switch checked={isActive} onCheckedChange={setIsActive} id="active-mode" />
+                                        <Label htmlFor="active-mode" className="cursor-pointer">Ativo na Loja</Label>
                                     </div>
-                                ))}
-
-                                {/* New Images Previews */}
-                                {previewUrls.map((url, i) => (
-                                    <div key={`new_${i}`} className={`relative aspect-square rounded-lg border-2 overflow-hidden group ${primaryImageId === `new_${i}` ? 'border-bronze' : 'border-border'}`}>
-                                        <Image src={url} alt="Upload" fill className="object-cover" />
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-                                            {primaryImageId !== `new_${i}` && (
-                                                <Button size="sm" variant="secondary" className="h-7 text-[10px] w-20" onClick={() => setPrimaryImageId(`new_${i}`)}>Capa</Button>
-                                            )}
-                                            <Button size="icon" variant="destructive" className="h-7 w-7" onClick={() => removeNewImage(i)}><X className="h-3 w-3" /></Button>
-                                        </div>
-                                        {primaryImageId === `new_${i}` && <Badge className="absolute top-1 left-1 bg-bronze text-white text-[9px] px-1 py-0 h-4 border-0">Capa</Badge>}
+                                    <div className="flex items-center space-x-2 border p-3 rounded-lg bg-white/40">
+                                        <Switch checked={isFeatured} onCheckedChange={setIsFeatured} id="featured-mode" />
+                                        <Label htmlFor="featured-mode" className="cursor-pointer">Destaque</Label>
                                     </div>
-                                ))}
-
-                                {/* Upload Button */}
-                                {(existingImages.length + previewUrls.length) < 5 && (
-                                    <Label className="relative aspect-square rounded-lg border-2 border-dashed border-muted-foreground/30 hover:border-bronze hover:bg-bronze/5 transition-colors flex flex-col items-center justify-center cursor-pointer text-muted-foreground hover:text-bronze">
-                                        <UploadCloud className="h-8 w-8 mb-2" />
-                                        <span className="text-[10px] font-medium text-center px-2">Adicionar Foto</span>
-                                        <Input
-                                            type="file"
-                                            className="hidden"
-                                            accept="image/*"
-                                            multiple
-                                            onChange={handleFileChange}
-                                        />
-                                    </Label>
-                                )}
+                                </div>
                             </div>
 
-                            <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-3 text-sm text-blue-800 flex items-start mt-4">
-                                <ImageIcon className="h-4 w-4 mr-2 shrink-0 mt-0.5" />
-                                <p className="text-xs">
-                                    Faça o upload de imagens de alta qualidade (JPEG ou PNG). Você precisará criar o bucket "products" no Supabase Storage para que o upload funcione.
-                                </p>
+                            {/* Right Column: Images Gallery */}
+                            <div className="space-y-4">
+                                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b flex items-center justify-between">
+                                    <span>Galeria de Imagens</span>
+                                    <span className="text-xs lowercase normal-case bg-muted px-2 py-0.5 rounded-full">{existingImages.length + previewUrls.length}/5 max</span>
+                                </h3>
+
+                                <div className="grid grid-cols-3 gap-3">
+                                    {/* Existing Images */}
+                                    {existingImages.map((img) => (
+                                        <div key={img.id} className={`relative aspect-square rounded-lg border-2 overflow-hidden group ${primaryImageId === img.id ? 'border-bronze' : 'border-border'}`}>
+                                            <Image src={img.url} alt="Produto" fill className="object-cover" />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                                                {primaryImageId !== img.id && (
+                                                    <Button size="sm" variant="secondary" className="h-7 text-[10px] w-20" onClick={() => setPrimaryImageId(img.id)}>Capa</Button>
+                                                )}
+                                                <Button size="icon" variant="destructive" className="h-7 w-7" onClick={() => removeExistingImage(img.id)}><Trash2 className="h-3 w-3" /></Button>
+                                            </div>
+                                            {primaryImageId === img.id && <Badge className="absolute top-1 left-1 bg-bronze text-white text-[9px] px-1 py-0 h-4 border-0">Capa</Badge>}
+                                        </div>
+                                    ))}
+
+                                    {/* New Images Previews */}
+                                    {previewUrls.map((url, i) => (
+                                        <div key={`new_${i}`} className={`relative aspect-square rounded-lg border-2 overflow-hidden group ${primaryImageId === `new_${i}` ? 'border-bronze' : 'border-border'}`}>
+                                            <Image src={url} alt="Upload" fill className="object-cover" />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                                                {primaryImageId !== `new_${i}` && (
+                                                    <Button size="sm" variant="secondary" className="h-7 text-[10px] w-20" onClick={() => setPrimaryImageId(`new_${i}`)}>Capa</Button>
+                                                )}
+                                                <Button size="icon" variant="destructive" className="h-7 w-7" onClick={() => removeNewImage(i)}><X className="h-3 w-3" /></Button>
+                                            </div>
+                                            {primaryImageId === `new_${i}` && <Badge className="absolute top-1 left-1 bg-bronze text-white text-[9px] px-1 py-0 h-4 border-0">Capa</Badge>}
+                                        </div>
+                                    ))}
+
+                                    {/* Upload Button */}
+                                    {(existingImages.length + previewUrls.length) < 5 && (
+                                        <Label className="relative aspect-square rounded-lg border-2 border-dashed border-muted-foreground/30 hover:border-bronze hover:bg-bronze/5 transition-colors flex flex-col items-center justify-center cursor-pointer text-muted-foreground hover:text-bronze">
+                                            <UploadCloud className="h-8 w-8 mb-2" />
+                                            <span className="text-[10px] font-medium text-center px-2">Adicionar Foto</span>
+                                            <Input
+                                                type="file"
+                                                className="hidden"
+                                                accept="image/*"
+                                                multiple
+                                                onChange={handleFileChange}
+                                            />
+                                        </Label>
+                                    )}
+                                </div>
+
+                                <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-3 text-sm text-blue-800 flex items-start mt-4">
+                                    <ImageIcon className="h-4 w-4 mr-2 shrink-0 mt-0.5" />
+                                    <p className="text-xs">
+                                        Faça o upload de imagens de alta qualidade (JPEG ou PNG). Você precisará criar o bucket "products" no Supabase Storage para que o upload funcione.
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <DialogFooter className="mt-6 border-t pt-4">
+                    <DialogFooter className="px-6 pb-6 pt-4 border-t bg-muted/10">
                         <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>Cancelar</Button>
                         <Button className="gradient-navy border-0 text-white min-w-[120px]" onClick={handleSave} disabled={saving}>
                             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editingProduct ? 'Salvar Alterações' : 'Criar Produto'}
