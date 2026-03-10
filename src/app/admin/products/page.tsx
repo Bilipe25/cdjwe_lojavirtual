@@ -371,7 +371,7 @@ export default function AdminProductsPage() {
 
             {/* Product Dialog */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="!max-w-[1000px] !w-[95vw] sm:!w-[90vw] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="font-[family-name:var(--font-heading)] text-2xl text-navy">
                             {editingProduct ? 'Editar Produto' : 'Novo Produto'}
