@@ -15,6 +15,7 @@ import {
     ChevronRight,
     CreditCard,
     BarChart3,
+    Layers,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -25,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 const adminNavItems = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { href: '/admin/categories', label: 'Categorias', icon: Layers },
     { href: '/admin/products', label: 'Produtos', icon: Package },
     { href: '/admin/fabrics', label: 'Tecidos & Cores', icon: Palette },
     { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
