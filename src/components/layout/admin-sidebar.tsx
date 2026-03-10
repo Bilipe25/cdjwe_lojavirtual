@@ -30,7 +30,7 @@ const adminNavItems = [
     { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
     { href: '/admin/customers', label: 'Clientes', icon: Users },
     { href: '/admin/price-tables', label: 'Tabelas de Preço', icon: Tag },
-    { href: '/admin/payment', label: 'Pagamento', icon: CreditCard },
+    { href: '/admin/payment-conditions', label: 'Pagamento', icon: CreditCard },
     { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
     { href: '/admin/settings', label: 'Configurações', icon: Settings },
 ]
