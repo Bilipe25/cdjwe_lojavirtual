@@ -16,8 +16,30 @@ import {
     Image as ImageIcon,
     Upload,
     X,
+    GripVertical,
+    CheckSquare,
+    Square
 } from 'lucide-react'
 import Image from 'next/image'
+import {
+    DndContext,
+    closestCenter,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragEndEvent
+} from '@dnd-kit/core'
+import {
+    arrayMove,
+    SortableContext,
+    sortableKeyboardCoordinates,
+    verticalListSortingStrategy,
+    horizontalListSortingStrategy,
+    useSortable
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -77,6 +99,24 @@ export default function AdminFabricsPage() {
     const [colorImageUrl, setColorImageUrl] = useState<string | null>(null)
     const [uploadingImage, setUploadingImage] = useState(false)
 
+    // Extra Features State
+    const [searchQuery, setSearchQuery] = useState('')
+    const [hideInactive, setHideInactive] = useState(false)
+    const [selectedColors, setSelectedColors] = useState<string[]>([])
+    const [zoomedImageUrl, setZoomedImageUrl] = useState<string | null>(null)
+
+    // Dnd-kit sensors
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 5,
+            },
+        }),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    )
+
     useEffect(() => { loadFabrics() }, [])
 
     const loadFabrics = async () => {
@@ -94,6 +134,96 @@ export default function AdminFabricsPage() {
         }
         setLoading(false)
     }
+
+    // Handlers para novos recursos
+    const handleDragEndFabric = async (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (over && active.id !== over.id) {
+            const oldIndex = fabrics.findIndex((f) => f.id === active.id);
+            const newIndex = fabrics.findIndex((f) => f.id === over.id);
+
+            const reordered = arrayMove(fabrics, oldIndex, newIndex);
+
+            // Corrige localmente a lista global
+            setFabrics(reordered);
+
+            // Dispara persistencia em background
+            const supabase = createClient()
+            const updates = reordered.map((f, index) => ({ id: f.id, sort_order: index }))
+            const { error } = await supabase.from('fabrics').upsert(updates)
+            if (error) { toast.error('Falha ao reordenar tecidos.') }
+        }
+    }
+
+    const handleDragEndColor = async (event: DragEndEvent, fabricId: string) => {
+        const { active, over } = event;
+        if (over && active.id !== over.id) {
+            const fabricIndex = fabrics.findIndex(f => f.id === fabricId)
+            if (fabricIndex === -1) return;
+
+            const fabric = fabrics[fabricIndex]
+            const oldIndex = fabric.colors.findIndex(c => c.id === active.id)
+            const newIndex = fabric.colors.findIndex(c => c.id === over.id)
+
+            const reorderedColors = arrayMove(fabric.colors, oldIndex, newIndex)
+
+            const updatedFabrics = [...fabrics]
+            updatedFabrics[fabricIndex] = { ...fabric, colors: reorderedColors }
+            setFabrics(updatedFabrics)
+
+            // Dispara persistencia em background
+            const supabase = createClient()
+            const updates = reorderedColors.map((c, index) => ({ id: c.id, sort_order: index }))
+            const { error } = await supabase.from('fabric_colors').upsert(updates)
+            if (error) { toast.error('Falha ao reordenar cores.') }
+        }
+    }
+
+    const toggleColorSelection = (colorId: string) => {
+        setSelectedColors(prev =>
+            prev.includes(colorId)
+                ? prev.filter(id => id !== colorId)
+                : [...prev, colorId]
+        )
+    }
+
+    const handleBulkToggleActive = async (isActive: boolean) => {
+        if (selectedColors.length === 0) return;
+        const supabase = createClient()
+        const { error } = await supabase.from('fabric_colors')
+            .update({ is_active: isActive })
+            .in('id', selectedColors)
+
+        if (error) { toast.error('Falha ao atualizar cores.'); return }
+        toast.success(`${selectedColors.length} cores ${isActive ? 'ativadas' : 'desativadas'}!`)
+        setSelectedColors([])
+        loadFabrics()
+    }
+
+    // Filtering logic (Computed Data)
+    const filteredFabrics = fabrics.filter(f => {
+        if (hideInactive && !f.is_active) return false;
+
+        const matchesFabricName = f.name.toLowerCase().includes(searchQuery.toLowerCase())
+        const matchesColorName = f.colors.some(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+
+        return matchesFabricName || matchesColorName
+    }).map(f => {
+        return {
+            ...f,
+            colors: f.colors.filter(c => {
+                if (hideInactive && !c.is_active) return false;
+
+                // If searching, and fabric doesn't match, only show matching colors.
+                // Otherwise, show all of them for this fabric
+                if (searchQuery && !f.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+                    return c.name.toLowerCase().includes(searchQuery.toLowerCase())
+                }
+
+                return true;
+            })
+        }
+    })
 
     // ---- Fabric CRUD ----
     const openFabricDialog = (fabric?: Fabric) => {
@@ -262,90 +392,67 @@ export default function AdminFabricsPage() {
                 </Button>
             </div>
 
+            {/* Filters & Bulk Actions */}
+            <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-white/60 p-4 rounded-xl border shadow-sm">
+                <div className="flex flex-1 w-full gap-4 items-center">
+                    <div className="relative flex-1 max-w-sm">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Buscar tecido ou cor..."
+                            className="pl-9 bg-white"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Switch id="hide-inactive" checked={hideInactive} onCheckedChange={setHideInactive} />
+                        <Label htmlFor="hide-inactive" className="text-sm text-muted-foreground cursor-pointer whitespace-nowrap">Ocultar Inativos</Label>
+                    </div>
+                </div>
+
+                {selectedColors.length > 0 && (
+                    <div className="flex items-center gap-2 bg-bronze/10 px-3 py-2 rounded-lg border border-bronze/20 w-full md:w-auto overflow-x-auto">
+                        <span className="text-sm font-medium text-bronze whitespace-nowrap">{selectedColors.length} selecionadas</span>
+                        <div className="h-4 w-px bg-bronze/20 mx-1" />
+                        <Button size="sm" variant="ghost" className="h-8 text-green-700 hover:text-green-800 hover:bg-green-100 px-2" onClick={() => handleBulkToggleActive(true)}>Ativar</Button>
+                        <Button size="sm" variant="ghost" className="h-8 text-red-700 hover:text-red-800 hover:bg-red-100 px-2" onClick={() => handleBulkToggleActive(false)}>Desativar</Button>
+                    </div>
+                )}
+            </div>
+
             {loading ? (
                 <div className="space-y-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
-            ) : fabrics.length === 0 ? (
+            ) : filteredFabrics.length === 0 ? (
                 <div className="text-center py-16">
                     <div className="mx-auto h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4"><Palette className="h-8 w-8 text-muted-foreground" /></div>
-                    <h3 className="text-lg font-semibold">Nenhum tecido cadastrado</h3>
-                    <Button className="mt-4 gradient-bronze border-0 text-white" onClick={() => openFabricDialog()}>Criar primeiro tecido</Button>
+                    <h3 className="text-lg font-semibold">Nenhum resultado encontrado</h3>
+                    <Button className="mt-4 gradient-bronze border-0 text-white" onClick={() => { setSearchQuery(''); setHideInactive(false) }}>Limpar Filtros</Button>
                 </div>
             ) : (
-                <div className="space-y-3">
-                    {fabrics.map((fabric, i) => (
-                        <motion.div key={fabric.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                            <Card className="glass-card border-0">
-                                <CardContent className="p-0">
-                                    {/* Fabric Header */}
-                                    <div className="flex items-center p-4 cursor-pointer" onClick={() => setExpandedFabric(expandedFabric === fabric.id ? null : fabric.id)}>
-                                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                                            {expandedFabric === fabric.id ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
-                                            <div className="h-10 w-10 rounded-lg gradient-bronze flex items-center justify-center shrink-0">
-                                                <Palette className="h-5 w-5 text-white" />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <h3 className="font-semibold">{fabric.name}</h3>
-                                                    {!fabric.is_active && <Badge className="text-[10px] bg-red-100 text-red-800">Inativo</Badge>}
-                                                </div>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {fabric.colors.length} {fabric.colors.length === 1 ? 'cor' : 'cores'} •
-                                                    {fabric.price_modifier > 0 ? ` +R$ ${fabric.price_modifier.toFixed(2)}` : ' Sem adicional'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                            <Button size="sm" variant="outline" className="gap-1" onClick={() => openColorDialog(fabric.id)}>
-                                                <Paintbrush className="h-3.5 w-3.5" />+ Cor
-                                            </Button>
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem onClick={() => openFabricDialog(fabric)}><Edit className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
-                                                    <DropdownMenuSeparator />
-                                                    <DropdownMenuItem onClick={() => deleteFabric(fabric.id)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Excluir</DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        </div>
-                                    </div>
-
-                                    {/* Colors (expanded) */}
-                                    {expandedFabric === fabric.id && (
-                                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="border-t px-4 py-3">
-                                            {fabric.colors.length === 0 ? (
-                                                <p className="text-sm text-muted-foreground text-center py-4">Nenhuma cor cadastrada</p>
-                                            ) : (
-                                                <div className="flex flex-wrap gap-2">
-                                                    {fabric.colors.map((color) => (
-                                                        <div key={color.id} className="group relative flex items-center gap-2 px-3 py-2 rounded-lg border bg-white/60 hover:shadow-sm transition-shadow">
-                                                            {color.image_url ? (
-                                                                <div className="h-6 w-6 rounded-full border shadow-inner relative overflow-hidden">
-                                                                    <Image src={color.image_url} alt={color.name} fill className="object-cover" sizes="24px" />
-                                                                </div>
-                                                            ) : (
-                                                                <div className="h-6 w-6 rounded-full border shadow-inner" style={{ backgroundColor: color.hex_code || '#ccc' }} />
-                                                            )}
-                                                            <span className="text-sm">{color.name}</span>
-                                                            {!color.is_active && <span className="text-[10px] text-red-500">inativo</span>}
-                                                            <div className="hidden group-hover:flex absolute -top-1 -right-1 gap-0.5">
-                                                                <button onClick={() => openColorDialog(fabric.id, color)} className="h-5 w-5 rounded-full bg-white border shadow flex items-center justify-center hover:bg-muted">
-                                                                    <Edit className="h-2.5 w-2.5" />
-                                                                </button>
-                                                                <button onClick={() => deleteColor(color.id)} className="h-5 w-5 rounded-full bg-white border shadow flex items-center justify-center hover:bg-red-50 text-destructive">
-                                                                    <Trash2 className="h-2.5 w-2.5" />
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </motion.div>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        </motion.div>
-                    ))}
-                </div>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEndFabric}>
+                    <SortableContext items={filteredFabrics.map(f => f.id)} strategy={verticalListSortingStrategy}>
+                        <div className="space-y-3">
+                            {filteredFabrics.map((fabric, i) => (
+                                <SortableFabricItem
+                                    key={fabric.id}
+                                    fabric={fabric}
+                                    index={i}
+                                    expandedFabric={expandedFabric}
+                                    setExpandedFabric={setExpandedFabric}
+                                    openColorDialog={openColorDialog}
+                                    openFabricDialog={openFabricDialog}
+                                    deleteFabric={deleteFabric}
+                                    sensors={sensors}
+                                    handleDragEndColor={handleDragEndColor}
+                                    selectedColors={selectedColors}
+                                    toggleColorSelection={toggleColorSelection}
+                                    deleteColor={deleteColor}
+                                    setZoomedImageUrl={setZoomedImageUrl}
+                                />
+                            ))}
+                        </div>
+                    </SortableContext>
+                </DndContext>
             )}
 
             {/* Fabric Dialog */}
@@ -446,6 +553,168 @@ export default function AdminFabricsPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+        </div >
+    )
+}
+
+// -------------------------------------------------------------------------------- //
+// DND Sub-components
+// -------------------------------------------------------------------------------- //
+
+function SortableFabricItem({
+    fabric,
+    index,
+    expandedFabric,
+    setExpandedFabric,
+    openColorDialog,
+    openFabricDialog,
+    deleteFabric,
+    sensors,
+    handleDragEndColor,
+    selectedColors,
+    toggleColorSelection,
+    deleteColor,
+    setZoomedImageUrl
+}: any) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging
+    } = useSortable({ id: fabric.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+        zIndex: isDragging ? 10 : 1,
+        position: 'relative' as const,
+    };
+
+    return (
+        <motion.div ref={setNodeRef} style={style} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+            <Card className="glass-card border-0">
+                <CardContent className="p-0">
+                    <div className="flex items-center p-4 cursor-pointer" onClick={() => setExpandedFabric(expandedFabric === fabric.id ? null : fabric.id)}>
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                            {/* Drag Handle */}
+                            <div {...attributes} {...listeners} className="cursor-grab hover:bg-muted p-1 rounded-sm active:cursor-grabbing" onClick={e => e.stopPropagation()}>
+                                <GripVertical className="h-4 w-4 text-muted-foreground opacity-50" />
+                            </div>
+
+                            {expandedFabric === fabric.id ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+                            <div className="h-10 w-10 rounded-lg gradient-bronze flex items-center justify-center shrink-0">
+                                <Palette className="h-5 w-5 text-white" />
+                            </div>
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <h3 className="font-semibold">{fabric.name}</h3>
+                                    {!fabric.is_active && <Badge className="text-[10px] bg-red-100 text-red-800">Inativo</Badge>}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    {fabric.colors.length} {fabric.colors.length === 1 ? 'cor' : 'cores'} •
+                                    {fabric.price_modifier > 0 ? ` +R$ ${fabric.price_modifier.toFixed(2)}` : ' Sem adicional'}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <Button size="sm" variant="outline" className="gap-1" onClick={() => openColorDialog(fabric.id)}>
+                                <Paintbrush className="h-3.5 w-3.5" />+ Cor
+                            </Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => openFabricDialog(fabric)}><Edit className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => deleteFabric(fabric.id)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Excluir</DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                    </div>
+
+                    {/* Colors (expanded) */}
+                    {expandedFabric === fabric.id && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="border-t px-4 py-3">
+                            {fabric.colors.length === 0 ? (
+                                <p className="text-sm text-muted-foreground text-center py-4">Nenhuma cor cadastrada</p>
+                            ) : (
+                                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => handleDragEndColor(e, fabric.id)}>
+                                    <SortableContext items={fabric.colors.map((c: any) => c.id)} strategy={horizontalListSortingStrategy}>
+                                        <div className="flex flex-wrap gap-2">
+                                            {fabric.colors.map((color: any) => (
+                                                <SortableColorItem
+                                                    key={color.id}
+                                                    color={color}
+                                                    fabricId={fabric.id}
+                                                    isSelected={selectedColors.includes(color.id)}
+                                                    toggleSelection={() => toggleColorSelection(color.id)}
+                                                    openColorDialog={openColorDialog}
+                                                    deleteColor={deleteColor}
+                                                    setZoomedImageUrl={setZoomedImageUrl}
+                                                />
+                                            ))}
+                                        </div>
+                                    </SortableContext>
+                                </DndContext>
+                            )}
+                        </motion.div>
+                    )}
+                </CardContent>
+            </Card>
+        </motion.div>
+    )
+}
+
+function SortableColorItem({ color, fabricId, isSelected, toggleSelection, openColorDialog, deleteColor, setZoomedImageUrl }: any) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging
+    } = useSortable({ id: color.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+        zIndex: isDragging ? 10 : 1,
+    };
+
+    return (
+        <div ref={setNodeRef} style={style} className={`group relative flex items-center gap-2 px-3 py-2 rounded-lg border bg-white/60 hover:shadow-sm transition-shadow ${isSelected ? 'ring-2 ring-bronze/50 border-bronze/50' : ''}`}>
+            {/* Grab trigger left */}
+            <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 opacity-20 hover:opacity-100">
+                <GripVertical className="h-3 w-3 text-muted-foreground" />
+            </div>
+
+            {/* Bulk Select Checkbox */}
+            <button onClick={toggleSelection} className="flex items-center justify-center text-muted-foreground hover:text-bronze focus:outline-none">
+                {isSelected ? <CheckSquare className="h-4 w-4 text-bronze" /> : <Square className="h-4 w-4 opacity-50" />}
+            </button>
+
+            <div
+                className={`h-7 w-7 rounded-full border shadow-inner relative overflow-hidden ${color.image_url ? 'cursor-zoom-in group-hover:ring-2 ring-bronze/50' : ''}`}
+                style={!color.image_url ? { backgroundColor: color.hex_code || '#ccc' } : undefined}
+                onClick={() => color.image_url ? setZoomedImageUrl(color.image_url) : null}
+            >
+                {color.image_url && <Image src={color.image_url} alt={color.name} fill className="object-cover" sizes="28px" />}
+            </div>
+
+            <span className="text-sm font-medium">{color.name}</span>
+            {!color.is_active && <span className="text-[10px] text-red-500 font-bold ml-1">OFF</span>}
+
+            <div className="hidden group-hover:flex absolute -top-2 -right-2 gap-0.5 z-20">
+                <button onClick={() => openColorDialog(fabricId, color)} className="h-6 w-6 rounded-full bg-white border shadow flex items-center justify-center hover:bg-muted">
+                    <Edit className="h-3 w-3" />
+                </button>
+                <button onClick={() => deleteColor(color.id)} className="h-6 w-6 rounded-full bg-white border shadow flex items-center justify-center hover:bg-red-50 text-destructive">
+                    <Trash2 className="h-3 w-3" />
+                </button>
+            </div>
         </div>
     )
 }
