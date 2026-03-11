@@ -116,6 +116,21 @@ export default function RegisterPage() {
                 phone: phone || null,
             })
 
+            // Notify admin via email (fire-and-forget)
+            fetch('/api/email/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'new_registration',
+                    payload: {
+                        clientName: fullName,
+                        clientEmail: email,
+                        companyName,
+                        cnpj,
+                    },
+                }),
+            }).catch(() => {}) // Silent fail - registration should not be blocked by email
+
             toast.success('Cadastro realizado com sucesso!')
             router.push('/pending-approval')
         } catch {

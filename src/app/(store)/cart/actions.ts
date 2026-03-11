@@ -207,5 +207,78 @@ export async function checkoutAction(
         changed_by: user.id,
     })
 
+    // 9. Send Email Notifications (fire-and-forget)
+    try {
+        const { sendEmail } = await import('@/lib/email')
+        const React = (await import('react')).default
+
+        // Fetch system settings and client profile
+        const [settingsRes, profileRes, storeDataRes] = await Promise.all([
+            supabase.from('system_settings').select('system_name, email').limit(1).single(),
+            supabase.from('profiles').select('full_name, email').eq('id', user.id).single(),
+            supabase.from('stores').select('company_name').eq('profile_id', user.id).single(),
+        ])
+
+        const systemName = settingsRes.data?.system_name || 'CDJWE'
+        const adminEmail = settingsRes.data?.email
+        const clientName = profileRes.data?.full_name || 'Cliente'
+        const clientEmail = profileRes.data?.email || user.email
+        const companyName = storeDataRes.data?.company_name || 'N/A'
+
+        // Get order number
+        const { data: orderDetail } = await supabase
+            .from('orders')
+            .select('order_number')
+            .eq('id', newOrder.id)
+            .single()
+
+        const orderNumber = orderDetail?.order_number || newOrder.id
+
+        // Email to Admin: New Order
+        if (adminEmail) {
+            const { default: NewOrderEmail } = await import('@/emails/NewOrderEmail')
+            sendEmail({
+                to: adminEmail,
+                subject: `🛒 Novo pedido #${orderNumber} — ${systemName}`,
+                react: React.createElement(NewOrderEmail, {
+                    orderNumber,
+                    clientName,
+                    companyName,
+                    itemCount: validatedItems.length,
+                    total: finalTotal,
+                    systemName,
+                }),
+            }).catch(() => {})
+        }
+
+        // Email to Client: Order Confirmation
+        if (clientEmail) {
+            const { default: OrderConfirmationEmail } = await import('@/emails/OrderConfirmationEmail')
+            sendEmail({
+                to: clientEmail,
+                subject: `📋 Pedido #${orderNumber} confirmado — ${systemName}`,
+                react: React.createElement(OrderConfirmationEmail, {
+                    orderNumber,
+                    clientName,
+                    items: validatedItems.map(item => ({
+                        productName: item.productName,
+                        fabricName: item.fabricName,
+                        colorName: item.colorName,
+                        quantity: item.quantity,
+                        unitPrice: item.unitPrice,
+                        subtotal: item.subtotal,
+                    })),
+                    subtotal: secureSubtotal,
+                    discount: paymentDiscount,
+                    total: finalTotal,
+                    systemName,
+                }),
+            }).catch(() => {})
+        }
+    } catch (emailError) {
+        // Email failures should never block checkout
+        console.error('[CHECKOUT EMAIL] Error:', emailError)
+    }
+
     return { success: true, orderId: newOrder.id }
 }

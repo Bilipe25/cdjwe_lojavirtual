@@ -115,6 +115,34 @@ export default function AdminOrdersPage() {
             })
         }
 
+        // Send status update email to client
+        const order = orders.find(o => o.id === orderId)
+        if (order?.order_number) {
+            // Fetch client email from order's profile
+            const { data: orderData } = await supabase
+                .from('orders')
+                .select('profile_id, profiles:profile_id(email, full_name)')
+                .eq('id', orderId)
+                .single()
+
+            const clientProfile = (orderData as any)?.profiles
+            if (clientProfile?.email) {
+                fetch('/api/email/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'order_status',
+                        payload: {
+                            orderNumber: order.order_number,
+                            clientName: clientProfile.full_name,
+                            clientEmail: clientProfile.email,
+                            newStatus,
+                        },
+                    }),
+                }).catch(() => {})
+            }
+        }
+
         if (!skipRefresh) {
             setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
             if (selectedOrderDetail?.id === orderId) {

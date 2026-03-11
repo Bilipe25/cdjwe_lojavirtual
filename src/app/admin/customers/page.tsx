@@ -133,6 +133,24 @@ export default function CustomersPage() {
             return
         }
 
+        // Send approval email to customer
+        if (status === 'approved') {
+            const customer = customers.find(c => c.id === profileId)
+            if (customer?.email) {
+                fetch('/api/email/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'account_approved',
+                        payload: {
+                            clientName: customer.full_name,
+                            clientEmail: customer.email,
+                        },
+                    }),
+                }).catch(() => {})
+            }
+        }
+
         setCustomers(prev =>
             prev.map(c => c.id === profileId ? { ...c, status: status as any } : c)
         )
