@@ -65,6 +65,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import type { Fabric, FabricColor } from '@/lib/types'
+import { syncAllVariants } from '../actions/variants'
 
 function slugify(text: string) {
     return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -263,6 +264,10 @@ export default function AdminFabricsPage() {
             if (error) { toast.error('Erro ao criar tecido'); setSavingFabric(false); return }
             toast.success('Tecido criado!')
         }
+        
+        // Auto-generate variants for all products against this new/updated fabric
+        await syncAllVariants()
+
         setSavingFabric(false)
         setFabricDialogOpen(false)
         loadFabrics()
@@ -366,6 +371,10 @@ export default function AdminFabricsPage() {
             if (error) { toast.error('Erro ao criar cor'); setSavingColor(false); return }
             toast.success('Cor criada!')
         }
+
+        // Auto-generate variants for all products against this new/updated color
+        await syncAllVariants()
+
         setSavingColor(false)
         setColorDialogOpen(false)
         loadFabrics()

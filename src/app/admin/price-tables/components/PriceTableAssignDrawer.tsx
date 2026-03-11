@@ -7,6 +7,7 @@ import {
     SheetHeader,
     SheetTitle,
     SheetDescription,
+    SheetFooter,
 } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -93,6 +94,15 @@ export function PriceTableAssignDrawer({ table, isOpen, onClose }: PriceTableAss
         })
     }
 
+    const handleSelectAll = () => {
+        const allIds = new Set(filteredStores.map(s => s.id))
+        setSelectedStoreIds(allIds)
+    }
+
+    const handleClearAll = () => {
+        setSelectedStoreIds(new Set())
+    }
+
     const handleSaveBatch = async () => {
         if (!table) return
         setSaving(true)
@@ -138,7 +148,7 @@ export function PriceTableAssignDrawer({ table, isOpen, onClose }: PriceTableAss
                 if (insertError) throw insertError
             }
 
-            toast.success(`Tabela atribuída a ${selectedArray.length} cliente(s)!`)
+            toast.success(`Tabela salva e vinculada a ${selectedArray.length} cliente(s)!`)
             onClose()
         } catch (err: any) {
             console.error(err)
@@ -156,21 +166,17 @@ export function PriceTableAssignDrawer({ table, isOpen, onClose }: PriceTableAss
 
     return (
         <Sheet open={isOpen} onOpenChange={onClose}>
-            <SheetContent side="right" className="w-full sm:max-w-md p-0 border-l border-black/10 bg-white">
-                <div className="absolute inset-0 flex flex-col bg-white">
-                    {/* Header */}
-                    <div className="p-6 border-b bg-muted/30 shrink-0">
-                        <SheetHeader>
-                            <SheetTitle className="text-xl font-heading text-navy flex items-center gap-2">
-                            <Users className="h-5 w-5 text-bronze" />
-                            Atribuir Lojistas
-                        </SheetTitle>
-                        <SheetDescription>
-                            {table?.name} (Desconto de {table?.discount_percentage}%)
-                            <br/>
-                            Selecione as lojas que utilizarão esta tabela preferencialmente.
-                        </SheetDescription>
-                    </SheetHeader>
+            <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
+                <SheetHeader className="p-6 border-b z-10 bg-white">
+                    <SheetTitle className="text-xl font-heading text-navy flex items-center gap-2">
+                        <Users className="h-5 w-5 text-bronze" />
+                        Atribuir Lojistas
+                    </SheetTitle>
+                    <SheetDescription>
+                        {table?.name} (Desconto de {table?.discount_percentage}%)
+                        <br/>
+                        Selecione as lojas que utilizarão esta tabela preferencialmente.
+                    </SheetDescription>
                     
                     <div className="relative mt-4">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -181,10 +187,25 @@ export function PriceTableAssignDrawer({ table, isOpen, onClose }: PriceTableAss
                             className="pl-9 bg-white"
                         />
                     </div>
-                </div>
+                
+                    {/* Batch Actions */}
+                    <div className="flex items-center justify-between mt-3 text-sm">
+                        <span className="text-muted-foreground">
+                            <strong className="text-navy">{selectedStoreIds.size}</strong> selecionada(s)
+                        </span>
+                        <div className="flex gap-2">
+                            <Button variant="outline" size="sm" onClick={handleSelectAll} className="h-8 px-3 border-navy text-navy hover:bg-navy hover:text-white transition-colors">
+                                Selecionar Todas
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={handleClearAll} className="h-8 px-3 border-destructive text-destructive hover:bg-destructive hover:text-white transition-colors">
+                                Limpar
+                            </Button>
+                        </div>
+                    </div>
+                </SheetHeader>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+                <div className="flex-1 overflow-y-auto p-4 bg-slate-50 relative">
                     {loading ? (
                         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                             <Loader2 className="h-8 w-8 animate-spin mb-4" />
@@ -227,18 +248,16 @@ export function PriceTableAssignDrawer({ table, isOpen, onClose }: PriceTableAss
                     )}
                 </div>
                 
-                {/* Sticky Footer */}
-                <div className="p-4 border-t bg-white shrink-0">
+                <SheetFooter className="p-4 border-t bg-white mt-auto rounded-none shrink-0 border-l border-black/10">
                     <Button 
                         onClick={handleSaveBatch} 
                         disabled={saving || loading}
-                        className="w-full bg-navy text-white hover:bg-navy/90 h-11"
+                        className="w-full bg-[#1e293b] text-white hover:bg-[#0f172a] h-12 text-lg font-bold shadow-md rounded-xl"
                     >
-                        {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                        Disparar Tabela para {selectedStoreIds.size} Loja(s)
+                        {saving ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Save className="h-5 w-5 mr-2" />}
+                        Salvar Lojas
                     </Button>
-                </div>
-                </div>
+                </SheetFooter>
             </SheetContent>
         </Sheet>
     )

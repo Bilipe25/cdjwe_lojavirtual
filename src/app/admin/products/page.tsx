@@ -10,6 +10,7 @@ import { ProductList, type ProductWithDetails } from './components/ProductList'
 import { ProductFilters } from './components/ProductFilters'
 import { ProductFormModal } from './components/ProductFormModal'
 import { type ProductFormData } from './schema'
+import { syncAllVariants } from '../actions/variants'
 
 function slugify(text: string) {
     return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -190,6 +191,9 @@ export default function AdminProductsPage() {
                     }
                 }
             }
+
+            // 5. Silently trigger the global variant sync so new products become available to sell immediately!
+            await syncAllVariants()
 
             toast.success(editingProduct ? 'Produto atualizado!' : 'Produto criado!')
             setDialogOpen(false)
