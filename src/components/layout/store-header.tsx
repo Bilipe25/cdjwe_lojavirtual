@@ -15,6 +15,7 @@ import {
     Heart,
     Bell,
 } from 'lucide-react'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -49,6 +50,7 @@ export function StoreHeader() {
     const [unreadCount, setUnreadCount] = useState(0)
     const [lastChecked, setLastChecked] = useState<string | null>(null)
     const [isViewingAsCustomer, setIsViewingAsCustomer] = useState(false)
+    const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
     const cartCount = totalItems()
     const favCount = useFavoritesStore((s) => s.favoriteIds.length)
 
@@ -100,6 +102,16 @@ export function StoreHeader() {
             setIsViewingAsCustomer(hasCookie)
         }
         checkViewAsCustomer()
+
+        // Load Settings for Logo
+        const loadSettings = async () => {
+            try {
+                const supabase = createClient()
+                const { data } = await supabase.from('system_settings').select('logo_url, system_name').limit(1).single()
+                if (data) setSettings(data)
+            } catch { /* silent */ }
+        }
+        loadSettings()
         
         return () => {
             isMounted = false
@@ -158,14 +170,28 @@ export function StoreHeader() {
             <div className="glass-card border-0 border-b">
                 <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
-                    {/* Logo */}
-                    <Link href="/catalog" className="flex items-center gap-2 shrink-0" aria-label="CDJWE - Página inicial">
-                        <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center">
-                            <span className="text-white font-bold text-sm font-[family-name:var(--font-heading)]">CJ</span>
-                        </div>
-                        <span className="hidden sm:block text-lg font-semibold font-[family-name:var(--font-heading)] text-gradient-navy">
-                            CDJWE
-                        </span>
+                    <Link href="/catalog" className="flex items-center gap-3 shrink-0" aria-label={`${settings?.system_name || 'Loja'} - Página inicial`}>
+                        {settings?.logo_url ? (
+                            <div className="flex items-center gap-3">
+                                <div className="h-10 w-24 sm:w-32 shrink-0 relative">
+                                    <Image priority src={settings.logo_url} alt={settings.system_name || 'Loja'} fill className="object-contain object-left" />
+                                </div>
+                                <span className="hidden sm:block text-lg font-semibold font-heading text-gradient-navy truncate max-w-[150px]">
+                                    {settings?.system_name || 'CDJWE'}
+                                </span>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center shrink-0">
+                                    <span className="text-white font-bold text-sm font-heading">
+                                        {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
+                                    </span>
+                                </div>
+                                <span className="hidden sm:block text-lg font-semibold font-heading text-gradient-navy truncate max-w-[150px]">
+                                    {settings?.system_name || 'CDJWE'}
+                                </span>
+                            </>
+                        )}
                     </Link>
 
                     {/* Desktop Nav */}

@@ -20,6 +20,8 @@ import {
     FolderClosed,
     Store,
 } from 'lucide-react'
+import Image from 'next/image'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { logoutAction } from '@/app/(auth)/login/actions'
@@ -58,6 +60,7 @@ export function AdminSidebar() {
     const router = useRouter()
     const [collapsed, setCollapsed] = useState(false)
     const [cadastrosOpen, setCadastrosOpen] = useState(false)
+    const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
 
     const isCadastroActive = cadastrosNavItems.some(item => pathname.startsWith(item.href))
 
@@ -66,6 +69,15 @@ export function AdminSidebar() {
             setCadastrosOpen(true)
         }
     }, [pathname, collapsed, isCadastroActive])
+
+    useEffect(() => {
+        const loadSettings = async () => {
+            const supabase = createClient()
+            const { data } = await supabase.from('system_settings').select('logo_url, system_name').limit(1).single()
+            if (data) setSettings(data)
+        }
+        loadSettings()
+    }, [])
 
     const handleLogout = async () => {
         await logoutAction()
@@ -87,16 +99,26 @@ export function AdminSidebar() {
                 )}
             >
                 {/* Logo */}
-                <div className="flex items-center gap-2 px-4 h-16 border-b border-sidebar-border shrink-0">
-                    <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center shrink-0">
-                        <span className="text-white font-bold text-sm">CJ</span>
-                    </div>
-                    {!collapsed && (
-                        <div className="flex flex-col">
-                            <span className="text-sm font-semibold font-[family-name:var(--font-heading)] text-sidebar-foreground">
-                                CDJWE
-                            </span>
-                            <span className="text-[10px] text-sidebar-foreground/60">Painel Admin</span>
+                <div className="flex items-center justify-center h-16 border-b border-sidebar-border shrink-0">
+                    {settings?.logo_url ? (
+                        <div className={`relative shrink-0 transition-all duration-300 ${collapsed ? 'h-10 w-12' : 'h-10 w-44 pr-4 ml-4'}`}>
+                            <Image priority src={settings.logo_url} alt={settings.system_name || 'Admin'} fill className={`object-contain ${collapsed ? 'object-center' : 'object-left'}`} />
+                        </div>
+                    ) : (
+                        <div className={`flex items-center gap-2 ${collapsed ? '' : 'px-4 w-full'}`}>
+                            <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center shrink-0">
+                                <span className="text-white font-bold text-sm">
+                                    {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
+                                </span>
+                            </div>
+                            {!collapsed && (
+                                <div className="flex flex-col overflow-hidden">
+                                    <span className="text-sm font-semibold truncate font-heading text-sidebar-foreground">
+                                        {settings?.system_name || 'CDJWE'}
+                                    </span>
+                                    <span className="text-[10px] text-sidebar-foreground/60">Painel Admin</span>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

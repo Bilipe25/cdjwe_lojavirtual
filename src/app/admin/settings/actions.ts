@@ -75,10 +75,16 @@ export async function saveSettingsAction(input: SaveSettingsInput): Promise<{ er
 
     if (input.id) {
         const { error } = await supabase.from('system_settings').update(data).eq('id', input.id)
-        if (error) return { error: 'Erro ao salvar configurações.' }
+        if (error) {
+            console.error('Update settings error:', error)
+            return { error: 'Erro ao salvar configurações.' }
+        }
     } else {
         const { error } = await supabase.from('system_settings').insert(data)
-        if (error) return { error: 'Erro ao criar configurações.' }
+        if (error) {
+            console.error('Insert settings error:', error)
+            return { error: 'Erro ao criar configurações.' }
+        }
     }
 
     return { error: null }

@@ -1,13 +1,31 @@
-require('dotenv').config({path: '.env.local'});
-const { createClient } = require('@supabase/supabase-js');
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const { createClient } = require('@supabase/supabase-js')
+require('dotenv').config({ path: '.env.local' })
 
-async function check() {
-  const { data, error } = await supabase.from('price_table_items').select('*').limit(1);
-  console.log('price_table_items error:', error?.message);
-  
-  // also check if cart/actions fails.
-  const { data: cols } = await supabase.rpc('get_columns_for', { table_name: 'price_table_items' }).catch(() => ({data: 'rpc error'}));
-  console.log('Columns helper:', cols);
+const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+)
+
+async function checkSchema() {
+    const { data, error } = await supabase
+        .from('system_settings')
+        .select('*')
+        .limit(1)
+        
+    if (error) {
+        console.error('Error:', error)
+        return
+    }
+    
+    if (data && data.length > 0) {
+        console.log('Columns in system_settings:')
+        console.log(Object.keys(data[0]))
+        
+        console.log('\nData:')
+        console.log(JSON.stringify(data[0], null, 2))
+    } else {
+        console.log('No data found in system_settings')
+    }
 }
-check();
+
+checkSchema()
