@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Search, Filter, X, SlidersHorizontal } from 'lucide-react'
+import { Search, Filter, X, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,68 +14,95 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { createClient } from '@/lib/supabase/client'
 import type { Product, Category, Fabric } from '@/lib/types'
 import { ProductCard } from '@/components/catalog/product-card'
+import { CatalogFilters } from './components/CatalogFilters'
+
+const PAGE_SIZE = 12
 
 export default function CatalogPage() {
     const [products, setProducts] = useState<(Product & { images: { url: string; is_primary: boolean }[] })[]>([])
     const [categories, setCategories] = useState<Category[]>([])
     const [fabrics, setFabrics] = useState<Fabric[]>([])
+    
+    // Pagination State
     const [loading, setLoading] = useState(true)
+    const [totalCount, setTotalCount] = useState(0)
+    const [currentPage, setCurrentPage] = useState(1)
+    
+    // Filter State
     const [search, setSearch] = useState('')
+    const [debouncedSearch, setDebouncedSearch] = useState('')
     const [selectedCategory, setSelectedCategory] = useState<string>('all')
     const [selectedFabric, setSelectedFabric] = useState<string>('all')
     const [sortBy, setSortBy] = useState<string>('name')
     const [filtersOpen, setFiltersOpen] = useState(false)
 
+    // Debounce the search input
     useEffect(() => {
-        loadData()
+        const timer = setTimeout(() => {
+            setDebouncedSearch(search)
+            setCurrentPage(1) // Reset page on search
+        }, 500)
+        return () => clearTimeout(timer)
+    }, [search])
+
+    // Load static filters once
+    useEffect(() => {
+        const loadFilters = async () => {
+            const supabase = createClient()
+            const [categoriesRes, fabricsRes] = await Promise.all([
+                supabase.from('categories').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+                supabase.from('fabrics').select('*').eq('is_active', true).order('sort_order', { ascending: true })
+            ])
+            if (categoriesRes.data) setCategories(categoriesRes.data)
+            if (fabricsRes.data) setFabrics(fabricsRes.data)
+        }
+        loadFilters()
     }, [])
 
-    const loadData = async () => {
-        setLoading(true)
-        const supabase = createClient()
-
-        const [productsRes, categoriesRes, fabricsRes] = await Promise.all([
-            supabase
+    // Execute paginated queries safely on the Server Side Database
+    useEffect(() => {
+        const fetchPaginatedProducts = async () => {
+            setLoading(true)
+            const supabase = createClient()
+            
+            let query = supabase
                 .from('products')
-                .select(`
-          *,
-          category:categories(*),
-          images:product_images(url, is_primary, sort_order)
-        `)
+                .select('*, category:categories(*), images:product_images(url, is_primary, sort_order)', { count: 'exact' })
                 .eq('is_active', true)
-                .order('sort_order', { ascending: true }),
-            supabase
-                .from('categories')
-                .select('*')
-                .eq('is_active', true)
-                .order('sort_order', { ascending: true }),
-            supabase
-                .from('fabrics')
-                .select('*')
-                .eq('is_active', true)
-                .order('sort_order', { ascending: true }),
-        ])
 
-        if (productsRes.data) setProducts(productsRes.data)
-        if (categoriesRes.data) setCategories(categoriesRes.data)
-        if (fabricsRes.data) setFabrics(fabricsRes.data)
-        setLoading(false)
-    }
+            // Dynamic Queries to avoid Client Side Array.Filtering over 1000s of rows
+            if (debouncedSearch) {
+                query = query.ilike('name', `%${debouncedSearch}%`)
+            }
+            if (selectedCategory !== 'all') {
+                query = query.eq('category_id', selectedCategory)
+            }
+            
+            // Note: In the original logic, fabrics didn't strictly filter the catalog product array, 
+            // but were kept in state for badges. Keeping it exact to avoid breakages in variant selection.
 
-    // Filter & sort
-    const filtered = products
-        .filter((p) => {
-            if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false
-            if (selectedCategory !== 'all' && p.category_id !== selectedCategory) return false
-            return true
-        })
-        .sort((a, b) => {
-            if (sortBy === 'name') return a.name.localeCompare(b.name)
-            if (sortBy === 'price_asc') return a.base_price - b.base_price
-            if (sortBy === 'price_desc') return b.base_price - a.base_price
-            if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            return 0
-        })
+            // Sorting logic translation
+            if (sortBy === 'name') query = query.order('name', { ascending: true })
+            if (sortBy === 'price_asc') query = query.order('base_price', { ascending: true })
+            if (sortBy === 'price_desc') query = query.order('base_price', { ascending: false })
+            if (sortBy === 'newest') query = query.order('created_at', { ascending: false })
+            
+            // Applying Strict Pagination boundaries to save massive RAM and Bandwidth
+            const from = (currentPage - 1) * PAGE_SIZE
+            const to = from + PAGE_SIZE - 1
+            query = query.range(from, to)
+
+            const { data, count, error } = await query
+
+            if (!error && data) {
+                setProducts(data as any)
+                setTotalCount(count || 0)
+            }
+            setLoading(false)
+        }
+
+        fetchPaginatedProducts()
+    }, [debouncedSearch, selectedCategory, sortBy, currentPage])
 
     const activeFilters = [
         selectedCategory !== 'all' && categories.find(c => c.id === selectedCategory)?.name,
@@ -86,69 +113,11 @@ export default function CatalogPage() {
         setSelectedCategory('all')
         setSelectedFabric('all')
         setSearch('')
+        setDebouncedSearch('')
+        setCurrentPage(1)
     }
 
-    const FilterPanel = () => (
-        <div className="space-y-6">
-            {/* Categories */}
-            <div>
-                <h3 className="text-sm font-semibold mb-3">Categorias</h3>
-                <div className="space-y-1">
-                    <button
-                        onClick={() => setSelectedCategory('all')}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedCategory === 'all'
-                            ? 'bg-primary/10 text-primary font-medium'
-                            : 'hover:bg-muted text-muted-foreground'
-                            }`}
-                    >
-                        Todas as categorias
-                    </button>
-                    {categories.map((cat) => (
-                        <button
-                            key={cat.id}
-                            onClick={() => setSelectedCategory(cat.id)}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedCategory === cat.id
-                                ? 'bg-primary/10 text-primary font-medium'
-                                : 'hover:bg-muted text-muted-foreground'
-                                }`}
-                        >
-                            {cat.name}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            <Separator />
-
-            {/* Fabrics */}
-            <div>
-                <h3 className="text-sm font-semibold mb-3">Tecidos</h3>
-                <div className="space-y-1">
-                    <button
-                        onClick={() => setSelectedFabric('all')}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedFabric === 'all'
-                            ? 'bg-primary/10 text-primary font-medium'
-                            : 'hover:bg-muted text-muted-foreground'
-                            }`}
-                    >
-                        Todos os tecidos
-                    </button>
-                    {fabrics.map((fab) => (
-                        <button
-                            key={fab.id}
-                            onClick={() => setSelectedFabric(fab.id)}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedFabric === fab.id
-                                ? 'bg-primary/10 text-primary font-medium'
-                                : 'hover:bg-muted text-muted-foreground'
-                                }`}
-                        >
-                            {fab.name}
-                        </button>
-                    ))}
-                </div>
-            </div>
-        </div>
-    )
+    const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
     return (
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
@@ -158,7 +127,7 @@ export default function CatalogPage() {
                 animate={{ opacity: 1, y: 0 }}
                 className="mb-6"
             >
-                <h1 className="text-3xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
+                <h1 className="text-3xl font-bold font-heading text-gradient-navy">
                     Catálogo
                 </h1>
                 <p className="text-muted-foreground mt-1">
@@ -178,7 +147,7 @@ export default function CatalogPage() {
                     />
                     {search && (
                         <button
-                            onClick={() => setSearch('')}
+                            onClick={() => { setSearch(''); setDebouncedSearch(''); }}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                         >
                             <X className="h-4 w-4" />
@@ -186,7 +155,7 @@ export default function CatalogPage() {
                     )}
                 </div>
 
-                <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+                <Select value={sortBy} onValueChange={(v: any) => { setSortBy(v); setCurrentPage(1); }}>
                     <SelectTrigger className="w-full sm:w-48 h-11 bg-white/60">
                         <SelectValue placeholder="Ordenar por" />
                     </SelectTrigger>
@@ -200,7 +169,8 @@ export default function CatalogPage() {
 
                 {/* Mobile Filter Button */}
                 <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-                    <SheetTrigger render={<Button variant="outline" className="lg:hidden h-11 gap-2" />}>
+                    <SheetTrigger asChild>
+                        <Button variant="outline" className="lg:hidden h-11 gap-2">
                             <SlidersHorizontal className="h-4 w-4" />
                             Filtros
                             {activeFilters.length > 0 && (
@@ -208,13 +178,21 @@ export default function CatalogPage() {
                                     {activeFilters.length}
                                 </Badge>
                             )}
+                        </Button>
                     </SheetTrigger>
                     <SheetContent side="left" className="w-80">
                         <SheetHeader>
                             <SheetTitle>Filtros</SheetTitle>
                         </SheetHeader>
                         <ScrollArea className="mt-6 h-[calc(100vh-100px)]">
-                            <FilterPanel />
+                            <CatalogFilters 
+                                categories={categories}
+                                fabrics={fabrics}
+                                selectedCategory={selectedCategory}
+                                selectedFabric={selectedFabric}
+                                onCategoryChange={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
+                                onFabricChange={(id) => { setSelectedFabric(id); setCurrentPage(1); }}
+                            />
                         </ScrollArea>
                     </SheetContent>
                 </Sheet>
@@ -247,15 +225,22 @@ export default function CatalogPage() {
                             <SlidersHorizontal className="h-4 w-4" />
                             Filtros
                         </h2>
-                        <FilterPanel />
+                        <CatalogFilters 
+                            categories={categories}
+                            fabrics={fabrics}
+                            selectedCategory={selectedCategory}
+                            selectedFabric={selectedFabric}
+                            onCategoryChange={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
+                            onFabricChange={(id) => { setSelectedFabric(id); setCurrentPage(1); }}
+                        />
                     </div>
                 </aside>
 
-                {/* Products Grid */}
-                <div className="flex-1">
+                {/* Products Grid & Pagination */}
+                <div className="flex-1 flex flex-col">
                     {loading ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
-                            {Array.from({ length: 6 }).map((_, i) => (
+                            {Array.from({ length: 9 }).map((_, i) => (
                                 <div key={i} className="glass-card rounded-xl overflow-hidden">
                                     <Skeleton className="h-56 w-full" />
                                     <div className="p-4 space-y-3">
@@ -266,8 +251,8 @@ export default function CatalogPage() {
                                 </div>
                             ))}
                         </div>
-                    ) : filtered.length === 0 ? (
-                        <div className="text-center py-16">
+                    ) : products.length === 0 ? (
+                        <div className="text-center py-16 flex-1">
                             <div className="mx-auto h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4">
                                 <Search className="h-8 w-8 text-muted-foreground" />
                             </div>
@@ -282,10 +267,10 @@ export default function CatalogPage() {
                     ) : (
                         <>
                             <p className="text-sm text-muted-foreground mb-4">
-                                {filtered.length} {filtered.length === 1 ? 'produto' : 'produtos'}
+                                Exibindo {products.length} de {totalCount} produtos
                             </p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
-                                {filtered.map((product, i) => (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 mb-8">
+                                {products.map((product, i) => (
                                     <motion.div
                                         key={product.id}
                                         initial={{ opacity: 0, y: 20 }}
@@ -296,6 +281,29 @@ export default function CatalogPage() {
                                     </motion.div>
                                 ))}
                             </div>
+                            
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="mt-auto pt-6 flex items-center justify-center gap-4">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                    >
+                                        <ChevronLeft className="h-4 w-4 mr-2" /> Anterior
+                                    </Button>
+                                    <span className="text-sm text-muted-foreground font-medium">
+                                        Página {currentPage} de {totalPages}
+                                    </span>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage === totalPages}
+                                    >
+                                        Próxima <ChevronRight className="h-4 w-4 ml-2" />
+                                    </Button>
+                                </div>
+                            )}
                         </>
                     )}
                 </div>

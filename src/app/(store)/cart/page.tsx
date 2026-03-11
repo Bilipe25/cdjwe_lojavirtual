@@ -25,6 +25,7 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import type { PaymentCondition, SystemSettings } from '@/lib/types'
 import Image from 'next/image'
+import { checkoutAction } from './actions'
 
 export default function CartPage() {
     const router = useRouter()
@@ -77,78 +78,20 @@ export default function CartPage() {
 
         setLoading(true)
         try {
-            const supabase = createClient()
-            const { data: { user } } = await supabase.auth.getUser()
-            if (!user) {
-                toast.error('Faça login para continuar')
-                router.push('/login')
+            const result = await checkoutAction(items, selectedPayment, notes)
+
+            if (result.error) {
+                toast.error(result.error)
+                setLoading(false)
                 return
             }
-
-            // Get user's store
-            const { data: store } = await supabase
-                .from('stores')
-                .select('id')
-                .eq('profile_id', user.id)
-                .single()
-
-            if (!store) {
-                toast.error('Loja não encontrada')
-                return
-            }
-
-            // Create order
-            const { data: order, error: orderError } = await supabase
-                .from('orders')
-                .insert({
-                    store_id: store.id,
-                    profile_id: user.id,
-                    status: 'pending',
-                    payment_status: 'pending',
-                    payment_condition_id: selectedPayment,
-                    subtotal: total,
-                    discount_amount: paymentDiscount,
-                    total: finalTotal,
-                    notes: notes || null,
-                })
-                .select()
-                .single()
-
-            if (orderError) throw orderError
-
-            // Create order items
-            const orderItems = items.map(item => ({
-                order_id: order.id,
-                product_variant_id: item.variantId,
-                product_name: item.productName,
-                fabric_name: item.fabricName,
-                color_name: item.colorName,
-                size: item.size,
-                quantity: item.quantity,
-                unit_price: item.unitPrice,
-                subtotal: item.unitPrice * item.quantity,
-            }))
-
-            const { error: itemsError } = await supabase
-                .from('order_items')
-                .insert(orderItems)
-
-            if (itemsError) throw itemsError
-
-            // Add initial status history
-            await supabase.from('order_status_history').insert({
-                order_id: order.id,
-                status: 'pending',
-                notes: 'Pedido realizado',
-                changed_by: user.id,
-            })
 
             clearCart()
             toast.success('Pedido realizado com sucesso!')
-            router.push(`/orders/${order.id}`)
+            router.push(`/orders/${result.orderId}`)
         } catch (err) {
             console.error(err)
-            toast.error('Erro ao realizar pedido. Tente novamente.')
+            toast.error('Ocorreu um erro interno de conexão.')
         } finally {
             setLoading(false)
         }
