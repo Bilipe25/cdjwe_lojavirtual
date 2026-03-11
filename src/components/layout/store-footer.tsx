@@ -35,22 +35,7 @@ export function StoreFooter() {
                     {/* Brand */}
                     <div className="sm:col-span-2 lg:col-span-1">
                         <div className="flex items-center gap-2.5 mb-3">
-                            {settings?.logo_url ? (
-                                <div className="h-10 w-32 shrink-0 relative">
-                                    <Image
-                                        priority
-                                        src={settings.logo_url}
-                                        alt={companyName}
-                                        fill
-                                        className="object-contain object-left"
-                                    />
-                                </div>
-                            ) : (
-                                <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center shrink-0">
-                                    <span className="text-white font-bold text-xs">{initials}</span>
-                                </div>
-                            )}
-                            <span className="font-semibold font-heading text-gradient-navy">{companyName}</span>
+                            <span className="font-semibold font-heading text-gradient-navy text-lg">{companyName}</span>
                         </div>
                         {settings?.cnpj && (
                             <p className="text-xs text-muted-foreground mb-2">CNPJ: {settings.cnpj}</p>
