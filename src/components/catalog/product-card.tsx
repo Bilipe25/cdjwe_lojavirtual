@@ -14,9 +14,10 @@ interface ProductCardProps {
         category?: { name: string }
     }
     onQuickView?: (productId: string) => void
+    hidePrices?: boolean
 }
 
-export function ProductCard({ product, onQuickView }: ProductCardProps) {
+export function ProductCard({ product, onQuickView, hidePrices = false }: ProductCardProps) {
     const primaryImage = product.images?.find((img) => img.is_primary) || product.images?.[0]
     const { isFavorite, toggle } = useFavoritesStore()
     const favorited = isFavorite(product.id)
@@ -108,10 +109,16 @@ export function ProductCard({ product, onQuickView }: ProductCardProps) {
                     )}
                     <div className="mt-3 flex items-end justify-between">
                         <div>
-                            <p className="text-xs text-muted-foreground">A partir de</p>
-                            <p className="text-lg font-bold text-gradient-bronze">
-                                R$ {product.base_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                            </p>
+                            {hidePrices ? (
+                                <p className="text-sm text-muted-foreground italic">Faça login para ver preços</p>
+                            ) : (
+                                <>
+                                    <p className="text-xs text-muted-foreground">A partir de</p>
+                                    <p className="text-lg font-bold text-gradient-bronze">
+                                        R$ {product.base_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </p>
+                                </>
+                            )}
                         </div>
                     </div>
                 </CardContent>

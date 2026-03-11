@@ -48,6 +48,7 @@ function CatalogContent() {
     const [sortBy, setSortBy] = useState<string>('name')
     const [filtersOpen, setFiltersOpen] = useState(false)
     const [quickViewId, setQuickViewId] = useState<string | null>(null)
+    const [hidePrices, setHidePrices] = useState(false)
 
     // Debounce the search input
     useEffect(() => {
@@ -70,6 +71,29 @@ function CatalogContent() {
             if (fabricsRes.data) setFabrics(fabricsRes.data)
         }
         loadFilters()
+    }, [])
+
+    // Load system settings for price visibility
+    useEffect(() => {
+        const loadVisibility = async () => {
+            const supabase = createClient()
+            const [settingsRes, userRes] = await Promise.all([
+                supabase.from('system_settings').select('show_prices_to_unapproved').limit(1).single(),
+                supabase.auth.getUser(),
+            ])
+            if (settingsRes.data && userRes.data?.user) {
+                // Check if user is unapproved
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('status')
+                    .eq('id', userRes.data.user.id)
+                    .single()
+                if (profile?.status === 'pending' && !settingsRes.data.show_prices_to_unapproved) {
+                    setHidePrices(true)
+                }
+            }
+        }
+        loadVisibility()
     }, [])
 
     // Execute paginated queries safely on the Server Side Database
@@ -299,7 +323,7 @@ function CatalogContent() {
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ delay: i * 0.05 }}
                                     >
-                                        <ProductCard product={product} onQuickView={(id) => setQuickViewId(id)} />
+                                        <ProductCard product={product} onQuickView={(id) => setQuickViewId(id)} hidePrices={hidePrices} />
                                     </motion.div>
                                 ))}
                             </div>

@@ -268,6 +268,9 @@ export interface SystemSettings {
   min_order_amount: number
   default_delivery_days: number
   show_prices_to_unapproved: boolean
+  whatsapp: string | null
+  instagram: string | null
+  facebook: string | null
   created_at: string
   updated_at: string
 }

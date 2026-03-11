@@ -13,6 +13,7 @@ import {
     Loader2,
     Package,
     AlertCircle,
+    Truck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -330,6 +331,16 @@ export default function CartPage() {
                                     <p>
                                         Pedido mínimo: R$ {settings.min_order_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.
                                         Faltam R$ {(settings.min_order_amount - total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Delivery Estimate */}
+                            {settings?.default_delivery_days && settings.default_delivery_days > 0 && (
+                                <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-700">
+                                    <Truck className="h-4 w-4 shrink-0" />
+                                    <p>
+                                        Prazo estimado de entrega: <strong>{settings.default_delivery_days} dias úteis</strong>
                                     </p>
                                 </div>
                             )}
