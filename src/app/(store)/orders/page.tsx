@@ -3,17 +3,20 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { ClipboardList, Eye, Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ClipboardList, Eye, Search, Filter, ChevronLeft, ChevronRight, RotateCcw, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
+import { OrderListSkeleton } from '@/components/ui/skeletons'
 import { createClient } from '@/lib/supabase/client'
 import type { Order, OrderStatus } from '@/lib/types'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { useCartStore } from '@/lib/stores/cart-store'
+import { toast } from 'sonner'
+import type { CartItem } from '@/lib/types'
 
 const PAGE_SIZE = 15
 
@@ -36,6 +39,8 @@ export default function OrdersPage() {
     const [debouncedSearch, setDebouncedSearch] = useState('')
     const [currentPage, setCurrentPage] = useState(1)
     const [totalCount, setTotalCount] = useState(0)
+    const [reorderingId, setReorderingId] = useState<string | null>(null)
+    const { addItem, openCart } = useCartStore()
 
     // Debounce the text input
     useEffect(() => {
@@ -96,6 +101,39 @@ export default function OrdersPage() {
 
     const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
+    const handleReorder = async (e: React.MouseEvent, orderId: string) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setReorderingId(orderId)
+        try {
+            const supabase = createClient()
+            const { data: items } = await supabase
+                .from('order_items')
+                .select('*')
+                .eq('order_id', orderId)
+            if (items && items.length > 0) {
+                items.forEach(item => {
+                    addItem({
+                        variantId: item.product_variant_id,
+                        productId: '',
+                        productName: item.product_name,
+                        fabricName: item.fabric_name,
+                        colorName: item.color_name,
+                        size: item.size,
+                        imageUrl: null,
+                        quantity: item.quantity,
+                        unitPrice: item.unit_price,
+                    })
+                })
+                toast.success(`${items.length} itens adicionados ao carrinho!`)
+                openCart()
+            }
+        } catch {
+            toast.error('Erro ao refazer pedido.')
+        }
+        setReorderingId(null)
+    }
+
     return (
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 md:py-8 flex flex-col min-h-[85vh]">
             <motion.div
@@ -140,22 +178,7 @@ export default function OrdersPage() {
             {/* Orders List */}
             <div className="flex-1 flex flex-col">
                 {loading ? (
-                    <div className="space-y-4">
-                        {Array.from({ length: 4 }).map((_, i) => (
-                            <Card key={i} className="glass-card border-0">
-                                <CardContent className="p-4">
-                                    <div className="flex justify-between items-start">
-                                        <div className="space-y-2">
-                                            <Skeleton className="h-5 w-32" />
-                                            <Skeleton className="h-4 w-24" />
-                                            <Skeleton className="h-4 w-20" />
-                                        </div>
-                                        <Skeleton className="h-8 w-24" />
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
+                    <OrderListSkeleton count={4} />
                 ) : orders.length === 0 ? (
                     <div className="text-center py-16 flex-1">
                         <div className="mx-auto h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -222,6 +245,19 @@ export default function OrdersPage() {
                                                             </div>
                                                             <Button variant="ghost" size="icon" className="shrink-0 bg-muted/50">
                                                                 <Eye className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="shrink-0 bg-muted/50"
+                                                                disabled={reorderingId === order.id}
+                                                                onClick={(e) => handleReorder(e, order.id)}
+                                                                title="Comprar novamente"
+                                                            >
+                                                                {reorderingId === order.id
+                                                                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                                                                    : <RotateCcw className="h-4 w-4" />
+                                                                }
                                                             </Button>
                                                         </div>
                                                     </div>

@@ -12,6 +12,8 @@ import {
     X,
     LogOut,
     Search,
+    Heart,
+    Bell,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -27,7 +29,9 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { logoutAction } from '@/app/(auth)/login/actions'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { useFavoritesStore } from '@/lib/stores/favorites-store'
 
 const navItems = [
     { href: '/catalog', label: 'Catálogo', icon: Package },
@@ -40,7 +44,43 @@ export function StoreHeader() {
     const { totalItems, openCart } = useCartStore()
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
+    const [notifications, setNotifications] = useState<{ id: string; order_number: string; status: string; created_at: string }[]>([])
+    const [unreadCount, setUnreadCount] = useState(0)
+    const [lastChecked, setLastChecked] = useState<string | null>(null)
     const cartCount = totalItems()
+    const favCount = useFavoritesStore((s) => s.favoriteIds.length)
+
+    // Poll for order status changes
+    const fetchNotifications = useCallback(async () => {
+        try {
+            const supabase = createClient()
+            const { data } = await supabase
+                .from('order_status_history')
+                .select('id, new_status, created_at, order:orders(order_number)')
+                .order('created_at', { ascending: false })
+                .limit(10)
+            if (data) {
+                const mapped = data.map((n: any) => ({
+                    id: n.id,
+                    order_number: n.order?.order_number || '',
+                    status: n.new_status,
+                    created_at: n.created_at,
+                }))
+                setNotifications(mapped)
+                if (lastChecked) {
+                    const newCount = mapped.filter((n: any) => n.created_at > lastChecked).length
+                    setUnreadCount(newCount)
+                }
+            }
+        } catch { /* silent */ }
+    }, [lastChecked])
+
+    useEffect(() => {
+        setLastChecked(new Date().toISOString())
+        fetchNotifications()
+        const interval = setInterval(fetchNotifications, 30000) // Poll every 30s
+        return () => clearInterval(interval)
+    }, [])
 
     const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter' && searchQuery.trim()) {
@@ -59,12 +99,14 @@ export function StoreHeader() {
         <motion.header
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="sticky top-0 z-50 glass border-b border-border/50"
+            className="sticky top-0 z-50 w-full"
+            role="banner"
         >
-            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                <div className="flex h-16 items-center justify-between gap-4">
+            <div className="glass-card border-0 border-b">
+                <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                    <div className="flex items-center justify-between h-16">
                     {/* Logo */}
-                    <Link href="/catalog" className="flex items-center gap-2 shrink-0">
+                    <Link href="/catalog" className="flex items-center gap-2 shrink-0" aria-label="CDJWE - Página inicial">
                         <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center">
                             <span className="text-white font-bold text-sm font-[family-name:var(--font-heading)]">CJ</span>
                         </div>
@@ -74,7 +116,7 @@ export function StoreHeader() {
                     </Link>
 
                     {/* Desktop Nav */}
-                    <nav className="hidden md:flex items-center gap-1">
+                    <nav className="hidden md:flex items-center gap-1" aria-label="Navegação principal">
                         {navItems.map((item) => {
                             const isActive = pathname.startsWith(item.href)
                             return (
@@ -107,7 +149,55 @@ export function StoreHeader() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                        {/* Favorites */}
+                        <Link href="/favorites">
+                            <Button variant="ghost" size="icon" className="relative">
+                                <Heart className="h-5 w-5" />
+                                {favCount > 0 && (
+                                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[9px] bg-red-500 border-0 text-white">
+                                        {favCount}
+                                    </Badge>
+                                )}
+                            </Button>
+                        </Link>
+
+                        {/* Notifications bell */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="relative" />}>
+                                <Bell className="h-5 w-5" />
+                                {unreadCount > 0 && (
+                                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[9px] bg-blue-500 border-0 text-white">
+                                        {unreadCount}
+                                    </Badge>
+                                )}
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-72">
+                                <div className="px-3 py-2 border-b">
+                                    <p className="text-sm font-semibold">Notificações</p>
+                                </div>
+                                {notifications.length === 0 ? (
+                                    <div className="px-3 py-6 text-center text-sm text-muted-foreground">Nenhuma atualização</div>
+                                ) : (
+                                    notifications.slice(0, 5).map((n) => (
+                                        <DropdownMenuItem key={n.id} render={<Link href={`/orders`} className="cursor-pointer" />}>
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-xs font-medium">Pedido {n.order_number}</span>
+                                                <span className="text-[10px] text-muted-foreground">Status: {n.status}</span>
+                                            </div>
+                                        </DropdownMenuItem>
+                                    ))
+                                )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    render={<Link href="/orders" className="cursor-pointer text-center" />}
+                                    onClick={() => { setUnreadCount(0); setLastChecked(new Date().toISOString()) }}
+                                >
+                                    <span className="text-xs text-primary w-full text-center">Ver todos os pedidos</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+
                         {/* Cart Button */}
                         <Button
                             variant="ghost"
@@ -222,6 +312,7 @@ export function StoreHeader() {
                         </Sheet>
                     </div>
                 </div>
+            </div>
             </div>
         </motion.header>
     )

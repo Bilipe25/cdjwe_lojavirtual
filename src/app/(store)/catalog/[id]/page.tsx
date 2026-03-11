@@ -20,7 +20,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ProductDetailSkeleton } from '@/components/ui/skeletons'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { createClient } from '@/lib/supabase/client'
 import { useCartStore } from '@/lib/stores/cart-store'
@@ -194,20 +194,7 @@ export default function ProductDetailPage() {
     }
 
     if (loading) {
-        return (
-            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
-                    <Skeleton className="aspect-square rounded-2xl" />
-                    <div className="space-y-4">
-                        <Skeleton className="h-8 w-3/4" />
-                        <Skeleton className="h-4 w-1/2" />
-                        <Skeleton className="h-10 w-1/3" />
-                        <Skeleton className="h-24 w-full" />
-                        <Skeleton className="h-12 w-full" />
-                    </div>
-                </div>
-            </div>
-        )
+        return <ProductDetailSkeleton />
     }
 
     if (!product) return null

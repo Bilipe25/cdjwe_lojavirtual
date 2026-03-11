@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ProfileSkeleton } from '@/components/ui/skeletons'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import type { Profile, Store } from '@/lib/types'
@@ -87,15 +87,7 @@ export default function ProfilePage() {
     }
 
     if (loading) {
-        return (
-            <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-8">
-                <Skeleton className="h-8 w-48 mb-6" />
-                <div className="space-y-6">
-                    <Skeleton className="h-40 w-full rounded-xl" />
-                    <Skeleton className="h-60 w-full rounded-xl" />
-                </div>
-            </div>
-        )
+        return <ProfileSkeleton />
     }
 
     if (!profile) return null

@@ -158,6 +158,27 @@ export default function CartPage() {
                 </Button>
             </div>
 
+            {/* Min order progress bar */}
+            {settings && settings.min_order_amount > 0 && total < settings.min_order_amount && (
+                <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                    <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="text-amber-800 font-medium flex items-center gap-1.5">
+                            <AlertCircle className="h-4 w-4" />
+                            Pedido mínimo: R$ {settings.min_order_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        <span className="text-amber-600 text-xs">
+                            Faltam R$ {(settings.min_order_amount - total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-amber-200 overflow-hidden">
+                        <div
+                            className="h-full rounded-full bg-amber-500 transition-all duration-500"
+                            style={{ width: `${Math.min(100, (total / settings.min_order_amount) * 100)}%` }}
+                        />
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
                 {/* Items */}
                 <div className="lg:col-span-2 space-y-4">

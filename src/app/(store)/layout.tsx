@@ -10,11 +10,11 @@ export default function StoreLayout({
     return (
         <div className="min-h-screen flex flex-col">
             <StoreHeader />
-            <main className="flex-1">
+            <main id="main-content" className="flex-1">
                 {children}
             </main>
             <CartDrawer />
-            <footer className="border-t bg-muted/30">
+            <footer className="border-t bg-muted/30" role="contentinfo">
                 <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
                         {/* Brand */}
@@ -35,6 +35,7 @@ export default function StoreLayout({
                             <h3 className="font-semibold text-sm mb-3">Navegação</h3>
                             <nav className="flex flex-col gap-2">
                                 <Link href="/catalog" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Catálogo</Link>
+                                <Link href="/favorites" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Favoritos</Link>
                                 <Link href="/orders" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Meus Pedidos</Link>
                                 <Link href="/cart" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Carrinho</Link>
                                 <Link href="/profile" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Meu Perfil</Link>

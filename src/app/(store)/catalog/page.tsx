@@ -7,7 +7,7 @@ import { Search, Filter, X, SlidersHorizontal, ChevronRight, ChevronLeft } from 
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ProductGridSkeleton } from '@/components/ui/skeletons'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
@@ -15,6 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { createClient } from '@/lib/supabase/client'
 import type { Product, Category, Fabric } from '@/lib/types'
 import { ProductCard } from '@/components/catalog/product-card'
+import { QuickViewModal } from '@/components/catalog/quick-view-modal'
 import { CatalogFilters } from './components/CatalogFilters'
 
 const PAGE_SIZE = 12
@@ -38,6 +39,7 @@ export default function CatalogPage() {
     const [selectedFabric, setSelectedFabric] = useState<string>('all')
     const [sortBy, setSortBy] = useState<string>('name')
     const [filtersOpen, setFiltersOpen] = useState(false)
+    const [quickViewId, setQuickViewId] = useState<string | null>(null)
 
     // Debounce the search input
     useEffect(() => {
@@ -262,18 +264,7 @@ export default function CatalogPage() {
                 {/* Products Grid & Pagination */}
                 <div className="flex-1 flex flex-col">
                     {loading ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
-                            {Array.from({ length: 9 }).map((_, i) => (
-                                <div key={i} className="glass-card rounded-xl overflow-hidden">
-                                    <Skeleton className="h-56 w-full" />
-                                    <div className="p-4 space-y-3">
-                                        <Skeleton className="h-4 w-3/4" />
-                                        <Skeleton className="h-3 w-1/2" />
-                                        <Skeleton className="h-8 w-24" />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                        <ProductGridSkeleton count={9} />
                     ) : products.length === 0 ? (
                         <div className="text-center py-16 flex-1">
                             <div className="mx-auto h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -300,7 +291,7 @@ export default function CatalogPage() {
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ delay: i * 0.05 }}
                                     >
-                                        <ProductCard product={product} />
+                                        <ProductCard product={product} onQuickView={(id) => setQuickViewId(id)} />
                                     </motion.div>
                                 ))}
                             </div>
@@ -331,6 +322,11 @@ export default function CatalogPage() {
                     )}
                 </div>
             </div>
+            <QuickViewModal
+                productId={quickViewId}
+                open={!!quickViewId}
+                onClose={() => setQuickViewId(null)}
+            />
         </div>
     )
 }
