@@ -142,16 +142,23 @@ export async function checkoutAction(
         return { error: `Pedido mínimo obrigatório de R$ ${settings.min_order_amount.toFixed(2)}.` }
     }
 
-    // 5. Calculate Payment Discounts
+    // 5. Calculate Payment Discounts and Surcharges
     const { data: paymentRule } = await supabase
         .from('payment_conditions')
-        .select('discount_percentage')
+        .select('discount_percentage, surcharge_percentage')
         .eq('id', selectedPaymentId)
         .single()
 
     const discountPercentage = paymentRule?.discount_percentage || 0
+    const surchargePercentage = paymentRule?.surcharge_percentage || 0
+    
+    // Apply discount first
     const paymentDiscount = (secureSubtotal * discountPercentage) / 100
-    const finalTotal = secureSubtotal - paymentDiscount
+    let finalTotal = secureSubtotal - paymentDiscount
+    
+    // Then apply surcharge if any
+    const paymentSurcharge = (finalTotal * surchargePercentage) / 100
+    finalTotal = finalTotal + paymentSurcharge
 
     // 6. Execute Order Creation safely
     const { data: newOrder, error: insertError } = await supabase

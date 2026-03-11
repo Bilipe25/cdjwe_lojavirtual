@@ -224,9 +224,13 @@ export interface PaymentCondition {
   description: string | null
   installments: number
   discount_percentage: number // desconto extra por condição
+  min_installment_value: number
+  surcharge_percentage: number // acrescimo extra por condicao, ex: 3% para longo prazo
+  icon?: string | null
   is_active: boolean
   sort_order: number
   created_at: string
+  updated_at: string
 }
 
 export interface DiscountCoupon {

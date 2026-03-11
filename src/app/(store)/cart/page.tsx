@@ -58,7 +58,9 @@ export default function CartPage() {
 
     const selectedCondition = paymentConditions.find(p => p.id === selectedPayment)
     const paymentDiscount = selectedCondition ? (total * selectedCondition.discount_percentage / 100) : 0
-    const finalTotal = total - paymentDiscount
+    const discountedTotal = total - paymentDiscount
+    const paymentSurcharge = selectedCondition ? (discountedTotal * (selectedCondition.surcharge_percentage || 0) / 100) : 0
+    const finalTotal = discountedTotal + paymentSurcharge
 
     const minOrderMet = !settings?.min_order_amount || total >= settings.min_order_amount
 
