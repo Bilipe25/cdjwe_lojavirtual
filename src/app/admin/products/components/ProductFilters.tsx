@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react';
+import { Search, LayoutGrid, List as ListIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ interface ProductFiltersProps {
     onBulkActivate: () => void;
     onBulkDeactivate: () => void;
     onBulkDelete: () => void;
+    layout: 'grid' | 'list';
+    onLayoutChange: (layout: 'grid' | 'list') => void;
 }
 
 export function ProductFilters({
@@ -25,7 +27,9 @@ export function ProductFilters({
     selectedCount,
     onBulkActivate,
     onBulkDeactivate,
-    onBulkDelete
+    onBulkDelete,
+    layout,
+    onLayoutChange
 }: ProductFiltersProps) {
     return (
         <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-white/60 p-4 rounded-xl border shadow-sm">
@@ -50,6 +54,24 @@ export function ProductFilters({
                         ))}
                     </SelectContent>
                 </Select>
+                <div className="flex border rounded-md overflow-hidden bg-white shrink-0 shadow-sm">
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className={`rounded-none h-11 w-11 ${layout === 'grid' ? 'bg-muted text-navy' : 'text-muted-foreground'}`}
+                        onClick={() => onLayoutChange('grid')}
+                    >
+                        <LayoutGrid className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className={`rounded-none h-11 w-11 ${layout === 'list' ? 'bg-muted text-navy' : 'text-muted-foreground'}`}
+                        onClick={() => onLayoutChange('list')}
+                    >
+                        <ListIcon className="h-4 w-4" />
+                    </Button>
+                </div>
             </div>
 
             {selectedCount > 0 && (

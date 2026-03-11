@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useCartStore } from '@/lib/stores/cart-store'
-import { createClient } from '@/lib/supabase/client'
+import { logoutAction } from '@/app/(auth)/login/actions'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
@@ -42,8 +42,7 @@ export function StoreHeader() {
     const cartCount = totalItems()
 
     const handleLogout = async () => {
-        const supabase = createClient()
-        await supabase.auth.signOut()
+        await logoutAction()
         router.push('/login')
     }
 

@@ -9,64 +9,46 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { loginSchema, type LoginFormData } from './schema'
+import { loginAction } from './actions'
 
 export default function LoginPage() {
     const router = useRouter()
-    const [email, setEmail] = useState('')
-    const [password, setPassword] = useState('')
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
 
-    const handleLogin = async (e: React.FormEvent) => {
-        e.preventDefault()
-        if (!email || !password) {
-            toast.error('Preencha todos os campos')
-            return
+    const form = useForm<LoginFormData>({
+        resolver: zodResolver(loginSchema) as any,
+        defaultValues: {
+            email: '',
+            password: ''
         }
+    })
 
+    const { register, handleSubmit, formState: { errors } } = form
+
+    const handleLogin = async (data: LoginFormData) => {
         setLoading(true)
+        
         try {
-            const supabase = createClient()
-            const { error } = await supabase.auth.signInWithPassword({ email, password })
-
-            if (error) {
-                if (error.message.includes('Invalid login credentials')) {
-                    toast.error('Email ou senha incorretos')
-                } else {
-                    toast.error(error.message)
-                }
+            const result = await loginAction(data)
+            
+            if (result.error) {
+                toast.error(result.error)
+                setLoading(false)
                 return
             }
 
-            // Check user role to redirect properly
-            const { data: { user } } = await supabase.auth.getUser()
-            
-            if (!user) {
-                throw new Error('Usuário não encontrado após login')
+            if (result.success && result.redirectUrl) {
+                toast.success('Login realizado com sucesso!')
+                router.push(result.redirectUrl)
+                // Do not turn off loading here to prevent flickering while redirecting
             }
-
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('role, status')
-                .eq('id', user.id)
-                .single()
-
-            if (profile?.role === 'admin') {
-                router.push('/admin/dashboard')
-            } else if (profile?.status === 'pending') {
-                router.push('/pending-approval')
-            } else if (profile?.status === 'blocked') {
-                router.push('/blocked')
-            } else {
-                router.push('/catalog')
-            }
-
-            toast.success('Login realizado com sucesso!')
         } catch {
-            toast.error('Erro inesperado. Tente novamente.')
-        } finally {
+            toast.error('Erro inesperado na conexão com o servidor. Tente novamente.')
             setLoading(false)
         }
     }
@@ -87,10 +69,10 @@ export default function LoginPage() {
                         transition={{ delay: 0.2, type: 'spring' }}
                         className="mx-auto h-16 w-16 rounded-2xl gradient-bronze flex items-center justify-center shadow-lg"
                     >
-                        <span className="text-white font-bold text-2xl font-[family-name:var(--font-heading)]">CJ</span>
+                        <span className="text-white font-bold text-2xl font-heading">CJ</span>
                     </motion.div>
                     <div>
-                        <CardTitle className="text-2xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
+                        <CardTitle className="text-2xl font-bold font-heading text-gradient-navy">
                             CDJWE Estofados
                         </CardTitle>
                         <CardDescription className="mt-1">
@@ -100,18 +82,20 @@ export default function LoginPage() {
                 </CardHeader>
 
                 <CardContent className="pt-4">
-                    <form onSubmit={handleLogin} className="space-y-4">
+                    <form onSubmit={handleSubmit(handleLogin)} className="space-y-4">
                         <div className="space-y-2">
                             <Label htmlFor="email">Email</Label>
                             <Input
                                 id="email"
                                 type="email"
                                 placeholder="seu@email.com"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
                                 disabled={loading}
-                                className="h-11 bg-white/60"
+                                className={`h-11 bg-white/60 ${errors.email ? 'border-red-500' : ''}`}
+                                {...register('email')}
                             />
+                            {errors.email && (
+                                <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>
+                            )}
                         </div>
 
                         <div className="space-y-2">
@@ -129,10 +113,9 @@ export default function LoginPage() {
                                     id="password"
                                     type={showPassword ? 'text' : 'password'}
                                     placeholder="••••••••"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
                                     disabled={loading}
-                                    className="h-11 bg-white/60 pr-10"
+                                    className={`h-11 bg-white/60 pr-10 ${errors.password ? 'border-red-500' : ''}`}
+                                    {...register('password')}
                                 />
                                 <button
                                     type="button"
@@ -142,11 +125,14 @@ export default function LoginPage() {
                                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                 </button>
                             </div>
+                            {errors.password && (
+                                <p className="text-xs text-red-500 mt-1">{errors.password.message}</p>
+                            )}
                         </div>
 
                         <Button
                             type="submit"
-                            className="w-full h-11 gradient-navy border-0 text-white text-base"
+                            className="w-full h-11 gradient-navy border-0 text-white text-base mt-2"
                             disabled={loading}
                         >
                             {loading ? (

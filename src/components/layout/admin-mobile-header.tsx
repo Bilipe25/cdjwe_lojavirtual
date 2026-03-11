@@ -18,7 +18,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
-import { createClient } from '@/lib/supabase/client'
+import { logoutAction } from '@/app/(auth)/login/actions'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
@@ -40,8 +40,7 @@ export function AdminMobileHeader() {
     const [open, setOpen] = useState(false)
 
     const handleLogout = async () => {
-        const supabase = createClient()
-        await supabase.auth.signOut()
+        await logoutAction()
         router.push('/login')
     }
 

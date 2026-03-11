@@ -38,6 +38,9 @@ export default function AdminProductsPage() {
     // Bulk Mode State
     const [selectedProducts, setSelectedProducts] = useState<string[]>([])
 
+    // View Preferences State
+    const [layout, setLayout] = useState<'grid' | 'list'>('grid')
+
     // Apply Debounce for Search filter
     const [debouncedSearch, setDebouncedSearch] = useState(search)
     useEffect(() => {
@@ -260,6 +263,8 @@ export default function AdminProductsPage() {
                 onBulkActivate={handleBulkActivate}
                 onBulkDeactivate={handleBulkDeactivate}
                 onBulkDelete={handleBulkDelete}
+                layout={layout}
+                onLayoutChange={setLayout}
             />
 
             <ProductList 
@@ -270,6 +275,7 @@ export default function AdminProductsPage() {
                 onEdit={openDialog}
                 onDelete={deleteProduct}
                 onEmptyAction={() => openDialog()}
+                layout={layout}
             />
 
             {/* Pagination Controls */}

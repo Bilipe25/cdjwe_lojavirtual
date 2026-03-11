@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { createClient } from '@/lib/supabase/client'
+import { logoutAction } from '@/app/(auth)/login/actions'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -43,8 +43,7 @@ export function AdminSidebar() {
     const [collapsed, setCollapsed] = useState(false)
 
     const handleLogout = async () => {
-        const supabase = createClient()
-        await supabase.auth.signOut()
+        await logoutAction()
         router.push('/login')
     }
 
