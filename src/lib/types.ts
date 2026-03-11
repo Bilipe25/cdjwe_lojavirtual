@@ -94,6 +94,8 @@ export interface Fabric {
   is_active: boolean
   sort_order: number
   created_at: string
+  updated_at?: string
+  variant_count?: number
 }
 
 export interface FabricColor {
@@ -105,6 +107,8 @@ export interface FabricColor {
   is_active: boolean
   sort_order: number
   created_at: string
+  updated_at?: string
+  variant_count?: number
   // Relations
   fabric?: Fabric
 }
