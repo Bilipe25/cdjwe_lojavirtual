@@ -174,10 +174,8 @@ export function OrderList({
                                         </span>
                                         <div onClick={(e) => e.stopPropagation()}>
                                             <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-navy">
-                                                        <MoreHorizontal className="h-5 w-5" />
-                                                    </Button>
+                                                <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-navy" />}>
+                                                    <MoreHorizontal className="h-5 w-5" />
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end" className="w-48">
                                                     <DropdownMenuItem onClick={() => onViewDetail(order)}>

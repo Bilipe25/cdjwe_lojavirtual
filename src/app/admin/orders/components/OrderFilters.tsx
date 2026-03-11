@@ -100,10 +100,8 @@ export function OrderFilters({
                     </span>
                     <div className="flex gap-2">
                         <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button size="sm" className="gradient-bronze border-0 text-white shadow-sm">
-                                    Alterar Status
-                                </Button>
+                            <DropdownMenuTrigger render={<Button size="sm" className="gradient-bronze border-0 text-white shadow-sm" />}>
+                                Alterar Status
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-48">
                                 <DropdownMenuItem onClick={() => onBulkUpdateStatus('approved')}>
