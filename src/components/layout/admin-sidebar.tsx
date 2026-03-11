@@ -16,23 +16,39 @@ import {
     CreditCard,
     BarChart3,
     Layers,
+    ChevronDown,
+    FolderClosed,
+    Store,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { logoutAction } from '@/app/(auth)/login/actions'
+import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
-const adminNavItems = [
+const topNavItems = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+]
+
+const cadastrosNavItems = [
     { href: '/admin/categories', label: 'Categorias', icon: Layers },
     { href: '/admin/products', label: 'Produtos', icon: Package },
     { href: '/admin/fabrics', label: 'Tecidos & Cores', icon: Palette },
-    { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
-    { href: '/admin/customers', label: 'Clientes', icon: Users },
     { href: '/admin/price-tables', label: 'Tabelas de Preço', icon: Tag },
     { href: '/admin/payment-conditions', label: 'Pagamento', icon: CreditCard },
+]
+
+const bottomNavItems = [
+    { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
+    { href: '/admin/customers', label: 'Clientes', icon: Users },
     { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
     { href: '/admin/settings', label: 'Configurações', icon: Settings },
 ]
@@ -41,10 +57,24 @@ export function AdminSidebar() {
     const pathname = usePathname()
     const router = useRouter()
     const [collapsed, setCollapsed] = useState(false)
+    const [cadastrosOpen, setCadastrosOpen] = useState(false)
+
+    const isCadastroActive = cadastrosNavItems.some(item => pathname.startsWith(item.href))
+
+    useEffect(() => {
+        if (isCadastroActive && !collapsed) {
+            setCadastrosOpen(true)
+        }
+    }, [pathname, collapsed, isCadastroActive])
 
     const handleLogout = async () => {
         await logoutAction()
         router.push('/login')
+    }
+
+    const handleViewAsCustomer = async () => {
+        await setViewAsCustomerAction(true)
+        router.push('/catalog')
     }
 
     return (
@@ -73,7 +103,8 @@ export function AdminSidebar() {
 
                 {/* Nav */}
                 <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
-                    {adminNavItems.map((item) => {
+                    {/* Top Items */}
+                    {topNavItems.map((item) => {
                         const isActive = pathname.startsWith(item.href)
                         const button = (
                             <Link key={item.href} href={item.href}>
@@ -104,34 +135,184 @@ export function AdminSidebar() {
 
                         return button
                     })}
+
+                    {/* Cadastros Group */}
+                    <div className="pt-1">
+                        {collapsed ? (
+                            <DropdownMenu>
+                                <Tooltip>
+                                    <TooltipTrigger render={(
+                                        <DropdownMenuTrigger render={(
+                                            <Button
+                                                variant="ghost"
+                                                className={cn(
+                                                    'w-full justify-center px-2 gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                                    isCadastroActive && 'bg-sidebar-accent text-sidebar-primary font-medium'
+                                                )}
+                                            >
+                                                <FolderClosed className="h-5 w-5 shrink-0" />
+                                            </Button>
+                                        )} />
+                                    )} />
+                                    <TooltipContent side="right">
+                                        <p>Cadastros</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                                <DropdownMenuContent side="right" sideOffset={16} align="start" className="w-56">
+                                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                        Cadastros
+                                    </div>
+                                    {cadastrosNavItems.map((item) => {
+                                        const isActive = pathname.startsWith(item.href)
+                                        return (
+                                            <DropdownMenuItem key={item.href} render={(
+                                                <Link href={item.href} className={cn(
+                                                    "cursor-pointer flex items-center gap-2",
+                                                    isActive && "bg-accent text-accent-foreground font-medium"
+                                                )}>
+                                                    <item.icon className="h-4 w-4 shrink-0" />
+                                                    {item.label}
+                                                </Link>
+                                            )} />
+                                        )
+                                    })}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        ) : (
+                            <div className="space-y-1">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setCadastrosOpen(!cadastrosOpen)}
+                                    className={cn(
+                                        'w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                        isCadastroActive && !cadastrosOpen && 'text-sidebar-foreground font-medium'
+                                    )}
+                                >
+                                    <FolderClosed className="h-5 w-5 shrink-0" />
+                                    <span className="flex-1 text-left truncate">Cadastros</span>
+                                    <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", cadastrosOpen && "rotate-180")} />
+                                </Button>
+                                <div className={cn(
+                                    "grid transition-all duration-200 ease-in-out",
+                                    cadastrosOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                                )}>
+                                    <div className="overflow-hidden">
+                                        <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
+                                            {cadastrosNavItems.map((item) => {
+                                                const isActive = pathname.startsWith(item.href)
+                                                return (
+                                                    <Link key={item.href} href={item.href} className="block relative">
+                                                        {isActive && (
+                                                            <div className="absolute -left-[17px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                        )}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className={cn(
+                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                            )}
+                                                        >
+                                                            <span className="truncate">{item.label}</span>
+                                                        </Button>
+                                                    </Link>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Bottom Items */}
+                    <div className="pt-1">
+                        {bottomNavItems.map((item) => {
+                            const isActive = pathname.startsWith(item.href)
+                            const button = (
+                                <Link key={item.href} href={item.href}>
+                                    <Button
+                                        variant="ghost"
+                                        className={cn(
+                                            'w-full gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                            collapsed ? 'justify-center px-2' : 'justify-start',
+                                            isActive && 'bg-sidebar-accent text-sidebar-primary font-medium'
+                                        )}
+                                    >
+                                        <item.icon className="h-5 w-5 shrink-0" />
+                                        {!collapsed && <span className="truncate">{item.label}</span>}
+                                    </Button>
+                                </Link>
+                            )
+
+                            if (collapsed) {
+                                return (
+                                    <Tooltip key={item.href}>
+                                        <TooltipTrigger render={button} />
+                                        <TooltipContent side="right">
+                                            <p>{item.label}</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                )
+                            }
+
+                            return button
+                        })}
+                    </div>
                 </nav>
 
                 {/* Bottom Actions */}
                 <div className="border-t border-sidebar-border p-2 space-y-1">
                     {collapsed ? (
-                        <Tooltip>
-                            <TooltipTrigger 
-                                render={(
-                                    <Button
-                                        variant="ghost"
-                                        className="w-full justify-center px-2 text-sidebar-foreground/70 hover:text-destructive"
-                                        onClick={handleLogout}
-                                    />
-                                )}
+                        <>
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={(
+                                        <Button
+                                            variant="ghost"
+                                            className="w-full justify-center px-2 text-sidebar-foreground/70 hover:text-foreground hover:bg-sidebar-accent"
+                                            onClick={handleViewAsCustomer}
+                                        />
+                                    )}
+                                >
+                                    <Store className="h-5 w-5" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right">Ver como Cliente</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger 
+                                    render={(
+                                        <Button
+                                            variant="ghost"
+                                            className="w-full justify-center px-2 text-sidebar-foreground/70 hover:text-destructive"
+                                            onClick={handleLogout}
+                                        />
+                                    )}
+                                >
+                                    <LogOut className="h-5 w-5" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right">Sair</TooltipContent>
+                            </Tooltip>
+                        </>
+                    ) : (
+                        <>
+                            <Button
+                                variant="ghost"
+                                className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-foreground hover:bg-sidebar-accent"
+                                onClick={handleViewAsCustomer}
+                            >
+                                <Store className="h-5 w-5" />
+                                <span>Ver como Cliente</span>
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-destructive"
+                                onClick={handleLogout}
                             >
                                 <LogOut className="h-5 w-5" />
-                            </TooltipTrigger>
-                            <TooltipContent side="right">Sair</TooltipContent>
-                        </Tooltip>
-                    ) : (
-                        <Button
-                            variant="ghost"
-                            className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-destructive"
-                            onClick={handleLogout}
-                        >
-                            <LogOut className="h-5 w-5" />
-                            <span>Sair</span>
-                        </Button>
+                                <span>Sair</span>
+                            </Button>
+                        </>
                     )}
                 </div>
 
