@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { Package, Eye, Heart } from 'lucide-react'
+import { Package, Eye, Heart, ShoppingCart } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -73,20 +73,20 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
                         {onQuickView && (
                             <Button
                                 size="sm"
-                                variant="secondary"
-                                className="bg-white/90 hover:bg-white shadow"
+                                className="gradient-bronze hover:brightness-110 border-0 text-white shadow"
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); onQuickView(product.id) }}
                             >
-                                <Eye className="h-4 w-4 mr-1" />
-                                Rápida
+                                <ShoppingCart className="h-4 w-4 mr-1" />
+                                Comprar
                             </Button>
                         )}
                         <a href={`/catalog/${product.id}`}>
                             <Button
                                 size="sm"
-                                className="gradient-navy border-0 text-white shadow"
+                                variant="secondary"
+                                className="bg-white/90 hover:bg-white shadow"
                             >
-                                Ver Detalhes
+                                Detalhes
                             </Button>
                         </a>
                     </div>

@@ -227,29 +227,30 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
                                     <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Cor</label>
                                     <div className="flex flex-wrap gap-1.5">
                                         {selectedFabricObj.colors.map(color => (
-                                            <TooltipProvider key={color.id}>
-                                                <Tooltip>
-                                                    <TooltipTrigger render={
-                                                        <button
-                                                            onClick={() => setSelectedColor(color.id)}
-                                                            className={`h-8 w-8 rounded-full border-2 transition-all overflow-hidden flex items-center justify-center ${
-                                                                selectedColor === color.id
-                                                                    ? 'border-primary shadow-md scale-110'
-                                                                    : 'border-border hover:border-primary/50'
-                                                            }`}
-                                                            style={{
-                                                                backgroundColor: color.hex_code || '#e5e7eb',
-                                                                ...(color.image_url ? { backgroundImage: `url(${color.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
-                                                            }}
-                                                        >
-                                                            {selectedColor === color.id && (
-                                                                <Check className="h-3 w-3 text-white drop-shadow-md" />
-                                                            )}
-                                                        </button>
-                                                    } />
-                                                    <TooltipContent><p>{color.name}</p></TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
+                                            <button
+                                                key={color.id}
+                                                onClick={() => setSelectedColor(color.id)}
+                                                className={`flex items-center gap-2 pr-3 pl-1.5 py-1.5 rounded-full border transition-all ${
+                                                    selectedColor === color.id
+                                                        ? 'border-primary bg-primary/5 shadow-sm'
+                                                        : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                                                }`}
+                                            >
+                                                <div 
+                                                    className="h-6 w-6 rounded-full flex items-center justify-center border border-black/10 shadow-inner shrink-0 overflow-hidden"
+                                                    style={{
+                                                        backgroundColor: color.hex_code || '#e5e7eb',
+                                                        ...(color.image_url ? { backgroundImage: `url(${color.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
+                                                    }}
+                                                >
+                                                    {selectedColor === color.id && (
+                                                        <Check className="h-3.5 w-3.5 text-white drop-shadow-md mix-blend-difference" />
+                                                    )}
+                                                </div>
+                                                <span className={`text-xs ${selectedColor === color.id ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
+                                                    {color.name}
+                                                </span>
+                                            </button>
                                         ))}
                                     </div>
                                 </div>
@@ -272,7 +273,7 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
                                     onClick={handleAddToCart}
                                 >
                                     <ShoppingCart className="h-4 w-4" />
-                                    {!selectedFabric ? 'Selecione tecido' : !selectedColor ? 'Selecione cor' : 'Adicionar'}
+                                    {!selectedFabric ? 'Selecione tecido' : !selectedColor ? 'Selecione cor' : 'Adicionar ao Carrinho'}
                                 </Button>
                             </div>
 
@@ -282,7 +283,7 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
                                 className="text-sm text-center text-muted-foreground hover:text-primary mt-4 transition-colors font-medium border-t pt-4"
                                 onClick={onClose}
                             >
-                                Ver página completa →
+                                Mais Detalhes do Produto →
                             </Link>
                         </div>
                     </div>
