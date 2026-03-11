@@ -1,0 +1,244 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { motion } from 'framer-motion'
+import {
+    User, Building2, Mail, Phone, MapPin, FileText,
+    Loader2, Save, ArrowLeft
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
+import { createClient } from '@/lib/supabase/client'
+import { toast } from 'sonner'
+import type { Profile, Store } from '@/lib/types'
+
+export default function ProfilePage() {
+    const router = useRouter()
+    const [loading, setLoading] = useState(true)
+    const [saving, setSaving] = useState(false)
+    const [profile, setProfile] = useState<Profile | null>(null)
+    const [store, setStore] = useState<Store | null>(null)
+
+    // Editable fields
+    const [fullName, setFullName] = useState('')
+    const [phone, setPhone] = useState('')
+
+    useEffect(() => {
+        loadProfile()
+    }, [])
+
+    const loadProfile = async () => {
+        setLoading(true)
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+            router.push('/login')
+            return
+        }
+
+        const { data: profileData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single()
+
+        if (profileData) {
+            setProfile(profileData)
+            setFullName(profileData.full_name || '')
+            setPhone(profileData.phone || '')
+        }
+
+        const { data: storeData } = await supabase
+            .from('stores')
+            .select('*')
+            .eq('profile_id', user.id)
+            .single()
+
+        if (storeData) setStore(storeData)
+
+        setLoading(false)
+    }
+
+    const handleSave = async () => {
+        if (!profile) return
+        setSaving(true)
+        const supabase = createClient()
+
+        const { error } = await supabase
+            .from('profiles')
+            .update({
+                full_name: fullName,
+                phone: phone || null,
+            })
+            .eq('id', profile.id)
+
+        if (error) {
+            toast.error('Erro ao salvar perfil.')
+        } else {
+            toast.success('Perfil atualizado com sucesso!')
+            setProfile(prev => prev ? { ...prev, full_name: fullName, phone } : prev)
+        }
+        setSaving(false)
+    }
+
+    if (loading) {
+        return (
+            <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-8">
+                <Skeleton className="h-8 w-48 mb-6" />
+                <div className="space-y-6">
+                    <Skeleton className="h-40 w-full rounded-xl" />
+                    <Skeleton className="h-60 w-full rounded-xl" />
+                </div>
+            </div>
+        )
+    }
+
+    if (!profile) return null
+
+    return (
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+            <Button variant="ghost" className="mb-4 gap-2" onClick={() => router.push('/catalog')}>
+                <ArrowLeft className="h-4 w-4" /> Voltar
+            </Button>
+
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
+                <h1 className="text-2xl font-bold font-heading text-gradient-navy">Meu Perfil</h1>
+                <p className="text-muted-foreground text-sm mt-1">Gerencie seus dados pessoais e veja informações da sua loja</p>
+            </motion.div>
+
+            <div className="space-y-6">
+                {/* Personal Info */}
+                <Card className="glass-card border-0">
+                    <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <User className="h-4 w-4 text-bronze" />
+                            Dados Pessoais
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="fullName">Nome Completo</Label>
+                                <Input
+                                    id="fullName"
+                                    value={fullName}
+                                    onChange={(e) => setFullName(e.target.value)}
+                                    className="bg-white/60"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="email">E-mail</Label>
+                                <Input
+                                    id="email"
+                                    value={profile.email}
+                                    disabled
+                                    className="bg-muted/50"
+                                />
+                                <p className="text-[10px] text-muted-foreground">O e-mail não pode ser alterado</p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="phone">Telefone</Label>
+                                <Input
+                                    id="phone"
+                                    value={phone}
+                                    onChange={(e) => setPhone(e.target.value)}
+                                    placeholder="(00) 00000-0000"
+                                    className="bg-white/60"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Status da Conta</Label>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <div className={`h-2.5 w-2.5 rounded-full ${
+                                        profile.status === 'approved' ? 'bg-green-500'
+                                        : profile.status === 'pending' ? 'bg-amber-500'
+                                        : 'bg-red-500'
+                                    }`} />
+                                    <span className="text-sm font-medium capitalize">
+                                        {profile.status === 'approved' ? 'Aprovada'
+                                        : profile.status === 'pending' ? 'Pendente'
+                                        : 'Bloqueada'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end pt-2">
+                            <Button
+                                className="gradient-navy border-0 text-white gap-2"
+                                onClick={handleSave}
+                                disabled={saving}
+                            >
+                                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                Salvar Alterações
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Store Info */}
+                {store && (
+                    <Card className="glass-card border-0">
+                        <CardHeader>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <Building2 className="h-4 w-4 text-bronze" />
+                                Dados da Loja
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <InfoRow icon={Building2} label="Razão Social" value={store.company_name} />
+                                {store.trade_name && <InfoRow icon={Building2} label="Nome Fantasia" value={store.trade_name} />}
+                                <InfoRow icon={FileText} label="CNPJ" value={store.cnpj} />
+                                {store.state_registration && <InfoRow icon={FileText} label="Inscrição Estadual" value={store.state_registration} />}
+                                {store.email && <InfoRow icon={Mail} label="E-mail Comercial" value={store.email} />}
+                                {store.phone && <InfoRow icon={Phone} label="Telefone Comercial" value={store.phone} />}
+                            </div>
+
+                            {(store.address || store.city) && (
+                                <>
+                                    <Separator className="my-4" />
+                                    <div className="flex items-start gap-2">
+                                        <MapPin className="h-4 w-4 text-bronze mt-0.5 shrink-0" />
+                                        <div>
+                                            <p className="text-sm font-medium">Endereço</p>
+                                            <p className="text-sm text-muted-foreground">
+                                                {[store.address, store.city, store.state, store.zip_code].filter(Boolean).join(', ')}
+                                            </p>
+                                            {store.region && (
+                                                <p className="text-xs text-muted-foreground mt-0.5">Região: {store.region}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            <p className="text-xs text-muted-foreground mt-4 italic">
+                                Para alterar dados da loja, entre em contato com o administrador.
+                            </p>
+                        </CardContent>
+                    </Card>
+                )}
+            </div>
+        </div>
+    )
+}
+
+function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
+    return (
+        <div className="flex items-start gap-2">
+            <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div>
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-sm font-medium">{value}</p>
+            </div>
+        </div>
+    )
+}

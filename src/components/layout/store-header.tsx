@@ -39,7 +39,16 @@ export function StoreHeader() {
     const router = useRouter()
     const { totalItems, openCart } = useCartStore()
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+    const [searchQuery, setSearchQuery] = useState('')
     const cartCount = totalItems()
+
+    const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' && searchQuery.trim()) {
+            router.push(`/catalog?search=${encodeURIComponent(searchQuery.trim())}`)
+            setSearchQuery('')
+            setMobileMenuOpen(false)
+        }
+    }
 
     const handleLogout = async () => {
         await logoutAction()
@@ -90,6 +99,9 @@ export function StoreHeader() {
                             <Input
                                 placeholder="Buscar produtos..."
                                 className="pl-9 bg-white/60 border-border/50 focus:bg-white"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onKeyDown={handleSearch}
                             />
                         </div>
                     </div>
@@ -155,7 +167,13 @@ export function StoreHeader() {
                                     <div className="p-4">
                                         <div className="relative">
                                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                            <Input placeholder="Buscar produtos..." className="pl-9" />
+                                            <Input
+                                                placeholder="Buscar produtos..."
+                                                className="pl-9"
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                                onKeyDown={handleSearch}
+                                            />
                                         </div>
                                     </div>
 

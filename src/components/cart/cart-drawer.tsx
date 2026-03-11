@@ -4,7 +4,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Minus, Plus, Trash2, ShoppingBag, X } from 'lucide-react'
+import { Minus, Plus, Trash2, ShoppingBag, X, Package } from 'lucide-react'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -88,7 +88,7 @@ export function CartDrawer() {
                                                     <p className="text-xs text-muted-foreground">{item.size}</p>
                                                 )}
                                                 <p className="text-sm font-semibold mt-1 text-gradient-bronze">
-                                                    R$ {(item.unitPrice * item.quantity).toFixed(2)}
+                                                    R$ {(item.unitPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                 </p>
 
                                                 {/* Quantity */}
@@ -134,7 +134,7 @@ export function CartDrawer() {
                             <div className="flex items-center justify-between">
                                 <span className="text-muted-foreground">Subtotal</span>
                                 <span className="text-lg font-semibold">
-                                    R$ {total.toFixed(2)}
+                                    R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                 </span>
                             </div>
                             <Button
@@ -151,14 +151,5 @@ export function CartDrawer() {
                 )}
             </SheetContent>
         </Sheet>
-    )
-}
-
-// This is used by the Image component
-function Package({ className }: { className?: string }) {
-    return (
-        <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M16.5 9.4 7.55 4.24" /><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" x2="12" y1="22.08" y2="12" />
-        </svg>
     )
 }

@@ -199,7 +199,7 @@ export default function ProductDetailPage() {
             <Button
                 variant="ghost"
                 className="mb-4 gap-2"
-                onClick={() => router.back()}
+                onClick={() => router.push('/catalog')}
             >
                 <ArrowLeft className="h-4 w-4" />
                 Voltar ao Catálogo
@@ -373,12 +373,13 @@ export default function ProductDetailPage() {
                                             <TooltipTrigger render={
                                                 <button
                                                     onClick={() => { setSelectedColor(color.id); setActiveImageIndex(0) }}
-                                                    className={`relative h-10 w-10 rounded-full border-2 transition-all flex items-center justify-center ${selectedColor === color.id
+                                                    className={`relative h-10 w-10 rounded-full border-2 transition-all flex items-center justify-center overflow-hidden ${selectedColor === color.id
                                                             ? 'border-primary shadow-md scale-110'
                                                             : 'border-border hover:border-primary/50 hover:scale-105'
                                                         }`}
                                                     style={{
                                                         backgroundColor: color.hex_code || '#e5e7eb',
+                                                        ...(color.image_url ? { backgroundImage: `url(${color.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
                                                     }}
                                                 >
                                                     <AnimatePresence>

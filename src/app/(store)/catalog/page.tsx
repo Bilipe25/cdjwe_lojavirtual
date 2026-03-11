@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Search, Filter, X, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -29,8 +30,10 @@ export default function CatalogPage() {
     const [currentPage, setCurrentPage] = useState(1)
     
     // Filter State
-    const [search, setSearch] = useState('')
-    const [debouncedSearch, setDebouncedSearch] = useState('')
+    const searchParams = useSearchParams()
+    const initialSearch = searchParams.get('search') || ''
+    const [search, setSearch] = useState(initialSearch)
+    const [debouncedSearch, setDebouncedSearch] = useState(initialSearch)
     const [selectedCategory, setSelectedCategory] = useState<string>('all')
     const [selectedFabric, setSelectedFabric] = useState<string>('all')
     const [sortBy, setSortBy] = useState<string>('name')
@@ -78,8 +81,9 @@ export default function CatalogPage() {
                 query = query.eq('category_id', selectedCategory)
             }
             
-            // Note: In the original logic, fabrics didn't strictly filter the catalog product array, 
-            // but were kept in state for badges. Keeping it exact to avoid breakages in variant selection.
+            // Fabric filter: join through product_variants to find products available in this fabric
+            // Note: Supabase doesn't support filtering by related table easily without RPC
+            // So we'll apply this filter client-side after fetching, or use a workaround
 
             // Sorting logic translation
             if (sortBy === 'name') query = query.order('name', { ascending: true })
@@ -95,14 +99,35 @@ export default function CatalogPage() {
             const { data, count, error } = await query
 
             if (!error && data) {
-                setProducts(data as any)
-                setTotalCount(count || 0)
+                // Client-side fabric filter (Supabase can't filter by related m2m without RPC)
+                if (selectedFabric !== 'all') {
+                    const supabase2 = createClient()
+                    const productIds = data.map((p: any) => p.id)
+                    if (productIds.length > 0) {
+                        const { data: variantLinks } = await supabase2
+                            .from('product_variants')
+                            .select('product_id')
+                            .in('product_id', productIds)
+                            .eq('fabric_id', selectedFabric)
+                            .eq('is_active', true)
+                        const validIds = new Set(variantLinks?.map(v => v.product_id) || [])
+                        const filtered = data.filter((p: any) => validIds.has(p.id))
+                        setProducts(filtered as any)
+                        setTotalCount(filtered.length)
+                    } else {
+                        setProducts([])
+                        setTotalCount(0)
+                    }
+                } else {
+                    setProducts(data as any)
+                    setTotalCount(count || 0)
+                }
             }
             setLoading(false)
         }
 
         fetchPaginatedProducts()
-    }, [debouncedSearch, selectedCategory, sortBy, currentPage])
+    }, [debouncedSearch, selectedCategory, selectedFabric, sortBy, currentPage])
 
     const activeFilters = [
         selectedCategory !== 'all' && categories.find(c => c.id === selectedCategory)?.name,
@@ -169,8 +194,7 @@ export default function CatalogPage() {
 
                 {/* Mobile Filter Button */}
                 <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-                    <SheetTrigger asChild>
-                        <Button variant="outline" className="lg:hidden h-11 gap-2">
+                    <SheetTrigger render={<Button variant="outline" className="lg:hidden h-11 gap-2" />}>
                             <SlidersHorizontal className="h-4 w-4" />
                             Filtros
                             {activeFilters.length > 0 && (
@@ -178,7 +202,6 @@ export default function CatalogPage() {
                                     {activeFilters.length}
                                 </Badge>
                             )}
-                        </Button>
                     </SheetTrigger>
                     <SheetContent side="left" className="w-80">
                         <SheetHeader>

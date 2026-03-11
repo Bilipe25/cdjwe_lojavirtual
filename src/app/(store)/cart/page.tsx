@@ -273,6 +273,12 @@ export default function CartPage() {
                                         <span>- R$ {paymentDiscount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                     </div>
                                 )}
+                                {paymentSurcharge > 0 && (
+                                    <div className="flex justify-between text-sm text-amber-600">
+                                        <span>Acréscimo ({selectedCondition?.surcharge_percentage}%)</span>
+                                        <span>+ R$ {paymentSurcharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                )}
                                 <Separator />
                                 <div className="flex justify-between font-semibold text-lg">
                                     <span>Total</span>
