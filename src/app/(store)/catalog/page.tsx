@@ -200,8 +200,7 @@ export default function CatalogPage() {
 
                 {/* Mobile Filter Button */}
                 <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-                    <SheetTrigger asChild>
-                        <Button variant="outline" className="lg:hidden h-11 gap-2">
+                    <SheetTrigger render={<Button variant="outline" className="lg:hidden h-11 gap-2" />}>
                             <SlidersHorizontal className="h-4 w-4" />
                             Filtros
                             {activeFilters.length > 0 && (
@@ -209,7 +208,6 @@ export default function CatalogPage() {
                                     {activeFilters.length}
                                 </Badge>
                             )}
-                        </Button>
                     </SheetTrigger>
                     <SheetContent side="left" className="w-80">
                         <SheetHeader>

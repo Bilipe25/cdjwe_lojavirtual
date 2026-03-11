@@ -51,10 +51,8 @@ export function AdminMobileHeader() {
     return (
         <header className="md:hidden sticky top-0 z-50 glass border-b px-4 h-14 flex items-center justify-between">
             <Sheet open={open} onOpenChange={setOpen}>
-                <SheetTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                        <Menu className="h-5 w-5" />
-                    </Button>
+                <SheetTrigger render={<Button variant="ghost" size="icon" />}>
+                    <Menu className="h-5 w-5" />
                 </SheetTrigger>
                 <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground">
                     <div className="flex flex-col h-full">

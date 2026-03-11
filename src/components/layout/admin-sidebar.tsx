@@ -95,7 +95,7 @@ export function AdminSidebar() {
                         if (collapsed) {
                             return (
                                 <Tooltip key={item.href}>
-                                    <TooltipTrigger asChild>{button}</TooltipTrigger>
+                                    <TooltipTrigger render={button} />
                                     <TooltipContent side="right">
                                         <p>{item.label}</p>
                                     </TooltipContent>
@@ -111,14 +111,16 @@ export function AdminSidebar() {
                 <div className="border-t border-sidebar-border p-2 space-y-1">
                     {collapsed ? (
                         <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    className="w-full justify-center px-2 text-sidebar-foreground/70 hover:text-destructive"
-                                    onClick={handleLogout}
-                                >
-                                    <LogOut className="h-5 w-5" />
-                                </Button>
+                            <TooltipTrigger 
+                                render={(
+                                    <Button
+                                        variant="ghost"
+                                        className="w-full justify-center px-2 text-sidebar-foreground/70 hover:text-destructive"
+                                        onClick={handleLogout}
+                                    />
+                                )}
+                            >
+                                <LogOut className="h-5 w-5" />
                             </TooltipTrigger>
                             <TooltipContent side="right">Sair</TooltipContent>
                         </Tooltip>

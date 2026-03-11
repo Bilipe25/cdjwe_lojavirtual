@@ -553,6 +553,26 @@ export default function AdminFabricsPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Image Zoom Dialog */}
+            <Dialog open={!!zoomedImageUrl} onOpenChange={(open: boolean) => !open && setZoomedImageUrl(null)}>
+                <DialogContent className="!max-w-[500px] p-0 overflow-hidden bg-transparent border-none shadow-2xl flex items-center justify-center">
+                    <DialogHeader className="sr-only">
+                        <DialogTitle>Visualização da Cor</DialogTitle>
+                    </DialogHeader>
+                    {zoomedImageUrl && (
+                        <div className="relative aspect-square w-full max-w-[90vw] sm:max-w-[500px] rounded-xl overflow-hidden bg-muted">
+                            <Image 
+                                src={zoomedImageUrl} 
+                                alt="Cor ampliada" 
+                                fill 
+                                className="object-cover"
+                                sizes="(max-width: 768px) 90vw, 500px" 
+                            />
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div >
     )
 }
@@ -624,7 +644,7 @@ function SortableFabricItem({
                                 <Paintbrush className="h-3.5 w-3.5" />+ Cor
                             </Button>
                             <DropdownMenu>
-                                <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="h-8 w-8" />}><MoreHorizontal className="h-4 w-4" /></DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                     <DropdownMenuItem onClick={() => openFabricDialog(fabric)}><Edit className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
                                     <DropdownMenuSeparator />

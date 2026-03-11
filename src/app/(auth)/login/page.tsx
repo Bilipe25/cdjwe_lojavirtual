@@ -41,9 +41,16 @@ export default function LoginPage() {
             }
 
             // Check user role to redirect properly
+            const { data: { user } } = await supabase.auth.getUser()
+            
+            if (!user) {
+                throw new Error('Usuário não encontrado após login')
+            }
+
             const { data: profile } = await supabase
                 .from('profiles')
                 .select('role, status')
+                .eq('id', user.id)
                 .single()
 
             if (profile?.role === 'admin') {

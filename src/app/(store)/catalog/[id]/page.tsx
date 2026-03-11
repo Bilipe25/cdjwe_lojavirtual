@@ -329,7 +329,7 @@ export default function ProductDetailPage() {
                                 {fabrics.map((fabric) => (
                                     <TooltipProvider key={fabric.id}>
                                         <Tooltip>
-                                            <TooltipTrigger asChild>
+                                            <TooltipTrigger render={
                                                 <button
                                                     onClick={() => handleSelectFabric(fabric.id)}
                                                     className={`px-4 py-2 rounded-lg text-sm border transition-all ${selectedFabric === fabric.id
@@ -344,7 +344,7 @@ export default function ProductDetailPage() {
                                                         </span>
                                                     )}
                                                 </button>
-                                            </TooltipTrigger>
+                                            } />
                                             {fabric.description && (
                                                 <TooltipContent>
                                                     <p>{fabric.description}</p>
@@ -370,7 +370,7 @@ export default function ProductDetailPage() {
                                 {availableColors.map((color) => (
                                     <TooltipProvider key={color.id}>
                                         <Tooltip>
-                                            <TooltipTrigger asChild>
+                                            <TooltipTrigger render={
                                                 <button
                                                     onClick={() => { setSelectedColor(color.id); setActiveImageIndex(0) }}
                                                     className={`relative h-10 w-10 rounded-full border-2 transition-all flex items-center justify-center ${selectedColor === color.id
@@ -393,7 +393,7 @@ export default function ProductDetailPage() {
                                                         )}
                                                     </AnimatePresence>
                                                 </button>
-                                            </TooltipTrigger>
+                                            } />
                                             <TooltipContent>
                                                 <p>{color.name}</p>
                                             </TooltipContent>

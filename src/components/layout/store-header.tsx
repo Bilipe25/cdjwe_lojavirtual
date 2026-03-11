@@ -116,23 +116,17 @@ export function StoreHeader() {
 
                         {/* User Menu (Desktop) */}
                         <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="hidden md:flex">
-                                    <User className="h-5 w-5" />
-                                </Button>
+                            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="hidden md:flex" />}>
+                                <User className="h-5 w-5" />
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-48">
-                                <DropdownMenuItem asChild>
-                                    <Link href="/profile" className="cursor-pointer">
-                                        <User className="h-4 w-4 mr-2" />
-                                        Meu Perfil
-                                    </Link>
+                                <DropdownMenuItem render={<Link href="/profile" className="cursor-pointer" />}>
+                                    <User className="h-4 w-4 mr-2" />
+                                    Meu Perfil
                                 </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                    <Link href="/orders" className="cursor-pointer">
+                                <DropdownMenuItem render={<Link href="/orders" className="cursor-pointer" />}>
                                         <ClipboardList className="h-4 w-4 mr-2" />
                                         Meus Pedidos
-                                    </Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive">
@@ -144,10 +138,8 @@ export function StoreHeader() {
 
                         {/* Mobile Menu */}
                         <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-                            <SheetTrigger asChild>
-                                <Button variant="ghost" size="icon" className="md:hidden">
+                            <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden" />}>
                                     {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-                                </Button>
                             </SheetTrigger>
                             <SheetContent side="right" className="w-72 p-0">
                                 <div className="flex flex-col h-full">

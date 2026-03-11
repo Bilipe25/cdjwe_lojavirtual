@@ -257,7 +257,7 @@ export default function AdminOrdersPage() {
                                                     R$ {order.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                 </span>
                                                 <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                                    <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="h-8 w-8" />}><MoreHorizontal className="h-4 w-4" /></DropdownMenuTrigger>
                                                     <DropdownMenuContent align="end">
                                                         <DropdownMenuItem onClick={() => setSelectedOrder(order)}>
                                                             <Eye className="h-4 w-4 mr-2" />Ver Detalhes
