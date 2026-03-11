@@ -53,6 +53,7 @@ export function StoreHeader() {
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
     const cartCount = totalItems()
     const favCount = useFavoritesStore((s) => s.favoriteIds.length)
+    const [isMounted, setIsMounted] = useState(false)
 
     // Poll for order status changes
     const fetchNotifications = useCallback(async () => {
@@ -80,10 +81,10 @@ export function StoreHeader() {
     }, [lastChecked])
 
     useEffect(() => {
-        let isMounted = true
+        let isMountedRef = true
 
         const initialize = () => {
-            if (isMounted) {
+            if (isMountedRef) {
                 setLastChecked(new Date().toISOString())
                 fetchNotifications()
             }
@@ -91,7 +92,7 @@ export function StoreHeader() {
 
         initialize()
         const interval = setInterval(() => {
-            if (isMounted) {
+            if (isMountedRef) {
                 fetchNotifications()
             }
         }, 30000) // Poll every 30s
@@ -112,9 +113,10 @@ export function StoreHeader() {
             } catch { /* silent */ }
         }
         loadSettings()
+        setIsMounted(true)
         
         return () => {
-            isMounted = false
+            isMountedRef = false
             clearInterval(interval)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -285,7 +287,7 @@ export function StoreHeader() {
                             onClick={openCart}
                         >
                             <ShoppingCart className="h-5 w-5" />
-                            {cartCount > 0 && (
+                            {isMounted && cartCount > 0 && (
                                 <Badge
                                     className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-[10px] gradient-bronze border-0 text-white"
                                 >

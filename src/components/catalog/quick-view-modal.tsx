@@ -101,16 +101,17 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
     const selectedFabricObj = fabrics.find(f => f.id === selectedFabric)
 
     const matchedVariant = variants.find(
-        (v: any) => v.fabric_id === selectedFabric && v.color_id === selectedColor
+        (v: any) => v.fabric_id === selectedFabric && v.fabric_color_id === selectedColor
     )
 
-    const displayPrice = (matchedVariant as any)?.custom_price ?? product?.base_price ?? 0
+    const displayPrice = (matchedVariant as any)?.price_override ?? 
+        ((product?.base_price ?? 0) + (selectedFabricObj?.price_modifier ?? 0))
 
     const handleAddToCart = () => {
-        if (!matchedVariant || !product) return
+        if (!product || !selectedFabric || !selectedColor) return
         setAddingToCart(true)
         addItem({
-            variantId: matchedVariant.id,
+            variantId: matchedVariant?.id || `${product.id}-${selectedFabric}-${selectedColor}`,
             productId: product.id,
             productName: product.name,
             fabricName: selectedFabricObj?.name || '',
@@ -130,15 +131,15 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
 
     return (
         <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-            <DialogContent className="max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto p-0">
+            <DialogContent className="max-w-4xl sm:max-w-4xl w-[95vw] max-h-[90vh] overflow-hidden p-0 flex flex-col">
                 {loading || !product ? (
                     <div className="flex items-center justify-center py-20">
                         <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-0 overflow-y-auto max-h-[90vh]">
                         {/* Image */}
-                        <div className="relative aspect-square bg-muted overflow-hidden">
+                        <div className="relative aspect-square md:aspect-auto md:h-full bg-muted overflow-hidden shrink-0">
                             {images.length > 0 ? (
                                 <Image
                                     src={images[activeImageIndex]?.url}
@@ -177,9 +178,9 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
                         </div>
 
                         {/* Details */}
-                        <div className="p-5 flex flex-col">
-                            <DialogHeader className="mb-3">
-                                <DialogTitle className="text-xl font-bold font-heading text-gradient-navy leading-tight">
+                        <div className="p-6 md:p-8 flex flex-col h-full overflow-y-auto">
+                            <DialogHeader className="mb-4">
+                                <DialogTitle className="text-2xl font-bold font-heading text-gradient-navy leading-tight">
                                     {product.name}
                                 </DialogTitle>
                             </DialogHeader>
@@ -255,8 +256,8 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
                             )}
 
                             {/* Quantity + Add */}
-                            <div className="flex items-center gap-3 mt-auto pt-3 border-t">
-                                <div className="flex items-center gap-1 border rounded-lg">
+                            <div className="flex items-center gap-3 mt-8 pt-4 border-t">
+                                <div className="flex items-center gap-1 border rounded-lg p-1">
                                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setQuantity(Math.max(1, quantity - 1))}>
                                         <Minus className="h-3 w-3" />
                                     </Button>
@@ -267,7 +268,7 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
                                 </div>
                                 <Button
                                     className="flex-1 gradient-bronze border-0 text-white gap-2"
-                                    disabled={!matchedVariant || addingToCart}
+                                    disabled={!selectedFabric || !selectedColor || addingToCart}
                                     onClick={handleAddToCart}
                                 >
                                     <ShoppingCart className="h-4 w-4" />
@@ -278,7 +279,7 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
                             {/* View full page link */}
                             <Link
                                 href={`/catalog/${product.id}`}
-                                className="text-xs text-center text-muted-foreground hover:text-primary mt-3 transition-colors"
+                                className="text-sm text-center text-muted-foreground hover:text-primary mt-4 transition-colors font-medium border-t pt-4"
                                 onClick={onClose}
                             >
                                 Ver página completa →
