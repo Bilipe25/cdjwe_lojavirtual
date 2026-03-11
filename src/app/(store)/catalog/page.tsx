@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Search, Filter, X, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
@@ -21,6 +21,14 @@ import { CatalogFilters } from './components/CatalogFilters'
 const PAGE_SIZE = 12
 
 export default function CatalogPage() {
+    return (
+        <Suspense fallback={<div className="p-8"><ProductGridSkeleton count={12} /></div>}>
+            <CatalogContent />
+        </Suspense>
+    )
+}
+
+function CatalogContent() {
     const [products, setProducts] = useState<(Product & { images: { url: string; is_primary: boolean }[] })[]>([])
     const [categories, setCategories] = useState<Category[]>([])
     const [fabrics, setFabrics] = useState<Fabric[]>([])
