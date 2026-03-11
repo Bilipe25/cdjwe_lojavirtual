@@ -40,6 +40,15 @@ const navItems = [
     { href: '/orders', label: 'Meus Pedidos', icon: ClipboardList },
 ]
 
+const statusLabels: Record<string, string> = {
+    pending: 'Em Análise',
+    approved: 'Aprovado',
+    in_production: 'Em Produção',
+    shipped: 'Enviado',
+    delivered: 'Entregue',
+    cancelled: 'Cancelado',
+}
+
 export function StoreHeader() {
     const pathname = usePathname()
     const router = useRouter()
@@ -61,14 +70,14 @@ export function StoreHeader() {
             const supabase = createClient()
             const { data } = await supabase
                 .from('order_status_history')
-                .select('id, new_status, created_at, order:orders(order_number)')
+                .select('id, status, created_at, order:orders(order_number)')
                 .order('created_at', { ascending: false })
                 .limit(10)
             if (data) {
                 const mapped = data.map((n: any) => ({
                     id: n.id,
                     order_number: n.order?.order_number || '',
-                    status: n.new_status,
+                    status: n.status,
                     created_at: n.created_at,
                 }))
                 setNotifications(mapped)
@@ -113,6 +122,10 @@ export function StoreHeader() {
             } catch { /* silent */ }
         }
         loadSettings()
+        
+        // Sync favorites from database on mount
+        useFavoritesStore.getState().syncFromDb()
+        
         setIsMounted(true)
         
         return () => {
@@ -235,7 +248,7 @@ export function StoreHeader() {
                         <Link href="/favorites">
                             <Button variant="ghost" size="icon" className="relative">
                                 <Heart className="h-5 w-5" />
-                                {favCount > 0 && (
+                                {isMounted && favCount > 0 && (
                                     <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[9px] bg-red-500 border-0 text-white">
                                         {favCount}
                                     </Badge>
@@ -264,7 +277,7 @@ export function StoreHeader() {
                                         <DropdownMenuItem key={n.id} render={<Link href={`/orders`} className="cursor-pointer" />}>
                                             <div className="flex flex-col gap-0.5">
                                                 <span className="text-xs font-medium">Pedido {n.order_number}</span>
-                                                <span className="text-[10px] text-muted-foreground">Status: {n.status}</span>
+                                                <span className="text-[10px] text-muted-foreground">Status: {statusLabels[n.status] || n.status}</span>
                                             </div>
                                         </DropdownMenuItem>
                                     ))
@@ -380,6 +393,24 @@ export function StoreHeader() {
                                             )
                                         })}
                                     </nav>
+
+                                    {/* Favorites link */}
+                                    <div className="px-2 mt-2">
+                                        <Link href="/favorites" onClick={() => setMobileMenuOpen(false)}>
+                                            <Button
+                                                variant={pathname.startsWith('/favorites') ? 'secondary' : 'ghost'}
+                                                className={`w-full justify-start gap-3 ${pathname.startsWith('/favorites') ? 'bg-primary/10 text-primary' : ''}`}
+                                            >
+                                                <Heart className="h-5 w-5" />
+                                                Favoritos
+                                                {isMounted && favCount > 0 && (
+                                                    <Badge className="ml-auto h-5 w-5 p-0 flex items-center justify-center text-[9px] bg-red-500 border-0 text-white">
+                                                        {favCount}
+                                                    </Badge>
+                                                )}
+                                            </Button>
+                                        </Link>
+                                    </div>
 
                                     {/* Bottom Actions */}
                                     <div className="mt-auto p-4 border-t space-y-2">

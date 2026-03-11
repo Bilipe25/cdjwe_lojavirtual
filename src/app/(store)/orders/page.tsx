@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { ClipboardList, Eye, Search, Filter, ChevronLeft, ChevronRight, RotateCcw, Loader2 } from 'lucide-react'
+import { ClipboardList, Eye, Search, Filter, ChevronLeft, ChevronRight, RotateCcw, Loader2, Calendar } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +35,7 @@ export default function OrdersPage() {
     
     // Pagination & Filter States
     const [statusFilter, setStatusFilter] = useState<string>('all')
+    const [dateFilter, setDateFilter] = useState<string>('all')
     const [search, setSearch] = useState('')
     const [debouncedSearch, setDebouncedSearch] = useState('')
     const [currentPage, setCurrentPage] = useState(1)
@@ -81,6 +82,12 @@ export default function OrdersPage() {
             if (debouncedSearch) {
                 query = query.ilike('order_number', `%${debouncedSearch}%`)
             }
+            if (dateFilter !== 'all') {
+                const days = parseInt(dateFilter)
+                const dateLimit = new Date()
+                dateLimit.setDate(dateLimit.getDate() - days)
+                query = query.gte('created_at', dateLimit.toISOString())
+            }
 
             // Apply Strict Pagination
             const from = (currentPage - 1) * PAGE_SIZE
@@ -97,7 +104,7 @@ export default function OrdersPage() {
         }
 
         loadPaginatedOrders()
-    }, [statusFilter, debouncedSearch, currentPage])
+    }, [statusFilter, dateFilter, debouncedSearch, currentPage])
 
     const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
@@ -107,20 +114,32 @@ export default function OrdersPage() {
         setReorderingId(orderId)
         try {
             const supabase = createClient()
+            // Fetch order items with variant → product → images to get real productId and images
             const { data: items } = await supabase
                 .from('order_items')
-                .select('*')
+                .select(`
+                    *,
+                    variant:product_variants(
+                        product_id,
+                        product:products(
+                            id,
+                            images:product_images(url, is_primary, sort_order)
+                        )
+                    )
+                `)
                 .eq('order_id', orderId)
             if (items && items.length > 0) {
-                items.forEach(item => {
+                items.forEach((item: any) => {
+                    const product = item.variant?.product
+                    const primaryImage = product?.images?.find((img: any) => img.is_primary) || product?.images?.[0]
                     addItem({
                         variantId: item.product_variant_id,
-                        productId: '',
+                        productId: item.variant?.product_id || '',
                         productName: item.product_name,
                         fabricName: item.fabric_name,
                         colorName: item.color_name,
                         size: item.size,
-                        imageUrl: null,
+                        imageUrl: primaryImage?.url || null,
                         quantity: item.quantity,
                         unitPrice: item.unit_price,
                     })
@@ -171,6 +190,19 @@ export default function OrdersPage() {
                                 {statusConfig[status].label}
                             </SelectItem>
                         ))}
+                    </SelectContent>
+                </Select>
+                <Select value={dateFilter} onValueChange={(v: any) => { setDateFilter(v); setCurrentPage(1); }}>
+                    <SelectTrigger className="w-full sm:w-48 h-11 bg-white/60">
+                        <Calendar className="h-4 w-4 mr-2" />
+                        <SelectValue placeholder="Período" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="7">Últimos 7 dias</SelectItem>
+                        <SelectItem value="30">Últimos 30 dias</SelectItem>
+                        <SelectItem value="90">Últimos 90 dias</SelectItem>
+                        <SelectItem value="180">Últimos 6 meses</SelectItem>
+                        <SelectItem value="all">Todo o período</SelectItem>
                     </SelectContent>
                 </Select>
             </div>

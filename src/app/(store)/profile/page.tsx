@@ -12,6 +12,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog'
 import { ProfileSkeleton } from '@/components/ui/skeletons'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -27,6 +36,21 @@ export default function ProfilePage() {
     // Editable fields
     const [fullName, setFullName] = useState('')
     const [phone, setPhone] = useState('')
+
+    // Password change
+    const [passwordOpen, setPasswordOpen] = useState(false)
+    const [newPassword, setNewPassword] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
+    const [passwordLoading, setPasswordLoading] = useState(false)
+
+    const formatPhone = (val: string) => {
+        let r = val.replace(/\D/g, '')
+        if (r.length > 11) r = r.substring(0, 11)
+        if (r.length > 2) r = r.replace(/^(\d{2})/, '($1) ')
+        if (r.length > 9) r = r.replace(/(\d{4,5})(\d{4})/, '$1-$2')
+        else if (r.length > 6) r = r.replace(/(\d{4})(\d)/, '$1-$2')
+        return r
+    }
 
     useEffect(() => {
         loadProfile()
@@ -66,6 +90,13 @@ export default function ProfilePage() {
 
     const handleSave = async () => {
         if (!profile) return
+        if (!fullName.trim()) {
+            return toast.error('O nome completo não pode ficar vazio')
+        }
+        if (phone && phone.replace(/\D/g, '').length < 10) {
+            return toast.error('Informe um telefone válido com DDD')
+        }
+
         setSaving(true)
         const supabase = createClient()
 
@@ -84,6 +115,25 @@ export default function ProfilePage() {
             setProfile(prev => prev ? { ...prev, full_name: fullName, phone } : prev)
         }
         setSaving(false)
+    }
+
+    const handleUpdatePassword = async () => {
+        if (newPassword.length < 6) return toast.error('A senha deve ter pelo menos 6 caracteres')
+        if (newPassword !== confirmPassword) return toast.error('As senhas não coincidem')
+
+        setPasswordLoading(true)
+        const supabase = createClient()
+        const { error } = await supabase.auth.updateUser({ password: newPassword })
+        setPasswordLoading(false)
+
+        if (error) {
+            toast.error('Erro ao atualizar senha.')
+        } else {
+            toast.success('Senha atualizada com sucesso.')
+            setPasswordOpen(false)
+            setNewPassword('')
+            setConfirmPassword('')
+        }
     }
 
     if (loading) {
@@ -140,7 +190,7 @@ export default function ProfilePage() {
                                 <Input
                                     id="phone"
                                     value={phone}
-                                    onChange={(e) => setPhone(e.target.value)}
+                                    onChange={(e) => setPhone(formatPhone(e.target.value))}
                                     placeholder="(00) 00000-0000"
                                     className="bg-white/60"
                                 />
@@ -162,7 +212,15 @@ export default function ProfilePage() {
                             </div>
                         </div>
 
-                        <div className="flex justify-end pt-2">
+                        <div className="flex justify-between items-center pt-4">
+                            <Button 
+                                variant="outline" 
+                                className="text-muted-foreground"
+                                onClick={() => setPasswordOpen(true)}
+                            >
+                                Alterar Senha
+                            </Button>
+                            
                             <Button
                                 className="gradient-navy border-0 text-white gap-2"
                                 onClick={handleSave}
@@ -219,6 +277,46 @@ export default function ProfilePage() {
                     </Card>
                 )}
             </div>
+
+            {/* Change Password Dialog */}
+            <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Alterar Senha</DialogTitle>
+                        <DialogDescription>
+                            Digite sua nova senha abaixo.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="newPassword">Nova Senha</Label>
+                            <Input
+                                id="newPassword"
+                                type="password"
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                placeholder="Mínimo 6 caracteres"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="confirmPassword">Confirmar Senha</Label>
+                            <Input
+                                id="confirmPassword"
+                                type="password"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                placeholder="Confirme a nova senha"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setPasswordOpen(false)}>Cancelar</Button>
+                        <Button onClick={handleUpdatePassword} disabled={passwordLoading} className="gradient-navy border-0 text-white">
+                            {passwordLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Atualizar Senha'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

@@ -5,15 +5,29 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
     ArrowLeft, Package, Clock, CheckCircle2, Truck,
-    MapPin, CreditCard, FileText, Loader2
+    MapPin, CreditCard, FileText, Loader2,
+    XCircle, Printer
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import type { Order, OrderItem, OrderStatusHistory, OrderStatus } from '@/lib/types'
+import { cancelOrderAction } from './actions'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import Image from 'next/image'
@@ -36,6 +50,8 @@ export default function OrderDetailPage() {
     const [items, setItems] = useState<OrderItem[]>([])
     const [history, setHistory] = useState<OrderStatusHistory[]>([])
     const [loading, setLoading] = useState(true)
+    const [cancelling, setCancelling] = useState(false)
+    const [currentUser, setCurrentUser] = useState<any>(null)
 
     useEffect(() => {
         loadOrder()
@@ -46,11 +62,13 @@ export default function OrderDetailPage() {
         const supabase = createClient()
 
         // Verify user can access this order
+        // Verify user can access this order
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) {
             router.push('/login')
             return
         }
+        setCurrentUser(user)
 
         const { data: orderData } = await supabase
             .from('orders')
@@ -79,12 +97,25 @@ export default function OrderDetailPage() {
         // Load status history
         const { data: historyData } = await supabase
             .from('order_status_history')
-            .select('*')
+            .select('*, changed_by_profile:profiles(role, full_name)')
             .eq('order_id', params.id)
             .order('created_at', { ascending: true })
         if (historyData) setHistory(historyData)
 
         setLoading(false)
+    }
+
+    const handleCancelOrder = async () => {
+        if (!order) return
+        setCancelling(true)
+        const res = await cancelOrderAction(order.id)
+        setCancelling(false)
+        if (res.error) {
+            toast.error(res.error)
+        } else {
+            toast.success('Pedido cancelado com sucesso.')
+            loadOrder() // reload fresh state
+        }
     }
 
     if (loading) {
@@ -109,10 +140,47 @@ export default function OrderDetailPage() {
 
     return (
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-            {/* Back */}
-            <Button variant="ghost" className="mb-4 gap-2" onClick={() => router.push('/orders')}>
-                <ArrowLeft className="h-4 w-4" /> Meus Pedidos
-            </Button>
+            {/* Back Button (Hidden on Print) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 print:hidden gap-4">
+                <Button variant="ghost" className="gap-2 w-fit" onClick={() => router.push('/orders')}>
+                    <ArrowLeft className="h-4 w-4" /> Meus Pedidos
+                </Button>
+                
+                <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => window.print()}>
+                        <Printer className="h-4 w-4" /> Imprimir Comprovante
+                    </Button>
+                    
+                    {order.status === 'pending' && (
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm" className="gap-2" disabled={cancelling}>
+                                    {cancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                                    Cancelar Pedido
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Cancelar Pedido?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Tem certeza que deseja cancelar o pedido <strong>{order.order_number}</strong>? 
+                                        Esta ação não pode ser desfeita e os itens serão perdidos.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Voltar</AlertDialogCancel>
+                                    <AlertDialogAction
+                                        onClick={handleCancelOrder}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    >
+                                        Sim, cancelar
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    )}
+                </div>
+            </div>
 
             {/* Header */}
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
@@ -238,8 +306,16 @@ export default function OrderDetailPage() {
                                                     <Badge variant="secondary" className={`text-[10px] w-fit ${entryConfig.color}`}>
                                                         {entryConfig.label}
                                                     </Badge>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {format(new Date(entry.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                                                    <span className="text-xs text-muted-foreground flex gap-1 items-center">
+                                                        <span>{format(new Date(entry.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
+                                                        <span>•</span>
+                                                        <span className="font-medium text-foreground">
+                                                            {(entry as any).changed_by_profile?.role === 'admin' 
+                                                                ? 'CDJWE (Sistema)' 
+                                                                : ((entry as any).changed_by_profile?.role === 'client' && currentUser?.id === entry.changed_by) 
+                                                                    ? 'Você' 
+                                                                    : 'Cliente'}
+                                                        </span>
                                                     </span>
                                                 </div>
                                                 {entry.notes && (

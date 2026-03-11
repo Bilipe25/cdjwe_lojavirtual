@@ -102,6 +102,28 @@ function CatalogContent() {
             setLoading(true)
             const supabase = createClient()
             
+            // When fabric filter is active, pre-fetch matching product IDs server-side
+            // This avoids the broken client-side filtering that destroyed pagination
+            let fabricProductIds: string[] | null = null
+            if (selectedFabric !== 'all') {
+                const { data: variantLinks } = await supabase
+                    .from('product_variants')
+                    .select('product_id')
+                    .eq('fabric_id', selectedFabric)
+                    .eq('is_active', true)
+                
+                if (variantLinks && variantLinks.length > 0) {
+                    // Deduplicate product IDs
+                    fabricProductIds = [...new Set(variantLinks.map(v => v.product_id))]
+                } else {
+                    // No products match this fabric — short-circuit
+                    setProducts([])
+                    setTotalCount(0)
+                    setLoading(false)
+                    return
+                }
+            }
+
             let query = supabase
                 .from('products')
                 .select('*, category:categories(*), images:product_images(url, is_primary, sort_order)', { count: 'exact' })
@@ -115,9 +137,10 @@ function CatalogContent() {
                 query = query.eq('category_id', selectedCategory)
             }
             
-            // Fabric filter: join through product_variants to find products available in this fabric
-            // Note: Supabase doesn't support filtering by related table easily without RPC
-            // So we'll apply this filter client-side after fetching, or use a workaround
+            // Apply fabric filter server-side using pre-fetched IDs
+            if (fabricProductIds) {
+                query = query.in('id', fabricProductIds)
+            }
 
             // Sorting logic translation
             if (sortBy === 'name') query = query.order('name', { ascending: true })
@@ -133,29 +156,8 @@ function CatalogContent() {
             const { data, count, error } = await query
 
             if (!error && data) {
-                // Client-side fabric filter (Supabase can't filter by related m2m without RPC)
-                if (selectedFabric !== 'all') {
-                    const supabase2 = createClient()
-                    const productIds = data.map((p: any) => p.id)
-                    if (productIds.length > 0) {
-                        const { data: variantLinks } = await supabase2
-                            .from('product_variants')
-                            .select('product_id')
-                            .in('product_id', productIds)
-                            .eq('fabric_id', selectedFabric)
-                            .eq('is_active', true)
-                        const validIds = new Set(variantLinks?.map(v => v.product_id) || [])
-                        const filtered = data.filter((p: any) => validIds.has(p.id))
-                        setProducts(filtered as any)
-                        setTotalCount(filtered.length)
-                    } else {
-                        setProducts([])
-                        setTotalCount(0)
-                    }
-                } else {
-                    setProducts(data as any)
-                    setTotalCount(count || 0)
-                }
+                setProducts(data as any)
+                setTotalCount(count || 0)
             }
             setLoading(false)
         }

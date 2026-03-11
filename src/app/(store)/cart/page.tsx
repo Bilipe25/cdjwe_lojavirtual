@@ -15,7 +15,28 @@ import {
     AlertCircle,
     Truck,
 } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
@@ -36,6 +57,7 @@ export default function CartPage() {
     const [selectedPayment, setSelectedPayment] = useState<string>('')
     const [notes, setNotes] = useState('')
     const [settings, setSettings] = useState<SystemSettings | null>(null)
+    const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
 
     const total = subtotal()
     const count = totalItems()
@@ -79,7 +101,12 @@ export default function CartPage() {
             return
         }
 
+        setConfirmCheckoutOpen(true)
+    }
+
+    const processOrder = async () => {
         setLoading(true)
+        setConfirmCheckoutOpen(false)
         try {
             const result = await checkoutAction(items, selectedPayment, notes)
 
@@ -144,19 +171,35 @@ export default function CartPage() {
                         </p>
                     </div>
                 </div>
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
-                    onClick={() => {
-                        if (window.confirm('Tem certeza que deseja esvaziar o carrinho?')) {
-                            clearCart()
-                        }
-                    }}
-                >
-                    <Trash2 className="h-4 w-4" />
-                    Limpar
-                </Button>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                            Limpar
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Esvaziar carrinho</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Tem certeza que deseja remover todos os itens do seu carrinho? Esta ação não pode ser desfeita.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={clearCart}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                                Sim, esvaziar
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </div>
 
             {/* Min order progress bar */}
@@ -369,6 +412,62 @@ export default function CartPage() {
                     </Card>
                 </div>
             </div>
+
+            {/* Configuração do Dialog de Confirmação */}
+            <Dialog open={confirmCheckoutOpen} onOpenChange={setConfirmCheckoutOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold font-heading">Confirmar Pedido</DialogTitle>
+                        <DialogDescription>
+                            Revise o resumo do seu pedido antes de finalizar.
+                        </DialogDescription>
+                    </DialogHeader>
+                    
+                    <div className="space-y-4 py-4">
+                        <div className="rounded-lg bg-muted p-4 space-y-3">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Itens ({count})</span>
+                                <span>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                            </div>
+                            
+                            <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Pagamento</span>
+                                <span className="font-medium text-right max-w-[150px] truncate">{selectedCondition?.name}</span>
+                            </div>
+                            
+                            {(paymentDiscount > 0 || paymentSurcharge > 0) && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Ajuste de Pagamento</span>
+                                    {paymentDiscount > 0 ? (
+                                        <span className="text-green-600">- R$ {paymentDiscount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                    ) : (
+                                        <span className="text-amber-600">+ R$ {paymentSurcharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                    )}
+                                </div>
+                            )}
+
+                            <Separator />
+                            
+                            <div className="flex justify-between items-center">
+                                <span className="font-bold">Total a Pagar</span>
+                                <span className="text-xl font-bold text-gradient-bronze">
+                                    R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="flex-col sm:flex-row gap-2">
+                        <Button variant="outline" onClick={() => setConfirmCheckoutOpen(false)} className="w-full sm:w-auto">
+                            Revisar Carrinho
+                        </Button>
+                        <Button onClick={processOrder} className="w-full sm:w-auto gradient-bronze border-0 text-white gap-2">
+                            <Check className="h-4 w-4" />
+                            Confirmar e Enviar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
