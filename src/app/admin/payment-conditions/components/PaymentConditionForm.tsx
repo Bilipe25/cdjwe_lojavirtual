@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -55,21 +55,19 @@ export function PaymentConditionForm({ isOpen, onClose, condition }: PaymentCond
   })
 
   // Also update form when condition prop changes (e.g. from null to editing)
-  import('react').then(({ useEffect }) => {
-    useEffect(() => {
-      form.reset({
-        id: condition?.id,
-        name: condition?.name || '',
-        description: condition?.description || '',
-        installments: condition?.installments || 1,
-        discount_percentage: condition?.discount_percentage || 0,
-        surcharge_percentage: condition?.surcharge_percentage || 0,
-        min_installment_value: condition?.min_installment_value || 0,
-        icon: condition?.icon || 'credit-card',
-        is_active: condition ? condition.is_active : true,
-      })
-    }, [condition, form])
-  })
+  useEffect(() => {
+    form.reset({
+      id: condition?.id,
+      name: condition?.name || '',
+      description: condition?.description || '',
+      installments: condition?.installments || 1,
+      discount_percentage: condition?.discount_percentage || 0,
+      surcharge_percentage: condition?.surcharge_percentage || 0,
+      min_installment_value: condition?.min_installment_value || 0,
+      icon: condition?.icon || 'credit-card',
+      is_active: condition ? condition.is_active : true,
+    })
+  }, [condition, form])
 
   const onSubmit = async (values: FormValues) => {
     setIsSaving(true)
@@ -108,7 +106,7 @@ export function PaymentConditionForm({ isOpen, onClose, condition }: PaymentCond
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="font-heading text-xl text-navy">
             {condition ? 'Editar Condição' : 'Nova Condição de Pagamento'}

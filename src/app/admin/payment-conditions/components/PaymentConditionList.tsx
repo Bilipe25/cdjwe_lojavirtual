@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Edit2, Trash2, CreditCard, Banknote, QrCodeIcon, MonitorSmartphone, Wallet, GripVertical, Copy } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -189,11 +189,9 @@ export function PaymentConditionList({ conditions: initialConditions, usageCount
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
-  import('react').then(({ useEffect }) => {
-    useEffect(() => {
-      setConditions(initialConditions)
-    }, [initialConditions])
-  })
+  useEffect(() => {
+    setConditions(initialConditions)
+  }, [initialConditions])
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
