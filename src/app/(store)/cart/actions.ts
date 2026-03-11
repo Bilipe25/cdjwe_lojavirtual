@@ -178,6 +178,7 @@ export async function checkoutAction(
         .single()
 
     if (insertError || !newOrder) {
+        console.error('[CHECKOUT] Order insert error:', JSON.stringify(insertError, null, 2))
         return { error: 'Erro de comunicação ao formatar pedido principal.' }
     }
 
@@ -224,6 +225,7 @@ export async function checkoutAction(
         const clientName = profileRes.data?.full_name || 'Cliente'
         const clientEmail = profileRes.data?.email || user.email
         const companyName = storeDataRes.data?.company_name || 'N/A'
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
         // Get order number
         const { data: orderDetail } = await supabase
@@ -233,6 +235,7 @@ export async function checkoutAction(
             .single()
 
         const orderNumber = orderDetail?.order_number || newOrder.id
+        const commonProps = { systemName, appUrl }
 
         // Email to Admin: New Order
         if (adminEmail) {
@@ -240,13 +243,14 @@ export async function checkoutAction(
             sendEmail({
                 to: adminEmail,
                 subject: `🛒 Novo pedido #${orderNumber} — ${systemName}`,
+                senderName: systemName,
                 react: React.createElement(NewOrderEmail, {
                     orderNumber,
                     clientName,
                     companyName,
                     itemCount: validatedItems.length,
                     total: finalTotal,
-                    systemName,
+                    ...commonProps,
                 }),
             }).catch(() => {})
         }
@@ -257,6 +261,7 @@ export async function checkoutAction(
             sendEmail({
                 to: clientEmail,
                 subject: `📋 Pedido #${orderNumber} confirmado — ${systemName}`,
+                senderName: systemName,
                 react: React.createElement(OrderConfirmationEmail, {
                     orderNumber,
                     clientName,
@@ -271,7 +276,7 @@ export async function checkoutAction(
                     subtotal: secureSubtotal,
                     discount: paymentDiscount,
                     total: finalTotal,
-                    systemName,
+                    ...commonProps,
                 }),
             }).catch(() => {})
         }

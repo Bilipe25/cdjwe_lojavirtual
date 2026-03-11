@@ -12,6 +12,11 @@ import {
     Row,
     Column,
 } from '@react-email/components'
+import {
+    main, container, headerSection, logo, contentSection,
+    heading, paragraph, ctaSection, buttonPrimary, hr, footer,
+    formatCurrency,
+} from './styles'
 
 interface OrderItem {
     productName: string
@@ -30,6 +35,7 @@ interface OrderConfirmationEmailProps {
     discount: number
     total: number
     systemName?: string
+    appUrl?: string
 }
 
 export default function OrderConfirmationEmail({
@@ -40,7 +46,35 @@ export default function OrderConfirmationEmail({
     discount,
     total,
     systemName = 'CDJWE',
+    appUrl = 'http://localhost:3000',
 }: OrderConfirmationEmailProps) {
+    // Template-specific styles
+    const orderBadge = { backgroundColor: '#1e3a5f', borderRadius: '8px', padding: '12px', textAlign: 'center' as const, margin: '0 0 20px' }
+    const orderBadgeText = { color: '#ffffff', fontSize: '16px', fontWeight: '700' as const, margin: '0' }
+    const tableContainer = { margin: '0 0 20px' }
+    const tableHeader = { backgroundColor: '#f1f5f9', padding: '8px 12px', borderRadius: '6px 6px 0 0' }
+    const thProduct = { color: '#64748b', fontSize: '11px', fontWeight: '600' as const, textTransform: 'uppercase' as const, width: '60%', padding: '8px' }
+    const thQty = { color: '#64748b', fontSize: '11px', fontWeight: '600' as const, textTransform: 'uppercase' as const, width: '15%', textAlign: 'center' as const, padding: '8px' }
+    const thPrice = { color: '#64748b', fontSize: '11px', fontWeight: '600' as const, textTransform: 'uppercase' as const, width: '25%', textAlign: 'right' as const, padding: '8px' }
+    const tableRow = { borderBottom: '1px solid #f1f5f9' }
+    const tableRowEven = { borderBottom: '1px solid #f1f5f9', backgroundColor: '#fafafa' }
+    const tdProduct = { padding: '10px 8px', width: '60%' }
+    const tdQty = { padding: '10px 8px', width: '15%', textAlign: 'center' as const }
+    const tdPrice = { padding: '10px 8px', width: '25%', textAlign: 'right' as const }
+    const productName = { color: '#1e293b', fontSize: '14px', fontWeight: '500' as const, margin: '0' }
+    const productDetail = { color: '#94a3b8', fontSize: '12px', margin: '2px 0 0' }
+    const qtyText = { color: '#1e293b', fontSize: '14px', margin: '0' }
+    const priceText = { color: '#1e293b', fontSize: '14px', fontWeight: '500' as const, margin: '0' }
+    const totalsSection = { backgroundColor: '#f8fafc', borderRadius: '8px', padding: '16px', border: '1px solid #e2e8f0' }
+    const totalLabel = { color: '#64748b', fontSize: '14px', padding: '4px 0', width: '70%' }
+    const totalValue = { color: '#1e293b', fontSize: '14px', textAlign: 'right' as const, padding: '4px 0', width: '30%' }
+    const discountLabel = { color: '#16a34a', fontSize: '14px', padding: '4px 0', width: '70%' }
+    const discountValue = { color: '#16a34a', fontSize: '14px', textAlign: 'right' as const, padding: '4px 0', width: '30%' }
+    const hrThin = { borderColor: '#e2e8f0', margin: '8px 0' }
+    const grandTotalLabel = { color: '#1e3a5f', fontSize: '16px', fontWeight: '700' as const, padding: '4px 0', width: '70%' }
+    const grandTotalValue = { color: '#b8860b', fontSize: '18px', fontWeight: '700' as const, textAlign: 'right' as const, padding: '4px 0', width: '30%' }
+    const statusNote = { color: '#555', fontSize: '14px', lineHeight: '22px', margin: '20px 0', textAlign: 'center' as const, backgroundColor: '#fffbeb', padding: '12px', borderRadius: '8px', border: '1px solid #fef3c7' }
+
     return (
         <Html>
             <Head />
@@ -79,7 +113,7 @@ export default function OrderConfirmationEmail({
                                     </Column>
                                     <Column style={tdPrice}>
                                         <Text style={priceText}>
-                                            R$ {item.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                            R$ {formatCurrency(item.subtotal)}
                                         </Text>
                                     </Column>
                                 </Row>
@@ -91,14 +125,14 @@ export default function OrderConfirmationEmail({
                             <Row>
                                 <Column style={totalLabel}>Subtotal</Column>
                                 <Column style={totalValue}>
-                                    R$ {subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    R$ {formatCurrency(subtotal)}
                                 </Column>
                             </Row>
                             {discount > 0 && (
                                 <Row>
                                     <Column style={discountLabel}>Desconto</Column>
                                     <Column style={discountValue}>
-                                        -R$ {discount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                        -R$ {formatCurrency(discount)}
                                     </Column>
                                 </Row>
                             )}
@@ -106,7 +140,7 @@ export default function OrderConfirmationEmail({
                             <Row>
                                 <Column style={grandTotalLabel}>Total</Column>
                                 <Column style={grandTotalValue}>
-                                    R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    R$ {formatCurrency(total)}
                                 </Column>
                             </Row>
                         </Section>
@@ -116,7 +150,7 @@ export default function OrderConfirmationEmail({
                         </Text>
 
                         <Section style={ctaSection}>
-                            <Button style={button} href={`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/orders`}>
+                            <Button style={buttonPrimary} href={`${appUrl}/orders`}>
                                 Acompanhar Meus Pedidos
                             </Button>
                         </Section>
@@ -131,40 +165,3 @@ export default function OrderConfirmationEmail({
         </Html>
     )
 }
-
-const main = { backgroundColor: '#f6f9fc', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }
-const container = { margin: '0 auto', padding: '20px 0', maxWidth: '580px' }
-const headerSection = { backgroundColor: '#1e3a5f', padding: '24px 32px', borderRadius: '12px 12px 0 0' }
-const logo = { color: '#ffffff', fontSize: '22px', fontWeight: '700' as const, margin: '0', textAlign: 'center' as const }
-const contentSection = { backgroundColor: '#ffffff', padding: '32px', borderRadius: '0 0 12px 12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }
-const heading = { color: '#1e3a5f', fontSize: '22px', fontWeight: '700' as const, margin: '0 0 12px' }
-const paragraph = { color: '#555', fontSize: '15px', lineHeight: '24px', margin: '0 0 16px' }
-const orderBadge = { backgroundColor: '#1e3a5f', borderRadius: '8px', padding: '12px', textAlign: 'center' as const, margin: '0 0 20px' }
-const orderBadgeText = { color: '#ffffff', fontSize: '16px', fontWeight: '700' as const, margin: '0' }
-const tableContainer = { margin: '0 0 20px' }
-const tableHeader = { backgroundColor: '#f1f5f9', padding: '8px 12px', borderRadius: '6px 6px 0 0' }
-const thProduct = { color: '#64748b', fontSize: '11px', fontWeight: '600' as const, textTransform: 'uppercase' as const, width: '60%', padding: '8px' }
-const thQty = { color: '#64748b', fontSize: '11px', fontWeight: '600' as const, textTransform: 'uppercase' as const, width: '15%', textAlign: 'center' as const, padding: '8px' }
-const thPrice = { color: '#64748b', fontSize: '11px', fontWeight: '600' as const, textTransform: 'uppercase' as const, width: '25%', textAlign: 'right' as const, padding: '8px' }
-const tableRow = { borderBottom: '1px solid #f1f5f9' }
-const tableRowEven = { borderBottom: '1px solid #f1f5f9', backgroundColor: '#fafafa' }
-const tdProduct = { padding: '10px 8px', width: '60%' }
-const tdQty = { padding: '10px 8px', width: '15%', textAlign: 'center' as const }
-const tdPrice = { padding: '10px 8px', width: '25%', textAlign: 'right' as const }
-const productName = { color: '#1e293b', fontSize: '14px', fontWeight: '500' as const, margin: '0' }
-const productDetail = { color: '#94a3b8', fontSize: '12px', margin: '2px 0 0' }
-const qtyText = { color: '#1e293b', fontSize: '14px', margin: '0' }
-const priceText = { color: '#1e293b', fontSize: '14px', fontWeight: '500' as const, margin: '0' }
-const totalsSection = { backgroundColor: '#f8fafc', borderRadius: '8px', padding: '16px', border: '1px solid #e2e8f0' }
-const totalLabel = { color: '#64748b', fontSize: '14px', padding: '4px 0', width: '70%' }
-const totalValue = { color: '#1e293b', fontSize: '14px', textAlign: 'right' as const, padding: '4px 0', width: '30%' }
-const discountLabel = { color: '#16a34a', fontSize: '14px', padding: '4px 0', width: '70%' }
-const discountValue = { color: '#16a34a', fontSize: '14px', textAlign: 'right' as const, padding: '4px 0', width: '30%' }
-const hrThin = { borderColor: '#e2e8f0', margin: '8px 0' }
-const grandTotalLabel = { color: '#1e3a5f', fontSize: '16px', fontWeight: '700' as const, padding: '4px 0', width: '70%' }
-const grandTotalValue = { color: '#b8860b', fontSize: '18px', fontWeight: '700' as const, textAlign: 'right' as const, padding: '4px 0', width: '30%' }
-const statusNote = { color: '#555', fontSize: '14px', lineHeight: '22px', margin: '20px 0', textAlign: 'center' as const, backgroundColor: '#fffbeb', padding: '12px', borderRadius: '8px', border: '1px solid #fef3c7' }
-const ctaSection = { textAlign: 'center' as const, marginTop: '20px' }
-const button = { backgroundColor: '#1e3a5f', color: '#ffffff', padding: '12px 32px', borderRadius: '8px', fontSize: '14px', fontWeight: '600' as const, textDecoration: 'none', display: 'inline-block' }
-const hr = { borderColor: '#e6ebf1', margin: '20px 0' }
-const footer = { color: '#8898aa', fontSize: '12px', textAlign: 'center' as const }

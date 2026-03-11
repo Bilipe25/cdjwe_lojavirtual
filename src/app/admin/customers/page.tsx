@@ -189,6 +189,25 @@ export default function CustomersPage() {
     const handleBulkApprove = async () => {
         const { error } = await supabase.from('profiles').update({ status: 'approved' }).in('id', selectedIds)
         if (error) { toast.error('Erro ao aprovar clientes em massa.'); return }
+
+        // Send approval emails to each approved customer
+        const approvedCustomers = customers.filter(c => selectedIds.includes(c.id))
+        for (const customer of approvedCustomers) {
+            if (customer.email) {
+                fetch('/api/email/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'account_approved',
+                        payload: {
+                            clientName: customer.full_name,
+                            clientEmail: customer.email,
+                        },
+                    }),
+                }).catch(() => {})
+            }
+        }
+
         toast.success(`${selectedIds.length} clientes aprovados!`)
         setSelectedIds([])
         loadData()

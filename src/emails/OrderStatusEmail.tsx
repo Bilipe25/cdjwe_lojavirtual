@@ -10,6 +10,10 @@ import {
     Button,
     Hr,
 } from '@react-email/components'
+import {
+    main, container, headerSection, logo, contentSection,
+    heading, paragraph, ctaSection, buttonPrimary, hr, footer,
+} from './styles'
 
 const statusConfig: Record<string, { label: string; emoji: string; color: string; bgColor: string; message: string }> = {
     pending: { label: 'Em Análise', emoji: '⏳', color: '#d97706', bgColor: '#fffbeb', message: 'Seu pedido está sendo analisado pela nossa equipe.' },
@@ -25,6 +29,7 @@ interface OrderStatusEmailProps {
     clientName: string
     newStatus: string
     systemName?: string
+    appUrl?: string
 }
 
 export default function OrderStatusEmail({
@@ -32,8 +37,16 @@ export default function OrderStatusEmail({
     clientName,
     newStatus,
     systemName = 'CDJWE',
+    appUrl = 'http://localhost:3000',
 }: OrderStatusEmailProps) {
     const config = statusConfig[newStatus] || statusConfig.pending
+
+    // Template-specific styles
+    const statusBadge = { borderRadius: '12px', padding: '24px', textAlign: 'center' as const, margin: '0 0 20px', border: '2px solid' }
+    const statusEmoji = { fontSize: '36px', margin: '0 0 8px' }
+    const statusLabel = { fontSize: '20px', fontWeight: '700' as const, margin: '0 0 4px' }
+    const statusOrderNumber = { color: '#64748b', fontSize: '14px', fontWeight: '500' as const, margin: '0' }
+    const statusMessage = { color: '#555', fontSize: '15px', lineHeight: '24px', margin: '0 0 24px', textAlign: 'center' as const }
 
     return (
         <Html>
@@ -54,7 +67,7 @@ export default function OrderStatusEmail({
                         </Text>
 
                         <Section style={{ ...statusBadge, backgroundColor: config.bgColor, borderColor: config.color }}>
-                            <Text style={{ ...statusEmoji }}>{config.emoji}</Text>
+                            <Text style={statusEmoji}>{config.emoji}</Text>
                             <Text style={{ ...statusLabel, color: config.color }}>{config.label}</Text>
                             <Text style={statusOrderNumber}>Pedido #{orderNumber}</Text>
                         </Section>
@@ -64,7 +77,7 @@ export default function OrderStatusEmail({
                         </Text>
 
                         <Section style={ctaSection}>
-                            <Button style={button} href={`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/orders`}>
+                            <Button style={buttonPrimary} href={`${appUrl}/orders`}>
                                 Ver Meus Pedidos
                             </Button>
                         </Section>
@@ -79,20 +92,3 @@ export default function OrderStatusEmail({
         </Html>
     )
 }
-
-const main = { backgroundColor: '#f6f9fc', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }
-const container = { margin: '0 auto', padding: '20px 0', maxWidth: '580px' }
-const headerSection = { backgroundColor: '#1e3a5f', padding: '24px 32px', borderRadius: '12px 12px 0 0' }
-const logo = { color: '#ffffff', fontSize: '22px', fontWeight: '700' as const, margin: '0', textAlign: 'center' as const }
-const contentSection = { backgroundColor: '#ffffff', padding: '32px', borderRadius: '0 0 12px 12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }
-const heading = { color: '#1e3a5f', fontSize: '22px', fontWeight: '700' as const, margin: '0 0 16px' }
-const paragraph = { color: '#555', fontSize: '15px', lineHeight: '24px', margin: '0 0 16px' }
-const statusBadge = { borderRadius: '12px', padding: '24px', textAlign: 'center' as const, margin: '0 0 20px', border: '2px solid' }
-const statusEmoji = { fontSize: '36px', margin: '0 0 8px' }
-const statusLabel = { fontSize: '20px', fontWeight: '700' as const, margin: '0 0 4px' }
-const statusOrderNumber = { color: '#64748b', fontSize: '14px', fontWeight: '500' as const, margin: '0' }
-const statusMessage = { color: '#555', fontSize: '15px', lineHeight: '24px', margin: '0 0 24px', textAlign: 'center' as const }
-const ctaSection = { textAlign: 'center' as const }
-const button = { backgroundColor: '#1e3a5f', color: '#ffffff', padding: '12px 32px', borderRadius: '8px', fontSize: '14px', fontWeight: '600' as const, textDecoration: 'none', display: 'inline-block' }
-const hr = { borderColor: '#e6ebf1', margin: '20px 0' }
-const footer = { color: '#8898aa', fontSize: '12px', textAlign: 'center' as const }

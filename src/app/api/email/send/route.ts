@@ -8,6 +8,8 @@ import OrderConfirmationEmail from '@/emails/OrderConfirmationEmail'
 import OrderStatusEmail from '@/emails/OrderStatusEmail'
 import React from 'react'
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json()
@@ -17,8 +19,15 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Tipo e payload obrigatórios.' }, { status: 400 })
         }
 
-        // Fetch system settings for system_name and admin email
         const supabase = await createClient()
+
+        // 🔒 Security: Verify authenticated user
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+            return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+        }
+
+        // Fetch system settings for system_name and admin email
         const { data: settings } = await supabase
             .from('system_settings')
             .select('system_name, email')
@@ -28,6 +37,10 @@ export async function POST(req: NextRequest) {
         const systemName = settings?.system_name || 'CDJWE'
         const adminEmail = settings?.email
 
+        // Common props for all templates
+        const commonProps = { systemName, appUrl: APP_URL }
+        const emailOptions = { senderName: systemName }
+
         switch (type) {
             case 'new_registration': {
                 if (!adminEmail) {
@@ -36,12 +49,13 @@ export async function POST(req: NextRequest) {
                 await sendEmail({
                     to: adminEmail,
                     subject: `📋 Novo cadastro: ${payload.clientName} — ${systemName}`,
+                    ...emailOptions,
                     react: React.createElement(NewRegistrationEmail, {
                         clientName: payload.clientName,
                         clientEmail: payload.clientEmail,
                         companyName: payload.companyName,
                         cnpj: payload.cnpj,
-                        systemName,
+                        ...commonProps,
                     }),
                 })
                 break
@@ -54,9 +68,10 @@ export async function POST(req: NextRequest) {
                 await sendEmail({
                     to: payload.clientEmail,
                     subject: `✅ Sua conta foi aprovada — ${systemName}`,
+                    ...emailOptions,
                     react: React.createElement(AccountApprovedEmail, {
                         clientName: payload.clientName,
-                        systemName,
+                        ...commonProps,
                     }),
                 })
                 break
@@ -69,13 +84,14 @@ export async function POST(req: NextRequest) {
                 await sendEmail({
                     to: adminEmail,
                     subject: `🛒 Novo pedido #${payload.orderNumber} — ${systemName}`,
+                    ...emailOptions,
                     react: React.createElement(NewOrderEmail, {
                         orderNumber: payload.orderNumber,
                         clientName: payload.clientName,
                         companyName: payload.companyName,
                         itemCount: payload.itemCount,
                         total: payload.total,
-                        systemName,
+                        ...commonProps,
                     }),
                 })
                 break
@@ -88,6 +104,7 @@ export async function POST(req: NextRequest) {
                 await sendEmail({
                     to: payload.clientEmail,
                     subject: `📋 Pedido #${payload.orderNumber} confirmado — ${systemName}`,
+                    ...emailOptions,
                     react: React.createElement(OrderConfirmationEmail, {
                         orderNumber: payload.orderNumber,
                         clientName: payload.clientName,
@@ -95,7 +112,7 @@ export async function POST(req: NextRequest) {
                         subtotal: payload.subtotal,
                         discount: payload.discount,
                         total: payload.total,
-                        systemName,
+                        ...commonProps,
                     }),
                 })
                 break
@@ -108,11 +125,12 @@ export async function POST(req: NextRequest) {
                 await sendEmail({
                     to: payload.clientEmail,
                     subject: `🔄 Pedido #${payload.orderNumber} — Atualização de status — ${systemName}`,
+                    ...emailOptions,
                     react: React.createElement(OrderStatusEmail, {
                         orderNumber: payload.orderNumber,
                         clientName: payload.clientName,
                         newStatus: payload.newStatus,
-                        systemName,
+                        ...commonProps,
                     }),
                 })
                 break

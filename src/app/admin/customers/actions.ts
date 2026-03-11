@@ -97,6 +97,36 @@ export async function createCustomerAsAdmin(formData: FormData) {
 
         if (storeError) throw storeError
 
+        // 5. Send welcome email to the new approved customer
+        try {
+            const { sendEmail } = await import('@/lib/email')
+            const React = (await import('react')).default
+            const { default: AccountApprovedEmail } = await import('@/emails/AccountApprovedEmail')
+
+            const { data: settings } = await supabaseAdmin
+                .from('system_settings')
+                .select('system_name')
+                .limit(1)
+                .single()
+
+            const systemName = settings?.system_name || 'CDJWE'
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+
+            await sendEmail({
+                to: email,
+                subject: `✅ Sua conta foi aprovada — ${systemName}`,
+                senderName: systemName,
+                react: React.createElement(AccountApprovedEmail, {
+                    clientName: fullName,
+                    systemName,
+                    appUrl,
+                }),
+            })
+        } catch (emailErr) {
+            console.error('[ADMIN CREATE CUSTOMER EMAIL] Error:', emailErr)
+            // Email failures should never block customer creation
+        }
+
         return { success: true }
     } catch (err: any) {
         console.error('Customer Creation Error:', err)

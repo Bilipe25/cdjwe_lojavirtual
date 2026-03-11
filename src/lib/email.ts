@@ -1,3 +1,4 @@
+import type React from 'react'
 import { Resend } from 'resend'
 
 const resend = process.env.RESEND_API_KEY
@@ -10,17 +11,22 @@ interface SendEmailOptions {
     to: string | string[]
     subject: string
     react: React.ReactElement
+    senderName?: string
 }
 
-export async function sendEmail({ to, subject, react }: SendEmailOptions) {
+export async function sendEmail({ to, subject, react, senderName }: SendEmailOptions) {
     if (!resend) {
         console.warn('[EMAIL] RESEND_API_KEY não configurada. Email não enviado:', subject)
         return { success: false, error: 'API key não configurada' }
     }
 
+    const from = senderName
+        ? `${senderName} <${FROM_EMAIL}>`
+        : FROM_EMAIL
+
     try {
         const { data, error } = await resend.emails.send({
-            from: FROM_EMAIL,
+            from,
             to: Array.isArray(to) ? to : [to],
             subject,
             react,

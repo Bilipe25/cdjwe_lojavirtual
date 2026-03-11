@@ -10,6 +10,11 @@ import {
     Button,
     Hr,
 } from '@react-email/components'
+import {
+    main, container, headerSection, logo, contentSection,
+    heading, paragraph, infoCard, infoLabel, infoValue,
+    ctaSection, buttonPrimary, hr, footer,
+} from './styles'
 
 interface NewRegistrationEmailProps {
     clientName: string
@@ -17,6 +22,7 @@ interface NewRegistrationEmailProps {
     companyName: string
     cnpj: string
     systemName?: string
+    appUrl?: string
 }
 
 export default function NewRegistrationEmail({
@@ -25,6 +31,7 @@ export default function NewRegistrationEmail({
     companyName,
     cnpj,
     systemName = 'CDJWE',
+    appUrl = 'http://localhost:3000',
 }: NewRegistrationEmailProps) {
     return (
         <Html>
@@ -57,7 +64,7 @@ export default function NewRegistrationEmail({
                         </Section>
 
                         <Section style={ctaSection}>
-                            <Button style={button} href={`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/admin/customers`}>
+                            <Button style={buttonPrimary} href={`${appUrl}/admin/customers`}>
                                 Ver Cadastro no Painel
                             </Button>
                         </Section>
@@ -72,19 +79,3 @@ export default function NewRegistrationEmail({
         </Html>
     )
 }
-
-// Styles
-const main = { backgroundColor: '#f6f9fc', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }
-const container = { margin: '0 auto', padding: '20px 0', maxWidth: '580px' }
-const headerSection = { backgroundColor: '#1e3a5f', padding: '24px 32px', borderRadius: '12px 12px 0 0' }
-const logo = { color: '#ffffff', fontSize: '22px', fontWeight: '700' as const, margin: '0', textAlign: 'center' as const }
-const contentSection = { backgroundColor: '#ffffff', padding: '32px', borderRadius: '0 0 12px 12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }
-const heading = { color: '#1e3a5f', fontSize: '22px', fontWeight: '700' as const, margin: '0 0 12px' }
-const paragraph = { color: '#555', fontSize: '15px', lineHeight: '24px', margin: '0 0 20px' }
-const infoCard = { backgroundColor: '#f8fafc', borderRadius: '8px', padding: '20px', border: '1px solid #e2e8f0' }
-const infoLabel = { color: '#94a3b8', fontSize: '11px', fontWeight: '600' as const, textTransform: 'uppercase' as const, letterSpacing: '0.5px', margin: '12px 0 2px' }
-const infoValue = { color: '#1e293b', fontSize: '15px', fontWeight: '500' as const, margin: '0 0 4px' }
-const ctaSection = { textAlign: 'center' as const, marginTop: '24px' }
-const button = { backgroundColor: '#1e3a5f', color: '#ffffff', padding: '12px 32px', borderRadius: '8px', fontSize: '14px', fontWeight: '600' as const, textDecoration: 'none', display: 'inline-block' }
-const hr = { borderColor: '#e6ebf1', margin: '20px 0' }
-const footer = { color: '#8898aa', fontSize: '12px', textAlign: 'center' as const }
