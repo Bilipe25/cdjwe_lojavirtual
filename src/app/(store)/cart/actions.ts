@@ -52,17 +52,79 @@ export async function checkoutAction(
         return { error: 'Falha ao validar os preços originais do catálogo.' }
     }
 
+    // 3.1 Verify if Store has an active Price Table
+    const { data: storeTablePivot } = await supabase
+        .from('store_price_tables')
+        .select('price_table_id')
+        .eq('store_id', store.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+    let globalDiscount = 0
+    let customPricesMap: Record<string, number> = {}
+
+    if (storeTablePivot && storeTablePivot.price_table_id) {
+        const { data: priceTable } = await supabase
+            .from('price_tables')
+            .select('discount_percentage, valid_from, valid_until')
+            .eq('id', storeTablePivot.price_table_id)
+            .eq('is_active', true)
+            .single()
+            
+        if (priceTable) {
+            // Check Temporal Campaign Validity
+            const now = new Date()
+            const validFrom = priceTable.valid_from ? new Date(priceTable.valid_from) : null
+            const validUntil = priceTable.valid_until ? new Date(priceTable.valid_until) : null
+            
+            const isStarted = !validFrom || now >= validFrom
+            const isExpired = validUntil && now > validUntil
+            
+            if (isStarted && !isExpired) {
+                globalDiscount = priceTable.discount_percentage
+                
+                // Fetch potential overriding Custom Prices for these items
+                const { data: customItems } = await supabase
+                    .from('price_table_items')
+                    .select('product_variant_id, custom_price')
+                    .eq('price_table_id', storeTablePivot.price_table_id)
+                    .in('product_variant_id', variantIds)
+                    
+                if (customItems) {
+                    customItems.forEach(item => {
+                        customPricesMap[item.product_variant_id] = item.custom_price
+                    })
+                }
+            }
+        }
+    }
+
     let secureSubtotal = 0;
     const validatedItems = items.map(clientItem => {
         // Find the database variant
         const dbVariant = variantsData.find(v => v.id === clientItem.variantId)
         if (!dbVariant) throw new Error(`Produto não encontrado no sistema: ${clientItem.productName}`)
         
-        const basePrice = (dbVariant.product as any)?.base_price || 0
-        const fabricMod = (dbVariant.fabric as any)?.price_modifier || 0
+        // 1. Is there an absolute custom price mapped for this specific variant inside the Price Table?
+        const customPriceOverride = customPricesMap[clientItem.variantId]
         
-        // Exact same pricing logic applied to frontend, but enforced at the hardware level
-        const realUnitPrice = dbVariant.price_override ?? (basePrice + fabricMod)
+        let realUnitPrice = 0;
+
+        if (customPriceOverride !== undefined) {
+            // Absolute winner. If custom_price rule exists, it completely bypasses standard math
+            realUnitPrice = customPriceOverride;
+        } else {
+            // Standard Math calculation
+            const basePrice = (dbVariant.product as any)?.base_price || 0
+            const fabricMod = (dbVariant.fabric as any)?.price_modifier || 0
+            
+            const systemStandardPrice = dbVariant.price_override ?? (basePrice + fabricMod)
+            
+            // Apply Global Table Discount if applicable
+            realUnitPrice = systemStandardPrice * (1 - (globalDiscount / 100))
+        }
+
         const realSubtotal = realUnitPrice * clientItem.quantity
 
         secureSubtotal += realSubtotal

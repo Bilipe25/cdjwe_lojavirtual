@@ -135,6 +135,8 @@ export interface PriceTable {
   discount_percentage: number // desconto sobre preço base
   is_default: boolean
   is_active: boolean
+  valid_from: string | null
+  valid_until: string | null
   created_at: string
 }
 
