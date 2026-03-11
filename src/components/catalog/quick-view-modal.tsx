@@ -5,7 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-    X, Package, Eye, ShoppingCart, Check,
+    X, Package, Eye, ShoppingCart, Check, Search,
     ChevronLeft, ChevronRight, Minus, Plus
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -33,10 +33,12 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
     const [loading, setLoading] = useState(false)
 
     const [selectedFabric, setSelectedFabric] = useState<string | null>(null)
-    const [selectedColor, setSelectedColor] = useState<string | null>(null)
-    const [quantity, setQuantity] = useState(1)
+    const [quantities, setQuantities] = useState<Record<string, number>>({})
+    const [colorSearch, setColorSearch] = useState('')
     const [activeImageIndex, setActiveImageIndex] = useState(0)
     const [addingToCart, setAddingToCart] = useState(false)
+
+    const totalQuantity = Object.values(quantities).reduce((a, b) => a + b, 0)
 
     useEffect(() => {
         if (open && productId) {
@@ -48,8 +50,8 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
             setFabrics([])
             setVariants([])
             setSelectedFabric(null)
-            setSelectedColor(null)
-            setQuantity(1)
+            setQuantities({})
+            setColorSearch('')
             setActiveImageIndex(0)
         }
     }, [open, productId])
@@ -100,28 +102,38 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
 
     const selectedFabricObj = fabrics.find(f => f.id === selectedFabric)
 
-    const matchedVariant = variants.find(
-        (v: any) => v.fabric_id === selectedFabric && v.fabric_color_id === selectedColor
-    )
-
-    const displayPrice = (matchedVariant as any)?.price_override ?? 
-        ((product?.base_price ?? 0) + (selectedFabricObj?.price_modifier ?? 0))
+    const displayPrice = (product?.base_price ?? 0) + (selectedFabricObj?.price_modifier ?? 0)
 
     const handleAddToCart = () => {
-        if (!product || !selectedFabric || !selectedColor) return
+        if (!product || !selectedFabric) return
+        
+        const colorsToAdd = Object.entries(quantities).filter(([_, qty]) => qty > 0)
+        if (colorsToAdd.length === 0) return
+
         setAddingToCart(true)
-        addItem({
-            variantId: matchedVariant?.id || `${product.id}-${selectedFabric}-${selectedColor}`,
-            productId: product.id,
-            productName: product.name,
-            fabricName: selectedFabricObj?.name || '',
-            colorName: selectedFabricObj?.colors.find(c => c.id === selectedColor)?.name || '',
-            size: product.size,
-            imageUrl: images[0]?.url || null,
-            quantity,
-            unitPrice: displayPrice,
+        
+        colorsToAdd.forEach(([colorId, qty]) => {
+            const matchedVariant = variants.find(
+                (v: any) => v.fabric_id === selectedFabric && v.fabric_color_id === colorId
+            )
+            const colorObj = selectedFabricObj?.colors.find(c => c.id === colorId)
+            
+            const variantPrice = (matchedVariant as any)?.price_override ?? displayPrice
+
+            addItem({
+                variantId: matchedVariant?.id || `${product.id}-${selectedFabric}-${colorId}`,
+                productId: product.id,
+                productName: product.name,
+                fabricName: selectedFabricObj?.name || '',
+                colorName: colorObj?.name || '',
+                size: product.size,
+                imageUrl: images[0]?.url || null,
+                quantity: qty,
+                unitPrice: variantPrice,
+            })
         })
-        toast.success('Adicionado ao carrinho!')
+        
+        toast.success(`${totalQuantity} itens adicionados ao carrinho!`)
         setTimeout(() => {
             setAddingToCart(false)
             onClose()
@@ -131,7 +143,7 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
 
     return (
         <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-            <DialogContent className="max-w-4xl sm:max-w-4xl w-[95vw] max-h-[90vh] overflow-hidden p-0 flex flex-col">
+            <DialogContent showCloseButton={false} className="max-w-4xl sm:max-w-4xl w-[95vw] max-h-[90vh] overflow-hidden p-0 flex flex-col">
                 {loading || !product ? (
                     <div className="flex items-center justify-center py-20">
                         <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -177,114 +189,171 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
                             )}
                         </div>
 
-                        {/* Details */}
-                        <div className="p-6 md:p-8 flex flex-col h-full overflow-y-auto">
-                            <DialogHeader className="mb-4">
-                                <DialogTitle className="text-2xl font-bold font-heading text-gradient-navy leading-tight">
-                                    {product.name}
-                                </DialogTitle>
-                            </DialogHeader>
+                        {/* Details - Fixed Container */}
+                        <div className="flex flex-col h-full bg-white relative max-h-[90vh] overflow-hidden">
+                            <button
+                                onClick={onClose}
+                                className="absolute top-4 right-4 z-50 p-2 rounded-full bg-white/50 hover:bg-muted transition-colors"
+                                aria-label="Fechar"
+                            >
+                                <X className="h-5 w-5 text-muted-foreground" />
+                            </button>
 
-                            {product.size && (
-                                <p className="text-xs text-muted-foreground mb-1">{product.size}</p>
-                            )}
-                            {product.description && (
-                                <p className="text-sm text-muted-foreground line-clamp-3 mb-4">{product.description}</p>
-                            )}
+                            {/* Static Header Area */}
+                            <div className="p-6 md:p-8 pb-4 shrink-0 shadow-sm z-10 pr-14">
+                                <DialogHeader className="mb-4">
+                                    <DialogTitle className="text-2xl font-bold font-heading text-gradient-navy leading-tight">
+                                        {product.name}
+                                    </DialogTitle>
+                                </DialogHeader>
 
-                            {/* Price */}
-                            <div className="mb-4">
-                                <p className="text-2xl font-bold text-gradient-bronze">
-                                    R$ {displayPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                </p>
+                                {product.size && (
+                                    <p className="text-xs text-muted-foreground mb-1">{product.size}</p>
+                                )}
+                                {product.description && (
+                                    <p className="text-sm text-muted-foreground line-clamp-3 mb-4">{product.description}</p>
+                                )}
+
+                                {/* Price */}
+                                <div className="mb-4">
+                                    <p className="text-2xl font-bold text-gradient-bronze">
+                                        R$ {displayPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </p>
+                                </div>
+
+                                {/* Fabric Selection */}
+                                {fabrics.length > 0 && (
+                                    <div className="mb-0">
+                                        <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Tecido</label>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {fabrics.map(f => (
+                                                <button
+                                                    key={f.id}
+                                                    onClick={() => { setSelectedFabric(f.id); setQuantities({}) }}
+                                                    className={`px-2.5 py-1 rounded-full text-xs border transition-all ${
+                                                        selectedFabric === f.id
+                                                            ? 'border-primary bg-primary/10 text-primary font-medium'
+                                                            : 'border-border hover:border-primary/50'
+                                                    }`}
+                                                >
+                                                    {f.name}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
-                            {/* Fabric Selection */}
-                            {fabrics.length > 0 && (
-                                <div className="mb-3">
-                                    <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Tecido</label>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {fabrics.map(f => (
-                                            <button
-                                                key={f.id}
-                                                onClick={() => { setSelectedFabric(f.id); setSelectedColor(null) }}
-                                                className={`px-2.5 py-1 rounded-full text-xs border transition-all ${
-                                                    selectedFabric === f.id
-                                                        ? 'border-primary bg-primary/10 text-primary font-medium'
-                                                        : 'border-border hover:border-primary/50'
-                                                }`}
-                                            >
-                                                {f.name}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Color Selection */}
-                            {selectedFabricObj && selectedFabricObj.colors.length > 0 && (
-                                <div className="mb-4">
-                                    <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Cor</label>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {selectedFabricObj.colors.map(color => (
-                                            <button
-                                                key={color.id}
-                                                onClick={() => setSelectedColor(color.id)}
-                                                className={`flex items-center gap-2 pr-3 pl-1.5 py-1.5 rounded-full border transition-all ${
-                                                    selectedColor === color.id
-                                                        ? 'border-primary bg-primary/5 shadow-sm'
-                                                        : 'border-border hover:border-primary/50 hover:bg-muted/50'
-                                                }`}
-                                            >
-                                                <div 
-                                                    className="h-6 w-6 rounded-full flex items-center justify-center border border-black/10 shadow-inner shrink-0 overflow-hidden"
-                                                    style={{
-                                                        backgroundColor: color.hex_code || '#e5e7eb',
-                                                        ...(color.image_url ? { backgroundImage: `url(${color.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
-                                                    }}
+                            {/* Scrollable Colors Area */}
+                            <div className="flex-1 overflow-y-auto p-6 md:p-8 pt-2 pb-2">
+                                {/* Color Selection with Quantities */}
+                                {selectedFabricObj && selectedFabricObj.colors.length > 0 && (
+                                    <div className="flex flex-col min-h-0 h-full">
+                                        <div className="flex items-center justify-between mb-3 shrink-0">
+                                            <label className="text-xs font-medium text-muted-foreground">Cores e Quantidades</label>
+                                            {totalQuantity > 0 && (
+                                                <button 
+                                                    onClick={() => setQuantities({})}
+                                                    className="text-[10px] text-muted-foreground hover:text-destructive underline"
                                                 >
-                                                    {selectedColor === color.id && (
-                                                        <Check className="h-3.5 w-3.5 text-white drop-shadow-md mix-blend-difference" />
-                                                    )}
-                                                </div>
-                                                <span className={`text-xs ${selectedColor === color.id ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
-                                                    {color.name}
-                                                </span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                                                    Zerar quantidades
+                                                </button>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="relative mb-3 shrink-0">
+                                            <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                                                <Search className="h-4 w-4 text-muted-foreground" />
+                                            </div>
+                                            <input
+                                                type="text"
+                                                placeholder="Buscar cor..."
+                                                value={colorSearch}
+                                                onChange={(e) => setColorSearch(e.target.value)}
+                                                className="w-full h-9 pl-9 pr-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                            />
+                                            {colorSearch && (
+                                                <button
+                                                    onClick={() => setColorSearch('')}
+                                                    className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-muted-foreground hover:text-foreground"
+                                                >
+                                                    <X className="h-3.5 w-3.5" />
+                                                </button>
+                                            )}
+                                        </div>
 
-                            {/* Quantity + Add */}
-                            <div className="flex items-center gap-3 mt-8 pt-4 border-t">
-                                <div className="flex items-center gap-1 border rounded-lg p-1">
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setQuantity(Math.max(1, quantity - 1))}>
-                                        <Minus className="h-3 w-3" />
-                                    </Button>
-                                    <span className="w-8 text-center text-sm font-medium">{quantity}</span>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setQuantity(quantity + 1)}>
-                                        <Plus className="h-3 w-3" />
-                                    </Button>
-                                </div>
+                                        <div className="flex flex-col gap-2 flex-1">
+                                            {selectedFabricObj.colors
+                                                .filter(color => color.name.toLowerCase().includes(colorSearch.toLowerCase()))
+                                                .map(color => {
+                                                const qty = quantities[color.id] || 0;
+                                                return (
+                                                    <div key={color.id} className={`flex items-center justify-between p-2 rounded-lg border transition-colors shrink-0 ${qty > 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
+                                                        <div className="flex items-center gap-3">
+                                                            <div 
+                                                                className="h-8 w-8 rounded-full flex items-center justify-center border border-black/10 shadow-inner shrink-0 overflow-hidden"
+                                                                style={{
+                                                                    backgroundColor: color.hex_code || '#e5e7eb',
+                                                                    ...(color.image_url ? { backgroundImage: `url(${color.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
+                                                                }}
+                                                            >
+                                                                {qty > 0 && (
+                                                                    <Check className="h-4 w-4 text-white drop-shadow-md mix-blend-difference" />
+                                                                )}
+                                                            </div>
+                                                            <span className={`text-sm ${qty > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
+                                                                {color.name}
+                                                            </span>
+                                                        </div>
+                                                        
+                                                        <div className="flex items-center gap-1 border rounded-lg p-1 bg-white">
+                                                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setQuantities(prev => ({...prev, [color.id]: Math.max(0, qty - 1)}))}>
+                                                                <Minus className="h-3 w-3" />
+                                                            </Button>
+                                                            <span className="w-8 text-center text-sm font-medium">{qty === 0 ? '-' : qty}</span>
+                                                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setQuantities(prev => ({...prev, [color.id]: qty + 1}))}>
+                                                                <Plus className="h-3 w-3" />
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })}
+                                            {selectedFabricObj.colors.filter(color => color.name.toLowerCase().includes(colorSearch.toLowerCase())).length === 0 && (
+                                                <div className="text-center py-4 text-sm text-muted-foreground">
+                                                    Nenhuma cor encontrada com "{colorSearch}"
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Actions (Sticky at bottom) */}
+                            <div className="p-4 md:p-5 pt-3 border-t bg-white mt-auto shrink-0 shadow-[0_-8px_15px_-5px_rgba(0,0,0,0.05)] z-10">
                                 <Button
-                                    className="flex-1 gradient-bronze border-0 text-white gap-2"
-                                    disabled={!selectedFabric || !selectedColor || addingToCart}
+                                    className="w-full gradient-bronze border-0 text-white gap-2 h-10 shadow-md"
+                                    disabled={!selectedFabric || totalQuantity === 0 || addingToCart}
                                     onClick={handleAddToCart}
                                 >
                                     <ShoppingCart className="h-4 w-4" />
-                                    {!selectedFabric ? 'Selecione tecido' : !selectedColor ? 'Selecione cor' : 'Adicionar ao Carrinho'}
+                                    {!selectedFabric 
+                                        ? 'Selecione um tecido' : 
+                                        totalQuantity === 0 
+                                        ? 'Selecione as quantidades' : 
+                                        `Adicionar ${totalQuantity} itens ao Carrinho`}
                                 </Button>
-                            </div>
 
-                            {/* View full page link */}
-                            <Link
-                                href={`/catalog/${product.id}`}
-                                className="text-sm text-center text-muted-foreground hover:text-primary mt-4 transition-colors font-medium border-t pt-4"
-                                onClick={onClose}
-                            >
-                                Mais Detalhes do Produto →
-                            </Link>
+                                {/* View full page link */}
+                                <div className="mt-2 text-center">
+                                    <Link
+                                        href={`/catalog/${product.id}`}
+                                        className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium"
+                                        onClick={onClose}
+                                    >
+                                        Mais Detalhes do Produto →
+                                    </Link>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
