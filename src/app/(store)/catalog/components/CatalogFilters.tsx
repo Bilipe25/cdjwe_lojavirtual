@@ -1,5 +1,6 @@
 import React from 'react'
 import { Separator } from '@/components/ui/separator'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { Category, Fabric } from '@/lib/types'
 
 interface CatalogFiltersProps {
@@ -7,6 +8,8 @@ interface CatalogFiltersProps {
     fabrics: Fabric[]
     selectedCategory: string
     selectedFabric: string
+    sortBy: string
+    onSortChange: (value: string) => void
     onCategoryChange: (id: string) => void
     onFabricChange: (id: string) => void
 }
@@ -16,11 +19,33 @@ export function CatalogFilters({
     fabrics,
     selectedCategory,
     selectedFabric,
+    sortBy,
+    onSortChange,
     onCategoryChange,
     onFabricChange
 }: CatalogFiltersProps) {
     return (
         <div className="space-y-6">
+            {/* Sort */}
+            <div>
+                <h3 className="text-sm font-semibold mb-3">Classificar por</h3>
+                <Select value={sortBy} onValueChange={(val) => {
+                    if (val) onSortChange(val)
+                }}>
+                    <SelectTrigger className="w-full h-10 bg-white/60">
+                        <SelectValue placeholder="Ordenar por" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="name">Nome (A-Z)</SelectItem>
+                        <SelectItem value="price_asc">Menor preço</SelectItem>
+                        <SelectItem value="price_desc">Maior preço</SelectItem>
+                        <SelectItem value="newest">Mais recentes</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+
+            <Separator />
+
             {/* Categories */}
             <div>
                 <h3 className="text-sm font-semibold mb-3">Categorias</h3>
