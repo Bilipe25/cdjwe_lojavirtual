@@ -129,19 +129,33 @@ export default function CartPage() {
 
     return (
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-            {/* Header */}
-            <div className="flex items-center gap-4 mb-6">
-                <Button variant="ghost" size="icon" onClick={() => router.back()}>
-                    <ArrowLeft className="h-5 w-5" />
-                </Button>
-                <div>
-                    <h1 className="text-2xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
-                        Carrinho
-                    </h1>
-                    <p className="text-sm text-muted-foreground">
-                        {count} {count === 1 ? 'item' : 'itens'}
-                    </p>
+            <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-4">
+                    <Button variant="ghost" size="icon" onClick={() => router.back()}>
+                        <ArrowLeft className="h-5 w-5" />
+                    </Button>
+                    <div>
+                        <h1 className="text-2xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
+                            Carrinho
+                        </h1>
+                        <p className="text-sm text-muted-foreground">
+                            {count} {count === 1 ? 'item' : 'itens'}
+                        </p>
+                    </div>
                 </div>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
+                    onClick={() => {
+                        if (window.confirm('Tem certeza que deseja esvaziar o carrinho?')) {
+                            clearCart()
+                        }
+                    }}
+                >
+                    <Trash2 className="h-4 w-4" />
+                    Limpar
+                </Button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">

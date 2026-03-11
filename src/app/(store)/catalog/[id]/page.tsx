@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -43,6 +43,25 @@ export default function ProductDetailPage() {
     const [selectedColor, setSelectedColor] = useState<string | null>(null)
     const [quantity, setQuantity] = useState(1)
     const [activeImageIndex, setActiveImageIndex] = useState(0)
+
+    // Touch swipe support for image gallery
+    const touchStartX = useRef<number | null>(null)
+    const handleTouchStart = (e: React.TouchEvent) => {
+        touchStartX.current = e.touches[0].clientX
+    }
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (touchStartX.current === null || displayImages.length <= 1) return
+        const diff = touchStartX.current - e.changedTouches[0].clientX
+        const threshold = 50
+        if (diff > threshold) {
+            // Swipe left → next image
+            setActiveImageIndex(prev => prev === displayImages.length - 1 ? 0 : prev + 1)
+        } else if (diff < -threshold) {
+            // Swipe right → previous image
+            setActiveImageIndex(prev => prev === 0 ? displayImages.length - 1 : prev - 1)
+        }
+        touchStartX.current = null
+    }
 
     useEffect(() => {
         loadProduct()
@@ -213,7 +232,9 @@ export default function ProductDetailPage() {
                         key={displayImages[activeImageIndex]?.url}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
-                        className="relative aspect-square rounded-2xl overflow-hidden bg-muted glass-card"
+                        className="relative aspect-square rounded-2xl overflow-hidden bg-muted glass-card touch-pan-y"
+                        onTouchStart={handleTouchStart}
+                        onTouchEnd={handleTouchEnd}
                     >
                         {displayImages.length > 0 ? (
                             <Image
