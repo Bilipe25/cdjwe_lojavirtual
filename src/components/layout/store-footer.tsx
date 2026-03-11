@@ -36,12 +36,13 @@ export function StoreFooter() {
                     <div className="sm:col-span-2 lg:col-span-1">
                         <div className="flex items-center gap-2.5 mb-3">
                             {settings?.logo_url ? (
-                                <div className="h-9 w-9 rounded-lg overflow-hidden shrink-0 relative">
+                                <div className="h-10 w-32 shrink-0 relative">
                                     <Image
+                                        priority
                                         src={settings.logo_url}
                                         alt={companyName}
                                         fill
-                                        className="object-contain"
+                                        className="object-contain object-left"
                                     />
                                 </div>
                             ) : (

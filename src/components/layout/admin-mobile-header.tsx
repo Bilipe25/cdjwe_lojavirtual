@@ -15,12 +15,14 @@ import {
     CreditCard,
     BarChart3,
 } from 'lucide-react'
+import Image from 'next/image'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 import { logoutAction } from '@/app/(auth)/login/actions'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 const adminNavItems = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -38,6 +40,16 @@ export function AdminMobileHeader() {
     const pathname = usePathname()
     const router = useRouter()
     const [open, setOpen] = useState(false)
+    const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
+
+    useEffect(() => {
+        const loadSettings = async () => {
+            const supabase = createClient()
+            const { data } = await supabase.from('system_settings').select('logo_url, system_name').limit(1).single()
+            if (data) setSettings(data)
+        }
+        loadSettings()
+    }, [])
 
     const handleLogout = async () => {
         await logoutAction()
@@ -56,12 +68,22 @@ export function AdminMobileHeader() {
                 <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground">
                     <div className="flex flex-col h-full">
                         {/* Logo */}
-                        <div className="flex items-center gap-2 px-4 h-16 border-b border-sidebar-border">
-                            <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center">
-                                <span className="text-white font-bold text-sm">CJ</span>
-                            </div>
-                            <div className="flex flex-col">
-                                <span className="text-sm font-semibold font-[family-name:var(--font-heading)]">CDJWE</span>
+                        <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border">
+                            {settings?.logo_url ? (
+                                <div className="h-10 w-24 shrink-0 relative">
+                                    <Image priority src={settings.logo_url} alt={settings.system_name || 'Admin'} fill className="object-contain object-left" />
+                                </div>
+                            ) : (
+                                <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center shrink-0">
+                                    <span className="text-white font-bold text-sm">
+                                        {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
+                                    </span>
+                                </div>
+                            )}
+                            <div className="flex flex-col overflow-hidden">
+                                <span className="text-sm font-semibold font-heading truncate">
+                                    {settings?.system_name || 'CDJWE'}
+                                </span>
                                 <span className="text-[10px] text-sidebar-foreground/60">Painel Admin</span>
                             </div>
                         </div>
@@ -102,13 +124,21 @@ export function AdminMobileHeader() {
                 </SheetContent>
             </Sheet>
 
-            <span className="font-semibold font-[family-name:var(--font-heading)] text-sm">
+            <span className="font-semibold font-heading text-sm">
                 {activeItem?.label || 'Admin'}
             </span>
 
-            <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center">
-                <span className="text-white font-bold text-xs">CJ</span>
-            </div>
+            {settings?.logo_url ? (
+                <div className="h-8 w-8 relative shrink-0">
+                    <Image priority src={settings.logo_url} alt={settings.system_name || 'Admin'} fill className="object-contain" />
+                </div>
+            ) : (
+                <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center">
+                    <span className="text-white font-bold text-xs">
+                        {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
+                    </span>
+                </div>
+            )}
         </header>
     )
 }

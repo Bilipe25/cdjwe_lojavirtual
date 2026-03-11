@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, LogIn, Loader2 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,6 +21,18 @@ export default function LoginPage() {
     const router = useRouter()
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
+    const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
+
+    useEffect(() => {
+        const loadSettings = async () => {
+            try {
+                const supabase = createClient()
+                const { data } = await supabase.from('system_settings').select('logo_url, system_name').limit(1).single()
+                if (data) setSettings(data)
+            } catch { /* silent */ }
+        }
+        loadSettings()
+    }, [])
 
     const form = useForm<LoginFormData>({
         resolver: zodResolver(loginSchema) as any,
@@ -67,13 +81,23 @@ export default function LoginPage() {
                         initial={{ scale: 0.8 }}
                         animate={{ scale: 1 }}
                         transition={{ delay: 0.2, type: 'spring' }}
-                        className="mx-auto h-16 w-16 rounded-2xl gradient-bronze flex items-center justify-center shadow-lg"
+                        className="mx-auto flex justify-center w-full"
                     >
-                        <span className="text-white font-bold text-2xl font-heading">CJ</span>
+                        {settings?.logo_url ? (
+                            <div className="h-16 w-48 relative shrink-0">
+                                <Image priority src={settings.logo_url} alt={settings.system_name || 'Login'} fill className="object-contain object-center" />
+                            </div>
+                        ) : (
+                            <div className="h-16 w-16 rounded-2xl gradient-bronze flex items-center justify-center shadow-lg shrink-0">
+                                <span className="text-white font-bold text-2xl font-heading">
+                                    {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
+                                </span>
+                            </div>
+                        )}
                     </motion.div>
                     <div>
                         <CardTitle className="text-2xl font-bold font-heading text-gradient-navy">
-                            CDJWE Estofados
+                            {settings?.system_name || 'CDJWE Estofados'}
                         </CardTitle>
                         <CardDescription className="mt-1">
                             Portal B2B — Acesse sua conta

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, UserPlus, Loader2, Building2, MapPin, Phone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,16 @@ export default function RegisterPage() {
     const [step, setStep] = useState(1) // 1 = personal, 2 = company
     const [loading, setLoading] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
+    const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
+
+    useEffect(() => {
+        const load = async () => {
+            const supabase = createClient()
+            const { data } = await supabase.from('system_settings').select('logo_url, system_name').limit(1).single()
+            if (data) setSettings(data)
+        }
+        load()
+    }, [])
 
     // Step 1 — Personal
     const [fullName, setFullName] = useState('')
@@ -127,13 +138,23 @@ export default function RegisterPage() {
                         initial={{ scale: 0.8 }}
                         animate={{ scale: 1 }}
                         transition={{ delay: 0.2, type: 'spring' }}
-                        className="mx-auto h-16 w-16 rounded-2xl gradient-bronze flex items-center justify-center shadow-lg"
+                        className="mx-auto flex justify-center w-full"
                     >
-                        <span className="text-white font-bold text-2xl font-[family-name:var(--font-heading)]">CJ</span>
+                        {settings?.logo_url ? (
+                            <div className="h-16 w-48 relative shrink-0">
+                                <Image priority src={settings.logo_url} alt={settings.system_name || 'Register'} fill className="object-contain object-center" />
+                            </div>
+                        ) : (
+                            <div className="h-16 w-16 rounded-2xl gradient-bronze flex items-center justify-center shadow-lg shrink-0">
+                                <span className="text-white font-bold text-2xl font-heading">
+                                    {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
+                                </span>
+                            </div>
+                        )}
                     </motion.div>
                     <div>
-                        <CardTitle className="text-2xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
-                            Criar Conta
+                        <CardTitle className="text-2xl font-bold font-heading text-gradient-navy">
+                            {settings?.system_name || 'Criar Conta'}
                         </CardTitle>
                         <CardDescription className="mt-1">
                             {step === 1 ? 'Dados pessoais' : 'Dados da empresa'}

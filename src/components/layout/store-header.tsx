@@ -324,11 +324,21 @@ export function StoreHeader() {
                             <SheetContent side="right" className="w-72 p-0">
                                 <div className="flex flex-col h-full">
                                     <div className="p-4 border-b">
-                                        <div className="flex items-center gap-2">
-                                            <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center">
-                                                <span className="text-white font-bold text-sm">CJ</span>
-                                            </div>
-                                            <span className="text-lg font-semibold font-[family-name:var(--font-heading)]">CDJWE</span>
+                                        <div className="flex items-center gap-3">
+                                            {settings?.logo_url ? (
+                                                <div className="h-10 w-24 shrink-0 relative">
+                                                    <Image priority src={settings.logo_url} alt={settings.system_name || 'Loja'} fill className="object-contain object-left" />
+                                                </div>
+                                            ) : (
+                                                <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center">
+                                                    <span className="text-white font-bold text-sm font-heading">
+                                                        {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <span className="text-lg font-semibold font-heading text-gradient-navy truncate max-w-[150px]">
+                                                {settings?.system_name || 'CDJWE'}
+                                            </span>
                                         </div>
                                     </div>
 

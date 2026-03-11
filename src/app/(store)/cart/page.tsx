@@ -267,7 +267,13 @@ export default function CartPage() {
                                 <Label>Condição de Pagamento</Label>
                                 <Select value={selectedPayment} onValueChange={(v: any) => setSelectedPayment(v)}>
                                     <SelectTrigger className="bg-white/60">
-                                        <SelectValue placeholder="Selecione" />
+                                        <SelectValue placeholder="Selecione">
+                                            {selectedCondition ? (
+                                                `${selectedCondition.name}${selectedCondition.discount_percentage > 0 ? ` (-${selectedCondition.discount_percentage}%)` : ''}`
+                                            ) : (
+                                                "Selecione"
+                                            )}
+                                        </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
                                         {paymentConditions.map((pc) => (

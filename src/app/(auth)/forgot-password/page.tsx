@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Mail, Loader2, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,16 @@ export default function ForgotPasswordPage() {
     const [email, setEmail] = useState('')
     const [loading, setLoading] = useState(false)
     const [sent, setSent] = useState(false)
+    const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
+
+    useEffect(() => {
+        const load = async () => {
+            const supabase = createClient()
+            const { data } = await supabase.from('system_settings').select('logo_url, system_name').limit(1).single()
+            if (data) setSettings(data)
+        }
+        load()
+    }, [])
 
     const handleReset = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -56,17 +67,25 @@ export default function ForgotPasswordPage() {
                         initial={{ scale: 0.8 }}
                         animate={{ scale: 1 }}
                         transition={{ delay: 0.2, type: 'spring' }}
-                        className="mx-auto h-16 w-16 rounded-2xl gradient-bronze flex items-center justify-center shadow-lg"
+                        className="mx-auto flex justify-center w-full"
                     >
                         {sent ? (
-                            <CheckCircle className="text-white h-8 w-8" />
+                            <div className="h-16 w-16 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg shrink-0">
+                                <CheckCircle className="text-white h-8 w-8" />
+                            </div>
+                        ) : settings?.logo_url ? (
+                            <div className="h-16 w-48 relative shrink-0">
+                                <Image priority src={settings.logo_url} alt={settings.system_name || 'Auth'} fill className="object-contain object-center" />
+                            </div>
                         ) : (
-                            <Mail className="text-white h-8 w-8" />
+                            <div className="h-16 w-16 rounded-2xl gradient-bronze flex items-center justify-center shadow-lg shrink-0">
+                                <Mail className="text-white h-8 w-8" />
+                            </div>
                         )}
                     </motion.div>
                     <div>
-                        <CardTitle className="text-2xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
-                            {sent ? 'Email Enviado!' : 'Recuperar Senha'}
+                        <CardTitle className="text-2xl font-bold font-heading text-gradient-navy">
+                            {sent ? 'Email Enviado!' : (settings?.system_name || 'Recuperar Senha')}
                         </CardTitle>
                         <CardDescription className="mt-1">
                             {sent
