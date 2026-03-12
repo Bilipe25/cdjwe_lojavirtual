@@ -1,9 +1,21 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Heart, Trash2, Package } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { ProductGridSkeleton } from '@/components/ui/skeletons'
 import { createClient } from '@/lib/supabase/client'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
@@ -12,6 +24,7 @@ import { QuickViewModal } from '@/components/catalog/quick-view-modal'
 import type { Product } from '@/lib/types'
 
 export default function FavoritesPage() {
+    const router = useRouter()
     const { favoriteIds, clear } = useFavoritesStore()
     const [products, setProducts] = useState<(Product & { images: { url: string; is_primary: boolean }[]; category: { name: string } })[]>([])
     const [loading, setLoading] = useState(true)
@@ -42,7 +55,7 @@ export default function FavoritesPage() {
     return (
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
             <div className="flex items-center justify-between mb-6">
-                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="hidden md:block">
                     <h1 className="text-2xl font-bold font-heading text-gradient-navy flex items-center gap-2">
                         <Heart className="h-6 w-6 text-red-500 fill-red-500" />
                         Favoritos
@@ -51,18 +64,48 @@ export default function FavoritesPage() {
                         {favoriteIds.length} {favoriteIds.length === 1 ? 'produto salvo' : 'produtos salvos'}
                     </p>
                 </motion.div>
+                
+                {/* Mobile simplified info - only shown if items exist and on sm-md */}
                 {favoriteIds.length > 0 && (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
-                        onClick={() => {
-                            if (window.confirm('Remover todos os favoritos?')) clear()
-                        }}
-                    >
-                        <Trash2 className="h-4 w-4" />
-                        Limpar
-                    </Button>
+                    <div className="md:hidden">
+                        <p className="text-xs text-muted-foreground font-medium">
+                            {favoriteIds.length} {favoriteIds.length === 1 ? 'item salvo' : 'itens salvos'}
+                        </p>
+                    </div>
+                )}
+
+                {favoriteIds.length > 0 && (
+                    <AlertDialog>
+                        <AlertDialogTrigger 
+                            render={
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5 h-8 px-3 rounded-full md:h-9 md:px-4"
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                    Limpar
+                                </Button>
+                            }
+                        />
+                        <AlertDialogContent className="w-[90vw] max-w-[400px] rounded-2xl">
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Remover todos os favoritos?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Esta ação irá remover permanentemente todos os produtos da sua lista de favoritos.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter className="flex-row gap-2">
+                                <AlertDialogCancel className="flex-1 mt-0 rounded-xl">Cancelar</AlertDialogCancel>
+                                <AlertDialogAction 
+                                    onClick={clear}
+                                    className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl"
+                                >
+                                    Limpar Tudo
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                 )}
             </div>
 
@@ -78,14 +121,14 @@ export default function FavoritesPage() {
                         Clique no coração dos produtos para salvar aqui.
                     </p>
                     <Button
-                        className="gradient-bronze border-0 text-white"
-                        onClick={() => window.location.href = '/catalog'}
+                        className="gradient-bronze border-0 text-white h-11 px-8 rounded-xl shadow-lg shadow-bronze/10"
+                        onClick={() => router.push('/catalog')}
                     >
                         Ver Catálogo
                     </Button>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
                     {products.map((product, i) => (
                         <motion.div
                             key={product.id}

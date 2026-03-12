@@ -58,26 +58,33 @@ export default function CartPage() {
     const [notes, setNotes] = useState('')
     const [settings, setSettings] = useState<SystemSettings | null>(null)
     const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
+    const [nextOrderNumber, setNextOrderNumber] = useState('')
 
     const total = subtotal()
     const count = totalItems()
 
     useEffect(() => {
+        const loadData = async () => {
+            const supabase = createClient()
+            const [payRes, settingsRes, orderRes] = await Promise.all([
+                supabase.from('payment_conditions').select('*').eq('is_active', true).order('sort_order'),
+                supabase.from('system_settings').select('*').limit(1).single(),
+                supabase.from('orders').select('order_number').order('created_at', { ascending: false }).limit(1).single()
+            ])
+            if (payRes.data) {
+                setPaymentConditions(payRes.data)
+                if (payRes.data.length > 0) setSelectedPayment(payRes.data[0].id)
+            }
+            if (settingsRes.data) setSettings(settingsRes.data)
+            
+            // Calculate next order number
+            const lastNumStr = orderRes.data?.order_number || 'PED000000'
+            const lastNum = parseInt(lastNumStr.replace(/\D/g, '')) || 0
+            const nextNum = (lastNum + 1).toString().padStart(6, '0')
+            setNextOrderNumber(`Pedido${nextNum}`)
+        }
         loadData()
     }, [])
-
-    const loadData = async () => {
-        const supabase = createClient()
-        const [payRes, settingsRes] = await Promise.all([
-            supabase.from('payment_conditions').select('*').eq('is_active', true).order('sort_order'),
-            supabase.from('system_settings').select('*').limit(1).single(),
-        ])
-        if (payRes.data) {
-            setPaymentConditions(payRes.data)
-            if (payRes.data.length > 0) setSelectedPayment(payRes.data[0].id)
-        }
-        if (settingsRes.data) setSettings(settingsRes.data)
-    }
 
     const selectedCondition = paymentConditions.find(p => p.id === selectedPayment)
     const paymentDiscount = selectedCondition ? (total * selectedCondition.discount_percentage / 100) : 0
@@ -138,7 +145,7 @@ export default function CartPage() {
                     <div className="mx-auto h-24 w-24 rounded-full bg-muted flex items-center justify-center mb-4">
                         <ShoppingBag className="h-10 w-10 text-muted-foreground" />
                     </div>
-                    <h1 className="text-2xl font-bold font-[family-name:var(--font-heading)]">
+                    <h1 className="text-2xl font-bold font-[--font-heading]">
                         Carrinho Vazio
                     </h1>
                     <p className="text-muted-foreground mt-2">
@@ -157,14 +164,47 @@ export default function CartPage() {
 
     return (
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-            <div className="flex items-center justify-between mb-6">
+            {/* Mobile Header (Simplified) */}
+            <div className="flex md:hidden items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => router.push('/catalog')}>
+                        <ArrowLeft className="h-5 w-5" />
+                    </Button>
+                    <h1 className="text-xl font-bold font-heading">Seu Carrinho</h1>
+                </div>
+                <AlertDialog>
+                    <AlertDialogTrigger
+                        render={
+                            <Button variant="ghost" size="sm" className="text-destructive h-8 px-2 rounded-lg">
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                <span className="text-xs">Limpar</span>
+                            </Button>
+                        }
+                    />
+                    <AlertDialogContent className="w-[90vw] max-w-[400px] rounded-2xl">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Esvaziar carrinho?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Todos os itens serão removidos.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="flex-row gap-2">
+                            <AlertDialogCancel className="flex-1 mt-0">Voltar</AlertDialogCancel>
+                            <AlertDialogAction onClick={clearCart} className="flex-1 bg-destructive text-white">Limpar</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            </div>
+
+            {/* Desktop Header */}
+            <div className="hidden md:flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="icon" onClick={() => router.back()}>
                         <ArrowLeft className="h-5 w-5" />
                     </Button>
                     <div>
-                        <h1 className="text-2xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
-                            Carrinho
+                        <h1 className="text-2xl font-bold font-[--font-heading] text-gradient-navy">
+                            {nextOrderNumber || 'Carrinho'}
                         </h1>
                         <p className="text-sm text-muted-foreground">
                             {count} {count === 1 ? 'item' : 'itens'}
@@ -172,16 +212,18 @@ export default function CartPage() {
                     </div>
                 </div>
                 <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
-                        >
-                            <Trash2 className="h-4 w-4" />
-                            Limpar
-                        </Button>
-                    </AlertDialogTrigger>
+                    <AlertDialogTrigger
+                        render={
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                                Limpar
+                            </Button>
+                        }
+                    />
                     <AlertDialogContent>
                         <AlertDialogHeader>
                             <AlertDialogTitle>Esvaziar carrinho</AlertDialogTitle>
@@ -202,15 +244,15 @@ export default function CartPage() {
                 </AlertDialog>
             </div>
 
-            {/* Min order progress bar */}
+            {/* Min order progress bar (Sticky on Mobile) */}
             {settings && settings.min_order_amount > 0 && total < settings.min_order_amount && (
-                <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 shadow-sm">
                     <div className="flex items-center justify-between text-sm mb-2">
-                        <span className="text-amber-800 font-medium flex items-center gap-1.5">
-                            <AlertCircle className="h-4 w-4" />
+                        <span className="text-amber-800 font-bold flex items-center gap-1.5 uppercase tracking-tight text-[10px] sm:text-xs">
+                            <AlertCircle className="h-3.5 w-3.5" />
                             Pedido mínimo: R$ {settings.min_order_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
-                        <span className="text-amber-600 text-xs">
+                        <span className="text-amber-600 text-[10px] font-medium">
                             Faltam R$ {(settings.min_order_amount - total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
                     </div>
@@ -300,7 +342,7 @@ export default function CartPage() {
                 <div className="space-y-4">
                     <Card className="glass-card border-0 sticky top-24">
                         <CardHeader>
-                            <CardTitle className="text-lg font-[family-name:var(--font-heading)]">
+                            <CardTitle className="text-lg font-[--font-heading]">
                                 Resumo do Pedido
                             </CardTitle>
                         </CardHeader>
@@ -422,19 +464,19 @@ export default function CartPage() {
                             Revise o resumo do seu pedido antes de finalizar.
                         </DialogDescription>
                     </DialogHeader>
-                    
+
                     <div className="space-y-4 py-4">
                         <div className="rounded-lg bg-muted p-4 space-y-3">
                             <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Itens ({count})</span>
                                 <span>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                             </div>
-                            
+
                             <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Pagamento</span>
                                 <span className="font-medium text-right max-w-[150px] truncate">{selectedCondition?.name}</span>
                             </div>
-                            
+
                             {(paymentDiscount > 0 || paymentSurcharge > 0) && (
                                 <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">Ajuste de Pagamento</span>
@@ -447,7 +489,7 @@ export default function CartPage() {
                             )}
 
                             <Separator />
-                            
+
                             <div className="flex justify-between items-center">
                                 <span className="font-bold">Total a Pagar</span>
                                 <span className="text-xl font-bold text-gradient-bronze">

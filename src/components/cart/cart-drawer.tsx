@@ -38,7 +38,7 @@ export function CartDrawer() {
 
     return (
         <Sheet open={isOpen} onOpenChange={(open) => !open && closeCart()}>
-            <SheetContent className="w-full sm:max-w-md p-0 flex flex-col gap-0">
+            <SheetContent className="data-[side=right]:w-[90vw] sm:max-w-md p-0 flex flex-col gap-0 border-l border-border/30 shadow-2xl">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
                     <div className="flex items-center gap-2">

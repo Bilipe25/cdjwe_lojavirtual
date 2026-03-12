@@ -27,5 +27,5 @@ export default async function HomePage() {
     redirect('/blocked')
   }
 
-  redirect('/catalog')
+  redirect('/dashboard')
 }

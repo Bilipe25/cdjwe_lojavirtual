@@ -140,8 +140,8 @@ export default function OrderDetailPage() {
 
     return (
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-            {/* Back Button (Hidden on Print) */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 print:hidden gap-4">
+            {/* Back Button (Hidden on Print and Mobile) */}
+            <div className="hidden md:flex flex-col sm:flex-row sm:items-center justify-between mb-4 print:hidden gap-4">
                 <Button variant="ghost" className="gap-2 w-fit" onClick={() => router.push('/orders')}>
                     <ArrowLeft className="h-4 w-4" /> Meus Pedidos
                 </Button>
@@ -153,12 +153,14 @@ export default function OrderDetailPage() {
                     
                     {order.status === 'pending' && (
                         <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm" className="gap-2" disabled={cancelling}>
-                                    {cancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                                    Cancelar Pedido
-                                </Button>
-                            </AlertDialogTrigger>
+                            <AlertDialogTrigger
+                                render={
+                                    <Button variant="destructive" size="sm" className="gap-2" disabled={cancelling}>
+                                        {cancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                                        Cancelar Pedido
+                                    </Button>
+                                }
+                            />
                             <AlertDialogContent>
                                 <AlertDialogHeader>
                                     <AlertDialogTitle>Cancelar Pedido?</AlertDialogTitle>
@@ -182,11 +184,47 @@ export default function OrderDetailPage() {
                 </div>
             </div>
 
+            {/* Desktop Print/Action bar (Mobile version) */}
+            <div className="flex md:hidden items-center justify-end gap-2 mb-4 print:hidden">
+                <Button variant="outline" size="sm" className="h-8 text-[11px] px-3 gap-1.5 rounded-lg border-border/40" onClick={() => window.print()}>
+                    <Printer className="h-3.5 w-3.5" /> Imprimir
+                </Button>
+                {order.status === 'pending' && (
+                    <AlertDialog>
+                        <AlertDialogTrigger
+                            render={
+                                <Button variant="destructive" size="sm" className="h-8 text-[11px] px-3 gap-1.5 rounded-lg" disabled={cancelling}>
+                                    {cancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
+                                    Cancelar
+                                </Button>
+                            }
+                        />
+                        <AlertDialogContent className="w-[90vw] rounded-2xl">
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Cancelar Pedido?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Deseja cancelar o pedido {order.order_number}?
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel className="rounded-xl">Voltar</AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={handleCancelOrder}
+                                    className="bg-destructive text-white rounded-xl"
+                                >
+                                    Confirmar
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                )}
+            </div>
+
             {/* Header */}
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
-                        <h1 className="text-2xl font-bold font-heading text-gradient-navy">
+                        <h1 className="text-2xl font-bold font-heading text-gradient-navy hidden md:block">
                             Pedido {order.order_number}
                         </h1>
                         <p className="text-sm text-muted-foreground mt-0.5">

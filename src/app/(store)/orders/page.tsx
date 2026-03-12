@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { ClipboardList, Eye, Search, Filter, ChevronLeft, ChevronRight, RotateCcw, Loader2, Calendar } from 'lucide-react'
@@ -30,34 +31,30 @@ const statusConfig: Record<OrderStatus, { label: string; color: string }> = {
 }
 
 export default function OrdersPage() {
+    const searchParams = useSearchParams()
+    const router = useRouter()
     const [orders, setOrders] = useState<Order[]>([])
     const [loading, setLoading] = useState(true)
     
-    // Pagination & Filter States
-    const [statusFilter, setStatusFilter] = useState<string>('all')
-    const [dateFilter, setDateFilter] = useState<string>('all')
-    const [search, setSearch] = useState('')
-    const [debouncedSearch, setDebouncedSearch] = useState('')
+    // Pagination & Filter States from URL
+    const statusFilter = searchParams.get('status') || 'all'
+    const dateFilter = searchParams.get('date') || 'all'
+    const debouncedSearch = searchParams.get('search') || ''
+    
     const [currentPage, setCurrentPage] = useState(1)
     const [totalCount, setTotalCount] = useState(0)
     const [reorderingId, setReorderingId] = useState<string | null>(null)
     const { addItem, openCart } = useCartStore()
 
-    // Debounce the text input
+    // Reset page when search/filters change
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setDebouncedSearch(search)
-            setCurrentPage(1)
-        }, 500)
-        return () => clearTimeout(timer)
-    }, [search])
+        setCurrentPage(1)
+    }, [statusFilter, dateFilter, debouncedSearch])
 
     useEffect(() => {
         const loadPaginatedOrders = async () => {
             setLoading(true)
             const supabase = createClient()
-            
-            // First we need user id to only fetch their orders
             const { data: { user } } = await supabase.auth.getUser()
             
             if (!user) {
@@ -75,13 +72,8 @@ export default function OrdersPage() {
                 .eq('profile_id', user.id)
                 .order('created_at', { ascending: false })
 
-            // Apply Server-Side Filters
-            if (statusFilter !== 'all') {
-                query = query.eq('status', statusFilter)
-            }
-            if (debouncedSearch) {
-                query = query.ilike('order_number', `%${debouncedSearch}%`)
-            }
+            if (statusFilter !== 'all') query = query.eq('status', statusFilter)
+            if (debouncedSearch) query = query.ilike('order_number', `%${debouncedSearch}%`)
             if (dateFilter !== 'all') {
                 const days = parseInt(dateFilter)
                 const dateLimit = new Date()
@@ -89,13 +81,11 @@ export default function OrdersPage() {
                 query = query.gte('created_at', dateLimit.toISOString())
             }
 
-            // Apply Strict Pagination
             const from = (currentPage - 1) * PAGE_SIZE
             const to = from + PAGE_SIZE - 1
             query = query.range(from, to)
 
             const { data, count, error } = await query
-
             if (!error && data) {
                 setOrders(data as any)
                 setTotalCount(count || 0)
@@ -114,7 +104,6 @@ export default function OrdersPage() {
         setReorderingId(orderId)
         try {
             const supabase = createClient()
-            // Fetch order items with variant → product → images to get real productId and images
             const { data: items } = await supabase
                 .from('order_items')
                 .select(`
@@ -158,27 +147,40 @@ export default function OrdersPage() {
             <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
+                className="md:block"
             >
-                <h1 className="text-3xl font-bold font-heading text-gradient-navy">
+                <h1 className="text-3xl font-bold font-heading text-gradient-navy hidden md:block">
                     Meus Pedidos
                 </h1>
-                <p className="text-muted-foreground mt-1">
+                <p className="text-muted-foreground mt-1 md:mt-1">
                     Acompanhe o status dos seus pedidos
                 </p>
             </motion.div>
 
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-3 mt-6 mb-6">
+            {/* Desktop Filters Only */}
+            <div className="hidden md:flex flex-col sm:flex-row gap-3 mt-6 mb-6">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         placeholder="Buscar por número do pedido..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        value={debouncedSearch}
+                        onChange={(e) => {
+                            const val = e.target.value
+                            const params = new URLSearchParams(searchParams)
+                            if (val) params.set('search', val)
+                            else params.delete('search')
+                            router.replace(`/orders?${params.toString()}`)
+                        }}
                         className="pl-9 h-11 bg-white/60"
                     />
                 </div>
-                <Select value={statusFilter} onValueChange={(v: any) => { setStatusFilter(v); setCurrentPage(1); }}>
+                <Select value={statusFilter} onValueChange={(v: any) => {
+                    const params = new URLSearchParams(searchParams)
+                    if (v === 'all') params.delete('status')
+                    else params.set('status', v)
+                    router.push(`/orders?${params.toString()}`)
+                    setCurrentPage(1)
+                }}>
                     <SelectTrigger className="w-full sm:w-48 h-11 bg-white/60">
                         <Filter className="h-4 w-4 mr-2" />
                         <SelectValue placeholder="Status" />
@@ -192,7 +194,13 @@ export default function OrdersPage() {
                         ))}
                     </SelectContent>
                 </Select>
-                <Select value={dateFilter} onValueChange={(v: any) => { setDateFilter(v); setCurrentPage(1); }}>
+                <Select value={dateFilter} onValueChange={(v: any) => {
+                    const params = new URLSearchParams(searchParams)
+                    if (v === 'all') params.delete('date')
+                    else params.set('date', v)
+                    router.push(`/orders?${params.toString()}`)
+                    setCurrentPage(1)
+                }}>
                     <SelectTrigger className="w-full sm:w-48 h-11 bg-white/60">
                         <Calendar className="h-4 w-4 mr-2" />
                         <SelectValue placeholder="Período" />
@@ -207,8 +215,17 @@ export default function OrdersPage() {
                 </Select>
             </div>
 
+            {/* Mobile Filter Summary Indicator */}
+            {(statusFilter !== 'all' || dateFilter !== 'all' || debouncedSearch) && (
+                <div className="flex md:hidden items-center gap-2 mt-4 mb-2">
+                    <Badge variant="outline" className="text-[10px] font-medium bg-muted/30 border-border/40">
+                        Ativos: {[statusFilter !== 'all', dateFilter !== 'all', !!debouncedSearch].filter(Boolean).length}
+                    </Badge>
+                </div>
+            )}
+
             {/* Orders List */}
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col mt-4 md:mt-0">
                 {loading ? (
                     <OrderListSkeleton count={4} />
                 ) : orders.length === 0 ? (
@@ -218,14 +235,14 @@ export default function OrdersPage() {
                         </div>
                         <h3 className="text-lg font-semibold">Nenhum pedido encontrado</h3>
                         <p className="text-muted-foreground mt-1 mb-4">
-                            {debouncedSearch || statusFilter !== 'all'
+                            {debouncedSearch || statusFilter !== 'all' || dateFilter !== 'all'
                                 ? 'Nenhum resultado nos filtros atuais.'
                                 : 'Você ainda não realizou nenhum pedido.'}
                         </p>
-                        {(!debouncedSearch && statusFilter === 'all') && (
+                        {(!debouncedSearch && statusFilter === 'all' && dateFilter === 'all') && (
                             <Button
-                                className="mt-4 gradient-bronze border-0 text-white"
-                                onClick={() => window.location.href = '/catalog'}
+                                className="mt-4 gradient-bronze border-0 text-white rounded-xl px-8"
+                                onClick={() => router.push('/catalog')}
                             >
                                 Ver Catálogo
                             </Button>
@@ -233,7 +250,7 @@ export default function OrdersPage() {
                     </div>
                 ) : (
                     <>
-                        <p className="text-sm text-muted-foreground mb-4">
+                        <p className="text-xs text-muted-foreground mb-4">
                             Exibindo {orders.length} de {totalCount} pedidos
                         </p>
                         <div className="space-y-3 mb-8">
@@ -246,56 +263,66 @@ export default function OrdersPage() {
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ delay: i * 0.05 }}
                                     >
-                                        <Link href={`/orders/${order.id}`}>
-                                            <Card className="glass-card border-0 cursor-pointer hover:shadow-md transition-shadow">
-                                                <CardContent className="p-4">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                                        <div className="space-y-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <h3 className="font-semibold">{order.order_number}</h3>
-                                                                <Badge className={`text-[10px] border ${config.color}`}>
+                                        <Card className="glass-card border-0 hover:shadow-md transition-all active:scale-[0.98]">
+                                            <Link href={`/orders/${order.id}`}>
+                                                <CardContent className="p-4 sm:p-5">
+                                                    <div className="flex items-start justify-between gap-4">
+                                                        <div className="flex-1 min-w-0 space-y-2">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <h3 className="font-bold text-navy truncate">{order.order_number}</h3>
+                                                                <Badge className={`text-[9px] font-bold uppercase tracking-wider h-5 px-2 rounded-md ${config.color}`}>
                                                                     {config.label}
                                                                 </Badge>
+                                                                {i === 0 && !debouncedSearch && (
+                                                                     <Badge className="bg-blue-500/10 text-blue-600 border-blue-200/50 text-[9px] h-5 rounded-md">Mais Recente</Badge>
+                                                                )}
                                                             </div>
-                                                            <p className="text-sm text-muted-foreground">
-                                                                {format(new Date(order.created_at), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
-                                                            </p>
-                                                            {order.payment_condition && (
-                                                                <p className="text-xs text-muted-foreground">
-                                                                    {(order.payment_condition as { name: string }).name}
+                                                            <div className="space-y-1">
+                                                                <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                                                                    <Calendar className="h-3 w-3" />
+                                                                    {format(new Date(order.created_at), "dd 'de' MMM, yyyy", { locale: ptBR })}
                                                                 </p>
-                                                            )}
+                                                                {order.payment_condition && (
+                                                                    <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight opacity-70">
+                                                                        {(order.payment_condition as { name: string }).name}
+                                                                    </p>
+                                                                )}
+                                                            </div>
                                                         </div>
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="text-right">
-                                                                <p className="text-lg font-bold text-gradient-bronze">
+                                                        
+                                                        <div className="text-right shrink-0 space-y-2">
+                                                            <div className="space-y-0.5">
+                                                                <p className="text-sm font-bold text-gradient-bronze leading-none">
                                                                     R$ {order.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                                 </p>
-                                                                <span className="text-xs text-muted-foreground hidden sm:block mt-1">
-                                                                    Ver detalhes
-                                                                </span>
+                                                                <p className="text-[10px] text-muted-foreground leading-none">Total do pedido</p>
                                                             </div>
-                                                            <Button variant="ghost" size="icon" className="shrink-0 bg-muted/50">
-                                                                <Eye className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="shrink-0 bg-muted/50"
-                                                                disabled={reorderingId === order.id}
-                                                                onClick={(e) => handleReorder(e, order.id)}
-                                                                title="Comprar novamente"
-                                                            >
-                                                                {reorderingId === order.id
-                                                                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                                                                    : <RotateCcw className="h-4 w-4" />
-                                                                }
-                                                            </Button>
+                                                            <div className="flex items-center justify-end gap-1.5 pt-1">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-8 w-8 rounded-lg bg-muted/40 hover:bg-primary/10 hover:text-primary"
+                                                                    disabled={reorderingId === order.id}
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault()
+                                                                        handleReorder(e, order.id)
+                                                                    }}
+                                                                    title="Comprar novamente"
+                                                                >
+                                                                    {reorderingId === order.id
+                                                                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                                        : <RotateCcw className="h-3.5 w-3.5" />
+                                                                    }
+                                                                </Button>
+                                                                <div className="h-8 w-8 rounded-lg bg-navy/5 flex items-center justify-center">
+                                                                    <ChevronRight className="h-4 w-4 text-navy/40" />
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </CardContent>
-                                            </Card>
-                                        </Link>
+                                            </Link>
+                                        </Card>
                                     </motion.div>
                                 )
                             })}

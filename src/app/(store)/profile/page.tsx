@@ -144,25 +144,25 @@ export default function ProfilePage() {
 
     return (
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-            <Button variant="ghost" className="mb-4 gap-2" onClick={() => router.push('/catalog')}>
+            <Button variant="ghost" className="mb-4 gap-2 hidden md:flex" onClick={() => router.push('/catalog')}>
                 <ArrowLeft className="h-4 w-4" /> Voltar
             </Button>
-
+ 
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-                <h1 className="text-2xl font-bold font-heading text-gradient-navy">Meu Perfil</h1>
-                <p className="text-muted-foreground text-sm mt-1">Gerencie seus dados pessoais e veja informações da sua loja</p>
+                <h1 className="text-2xl font-bold font-heading text-gradient-navy hidden md:block">Meu Perfil</h1>
+                <p className="text-muted-foreground text-sm mt-1 md:mt-1">Gerencie seus dados pessoais e veja informações da sua loja</p>
             </motion.div>
-
-            <div className="space-y-6">
+ 
+            <div className="space-y-5 md:space-y-6">
                 {/* Personal Info */}
                 <Card className="glass-card border-0">
-                    <CardHeader>
+                    <CardHeader className="pb-4 md:pb-6">
                         <CardTitle className="text-base flex items-center gap-2">
                             <User className="h-4 w-4 text-bronze" />
                             Dados Pessoais
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-4">
+                    <CardContent className="space-y-4 pt-0 md:pt-0">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label htmlFor="fullName">Nome Completo</Label>
@@ -212,17 +212,17 @@ export default function ProfilePage() {
                             </div>
                         </div>
 
-                        <div className="flex justify-between items-center pt-4">
+                        <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 pt-4">
                             <Button 
                                 variant="outline" 
-                                className="text-muted-foreground"
+                                className="text-muted-foreground h-11 sm:h-auto rounded-xl border-border/40"
                                 onClick={() => setPasswordOpen(true)}
                             >
                                 Alterar Senha
                             </Button>
                             
                             <Button
-                                className="gradient-navy border-0 text-white gap-2"
+                                className="gradient-navy border-0 text-white gap-2 h-11 sm:h-auto rounded-xl shadow-lg shadow-navy/10"
                                 onClick={handleSave}
                                 disabled={saving}
                             >

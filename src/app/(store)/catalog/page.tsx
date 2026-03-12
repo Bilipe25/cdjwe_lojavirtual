@@ -16,7 +16,10 @@ import { createClient } from '@/lib/supabase/client'
 import type { Product, Category, Fabric } from '@/lib/types'
 import { ProductCard } from '@/components/catalog/product-card'
 import { QuickViewModal } from '@/components/catalog/quick-view-modal'
+import { QuickViewBottomSheet } from '@/components/catalog/quick-view-bottom-sheet'
 import { CatalogFilters } from './components/CatalogFilters'
+import { CategoryCarousel } from '@/components/catalog/category-carousel'
+import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 
 const PAGE_SIZE = 12
 
@@ -51,6 +54,7 @@ function CatalogContent() {
     const [hidePrices, setHidePrices] = useState(false)
     const [showScrollTop, setShowScrollTop] = useState(false)
     const [socialUrls, setSocialUrls] = useState<{ whatsapp: string | null; instagram: string | null }>({ whatsapp: null, instagram: null })
+    const isMobile = useIsMobile()
 
     // Handle scroll to top visibility
     useEffect(() => {
@@ -65,14 +69,21 @@ function CatalogContent() {
         window.scrollTo({ top: 0, behavior: 'smooth' })
     }
 
-    // Debounce the search input
+    // Sync search state with URL search params (TopBar search)
+    // We REMOVED the internal debounce as it's handled by MobileTopBar
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setDebouncedSearch(search)
-            setCurrentPage(1) // Reset page on search
-        }, 500)
-        return () => clearTimeout(timer)
-    }, [search])
+        const urlSearch = searchParams.get('search') || ''
+        const urlCategory = searchParams.get('category') || 'all'
+        const urlFabric = searchParams.get('fabric') || 'all'
+
+        if (urlSearch !== search) setSearch(urlSearch)
+        if (urlSearch !== debouncedSearch) setDebouncedSearch(urlSearch)
+        if (urlCategory !== selectedCategory) setSelectedCategory(urlCategory)
+        if (urlFabric !== selectedFabric) setSelectedFabric(urlFabric)
+        
+        // Reset to page 1 always on search/filter changes
+        setCurrentPage(1)
+    }, [searchParams])
 
     // Load static filters once
     useEffect(() => {
@@ -207,7 +218,7 @@ function CatalogContent() {
             <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mb-6"
+                className="mb-6 hidden md:block"
             >
                 <h1 className="text-3xl font-bold font-heading text-gradient-navy">
                     Catálogo
@@ -217,8 +228,15 @@ function CatalogContent() {
                 </p>
             </motion.div>
 
-            {/* Search & Filter Bar */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-6">
+            {/* Category Carousel (mobile + desktop) */}
+            <CategoryCarousel
+                categories={categories}
+                selectedCategory={selectedCategory}
+                onSelect={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
+            />
+
+            {/* Search & Filter Bar — hidden on mobile (search is in TopBar) */}
+            <div className="hidden sm:flex flex-col sm:flex-row gap-3 mb-6">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -237,7 +255,7 @@ function CatalogContent() {
                     )}
                 </div>
 
-                {/* Mobile Filter Button */}
+                {/* Filter Button (tablet+) */}
                 <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
                     <SheetTrigger render={<Button variant="outline" className="lg:hidden h-11 gap-2" />}>
                             <SlidersHorizontal className="h-4 w-4" />
@@ -262,6 +280,12 @@ function CatalogContent() {
                                 onSortChange={(v) => { setSortBy(v); setCurrentPage(1); }}
                                 onCategoryChange={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
                                 onFabricChange={(id) => { setSelectedFabric(id); setCurrentPage(1); }}
+                                onClearAll={() => {
+                                    setSelectedCategory('all');
+                                    setSelectedFabric('all');
+                                    setSortBy('name');
+                                    setCurrentPage(1);
+                                }}
                             />
                         </ScrollArea>
                     </SheetContent>
@@ -304,6 +328,12 @@ function CatalogContent() {
                             onSortChange={(v) => { setSortBy(v); setCurrentPage(1); }}
                             onCategoryChange={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
                             onFabricChange={(id) => { setSelectedFabric(id); setCurrentPage(1); }}
+                            onClearAll={() => {
+                                setSelectedCategory('all');
+                                setSelectedFabric('all');
+                                setSortBy('name');
+                                setCurrentPage(1);
+                            }}
                         />
                     </div>
                 </aside>
@@ -330,7 +360,7 @@ function CatalogContent() {
                             <p className="text-sm text-muted-foreground mb-4">
                                 Exibindo {products.length} de {totalCount} produtos
                             </p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 mb-8">
+                            <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-6 mb-8">
                                 {products.map((product, i) => (
                                     <motion.div
                                         key={product.id}
@@ -377,7 +407,7 @@ function CatalogContent() {
                         initial={{ opacity: 0, y: 20, scale: 0.8 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 20, scale: 0.8 }}
-                        className="fixed bottom-6 left-4 lg:left-8 z-50 flex flex-col gap-3"
+                        className="fixed bottom-24 md:bottom-6 left-4 lg:left-8 z-50 flex flex-col gap-3"
                     >
                         <Button
                             size="icon"
@@ -396,7 +426,7 @@ function CatalogContent() {
                     <motion.div
                         initial={{ opacity: 0, y: 20, scale: 0.8 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
-                        className="fixed bottom-6 right-4 lg:right-8 z-50 flex flex-col gap-3"
+                        className="fixed bottom-24 md:bottom-6 right-4 lg:right-8 z-50 flex flex-col gap-3"
                     >
                         {socialUrls.instagram && (
                             <a href={socialUrls.instagram} target="_blank" rel="noopener noreferrer">
@@ -425,11 +455,20 @@ function CatalogContent() {
                 )}
             </AnimatePresence>
 
-            <QuickViewModal
-                productId={quickViewId}
-                open={!!quickViewId}
-                onClose={() => setQuickViewId(null)}
-            />
+            {/* Responsive QuickView: Bottom Sheet on mobile, Modal on desktop */}
+            {isMobile ? (
+                <QuickViewBottomSheet
+                    productId={quickViewId}
+                    open={!!quickViewId}
+                    onClose={() => setQuickViewId(null)}
+                />
+            ) : (
+                <QuickViewModal
+                    productId={quickViewId}
+                    open={!!quickViewId}
+                    onClose={() => setQuickViewId(null)}
+                />
+            )}
         </div>
     )
 }

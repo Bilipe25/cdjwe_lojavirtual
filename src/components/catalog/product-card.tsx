@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { Package, Eye, Heart, ShoppingCart } from 'lucide-react'
+import { Package, Heart, ShoppingCart } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,43 +22,51 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
     const { isFavorite, toggle } = useFavoritesStore()
     const favorited = isFavorite(product.id)
 
+    const handleCardClick = () => {
+        // On mobile, trigger quick view directly via card tap
+        if (onQuickView) {
+            onQuickView(product.id)
+        }
+    }
+
     return (
-        <Card className="group glass-card border-0 overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+        <Card className="group glass-card border-0 overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 active:scale-[0.98] active:shadow-sm">
             {/* Image */}
-            <div className="relative h-56 bg-muted overflow-hidden">
-                <a href={`/catalog/${product.id}`}>
-                    {primaryImage ? (
-                        <Image
-                            src={primaryImage.url}
-                            alt={product.name}
-                            fill
-                            className="object-cover transition-transform duration-500 group-hover:scale-105"
-                        />
-                    ) : (
-                        <div className="h-full w-full flex items-center justify-center">
-                            <Package className="h-16 w-16 text-muted-foreground/30" />
-                        </div>
-                    )}
-                </a>
+            <div
+                className="relative h-40 sm:h-56 bg-muted overflow-hidden"
+                onClick={handleCardClick}
+            >
+                {primaryImage ? (
+                    <Image
+                        src={primaryImage.url}
+                        alt={product.name}
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                ) : (
+                    <div className="h-full w-full flex items-center justify-center">
+                        <Package className="h-12 w-12 sm:h-16 sm:w-16 text-muted-foreground/30" />
+                    </div>
+                )}
 
                 {/* Badges */}
-                <div className="absolute top-3 left-3 flex gap-2">
+                <div className="absolute top-2 left-2 sm:top-3 sm:left-3 flex gap-1.5">
                     {product.is_featured && (
-                        <Badge className="gradient-bronze border-0 text-white text-[10px]">
+                        <Badge className="gradient-bronze border-0 text-white text-[9px] sm:text-[10px] px-1.5 py-0.5">
                             Destaque
                         </Badge>
                     )}
                     {product.category && (
-                        <Badge variant="secondary" className="bg-white/80 backdrop-blur text-[10px]">
+                        <Badge variant="secondary" className="bg-white/80 backdrop-blur text-[9px] sm:text-[10px] px-1.5 py-0.5 hidden sm:flex">
                             {product.category.name}
                         </Badge>
                     )}
                 </div>
 
-                {/* Favorite heart */}
+                {/* Favorite heart - larger touch area on mobile */}
                 <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(product.id) }}
-                    className="absolute top-3 right-3 h-8 w-8 rounded-full bg-white/80 backdrop-blur flex items-center justify-center hover:bg-white transition-all shadow-sm z-10"
+                    className="absolute top-2 right-2 sm:top-3 sm:right-3 h-9 w-9 sm:h-8 sm:w-8 rounded-full bg-white/80 backdrop-blur flex items-center justify-center hover:bg-white transition-all shadow-sm z-10 mobile-touch-target"
                 >
                     <Heart
                         className={`h-4 w-4 transition-colors ${
@@ -67,8 +75,8 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
                     />
                 </button>
 
-                {/* Hover Overlay */}
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300 flex items-center justify-center pointer-events-none">
+                {/* Desktop Hover Overlay */}
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300 items-center justify-center pointer-events-none hidden sm:flex">
                     <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-auto">
                         {onQuickView && (
                             <Button
@@ -94,27 +102,28 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
             </div>
 
             {/* Content */}
-            <a href={`/catalog/${product.id}`}>
-                <CardContent className="p-4">
-                    <h3 className="font-semibold font-heading text-base line-clamp-1 group-hover:text-primary transition-colors">
+            <div onClick={handleCardClick}>
+                <CardContent className="p-3 sm:p-4">
+                    <h3 className="font-semibold font-heading text-sm sm:text-base line-clamp-1 group-hover:text-primary transition-colors">
                         {product.name}
                     </h3>
                     {product.size && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{product.size}</p>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{product.size}</p>
                     )}
+                    {/* Description hidden on mobile for compact 2-col layout */}
                     {product.description && (
-                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2 hidden sm:block">
                             {product.description}
                         </p>
                     )}
-                    <div className="mt-3 flex items-end justify-between">
+                    <div className="mt-2 sm:mt-3 flex items-end justify-between">
                         <div>
                             {hidePrices ? (
-                                <p className="text-sm text-muted-foreground italic">Faça login para ver preços</p>
+                                <p className="text-xs text-muted-foreground italic">Faça login para ver preços</p>
                             ) : (
                                 <>
-                                    <p className="text-xs text-muted-foreground">A partir de</p>
-                                    <p className="text-lg font-bold text-gradient-bronze">
+                                    <p className="text-[10px] sm:text-xs text-muted-foreground">A partir de</p>
+                                    <p className="text-base sm:text-lg font-bold text-gradient-bronze">
                                         R$ {product.base_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                     </p>
                                 </>
@@ -122,7 +131,7 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
                         </div>
                     </div>
                 </CardContent>
-            </a>
+            </div>
         </Card>
     )
 }
