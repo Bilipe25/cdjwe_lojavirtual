@@ -1,6 +1,4 @@
-'use client'
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
@@ -31,6 +29,14 @@ const statusConfig: Record<OrderStatus, { label: string; color: string }> = {
 }
 
 export default function OrdersPage() {
+    return (
+        <Suspense fallback={<OrderListSkeleton count={5} />}>
+            <OrdersContent />
+        </Suspense>
+    )
+}
+
+function OrdersContent() {
     const searchParams = useSearchParams()
     const router = useRouter()
     const [orders, setOrders] = useState<Order[]>([])
