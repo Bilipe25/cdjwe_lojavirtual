@@ -253,7 +253,7 @@ export default function AdminSettingsPage() {
                 <Skeleton className="h-10 w-64" />
                 <Skeleton className="h-10 w-96" />
                 <div className="grid gap-6">
-                    <Skeleton className="h-64 w-full rounded-xl" />
+                    <Skeleton className="aspect-video md:aspect-4/3 rounded-3xl" />
                     <Skeleton className="h-48 w-full rounded-xl" />
                 </div>
             </div>
@@ -263,7 +263,7 @@ export default function AdminSettingsPage() {
     if (loadError) {
         return (
             <div className="space-y-6 max-w-3xl">
-                <h1 className="hidden md:block text-3xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
+                <h1 className="hidden md:block text-3xl font-bold font-heading text-gradient-navy">
                     Configurações
                 </h1>
                 <Card className="glass-card border-0">
@@ -283,7 +283,7 @@ export default function AdminSettingsPage() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div className="hidden md:block">
-                    <h1 className="text-3xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
+                    <h1 className="text-3xl font-bold font-heading text-gradient-navy">
                         Configurações
                     </h1>
                     <p className="text-muted-foreground mt-1">Configurações gerais do sistema</p>
@@ -657,7 +657,7 @@ export default function AdminSettingsPage() {
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-4">
                         <Card className="glass-card border-0">
                             <CardHeader>
-                                <CardTitle className="text-lg font-[family-name:var(--font-heading)] flex items-center gap-2">
+                                <CardTitle className="text-lg font-heading flex items-center gap-2">
                                     <Building2 className="h-5 w-5 text-bronze" />
                                     Conteúdo Institucional (Sobre Nós)
                                 </CardTitle>
@@ -693,7 +693,7 @@ export default function AdminSettingsPage() {
                                     <div className="flex flex-col sm:flex-row gap-6 items-start">
                                         {form.aboutImageUrl ? (
                                             <div className="relative group shrink-0">
-                                                <div className="w-full sm:w-64 h-40 rounded-xl overflow-hidden border-2 border-white shadow-md">
+                                                <div className="relative aspect-video lg:aspect-4/5 overflow-hidden rounded-[2.5rem] shadow-2xl border-8 border-white group">
                                                     <img
                                                         src={form.aboutImageUrl}
                                                         alt="Imagem Sobre Nós"
