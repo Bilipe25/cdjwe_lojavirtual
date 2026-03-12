@@ -6,7 +6,11 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
 // Initialize pdfMake fonts
-;(pdfMake as any).vfs = (pdfFonts as any).pdfMake.vfs
+if (pdfFonts && (pdfFonts as any).pdfMake) {
+  ;(pdfMake as any).vfs = (pdfFonts as any).pdfMake.vfs
+} else if (pdfFonts) {
+  ;(pdfMake as any).vfs = (pdfFonts as any).vfs || pdfFonts
+}
 
 export async function generateOrderReceiptPDF(
   order: Order & { store?: any; profile?: any; payment_condition?: any },

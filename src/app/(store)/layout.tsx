@@ -159,7 +159,7 @@ function GlobalFloatingActions() {
                         <a href={whatsappLink} target="_blank" rel="noopener noreferrer">
                             <Button
                                 size="icon"
-                                className="h-14 w-14 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-xl hover:shadow-2xl border-none transition-all duration-300 animate-bounce active:animate-none"
+                                className="h-14 w-14 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-xl hover:shadow-2xl border-none transition-all duration-300"
                                 aria-label="Falar no WhatsApp"
                             >
                                 <svg viewBox="0 0 24 24" fill="currentColor" className="h-8 w-8">

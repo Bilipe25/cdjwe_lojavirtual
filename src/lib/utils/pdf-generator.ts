@@ -4,7 +4,11 @@ import { TDocumentDefinitions } from 'pdfmake/interfaces'
 import type { Fabric, FabricColor } from '@/lib/types'
 
 // Initialize pdfMake fonts
-;(pdfMake as any).vfs = (pdfFonts as any).pdfMake.vfs
+if (pdfFonts && (pdfFonts as any).pdfMake) {
+  ;(pdfMake as any).vfs = (pdfFonts as any).pdfMake.vfs
+} else if (pdfFonts) {
+  ;(pdfMake as any).vfs = (pdfFonts as any).vfs || pdfFonts
+}
 
 type FabricWithColors = Fabric & { colors: FabricColor[] }
 
