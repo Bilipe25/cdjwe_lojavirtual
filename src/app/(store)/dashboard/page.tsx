@@ -61,8 +61,8 @@ const dashboardCards: DashboardCard[] = [
         title: 'Meu Perfil',
         icon: User,
         href: '/profile',
-        color: 'bg-emerald-50 hover:bg-emerald-100/80',
-        iconColor: 'text-emerald-600',
+        color: 'bg-primary/5 hover:bg-primary/10',
+        iconColor: 'text-primary',
         enabled: true,
     },
     {
@@ -117,12 +117,14 @@ export default function DashboardPage() {
         loadUser()
     }, [])
 
-    const getGreeting = () => {
+    const [greeting, setGreeting] = useState('Olá')
+
+    useEffect(() => {
         const hour = new Date().getHours()
-        if (hour < 12) return 'Bom dia'
-        if (hour < 18) return 'Boa tarde'
-        return 'Boa noite'
-    }
+        if (hour < 12) setGreeting('Bom dia')
+        else if (hour < 18) setGreeting('Boa tarde')
+        else setGreeting('Boa noite')
+    }, [])
 
     return (
         <div className="px-4 py-6 max-w-lg mx-auto">
@@ -140,7 +142,7 @@ export default function DashboardPage() {
                 ) : (
                     <>
                         <h1 className="text-2xl font-bold font-heading text-gradient-navy">
-                            {getGreeting()}{userName ? `, ${userName}` : ''}! 👋
+                            {greeting}{userName ? `, ${userName}` : ''}! 👋
                         </h1>
                         <p className="text-sm text-muted-foreground mt-1">
                             O que deseja fazer hoje?
@@ -172,6 +174,8 @@ export default function DashboardPage() {
                             </Link>
                         ) : (
                             <div
+                                role="button"
+                                aria-disabled="true"
                                 className={`relative flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border border-border/30 ${card.color} min-h-[110px] opacity-60 cursor-not-allowed`}
                             >
                                 <card.icon className={`h-8 w-8 ${card.iconColor}`} />

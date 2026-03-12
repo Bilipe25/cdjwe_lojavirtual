@@ -199,10 +199,15 @@ export function MobileBottomNav() {
                             <AnimatePresence>
                                 {isMounted && cartCount > 0 && (
                                     <motion.div
-                                        key="cartbadge"
-                                        initial={{ scale: 0 }}
-                                        animate={{ scale: 1 }}
-                                        exit={{ scale: 0 }}
+                                        key={`cartbadge-${cartCount}`}
+                                        initial={{ scale: 0.5, opacity: 0 }}
+                                        animate={{ scale: 1, opacity: 1 }}
+                                        transition={{ 
+                                            type: 'spring', 
+                                            stiffness: 500, 
+                                            damping: 15,
+                                            mass: 0.5
+                                        }}
                                         className="absolute -top-2 -right-2"
                                     >
                                         <Badge className="h-4 min-w-4 px-1 p-0 flex items-center justify-center text-[9px] gradient-bronze border-0 text-white">

@@ -13,9 +13,13 @@ export function StoreFooter() {
 
     // No longer need local fetch, provided by SettingsProvider
 
-    const companyName = settings?.system_name || 'CDJWE Estofados'
-    const initials = companyName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
+    const [year, setYear] = useState<number | null>(null)
 
+    useEffect(() => {
+        setYear(new Date().getFullYear())
+    }, [])
+
+    const companyName = settings?.system_name || 'CDJWE Estofados'
     const whatsappNumber = settings?.whatsapp?.replace(/\D/g, '') || ''
     const whatsappLink = whatsappNumber ? `https://wa.me/55${whatsappNumber}` : null
 
@@ -142,7 +146,7 @@ export function StoreFooter() {
 
                 {/* Copyright */}
                 <div className="border-t mt-8 pt-6 text-center text-xs text-muted-foreground">
-                    <p>© {new Date().getFullYear()} {companyName}. Todos os direitos reservados.</p>
+                    <p>© {year || '2025'} {companyName}. Todos os direitos reservados.</p>
                 </div>
             </div>
         </footer>

@@ -43,6 +43,7 @@ export function MobileTopBar() {
     const { settings } = useSettings()
     const [searchQuery, setSearchQuery] = useState('')
     const [showSearch, setShowSearch] = useState(false)
+    const [isMounted, setIsMounted] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const { clearCart } = useCartStore()
 
@@ -72,6 +73,14 @@ export function MobileTopBar() {
         : [activeCategory !== 'all', activeFabric !== 'all', activeSort !== 'name'].filter(Boolean).length
 
     // No longer need local setting fetch, provided by SettingsProvider
+
+    // Hydration and Search Initialization
+    useEffect(() => {
+        setIsMounted(true)
+        if (searchParams.get('search_active') === 'true') {
+            setShowSearch(true)
+        }
+    }, [searchParams])
 
     // Load catalog filters (Once per mount if on catalog)
     useEffect(() => {
@@ -130,11 +139,11 @@ export function MobileTopBar() {
         loadOrderData()
     }, [isCartPage, isOrderDetailPage, pathname])
 
-    // Initialize search query from URL when opening search
+    // Initialize search query from URL when opening search or on mount
     useEffect(() => {
         if (showSearch) {
             const urlSearch = searchParams.get('search') || ''
-            setSearchQuery(urlSearch)
+            if (urlSearch !== searchQuery) setSearchQuery(urlSearch)
             setTimeout(() => inputRef.current?.focus(), 50)
         }
     }, [showSearch, searchParams])
@@ -161,22 +170,35 @@ export function MobileTopBar() {
         return () => clearTimeout(timer)
     }, [searchQuery, showSearch, pathname, router, searchParams])
 
+    const toggleSearch = (active: boolean) => {
+        setShowSearch(active)
+        const params = new URLSearchParams(searchParams)
+        if (active) {
+            params.set('search_active', 'true')
+        } else {
+            params.delete('search_active')
+            params.delete('search')
+        }
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+    }
+
     const handleSearch = () => {
         if (searchQuery.trim()) {
             const params = new URLSearchParams(searchParams)
             params.set('search', searchQuery.trim())
+            params.set('search_active', 'true')
             router.push(`${pathname}?${params.toString()}`)
-            setShowSearch(false)
+            // We keep it open on search submit to allow further refining
         }
     }
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') handleSearch()
-        if (e.key === 'Escape') { setShowSearch(false); setSearchQuery('') }
+        if (e.key === 'Escape') { toggleSearch(false); setSearchQuery('') }
     }
 
     const clearAndClose = () => {
-        setShowSearch(false)
+        toggleSearch(false)
         setSearchQuery('')
     }
 
@@ -228,7 +250,7 @@ export function MobileTopBar() {
                 )}
 
                 {/* Page title OR search input */}
-                {showSearch && (isCatalogPage || isOrdersPage) ? (
+                {isMounted && showSearch && (isCatalogPage || isOrdersPage) ? (
                     <div className="flex-1 flex items-center gap-2">
                         <div className="flex-1 relative">
                             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
@@ -262,7 +284,7 @@ export function MobileTopBar() {
                             {(isCatalogPage || isOrdersPageMain) && (
                                 <>
                                     <button
-                                        onClick={() => setShowSearch(true)}
+                                        onClick={() => toggleSearch(true)}
                                         className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
                                         aria-label="Buscar"
                                     >

@@ -112,19 +112,46 @@ export default function FavoritesPage() {
             {loading ? (
                 <ProductGridSkeleton count={4} />
             ) : products.length === 0 ? (
-                <div className="text-center py-20">
-                    <div className="mx-auto h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4">
-                        <Heart className="h-8 w-8 text-muted-foreground" />
-                    </div>
-                    <h3 className="text-lg font-semibold">Nenhum favorito ainda</h3>
-                    <p className="text-muted-foreground mt-1 mb-4">
-                        Clique no coração dos produtos para salvar aqui.
+                <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+                    <motion.div
+                        initial={{ scale: 0.8, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ 
+                            type: 'spring',
+                            stiffness: 260,
+                            damping: 20
+                        }}
+                        className="relative mb-8"
+                    >
+                        <div className="absolute inset-0 bg-primary/20 blur-3xl rounded-full scale-150" />
+                        <div className="relative h-24 w-24 rounded-3xl bg-white shadow-xl shadow-primary/10 flex items-center justify-center border border-primary/10">
+                            <Heart className="h-10 w-10 text-primary fill-primary/10" />
+                        </div>
+                        <motion.div
+                            animate={{ 
+                                y: [0, -4, 0],
+                                rotate: [0, 5, 0]
+                            }}
+                            transition={{ 
+                                duration: 4, 
+                                repeat: Infinity,
+                                ease: "easeInOut"
+                            }}
+                            className="absolute -top-2 -right-2 h-10 w-10 rounded-2xl bg-bronze flex items-center justify-center shadow-lg transform rotate-6 border-2 border-white"
+                        >
+                            <Heart className="h-5 w-5 text-white fill-white" />
+                        </motion.div>
+                    </motion.div>
+
+                    <h3 className="text-xl font-bold font-heading text-gradient-navy mb-2">Sua lista está vazia</h3>
+                    <p className="text-muted-foreground max-w-xs mb-8 leading-relaxed">
+                        Salve os produtos que você mais gostou para encontrá-los facilmente depois.
                     </p>
                     <Button
-                        className="gradient-bronze border-0 text-white h-11 px-8 rounded-xl shadow-lg shadow-bronze/10"
+                        className="gradient-bronze border-0 text-white h-12 px-10 rounded-2xl shadow-xl shadow-bronze/20 hover:shadow-bronze/30 transition-all active:scale-95 font-semibold"
                         onClick={() => router.push('/catalog')}
                     >
-                        Ver Catálogo
+                        Explorar Catálogo
                     </Button>
                 </div>
             ) : (

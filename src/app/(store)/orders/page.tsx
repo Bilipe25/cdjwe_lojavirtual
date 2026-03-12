@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
@@ -51,16 +51,22 @@ function OrdersContent() {
     
     const [currentPage, setCurrentPage] = useState(1)
     const [totalCount, setTotalCount] = useState(0)
+    const [hasMore, setHasMore] = useState(true)
     const [reorderingId, setReorderingId] = useState<string | null>(null)
     const { addItem, openCart } = useCartStore()
+    const observerTarget = useRef<HTMLDivElement>(null)
 
-    // Reset page when search/filters change
+    // Reset page and orders when search/filters change
     useEffect(() => {
+        setOrders([])
         setCurrentPage(1)
+        setHasMore(true)
     }, [statusFilter, dateFilter, debouncedSearch])
 
     useEffect(() => {
         const loadPaginatedOrders = async () => {
+            if (!hasMore && currentPage !== 1) return
+            
             setLoading(true)
             const supabase = createClient()
             const { data: { user } } = await supabase.auth.getUser()
@@ -95,14 +101,37 @@ function OrdersContent() {
 
             const { data, count, error } = await query
             if (!error && data) {
-                setOrders(data as any)
+                if (currentPage === 1) {
+                    setOrders(data as any)
+                } else {
+                    setOrders(prev => [...prev, ...(data as any)])
+                }
                 setTotalCount(count || 0)
+                setHasMore((count || 0) > (currentPage * PAGE_SIZE))
             }
             setLoading(false)
         }
 
         loadPaginatedOrders()
     }, [statusFilter, dateFilter, debouncedSearch, currentPage])
+
+    // Intersection Observer for Infinite Scroll
+    useEffect(() => {
+        const target = observerTarget.current
+        if (!target || !hasMore || loading) return
+
+        const observer = new IntersectionObserver(
+            entries => {
+                if (entries[0].isIntersecting && hasMore && !loading) {
+                    setCurrentPage(prev => prev + 1)
+                }
+            },
+            { threshold: 0.1 }
+        )
+
+        observer.observe(target)
+        return () => observer.disconnect()
+    }, [hasMore, loading])
 
     const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
@@ -336,30 +365,24 @@ function OrdersContent() {
                             })}
                         </div>
 
-                        {/* Pagination Controls */}
-                        {totalPages > 1 && (
-                            <div className="mt-auto pt-6 flex items-center justify-center gap-4">
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                    disabled={currentPage === 1}
-                                    className="bg-white/60 hover:bg-white"
+                        {/* Infinite Scroll Target */}
+                        <div ref={observerTarget} className="h-10 flex items-center justify-center mb-8">
+                            {loading && orders.length > 0 && (
+                                <motion.div 
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    className="flex items-center gap-2 text-muted-foreground"
                                 >
-                                    <ChevronLeft className="h-4 w-4 mr-2" /> Anterior
-                                </Button>
-                                <span className="text-sm text-muted-foreground font-medium">
-                                    Página {currentPage} de {totalPages}
-                                </span>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                    disabled={currentPage === totalPages}
-                                    className="bg-white/60 hover:bg-white"
-                                >
-                                    Próxima <ChevronRight className="h-4 w-4 ml-2" />
-                                </Button>
-                            </div>
-                        )}
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <span className="text-xs font-medium">Carregando mais...</span>
+                                </motion.div>
+                            )}
+                            {!hasMore && orders.length > 0 && (
+                                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest opacity-40">
+                                    Fim da lista de pedidos
+                                </p>
+                            )}
+                        </div>
                     </>
                 )}
             </div>
