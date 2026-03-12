@@ -45,6 +45,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useCartStore } from '@/lib/stores/cart-store'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { useSettings } from '@/components/providers/settings-provider'
 import type { PaymentCondition, SystemSettings } from '@/lib/types'
 import Image from 'next/image'
 import { checkoutAction } from './actions'
@@ -52,11 +53,11 @@ import { checkoutAction } from './actions'
 export default function CartPage() {
     const router = useRouter()
     const { items, removeItem, updateQuantity, subtotal, totalItems, clearCart } = useCartStore()
+    const { settings } = useSettings()
     const [loading, setLoading] = useState(false)
     const [paymentConditions, setPaymentConditions] = useState<PaymentCondition[]>([])
     const [selectedPayment, setSelectedPayment] = useState<string>('')
     const [notes, setNotes] = useState('')
-    const [settings, setSettings] = useState<SystemSettings | null>(null)
     const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
     const [nextOrderNumber, setNextOrderNumber] = useState('')
 
@@ -64,18 +65,16 @@ export default function CartPage() {
     const count = totalItems()
 
     useEffect(() => {
-        const loadData = async () => {
+        const loadConditions = async () => {
             const supabase = createClient()
-            const [payRes, settingsRes, orderRes] = await Promise.all([
+            const [payRes, orderRes] = await Promise.all([
                 supabase.from('payment_conditions').select('*').eq('is_active', true).order('sort_order'),
-                supabase.from('system_settings').select('*').limit(1).single(),
                 supabase.from('orders').select('order_number').order('created_at', { ascending: false }).limit(1).single()
             ])
             if (payRes.data) {
                 setPaymentConditions(payRes.data)
                 if (payRes.data.length > 0) setSelectedPayment(payRes.data[0].id)
             }
-            if (settingsRes.data) setSettings(settingsRes.data)
             
             // Calculate next order number
             const lastNumStr = orderRes.data?.order_number || 'PED000000'
@@ -83,7 +82,7 @@ export default function CartPage() {
             const nextNum = (lastNum + 1).toString().padStart(6, '0')
             setNextOrderNumber(`Pedido${nextNum}`)
         }
-        loadData()
+        loadConditions()
     }, [])
 
     const selectedCondition = paymentConditions.find(p => p.id === selectedPayment)

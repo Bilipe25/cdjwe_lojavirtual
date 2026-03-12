@@ -181,9 +181,10 @@ export function NotificationsBottomSheet({
                                         return (
                                             <motion.div
                                                 key={n.id}
-                                                initial={{ opacity: 0, height: 0 }}
-                                                animate={{ opacity: 1, height: 'auto' }}
-                                                exit={{ opacity: 0, x: 20, height: 0 }}
+                                                layout
+                                                initial={{ opacity: 0, x: -10 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                exit={{ opacity: 0, x: 50, transition: { duration: 0.2 } }}
                                                 className="relative group overflow-hidden"
                                             >
                                                 <div className="flex items-stretch">

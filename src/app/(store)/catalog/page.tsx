@@ -20,6 +20,7 @@ import { QuickViewBottomSheet } from '@/components/catalog/quick-view-bottom-she
 import { CatalogFilters } from './components/CatalogFilters'
 import { CategoryCarousel } from '@/components/catalog/category-carousel'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { useSettings } from '@/components/providers/settings-provider'
 
 const PAGE_SIZE = 12
 
@@ -99,34 +100,34 @@ function CatalogContent() {
         loadFilters()
     }, [])
 
-    // Load system settings for price visibility and social links
+    const { settings } = useSettings()
+
+    // No longer need local setting fetch for visibility and social links, provided by SettingsProvider
     useEffect(() => {
-        const loadVisibility = async () => {
+        const loadUserStatusAndSocial = async () => {
+            if (!settings) return
+            
             const supabase = createClient()
-            const [settingsRes, userRes] = await Promise.all([
-                supabase.from('system_settings').select('show_prices_to_unapproved, whatsapp, instagram').limit(1).single(),
-                supabase.auth.getUser(),
-            ])
-            if (settingsRes.data) {
-                setSocialUrls({
-                    whatsapp: settingsRes.data.whatsapp,
-                    instagram: settingsRes.data.instagram,
-                })
-                if (userRes.data?.user) {
-                    // Check if user is unapproved
-                    const { data: profile } = await supabase
-                        .from('profiles')
-                        .select('status')
-                        .eq('id', userRes.data.user.id)
-                        .single()
-                    if (profile?.status === 'pending' && !settingsRes.data.show_prices_to_unapproved) {
-                        setHidePrices(true)
-                    }
+            setSocialUrls({
+                whatsapp: settings.whatsapp,
+                instagram: settings.instagram,
+            })
+
+            const { data: userRes } = await supabase.auth.getUser()
+            if (userRes?.user) {
+                // Check if user is unapproved
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('status')
+                    .eq('id', userRes.user.id)
+                    .single()
+                if (profile?.status === 'pending' && !settings.show_prices_to_unapproved) {
+                    setHidePrices(true)
                 }
             }
         }
-        loadVisibility()
-    }, [])
+        loadUserStatusAndSocial()
+    }, [settings])
 
     // Execute paginated queries safely on the Server Side Database
     useEffect(() => {
@@ -232,7 +233,7 @@ function CatalogContent() {
             <CategoryCarousel
                 categories={categories}
                 selectedCategory={selectedCategory}
-                onSelect={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
+                onSelect={(id: string) => { setSelectedCategory(id); setCurrentPage(1); }}
             />
 
             {/* Search & Filter Bar — hidden on mobile (search is in TopBar) */}

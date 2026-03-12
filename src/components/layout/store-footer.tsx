@@ -5,22 +5,16 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Phone, Mail, MapPin, MessageCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useSettings } from '@/components/providers/settings-provider'
 import type { SystemSettings } from '@/lib/types'
 
 export function StoreFooter() {
-    const [settings, setSettings] = useState<SystemSettings | null>(null)
+    const { settings } = useSettings()
 
-    useEffect(() => {
-        const load = async () => {
-            const supabase = createClient()
-            const { data } = await supabase.from('system_settings').select('*').limit(1).single()
-            if (data) setSettings(data as SystemSettings)
-        }
-        load()
-    }, [])
+    // No longer need local fetch, provided by SettingsProvider
 
     const companyName = settings?.system_name || 'CDJWE Estofados'
-    const initials = companyName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+    const initials = companyName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
 
     const whatsappNumber = settings?.whatsapp?.replace(/\D/g, '') || ''
     const whatsappLink = whatsappNumber ? `https://wa.me/55${whatsappNumber}` : null

@@ -24,6 +24,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { CatalogFilters } from '@/app/(store)/catalog/components/CatalogFilters'
 import { OrderFilters } from '@/app/(store)/orders/components/OrderFilters'
 import { useCartStore } from '@/lib/stores/cart-store'
+import { useSettings } from '@/components/providers/settings-provider'
 import type { Category, Fabric } from '@/lib/types'
 
 const pageTitles: Record<string, string> = {
@@ -39,7 +40,7 @@ export function MobileTopBar() {
     const pathname = usePathname()
     const searchParams = useSearchParams()
     const router = useRouter()
-    const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
+    const { settings } = useSettings()
     const [searchQuery, setSearchQuery] = useState('')
     const [showSearch, setShowSearch] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
@@ -70,34 +71,33 @@ export function MobileTopBar() {
         ? [activeStatus !== 'all', activeDate !== 'all'].filter(Boolean).length
         : [activeCategory !== 'all', activeFabric !== 'all', activeSort !== 'name'].filter(Boolean).length
 
+    // No longer need local setting fetch, provided by SettingsProvider
+
+    // Load catalog filters (Once per mount if on catalog)
     useEffect(() => {
-        const loadSettings = async () => {
+        if (!isCatalogPage || categories.length > 0) return
+        
+        const loadCatalogFilters = async () => {
+            const supabase = createClient()
             try {
-                const supabase = createClient()
-                const { data } = await supabase.from('system_settings').select('logo_url, system_name').limit(1).single()
-                if (data) setSettings(data)
+                const [catRes, fabRes] = await Promise.all([
+                    supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
+                    supabase.from('fabrics').select('*').eq('is_active', true).order('sort_order')
+                ])
+                if (catRes.data) setCategories(catRes.data)
+                if (fabRes.data) setFabrics(fabRes.data)
             } catch { /* silent */ }
         }
-        loadSettings()
-    }, [])
+        loadCatalogFilters()
+    }, [isCatalogPage, categories.length])
 
+    // Load next order number (Only on relevant pages)
     useEffect(() => {
-        const loadCatalogAndOrderData = async () => {
+        if (!isCartPage && !isOrderDetailPage) return
+
+        const loadOrderData = async () => {
             const supabase = createClient()
             
-            // Load catalog filters
-            if (isCatalogPage && categories.length === 0) {
-                try {
-                    const [catRes, fabRes] = await Promise.all([
-                        supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
-                        supabase.from('fabrics').select('*').eq('is_active', true).order('sort_order')
-                    ])
-                    if (catRes.data) setCategories(catRes.data)
-                    if (fabRes.data) setFabrics(fabRes.data)
-                } catch { /* silent */ }
-            }
-
-            // Load next order number for cart title
             if (isCartPage) {
                 try {
                     const { data } = await supabase
@@ -113,7 +113,6 @@ export function MobileTopBar() {
                 } catch { /* silent */ }
             }
 
-            // Load specific order number for order detail title
             if (isOrderDetailPage) {
                 try {
                     const orderId = pathname.split('/').pop()
@@ -128,8 +127,8 @@ export function MobileTopBar() {
                 } catch { /* silent */ }
             }
         }
-        loadCatalogAndOrderData()
-    }, [isCatalogPage, isCartPage, isOrderDetailPage, categories.length, pathname])
+        loadOrderData()
+    }, [isCartPage, isOrderDetailPage, pathname])
 
     // Initialize search query from URL when opening search
     useEffect(() => {
