@@ -163,37 +163,7 @@ export default function CartPage() {
 
     return (
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-            {/* Mobile Header (Simplified) */}
-            <div className="flex md:hidden items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                    <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => router.push('/catalog')}>
-                        <ArrowLeft className="h-5 w-5" />
-                    </Button>
-                    <h1 className="text-xl font-bold font-heading">Seu Carrinho</h1>
-                </div>
-                <AlertDialog>
-                    <AlertDialogTrigger
-                        render={
-                            <Button variant="ghost" size="sm" className="text-destructive h-8 px-2 rounded-lg">
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                <span className="text-xs">Limpar</span>
-                            </Button>
-                        }
-                    />
-                    <AlertDialogContent className="w-[90vw] max-w-[400px] rounded-2xl">
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Esvaziar carrinho?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                Todos os itens serão removidos.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter className="flex-row gap-2">
-                            <AlertDialogCancel className="flex-1 mt-0">Voltar</AlertDialogCancel>
-                            <AlertDialogAction onClick={clearCart} className="flex-1 bg-destructive text-white">Limpar</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-            </div>
+
 
             {/* Desktop Header */}
             <div className="hidden md:flex items-center justify-between mb-6">

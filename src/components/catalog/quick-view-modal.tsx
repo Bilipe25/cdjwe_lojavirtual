@@ -16,7 +16,7 @@ export function QuickViewModal({ productId, open, onClose }: QuickViewModalProps
         <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
             <DialogContent
                 showCloseButton
-                className="max-w-2xl w-[95vw] max-h-[90vh] overflow-hidden p-0 flex flex-col"
+                className="max-w-5xl sm:max-w-5xl w-full max-h-[90vh] overflow-hidden p-0 flex flex-col"
             >
                 <QuickViewContent
                     data={data}

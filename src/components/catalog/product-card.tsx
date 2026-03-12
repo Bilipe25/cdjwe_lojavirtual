@@ -112,7 +112,7 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
                     )}
                     {/* Description hidden on mobile for compact 2-col layout */}
                     {product.description && (
-                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2 hidden sm:block">
+                        <p className="text-sm text-muted-foreground mt-1 hidden sm:line-clamp-3 min-h-12">
                             {product.description}
                         </p>
                     )}

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
     ShoppingCart,
@@ -29,7 +29,6 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { logoutAction } from '@/app/(auth)/login/actions'
-import { useRouter } from 'next/navigation'
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
@@ -51,6 +50,7 @@ const statusLabels: Record<string, string> = {
 
 export function StoreHeader() {
     const pathname = usePathname()
+    const searchParams = useSearchParams()
     const router = useRouter()
     const { totalItems, openCart } = useCartStore()
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -135,11 +135,38 @@ export function StoreHeader() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
+    // Live Search Sync with URL (Pattern from MobileTopBar)
+    useEffect(() => {
+        const query = searchParams.get('search') || ''
+        if (query !== searchQuery) setSearchQuery(query)
+    }, [searchParams])
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const currentSearch = searchParams.get('search') || ''
+            if (searchQuery !== currentSearch) {
+                const params = new URLSearchParams(searchParams.toString())
+                if (searchQuery.trim()) {
+                    params.set('search', searchQuery.trim())
+                } else {
+                    params.delete('search')
+                }
+                
+                // If we are on catalog, update URL in place, otherwise redirect
+                if (pathname.startsWith('/catalog')) {
+                    router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+                }
+            }
+        }, 300)
+
+        return () => clearTimeout(timer)
+    }, [searchQuery, pathname, router, searchParams])
+
     const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter' && searchQuery.trim()) {
-            router.push(`/catalog?search=${encodeURIComponent(searchQuery.trim())}`)
-            setSearchQuery('')
-            setMobileMenuOpen(false)
+            if (!pathname.startsWith('/catalog')) {
+                router.push(`/catalog?search=${encodeURIComponent(searchQuery.trim())}`)
+            }
         }
     }
 
@@ -157,7 +184,7 @@ export function StoreHeader() {
         <motion.header
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="sticky top-0 z-50 w-full"
+            className="sticky top-0 z-50 w-full hidden md:block"
             role="banner"
         >
             {isViewingAsCustomer && (
@@ -186,7 +213,7 @@ export function StoreHeader() {
                 <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                     <Link href="/catalog" className="flex items-center shrink-0" aria-label={`${settings?.system_name || 'Loja'} - Página inicial`}>
-                        {settings?.logo_url ? (
+                        {isMounted && settings?.logo_url ? (
                             <div className="h-10 w-24 sm:w-32 shrink-0 relative">
                                 <Image priority src={settings.logo_url} alt={settings.system_name || 'Loja'} fill className="object-contain object-left" />
                             </div>

@@ -21,6 +21,7 @@ import { CatalogFilters } from './components/CatalogFilters'
 import { CategoryCarousel } from '@/components/catalog/category-carousel'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useSettings } from '@/components/providers/settings-provider'
+import { PullToRefresh } from '@/components/ui/pull-to-refresh'
 
 const PAGE_SIZE = 12
 
@@ -214,7 +215,13 @@ function CatalogContent() {
     const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
     return (
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+        <PullToRefresh onRefresh={async () => {
+            const supabase = createClient()
+            setProducts([])
+            setCurrentPage(1)
+            // The useEffect will trigger fetchPaginatedProducts automatically due to setCurrentPage(1) and setProducts([])
+        }}>
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
             {/* Header */}
             <motion.div
                 initial={{ opacity: 0, y: -10 }}
@@ -236,29 +243,10 @@ function CatalogContent() {
                 onSelect={(id: string) => { setSelectedCategory(id); setCurrentPage(1); }}
             />
 
-            {/* Search & Filter Bar — hidden on mobile (search is in TopBar) */}
-            <div className="hidden sm:flex flex-col sm:flex-row gap-3 mb-6">
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Buscar produtos..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="pl-9 h-11 bg-white/60"
-                    />
-                    {search && (
-                        <button
-                            onClick={() => { setSearch(''); setDebouncedSearch(''); }}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                            <X className="h-4 w-4" />
-                        </button>
-                    )}
-                </div>
-
-                {/* Filter Button (tablet+) */}
+            {/* Filter Button (mobile/tablet only) - hidden on large desktop sidebar */}
+            <div className="flex lg:hidden mb-6">
                 <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-                    <SheetTrigger render={<Button variant="outline" className="lg:hidden h-11 gap-2" />}>
+                    <SheetTrigger render={<Button variant="outline" className="w-full h-11 gap-2 bg-white/60" />}>
                             <SlidersHorizontal className="h-4 w-4" />
                             Filtros
                             {activeFilters.length > 0 && (
@@ -304,7 +292,7 @@ function CatalogContent() {
                     ))}
                     <button
                         onClick={clearFilters}
-                        className="text-xs text-muted-foreground hover:text-foreground underline"
+                        className="text-xs text-muted-foreground hover:text-foreground underline active:opacity-70 transition-opacity"
                     >
                         Limpar filtros
                     </button>
@@ -315,7 +303,7 @@ function CatalogContent() {
             <div className="flex gap-8">
                 {/* Desktop Sidebar Filters */}
                 <aside className="hidden lg:block w-64 shrink-0">
-                    <div className="sticky top-24 glass-card rounded-xl p-4">
+                    <div className="sticky top-20 glass-card rounded-xl p-4">
                         <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
                             <SlidersHorizontal className="h-4 w-4" />
                             Filtros
@@ -352,7 +340,7 @@ function CatalogContent() {
                             <p className="text-muted-foreground mt-1">
                                 Tente alterar os filtros ou buscar por outro termo
                             </p>
-                            <Button variant="outline" className="mt-4" onClick={clearFilters}>
+                            <Button variant="outline" className="mt-4 active:scale-95 transition-transform" onClick={clearFilters}>
                                 Limpar filtros
                             </Button>
                         </div>
@@ -379,6 +367,7 @@ function CatalogContent() {
                                 <div className="mt-auto pt-6 flex items-center justify-center gap-4">
                                     <Button
                                         variant="outline"
+                                        className="active:scale-95 transition-transform"
                                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                                         disabled={currentPage === 1}
                                     >
@@ -389,6 +378,7 @@ function CatalogContent() {
                                     </span>
                                     <Button
                                         variant="outline"
+                                        className="active:scale-95 transition-transform"
                                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                         disabled={currentPage === totalPages}
                                     >
@@ -410,13 +400,18 @@ function CatalogContent() {
                         exit={{ opacity: 0, y: 20, scale: 0.8 }}
                         className="fixed bottom-24 md:bottom-6 left-4 lg:left-8 z-50 flex flex-col gap-3"
                     >
-                        <Button
-                            size="icon"
-                            className="h-12 w-12 rounded-full gradient-bronze text-white shadow-xl hover:shadow-2xl border-none transition-all duration-300"
-                            onClick={scrollToTop}
+                        <motion.div
+                            whileTap={{ scale: 0.9 }}
+                            whileHover={{ scale: 1.1 }}
                         >
-                            <ArrowUp className="h-6 w-6" />
-                        </Button>
+                            <Button
+                                size="icon"
+                                className="h-12 w-12 rounded-full gradient-bronze text-white shadow-xl hover:shadow-2xl border-none transition-all duration-300"
+                                onClick={scrollToTop}
+                            >
+                                <ArrowUp className="h-6 w-6" />
+                            </Button>
+                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -470,6 +465,7 @@ function CatalogContent() {
                     onClose={() => setQuickViewId(null)}
                 />
             )}
-        </div>
+            </div>
+        </PullToRefresh>
     )
 }

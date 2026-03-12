@@ -229,7 +229,7 @@ export function MobileTopBar() {
                     </button>
                 ) : (
                     <Link href="/dashboard" className="flex items-center shrink-0" aria-label="Página inicial">
-                        {settings?.logo_url ? (
+                        {isMounted && settings?.logo_url ? (
                             <div className="h-7 w-20 shrink-0 relative">
                                 <Image
                                     priority

@@ -18,6 +18,7 @@ import { ptBR } from 'date-fns/locale'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { toast } from 'sonner'
 import type { CartItem } from '@/lib/types'
+import { PullToRefresh } from '@/components/ui/pull-to-refresh'
 
 const PAGE_SIZE = 15
 
@@ -180,19 +181,20 @@ function OrdersContent() {
     }
 
     return (
-        <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 md:py-8 flex flex-col min-h-[85vh]">
-            <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="md:block"
-            >
+        <PullToRefresh onRefresh={async () => {
+            setOrders([])
+            setCurrentPage(1)
+            setHasMore(true)
+        }}>
+            <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 md:py-8 flex flex-col min-h-[85vh]">
+            <div className="md:block mb-4 md:mb-0">
                 <h1 className="text-3xl font-bold font-heading text-gradient-navy hidden md:block">
                     Meus Pedidos
                 </h1>
                 <p className="text-muted-foreground mt-1 md:mt-1">
                     Acompanhe o status dos seus pedidos
                 </p>
-            </motion.div>
+            </div>
 
             {/* Desktop Filters Only */}
             <div className="hidden md:flex flex-col sm:flex-row gap-3 mt-6 mb-6">
@@ -296,11 +298,10 @@ function OrdersContent() {
                                 return (
                                     <motion.div
                                         key={order.id}
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: i * 0.05 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        className="active:opacity-90 transition-all"
                                     >
-                                        <Card className="glass-card border-0 hover:shadow-md transition-all active:scale-[0.98]">
+                                        <Card className="glass-card border-0 hover:shadow-md transition-all">
                                             <Link href={`/orders/${order.id}`}>
                                                 <CardContent className="p-4 sm:p-5">
                                                     <div className="flex items-start justify-between gap-4">
@@ -335,22 +336,20 @@ function OrdersContent() {
                                                                 <p className="text-[10px] text-muted-foreground leading-none">Total do pedido</p>
                                                             </div>
                                                             <div className="flex items-center justify-end gap-1.5 pt-1">
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-8 w-8 rounded-lg bg-muted/40 hover:bg-primary/10 hover:text-primary"
+                                                                <motion.button
+                                                                    whileTap={{ scale: 0.9 }}
                                                                     disabled={reorderingId === order.id}
                                                                     onClick={(e) => {
                                                                         e.preventDefault()
                                                                         handleReorder(e, order.id)
                                                                     }}
-                                                                    title="Comprar novamente"
+                                                                    className="h-8 w-8 rounded-lg bg-muted/40 hover:bg-primary/10 hover:text-primary flex items-center justify-center disabled:opacity-50 transition-colors"
                                                                 >
                                                                     {reorderingId === order.id
                                                                         ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                                                         : <RotateCcw className="h-3.5 w-3.5" />
                                                                     }
-                                                                </Button>
+                                                                </motion.button>
                                                                 <div className="h-8 w-8 rounded-lg bg-navy/5 flex items-center justify-center">
                                                                     <ChevronRight className="h-4 w-4 text-navy/40" />
                                                                 </div>
@@ -386,6 +385,7 @@ function OrdersContent() {
                     </>
                 )}
             </div>
-        </div>
+            </div>
+        </PullToRefresh>
     )
 }
