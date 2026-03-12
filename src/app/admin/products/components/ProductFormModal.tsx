@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Info, Palette } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -19,6 +19,7 @@ import { ImageUploader } from './ImageUploader';
 import { productSchema, type ProductFormData } from '../schema';
 import type { Category, ProductImage as DBProductImage } from '@/lib/types';
 import type { ProductWithDetails } from './ProductList';
+import { ProductFabricConfig } from './ProductFabricConfig';
 
 interface ProductFormModalProps {
     isOpen: boolean;
@@ -30,9 +31,12 @@ interface ProductFormModalProps {
         data: ProductFormData,
         newImageFiles: File[],
         imagesToDelete: string[],
-        primaryImageId: string | null
+        primaryImageId: string | null,
+        activeVariantIds: string[]
     ) => Promise<void>;
 }
+
+type ActiveTab = 'info' | 'fabrics';
 
 export function ProductFormModal({
     isOpen,
@@ -64,9 +68,19 @@ export function ProductFormModal({
     const [imagesToDelete, setImagesToDelete] = useState<string[]>([]);
     const [primaryImageId, setPrimaryImageId] = useState<string | null>(null);
 
+    // Fabric/Color config state
+    const [activeVariantIds, setActiveVariantIds] = useState<string[]>([]);
+    const [activeTab, setActiveTab] = useState<ActiveTab>('info');
+    // Track if the fabric config was touched (to avoid unnecessary saves)
+    const fabricConfigTouched = useRef(false);
+
     // Initialize form when opening/editing
     useEffect(() => {
         if (isOpen) {
+            setActiveTab('info');
+            fabricConfigTouched.current = false;
+            setActiveVariantIds([]);
+
             if (editingProduct) {
                 reset({
                     name: editingProduct.name,
@@ -109,9 +123,19 @@ export function ProductFormModal({
         onOpenChange(open);
     };
 
+    const handleVariantChange = (ids: string[]) => {
+        setActiveVariantIds(ids);
+        fabricConfigTouched.current = true;
+    };
+
     const onSubmit = async (data: ProductFormData) => {
-        await onSave(data, newImageFiles, imagesToDelete, primaryImageId);
-        // We do not close the modal here directly; assuming orchestrator closes it on success
+        await onSave(
+            data,
+            newImageFiles,
+            imagesToDelete,
+            primaryImageId,
+            fabricConfigTouched.current ? activeVariantIds : []
+        );
     };
 
     // Images Handlers
@@ -143,95 +167,140 @@ export function ProductFormModal({
     const isActiveValue = watch('is_active');
     const isFeaturedValue = watch('is_featured');
 
+    const tabs: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
+        { id: 'info', label: 'Informações', icon: <Info className="h-3.5 w-3.5" /> },
+        { id: 'fabrics', label: 'Tecidos & Cores', icon: <Palette className="h-3.5 w-3.5" /> },
+    ];
+
     return (
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
             <DialogContent className="max-w-[1000px]! w-[95vw]! sm:w-[90vw]! max-h-[90vh] flex flex-col p-0 overflow-hidden">
-                <DialogHeader className="px-6 pt-6 pb-2 border-b">
-                    <DialogTitle className="font-heading text-2xl text-navy">
+                <DialogHeader className="px-6 pt-6 pb-0 border-b">
+                    <DialogTitle className="font-heading text-2xl text-navy mb-3">
                         {editingProduct ? 'Editar Produto' : 'Novo Produto'}
                     </DialogTitle>
+
+                    {/* Tabs */}
+                    <div className="flex gap-1">
+                        {tabs.map(tab => (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`
+                                    flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
+                                    ${activeTab === tab.id
+                                        ? 'border-primary text-primary'
+                                        : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                                    }
+                                `}
+                            >
+                                {tab.icon}
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
                 </DialogHeader>
 
                 <div className="flex-1 overflow-y-auto px-6 pb-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                        {/* Left Column: Form Details */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b">Informações Básicas</h3>
+                    {/* Tab: Informações */}
+                    {activeTab === 'info' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                            {/* Left Column: Form Details */}
+                            <div className="space-y-4">
+                                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b">Informações Básicas</h3>
 
-                            <div className="space-y-2">
-                                <Label className="text-navy font-medium">Nome do Produto *</Label>
-                                <Input {...register('name')} placeholder="Ex: Sofá Retrátil Florença" className="bg-white/60" />
-                                {errors.name && <p className="text-xs text-red-500">{errors.name.message}</p>}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <Label className="text-navy font-medium">Categoria *</Label>
-                                    <Select 
-                                        value={categoryIdValue} 
-                                        onValueChange={(v) => setValue('category_id', v || '', { shouldDirty: true })}
-                                    >
-                                        <SelectTrigger className="bg-white/60">
-                                            <SelectValue placeholder="Selecione">
-                                                {categoryIdValue ? categories.find(c => c.id === categoryIdValue)?.name || 'Selecione' : 'Selecione'}
-                                            </SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                    {errors.category_id && <p className="text-xs text-red-500">{errors.category_id.message}</p>}
+                                    <Label className="text-navy font-medium">Nome do Produto *</Label>
+                                    <Input {...register('name')} placeholder="Ex: Sofá Retrátil Florença" className="bg-white/60" />
+                                    {errors.name && <p className="text-xs text-red-500">{errors.name.message}</p>}
                                 </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label className="text-navy font-medium">Categoria *</Label>
+                                        <Select
+                                            value={categoryIdValue}
+                                            onValueChange={(v) => setValue('category_id', v || '', { shouldDirty: true })}
+                                        >
+                                            <SelectTrigger className="bg-white/60">
+                                                <SelectValue placeholder="Selecione">
+                                                    {categoryIdValue ? categories.find(c => c.id === categoryIdValue)?.name || 'Selecione' : 'Selecione'}
+                                                </SelectValue>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                        {errors.category_id && <p className="text-xs text-red-500">{errors.category_id.message}</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-navy font-medium">Preço Base (R$) *</Label>
+                                        <Input {...register('base_price')} type="text" placeholder="0.00" className="bg-white/60" />
+                                        {errors.base_price && <p className="text-xs text-red-500">{errors.base_price.message}</p>}
+                                    </div>
+                                </div>
+
                                 <div className="space-y-2">
-                                    <Label className="text-navy font-medium">Preço Base (R$) *</Label>
-                                    <Input {...register('base_price')} type="text" placeholder="0.00" className="bg-white/60" />
-                                    {errors.base_price && <p className="text-xs text-red-500">{errors.base_price.message}</p>}
+                                    <Label className="text-navy font-medium">Tamanho / Dimensões</Label>
+                                    <Input {...register('size')} placeholder="Ex: 3 Lugares (2.50m x 1.10m)" className="bg-white/60" />
+                                    <p className="text-[11px] text-muted-foreground">Informe as medidas descritivas para facilitar a escolha do lojista.</p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label className="text-navy font-medium">Descrição Detalhada</Label>
+                                    <Textarea {...register('description')} placeholder="Descreva os diferenciais, espumas utilizadas, etc..." className="bg-white/60 resize-none" rows={4} />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 pt-2">
+                                    <div className="flex items-center space-x-2 border p-3 rounded-lg bg-white/40">
+                                        <Switch
+                                            checked={isActiveValue}
+                                            onCheckedChange={(v) => setValue('is_active', v, { shouldDirty: true })}
+                                            id="active-mode"
+                                        />
+                                        <Label htmlFor="active-mode" className="cursor-pointer">Ativo na Loja</Label>
+                                    </div>
+                                    <div className="flex items-center space-x-2 border p-3 rounded-lg bg-white/40">
+                                        <Switch
+                                            checked={isFeaturedValue}
+                                            onCheckedChange={(v) => setValue('is_featured', v, { shouldDirty: true })}
+                                            id="featured-mode"
+                                        />
+                                        <Label htmlFor="featured-mode" className="cursor-pointer">Destaque</Label>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="space-y-2">
-                                <Label className="text-navy font-medium">Tamanho / Dimensões</Label>
-                                <Input {...register('size')} placeholder="Ex: 3 Lugares (2.50m x 1.10m)" className="bg-white/60" />
-                                <p className="text-[11px] text-muted-foreground">Informe as medidas descritivas para facilitar a escolha do lojista.</p>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label className="text-navy font-medium">Descrição Detalhada</Label>
-                                <Textarea {...register('description')} placeholder="Descreva os diferenciais, espumas utilizadas, etc..." className="bg-white/60 resize-none" rows={4} />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 pt-2">
-                                <div className="flex items-center space-x-2 border p-3 rounded-lg bg-white/40">
-                                    <Switch 
-                                        checked={isActiveValue} 
-                                        onCheckedChange={(v) => setValue('is_active', v, { shouldDirty: true })} 
-                                        id="active-mode" 
-                                    />
-                                    <Label htmlFor="active-mode" className="cursor-pointer">Ativo na Loja</Label>
-                                </div>
-                                <div className="flex items-center space-x-2 border p-3 rounded-lg bg-white/40">
-                                    <Switch 
-                                        checked={isFeaturedValue} 
-                                        onCheckedChange={(v) => setValue('is_featured', v, { shouldDirty: true })} 
-                                        id="featured-mode" 
-                                    />
-                                    <Label htmlFor="featured-mode" className="cursor-pointer">Destaque</Label>
-                                </div>
-                            </div>
+                            {/* Right Column: Images Gallery */}
+                            <ImageUploader
+                                existingImages={existingImages}
+                                newImageFiles={newImageFiles}
+                                previewUrls={previewUrls}
+                                primaryImageId={primaryImageId}
+                                onAddFiles={handleAddFiles}
+                                onRemoveExisting={handleRemoveExisting}
+                                onRemoveNew={handleRemoveNew}
+                                onSetPrimary={setPrimaryImageId}
+                            />
                         </div>
+                    )}
 
-                        {/* Right Column: Images Gallery */}
-                        <ImageUploader 
-                            existingImages={existingImages}
-                            newImageFiles={newImageFiles}
-                            previewUrls={previewUrls}
-                            primaryImageId={primaryImageId}
-                            onAddFiles={handleAddFiles}
-                            onRemoveExisting={handleRemoveExisting}
-                            onRemoveNew={handleRemoveNew}
-                            onSetPrimary={setPrimaryImageId}
-                        />
-                    </div>
+                    {/* Tab: Tecidos & Cores */}
+                    {activeTab === 'fabrics' && (
+                        <div className="pt-4">
+                            <div className="mb-3">
+                                <p className="text-xs text-muted-foreground">
+                                    Selecione quais combinações de tecido e cor estarão disponíveis para este produto.
+                                    Por padrão, todas as combinações estão ativas.
+                                </p>
+                            </div>
+                            <ProductFabricConfig
+                                productId={editingProduct?.id}
+                                onChange={handleVariantChange}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter className="px-6 pb-6 pt-4 border-t bg-muted/10">
