@@ -44,7 +44,9 @@ export default function StoreLayout({
                         </AnimatePresence>
 
                         {/* Desktop Header */}
-                        <StoreHeader />
+                        <Suspense fallback={<div className="h-16 border-b bg-muted/10 animate-pulse hidden md:block" />}>
+                            <StoreHeader />
+                        </Suspense>
 
                         {/* Mobile TopBar */}
                         <Suspense fallback={<div className="h-12 border-b bg-muted/20 animate-pulse md:hidden" />}>

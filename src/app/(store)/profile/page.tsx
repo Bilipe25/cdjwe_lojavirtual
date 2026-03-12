@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
     User, Building2, Mail, Phone, MapPin, FileText,
-    Loader2, Save, ArrowLeft
+    Loader2, Save, ArrowLeft, LogOut
 } from 'lucide-react'
+import { logoutAction } from '@/app/(auth)/login/actions'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -134,6 +135,11 @@ export default function ProfilePage() {
             setNewPassword('')
             setConfirmPassword('')
         }
+    }
+
+    const handleLogout = async () => {
+        await logoutAction()
+        router.push('/login')
     }
 
     if (loading) {
@@ -276,6 +282,31 @@ export default function ProfilePage() {
                         </CardContent>
                     </Card>
                 )}
+
+                {/* Account Actions */}
+                <Card className="glass-card border-0 border-t-4 border-t-red-500/10">
+                    <CardHeader className="pb-4">
+                        <CardTitle className="text-base flex items-center gap-2 text-navy">
+                            Ações da Conta
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex items-center justify-between gap-4 p-4 rounded-xl bg-red-50/50 border border-red-100/50">
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-navy">Sair da Conta</p>
+                                <p className="text-xs text-muted-foreground mt-0.5 truncate">Encerre sua sessão atual com segurança</p>
+                            </div>
+                            <Button
+                                variant="outline"
+                                className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 h-10 px-6 rounded-xl shrink-0 transition-colors"
+                                onClick={handleLogout}
+                            >
+                                <LogOut className="h-4 w-4 mr-2" />
+                                Sair
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
 
             {/* Change Password Dialog */}
