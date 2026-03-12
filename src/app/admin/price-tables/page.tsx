@@ -226,8 +226,8 @@ export default function PriceTablesPage() {
                 animate={{ opacity: 1, y: 0 }} 
                 className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
             >
-                <div>
-                    <h1 className="text-3xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy flex items-center gap-2">
+                <div className="hidden md:block">
+                    <h1 className="text-3xl font-bold font-heading text-gradient-navy flex items-center gap-2">
                         <Tag className="h-8 w-8 text-bronze" />
                         Tabelas de Preços
                     </h1>

@@ -39,14 +39,14 @@ export function ProductList({
 }: ProductListProps) {
     if (loading) {
         return (
-            <div className={layout === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" : "flex flex-col gap-3"}>
+            <div className={layout === 'grid' ? "grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4" : "flex flex-col gap-3"}>
                 {Array.from({ length: layout === 'grid' ? 8 : 4 }).map((_, i) => (
                     <Card key={i} className={`glass-card border-0 ${layout === 'list' ? 'flex h-24' : ''}`}>
                         {layout === 'grid' ? (
-                            <CardContent className="p-4 w-full">
-                                <Skeleton className="h-48 w-full rounded-lg mb-3" />
-                                <Skeleton className="h-5 w-3/4" />
-                                <Skeleton className="h-4 w-1/2 mt-2" />
+                            <CardContent className="p-2 sm:p-4 w-full">
+                                <Skeleton className="h-32 sm:h-48 w-full rounded-lg mb-3" />
+                                <Skeleton className="h-4 w-3/4" />
+                                <Skeleton className="h-3 w-1/2 mt-2" />
                             </CardContent>
                         ) : (
                             <CardContent className="p-0 w-full flex items-center gap-4 pr-4">
@@ -80,7 +80,7 @@ export function ProductList({
     }
 
     return (
-        <div className={layout === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" : "flex flex-col gap-3"}>
+        <div className={layout === 'grid' ? "grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4" : "flex flex-col gap-3"}>
             {products.map((product, i) => {
                 const primaryImg = product.images?.find(img => img.is_primary) || product.images?.[0];
                 const imgCount = product.images?.length || 0;
@@ -177,7 +177,7 @@ export function ProductList({
                             className={`glass-card border-0 hover:shadow-lg transition-all duration-300 overflow-hidden cursor-pointer ${!product.is_active ? 'opacity-70 grayscale-30' : ''} ${isSelected ? 'ring-2 ring-bronze' : ''}`}
                             onClick={() => onEdit(product)}
                         >
-                            <div className="relative h-48 bg-muted group">
+                            <div className="relative h-32 sm:h-48 bg-muted group">
                                 {primaryImg ? (
                                     <Image src={primaryImg.url} alt={product.name} fill className="object-cover transition-transform duration-500 group-hover:scale-105 select-none" />
                                 ) : (
@@ -203,28 +203,28 @@ export function ProductList({
                                 {!product.is_active && <Badge className="absolute bottom-2 left-2 bg-red-500/90 text-white">Inativo</Badge>}
                             </div>
                             
-                            <CardContent className="p-4">
+                            <CardContent className="p-2 sm:p-4 mt-auto">
                                 <div className="flex items-start justify-between">
-                                    <div className="min-w-0 pr-2">
-                                        <h3 className="font-semibold text-lg text-navy truncate" title={product.name}>{product.name}</h3>
-                                        <div className="flex items-center gap-1.5 mt-0.5">
-                                            <span className="text-xs font-medium bg-muted px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[120px]">
+                                    <div className="min-w-0 pr-1 flex-1">
+                                        <h3 className="font-semibold text-sm sm:text-lg text-navy truncate" title={product.name}>{product.name}</h3>
+                                        <div className="flex items-center gap-1 mt-0.5 overflow-hidden">
+                                            <span className="text-[10px] sm:text-xs font-medium bg-muted px-1 sm:px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[80px] sm:max-w-[120px]">
                                                 {product.category?.name || 'Sem Categoria'}
                                             </span>
                                             {product.size && (
-                                                <span className="text-[10px] text-muted-foreground truncate">
-                                                    Tam: {product.size}
+                                                <span className="text-[9px] sm:text-[10px] text-muted-foreground truncate">
+                                                    {product.size}
                                                 </span>
                                             )}
                                         </div>
-                                        <p className="text-xl font-bold text-gradient-bronze mt-2">
+                                        <p className="text-sm sm:text-xl font-bold text-gradient-bronze mt-1 sm:mt-2">
                                             R$ {product.base_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                         </p>
                                     </div>
-                                    <div onClick={(e) => e.stopPropagation()}>
+                                    <div onClick={(e) => e.stopPropagation()} className="shrink-0">
                                         <DropdownMenu>
-                                            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-navy shrink-0 -mr-2" />}>
-                                                <MoreHorizontal className="h-4 w-4" />
+                                            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8 text-muted-foreground hover:text-navy -mr-1" />}>
+                                                <MoreHorizontal className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem onClick={() => onEdit(product)}><Edit className="h-4 w-4 mr-2" /> Editar / Fotos</DropdownMenuItem>

@@ -182,8 +182,8 @@ export default function ReportsPage() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy flex items-center gap-2">
+                <div className="hidden md:block">
+                    <h1 className="text-3xl font-bold font-heading text-gradient-navy flex items-center gap-2">
                         <BarChart3 className="h-8 w-8 text-bronze" />
                         Relatórios Analíticos
                     </h1>

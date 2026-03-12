@@ -253,10 +253,12 @@ export default function AdminProductsPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">Catálogo de Produtos</h1>
-                    <p className="text-muted-foreground mt-1">Gerencie produtos, categorias, tamanhos e galeria de fotos</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="hidden md:block">
+                    <h1 className="text-3xl font-bold font-heading text-gradient-navy">
+                        Produtos
+                    </h1>
+                    <p className="text-muted-foreground mt-1">Gerencie seu catálogo de produtos</p>
                 </div>
                 <Button className="gradient-navy border-0 text-white gap-2" onClick={() => openDialog()}>
                     <Plus className="h-4 w-4" />Novo Produto

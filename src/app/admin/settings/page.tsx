@@ -233,7 +233,7 @@ export default function AdminSettingsPage() {
     if (loadError) {
         return (
             <div className="space-y-6 max-w-3xl">
-                <h1 className="text-3xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
+                <h1 className="hidden md:block text-3xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
                     Configurações
                 </h1>
                 <Card className="glass-card border-0">
@@ -252,7 +252,7 @@ export default function AdminSettingsPage() {
         <div className="space-y-6 max-w-4xl">
             {/* Header */}
             <div className="flex items-center justify-between">
-                <div>
+                <div className="hidden md:block">
                     <h1 className="text-3xl font-bold font-[family-name:var(--font-heading)] text-gradient-navy">
                         Configurações
                     </h1>

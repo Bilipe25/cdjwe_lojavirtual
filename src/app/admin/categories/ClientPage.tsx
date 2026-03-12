@@ -37,9 +37,13 @@ export function CategoriesClientPage({ initialCategories, usageCounts }: ClientP
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={handleOpenCreate} className="gradient-navy border-0 text-white gap-2">
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="hidden md:block">
+          <h1 className="text-3xl font-bold font-heading text-gradient-navy">Categorias</h1>
+          <p className="text-muted-foreground mt-1">Organize seus produtos por categorias</p>
+        </div>
+        <Button onClick={handleOpenCreate} className="gradient-navy border-0 text-white gap-2 ml-auto">
           <Plus className="h-4 w-4" />
           Nova Categoria
         </Button>

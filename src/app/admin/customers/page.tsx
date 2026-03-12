@@ -235,7 +235,7 @@ export default function CustomersPage() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
+                <div className="hidden md:block">
                     <h1 className="text-3xl font-bold font-heading text-gradient-navy">
                         Clientes
                     </h1>

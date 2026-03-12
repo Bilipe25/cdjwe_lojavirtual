@@ -26,7 +26,7 @@ export default async function PaymentConditionsPage() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
+                <div className="hidden md:block">
                     <h1 className="text-3xl font-bold font-heading text-gradient-navy flex items-center gap-2">
                         <CreditCard className="h-8 w-8 text-bronze" />
                         Formas de Pagamento

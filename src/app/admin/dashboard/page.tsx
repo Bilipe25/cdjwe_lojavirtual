@@ -114,7 +114,7 @@ export default function AdminDashboardPage() {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
+                <div className="hidden md:block">
                     <h1 className="text-3xl font-bold font-heading text-gradient-navy">
                         Dashboard
                     </h1>
@@ -165,13 +165,13 @@ export default function AdminDashboardPage() {
             )}
 
             {/* KPI Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+            <div className="grid grid-cols-3 lg:grid-cols-5 gap-2 md:gap-4">
                 {loading
                     ? Array.from({ length: 5 }).map((_, i) => (
                         <Card key={i} className="glass-card border-0">
-                            <CardContent className="p-6">
-                                <Skeleton className="h-4 w-24 mb-2" />
-                                <Skeleton className="h-8 w-32" />
+                            <CardContent className="p-3 sm:p-6">
+                                <Skeleton className="h-3 w-16 mb-2" />
+                                <Skeleton className="h-6 w-20" />
                             </CardContent>
                         </Card>
                     ))
@@ -183,21 +183,21 @@ export default function AdminDashboardPage() {
                             transition={{ delay: i * 0.08 }}
                         >
                             <Card className="glass-card border-0 hover:shadow-md transition-shadow">
-                                <CardContent className="p-5">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-[10px] sm:text-xs text-muted-foreground truncate">{kpi.title}</span>
-                                        <div className={`h-7 w-7 sm:h-8 sm:w-8 rounded-lg flex items-center justify-center shrink-0 ${kpi.color}`}>
-                                            <kpi.icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                                <CardContent className="p-2 sm:p-5">
+                                    <div className="flex items-center justify-between mb-1 sm:mb-2">
+                                        <span className="text-[9px] sm:text-xs text-muted-foreground truncate">{kpi.title}</span>
+                                        <div className={`h-6 w-6 sm:h-8 sm:w-8 rounded-md sm:rounded-lg flex items-center justify-center shrink-0 ${kpi.color}`}>
+                                            <kpi.icon className="h-3 w-3 sm:h-4 sm:w-4" />
                                         </div>
                                     </div>
-                                    <p className="text-lg sm:text-xl font-bold font-heading">
+                                    <p className="text-sm sm:text-xl font-bold font-heading leading-tight truncate">
                                         {kpi.value}
                                     </p>
                                     {kpi.badge && (
-                                        <Badge variant="secondary" className="mt-2 text-[10px] bg-amber-100 text-amber-800">
-                                            <AlertCircle className="h-3 w-3 mr-1" />
-                                            {kpi.badge}
-                                        </Badge>
+                                        <div className="mt-1 flex items-center text-[8px] sm:text-[10px] text-amber-800 bg-amber-50 px-1 rounded truncate">
+                                            <AlertCircle className="h-2 w-2 mr-0.5 shrink-0" />
+                                            <span className="truncate">{kpi.badge}</span>
+                                        </div>
                                     )}
                                 </CardContent>
                             </Card>
