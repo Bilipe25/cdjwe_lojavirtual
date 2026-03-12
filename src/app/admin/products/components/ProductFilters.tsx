@@ -32,45 +32,49 @@ export function ProductFilters({
     onLayoutChange
 }: ProductFiltersProps) {
     return (
-        <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-white/60 p-4 rounded-xl border shadow-sm">
-            <div className="flex flex-1 w-full gap-4 items-center">
-                <div className="relative flex-1 max-w-sm">
+        <div className="flex flex-col md:flex-row gap-3 md:gap-4 justify-between items-start md:items-center bg-white/60 p-3 md:p-4 rounded-xl border shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex flex-1 w-full gap-3 items-center">
+                <div className="relative w-full lg:max-w-sm order-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         placeholder="Buscar produtos por nome..."
                         value={search}
                         onChange={(e) => onSearchChange(e.target.value)}
-                        className="pl-9 bg-white"
+                        className="pl-9 h-10 md:h-11 bg-white"
                     />
                 </div>
-                <Select value={categoryFilter} onValueChange={(v) => v && onCategoryChange(v)}>
-                    <SelectTrigger className="w-full sm:w-48 bg-white">
-                        <SelectValue placeholder="Categoria" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">Todas as Categorias</SelectItem>
-                        {categories.map(c => (
-                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <div className="flex border rounded-md overflow-hidden bg-white shrink-0 shadow-sm">
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className={`rounded-none h-11 w-11 ${layout === 'grid' ? 'bg-muted text-navy' : 'text-muted-foreground'}`}
-                        onClick={() => onLayoutChange('grid')}
-                    >
-                        <LayoutGrid className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className={`rounded-none h-11 w-11 ${layout === 'list' ? 'bg-muted text-navy' : 'text-muted-foreground'}`}
-                        onClick={() => onLayoutChange('list')}
-                    >
-                        <ListIcon className="h-4 w-4" />
-                    </Button>
+                
+                <div className="flex gap-2 order-2">
+                    <Select value={categoryFilter} onValueChange={(v) => v && onCategoryChange(v)}>
+                        <SelectTrigger className="flex-1 sm:w-48 h-10 md:h-11 bg-white">
+                            <SelectValue placeholder="Categoria" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todas as Categorias</SelectItem>
+                            {categories.map(c => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    
+                    <div className="flex border rounded-md overflow-hidden bg-white shrink-0 shadow-sm">
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className={`rounded-none h-10 w-10 md:h-11 md:w-11 ${layout === 'grid' ? 'bg-muted text-navy' : 'text-muted-foreground'}`}
+                            onClick={() => onLayoutChange('grid')}
+                        >
+                            <LayoutGrid className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className={`rounded-none h-10 w-10 md:h-11 md:w-11 ${layout === 'list' ? 'bg-muted text-navy' : 'text-muted-foreground'}`}
+                            onClick={() => onLayoutChange('list')}
+                        >
+                            <ListIcon className="h-4 w-4" />
+                        </Button>
+                    </div>
                 </div>
             </div>
 

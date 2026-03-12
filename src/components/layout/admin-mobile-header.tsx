@@ -14,6 +14,8 @@ import {
     Menu,
     CreditCard,
     BarChart3,
+    Layers,
+    Store,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -23,9 +25,11 @@ import { cn } from '@/lib/utils'
 import { logoutAction } from '@/app/(auth)/login/actions'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
+import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
 
 const adminNavItems = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { href: '/admin/categories', label: 'Categorias', icon: Layers },
     { href: '/admin/products', label: 'Produtos', icon: Package },
     { href: '/admin/fabrics', label: 'Tecidos & Cores', icon: Palette },
     { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
@@ -54,6 +58,11 @@ export function AdminMobileHeader() {
     const handleLogout = async () => {
         await logoutAction()
         router.push('/login')
+    }
+
+    const handleViewAsCustomer = async () => {
+        await setViewAsCustomerAction(true)
+        router.push('/catalog')
     }
 
     // Find active page title
@@ -109,22 +118,30 @@ export function AdminMobileHeader() {
                             })}
                         </nav>
 
-                        {/* Logout */}
-                        <div className="border-t border-sidebar-border p-2">
+                        {/* Bottom Actions */}
+                        <div className="border-t border-sidebar-border p-2 space-y-1">
+                            <Button
+                                variant="ghost"
+                                className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-foreground hover:bg-sidebar-accent"
+                                onClick={handleViewAsCustomer}
+                            >
+                                <Store className="h-5 w-5" />
+                                <span>Ver como Cliente</span>
+                            </Button>
                             <Button
                                 variant="ghost"
                                 className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-destructive"
                                 onClick={handleLogout}
                             >
                                 <LogOut className="h-5 w-5" />
-                                Sair
+                                <span>Sair</span>
                             </Button>
                         </div>
                     </div>
                 </SheetContent>
             </Sheet>
 
-            <span className="font-semibold font-heading text-sm">
+            <span className="font-semibold font-heading text-lg text-gradient-navy">
                 {activeItem?.label || 'Admin'}
             </span>
 

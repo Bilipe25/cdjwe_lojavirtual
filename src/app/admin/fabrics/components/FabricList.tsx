@@ -578,12 +578,12 @@ function SortableColorItem({
 
       {!color.is_active && <span className="text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-500 font-bold ml-1">OFF</span>}
 
-      <div className="hidden group-hover:flex absolute -top-2 -right-2 gap-0.5 z-20">
-        <button onClick={onEditColor} className="h-6 w-6 rounded-full bg-white border shadow flex items-center justify-center hover:bg-muted text-navy transition-colors">
-          <Edit className="h-3 w-3" />
+      <div className="flex sm:hidden group-hover:flex md:flex absolute -top-2 -right-2 gap-0.5 z-20">
+        <button onClick={onEditColor} className="h-7 w-7 sm:h-6 sm:w-6 rounded-full bg-white border shadow flex items-center justify-center hover:bg-muted text-navy transition-colors">
+          <Edit className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
         </button>
-        <button onClick={() => onDeleteColor(color.id)} className="h-6 w-6 rounded-full bg-white border shadow flex items-center justify-center hover:bg-red-50 text-destructive transition-colors">
-          <Trash2 className="h-3 w-3" />
+        <button onClick={() => onDeleteColor(color.id)} className="h-7 w-7 sm:h-6 sm:w-6 rounded-full bg-white border shadow flex items-center justify-center hover:bg-red-50 text-destructive transition-colors">
+          <Trash2 className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
         </button>
       </div>
     </div>

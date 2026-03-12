@@ -61,24 +61,24 @@ export function OrderDetailModal({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto p-0 gap-0">
-                <DialogHeader className="p-6 pb-4 border-b bg-muted/20 sticky top-0 z-10 backdrop-blur-sm">
-                    <div className="flex items-center justify-between pr-4">
-                        <div>
-                            <DialogTitle className="text-2xl font-[family-name:var(--font-heading)] flex items-center gap-3">
-                                Pedido {order.order_number}
-                                <Badge className={`${statusConfig[order.status as keyof typeof statusConfig]?.color} border`}>
+            <DialogContent className="max-w-full! sm:max-w-[90vw]! md:max-w-3xl! w-full sm:w-[90vw]! h-dvh sm:h-[85vh] md:max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border-0 sm:border rounded-none sm:rounded-xl">
+                <DialogHeader className="p-4 md:p-6 pb-4 border-b bg-muted/20 sticky top-0 z-10 backdrop-blur-sm shrink-0">
+                    <div className="flex items-center justify-between pr-8 sm:pr-4">
+                        <div className="min-w-0 pr-2">
+                            <DialogTitle className="text-xl md:text-2xl font-[family-name:var(--font-heading)] flex flex-wrap items-center gap-2 sm:gap-3">
+                                <span className="truncate">Pedido {order.order_number}</span>
+                                <Badge className={`${statusConfig[order.status as keyof typeof statusConfig]?.color} border text-[10px] sm:text-xs`}>
                                     {statusConfig[order.status as keyof typeof statusConfig]?.label}
                                 </Badge>
                             </DialogTitle>
-                            <p className="text-sm text-muted-foreground mt-1">
+                            <p className="text-xs sm:text-sm text-muted-foreground mt-1 truncate">
                                 {format(new Date(order.created_at), "dd 'de' MMMM, yyyy 'às' HH:mm", { locale: ptBR })}
                             </p>
                         </div>
                     </div>
                 </DialogHeader>
                 
-                <div className="p-6 space-y-8">
+                <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 md:space-y-8">
                     {/* General Information Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-muted/30 p-4 rounded-xl space-y-3 border border-border/50">

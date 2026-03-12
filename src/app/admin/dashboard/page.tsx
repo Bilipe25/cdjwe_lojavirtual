@@ -122,14 +122,14 @@ export default function AdminDashboardPage() {
                         Visão geral do sistema
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 overflow-hidden">
                     {/* Period Filter */}
-                    <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5">
+                    <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5 overflow-x-auto no-scrollbar">
                         {(Object.entries(periodLabels) as [DashboardPeriod, string][]).map(([key, label]) => (
                             <button
                                 key={key}
                                 onClick={() => handlePeriodChange(key)}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs font-medium rounded-sm sm:rounded-md transition-all whitespace-nowrap ${
                                     period === key
                                         ? 'bg-white shadow-sm text-foreground'
                                         : 'text-muted-foreground hover:text-foreground'
@@ -165,7 +165,7 @@ export default function AdminDashboardPage() {
             )}
 
             {/* KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
                 {loading
                     ? Array.from({ length: 5 }).map((_, i) => (
                         <Card key={i} className="glass-card border-0">
@@ -185,12 +185,12 @@ export default function AdminDashboardPage() {
                             <Card className="glass-card border-0 hover:shadow-md transition-shadow">
                                 <CardContent className="p-5">
                                     <div className="flex items-center justify-between mb-2">
-                                        <span className="text-xs text-muted-foreground">{kpi.title}</span>
-                                        <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${kpi.color}`}>
-                                            <kpi.icon className="h-4 w-4" />
+                                        <span className="text-[10px] sm:text-xs text-muted-foreground truncate">{kpi.title}</span>
+                                        <div className={`h-7 w-7 sm:h-8 sm:w-8 rounded-lg flex items-center justify-center shrink-0 ${kpi.color}`}>
+                                            <kpi.icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                                         </div>
                                     </div>
-                                    <p className="text-xl font-bold font-heading">
+                                    <p className="text-lg sm:text-xl font-bold font-heading">
                                         {kpi.value}
                                     </p>
                                     {kpi.badge && (

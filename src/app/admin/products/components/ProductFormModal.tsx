@@ -174,21 +174,21 @@ export function ProductFormModal({
 
     return (
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-            <DialogContent className="max-w-[1000px]! w-[95vw]! sm:w-[90vw]! max-h-[90vh] flex flex-col p-0 overflow-hidden">
-                <DialogHeader className="px-6 pt-6 pb-0 border-b">
-                    <DialogTitle className="font-heading text-2xl text-navy mb-3">
+            <DialogContent className="max-w-full! sm:max-w-[90vw]! md:max-w-[1000px]! w-full sm:w-[90vw]! h-dvh sm:h-[90vh] md:max-h-[90vh] flex flex-col p-0 overflow-hidden border-0 sm:border rounded-none sm:rounded-xl">
+                <DialogHeader className="px-4 md:px-6 pt-6 pb-0 border-b">
+                    <DialogTitle className="font-heading text-xl md:text-2xl text-navy mb-3">
                         {editingProduct ? 'Editar Produto' : 'Novo Produto'}
                     </DialogTitle>
 
                     {/* Tabs */}
-                    <div className="flex gap-1">
+                    <div className="flex gap-0 sm:gap-1 -mx-4 sm:mx-0 overflow-x-auto no-scrollbar">
                         {tabs.map(tab => (
                             <button
                                 key={tab.id}
                                 type="button"
                                 onClick={() => setActiveTab(tab.id)}
                                 className={`
-                                    flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
+                                    flex items-center gap-1.5 px-4 py-2.5 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap
                                     ${activeTab === tab.id
                                         ? 'border-primary text-primary'
                                         : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
@@ -202,7 +202,7 @@ export function ProductFormModal({
                     </div>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto px-6 pb-2">
+                <div className="flex-1 overflow-y-auto px-4 md:px-6 pb-2">
                     {/* Tab: Informações */}
                     {activeTab === 'info' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
@@ -303,9 +303,9 @@ export function ProductFormModal({
                     )}
                 </div>
 
-                <DialogFooter className="px-6 pb-6 pt-4 border-t bg-muted/10">
-                    <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>Cancelar</Button>
-                    <Button type="button" className="gradient-navy border-0 text-white min-w-[120px]" onClick={handleSubmit(onSubmit)} disabled={saving}>
+                <DialogFooter className="px-4 md:px-6 pb-6 pt-4 border-t bg-muted/10">
+                    <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving} className="flex-1 sm:flex-none">Cancelar</Button>
+                    <Button type="button" className="gradient-navy border-0 text-white min-w-[120px] flex-1 sm:flex-none" onClick={handleSubmit(onSubmit)} disabled={saving}>
                         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editingProduct ? 'Salvar Alterações' : 'Criar Produto'}
                     </Button>
                 </DialogFooter>

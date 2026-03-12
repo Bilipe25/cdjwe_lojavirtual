@@ -127,18 +127,18 @@ export function ClientPage({ initialFabrics }: ClientPageProps) {
       </div>
 
       {/* Filters & Bulk Actions */}
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-white/60 p-4 rounded-xl border shadow-sm">
-        <div className="flex flex-1 w-full gap-4 items-center">
-          <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-white/60 p-3 md:p-4 rounded-xl border shadow-sm">
+        <div className="flex flex-col sm:flex-row flex-1 w-full gap-3 sm:gap-4 items-center">
+          <div className="relative w-full sm:max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Buscar por código hex, nome..."
-              className="pl-9 bg-white"
+              className="pl-9 h-10 md:h-11 bg-white"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 self-start sm:self-auto py-1 sm:py-0">
             <Switch id="hide-inactive" checked={hideInactive} onCheckedChange={setHideInactive} />
             <Label htmlFor="hide-inactive" className="text-sm text-muted-foreground cursor-pointer whitespace-nowrap">Ocultar Inativos</Label>
           </div>
