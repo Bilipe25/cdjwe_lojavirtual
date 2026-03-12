@@ -229,8 +229,8 @@ function CatalogContent() {
                 onSelect={(id: string) => { setSelectedCategory(id); setCurrentPage(1); }}
             />
 
-            {/* Filter Button (mobile/tablet only) - hidden on large desktop sidebar */}
-            <div className="flex lg:hidden mb-6">
+            {/* Filter Button (tablet only) - hidden on mobile (handled by MobileTopBar) and large desktop (sidebar) */}
+            <div className="hidden md:flex lg:hidden mb-6">
                 <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
                     <SheetTrigger render={<Button variant="outline" className="w-full h-11 gap-2 bg-white/60" />}>
                             <SlidersHorizontal className="h-4 w-4" />
