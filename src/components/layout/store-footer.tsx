@@ -7,6 +7,7 @@ import { Phone, Mail, MapPin, MessageCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useSettings } from '@/components/providers/settings-provider'
 import type { SystemSettings } from '@/lib/types'
+import { getWhatsAppLink } from '@/lib/utils'
 
 export function StoreFooter() {
     const { settings } = useSettings()
@@ -20,8 +21,7 @@ export function StoreFooter() {
     }, [])
 
     const companyName = settings?.system_name || 'CDJWE Estofados'
-    const whatsappNumber = settings?.whatsapp?.replace(/\D/g, '') || ''
-    const whatsappLink = whatsappNumber ? `https://wa.me/55${whatsappNumber}` : null
+    const whatsappLink = getWhatsAppLink(settings?.whatsapp)
 
     const fullAddress = [settings?.address, settings?.city, settings?.state].filter(Boolean).join(', ')
     const cepDisplay = settings?.zip_code ? ` — CEP: ${settings.zip_code}` : ''
