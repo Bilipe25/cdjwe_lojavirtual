@@ -27,7 +27,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { toast } from 'sonner'
-import { loadSettingsAction, saveSettingsAction, uploadLogoAction } from './actions'
+import { loadSettingsAction, saveSettingsAction, uploadLogoAction, uploadAboutImageAction } from './actions'
 import type { SystemSettings } from '@/lib/types'
 
 // ====== Input Masks ======
@@ -76,6 +76,9 @@ interface FormState {
     whatsapp: string
     instagram: string
     facebook: string
+    aboutTitle: string
+    aboutText: string
+    aboutImageUrl: string
 }
 
 const initialForm: FormState = {
@@ -95,6 +98,9 @@ const initialForm: FormState = {
     whatsapp: '',
     instagram: '',
     facebook: '',
+    aboutTitle: '',
+    aboutText: '',
+    aboutImageUrl: '',
 }
 
 export default function AdminSettingsPage() {
@@ -102,6 +108,7 @@ export default function AdminSettingsPage() {
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [uploadingLogo, setUploadingLogo] = useState(false)
+    const [uploadingAboutImage, setUploadingAboutImage] = useState(false)
     const [loadError, setLoadError] = useState<string | null>(null)
 
     const [form, setForm] = useState<FormState>(initialForm)
@@ -143,6 +150,9 @@ export default function AdminSettingsPage() {
                     whatsapp: result.data.whatsapp || '',
                     instagram: result.data.instagram || '',
                     facebook: result.data.facebook || '',
+                    aboutTitle: result.data.about_title || '',
+                    aboutText: result.data.about_text || '',
+                    aboutImageUrl: result.data.about_image_url || '',
                 }
                 setForm(loaded)
                 setSavedForm(loaded)
@@ -183,6 +193,9 @@ export default function AdminSettingsPage() {
             whatsapp: form.whatsapp || null,
             instagram: form.instagram || null,
             facebook: form.facebook || null,
+            about_title: form.aboutTitle || null,
+            about_text: form.aboutText || null,
+            about_image_url: form.aboutImageUrl || null,
         })
 
         if (result.error) {
@@ -209,10 +222,27 @@ export default function AdminSettingsPage() {
             toast.error(result.error)
         } else if (result.url) {
             updateField('logoUrl', result.url)
-            toast.success('Logo enviada! Salve para confirmar.')
+            toast.success('Logo atualizada!')
         }
         setUploadingLogo(false)
-        if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+
+    const handleAboutImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        setUploadingAboutImage(true)
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const result = await uploadAboutImageAction(formData)
+        if (result.error) {
+            toast.error(result.error)
+        } else if (result.url) {
+            updateField('aboutImageUrl', result.url)
+            toast.success('Imagem institucional atualizada!')
+        }
+        setUploadingAboutImage(false)
     }
 
     // ====== Loading State ======
@@ -294,6 +324,10 @@ export default function AdminSettingsPage() {
                         <Globe className="h-4 w-4" />
                         Redes Sociais
                     </TabsTrigger>
+                    <TabsTrigger value="about" className="gap-1.5">
+                        <Building2 className="h-4 w-4" />
+                        Sobre Nós
+                    </TabsTrigger>
                 </TabsList>
 
                 {/* ====== TAB: Empresa ====== */}
@@ -302,7 +336,7 @@ export default function AdminSettingsPage() {
                         {/* Logo */}
                         <Card className="glass-card border-0">
                             <CardHeader>
-                                <CardTitle className="text-lg font-[family-name:var(--font-heading)] flex items-center gap-2">
+                                <CardTitle className="text-lg font-heading flex items-center gap-2">
                                     <ImageIcon className="h-5 w-5 text-bronze" />
                                     Logo da Empresa
                                 </CardTitle>
@@ -358,7 +392,7 @@ export default function AdminSettingsPage() {
                         {/* Dados da Empresa */}
                         <Card className="glass-card border-0">
                             <CardHeader>
-                                <CardTitle className="text-lg font-[family-name:var(--font-heading)] flex items-center gap-2">
+                                <CardTitle className="text-lg font-heading flex items-center gap-2">
                                     <Building2 className="h-5 w-5 text-bronze" />
                                     Dados da Empresa
                                 </CardTitle>
@@ -485,7 +519,7 @@ export default function AdminSettingsPage() {
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-4">
                         <Card className="glass-card border-0">
                             <CardHeader>
-                                <CardTitle className="text-lg font-[family-name:var(--font-heading)] flex items-center gap-2">
+                                <CardTitle className="text-lg font-heading flex items-center gap-2">
                                     <Package className="h-5 w-5 text-bronze" />
                                     Configurações de Pedidos
                                 </CardTitle>
@@ -532,7 +566,7 @@ export default function AdminSettingsPage() {
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-4">
                         <Card className="glass-card border-0">
                             <CardHeader>
-                                <CardTitle className="text-lg font-[family-name:var(--font-heading)] flex items-center gap-2">
+                                <CardTitle className="text-lg font-heading flex items-center gap-2">
                                     <Eye className="h-5 w-5 text-bronze" />
                                     Visibilidade do Catálogo
                                 </CardTitle>
@@ -561,7 +595,7 @@ export default function AdminSettingsPage() {
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-4">
                         <Card className="glass-card border-0">
                             <CardHeader>
-                                <CardTitle className="text-lg font-[family-name:var(--font-heading)] flex items-center gap-2">
+                                <CardTitle className="text-lg font-heading flex items-center gap-2">
                                     <Globe className="h-5 w-5 text-bronze" />
                                     Redes Sociais & Contato
                                 </CardTitle>
@@ -611,6 +645,104 @@ export default function AdminSettingsPage() {
                                             placeholder="https://facebook.com/suaempresa"
                                             className="bg-white/60"
                                         />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </motion.div>
+                </TabsContent>
+
+                {/* ====== TAB: Sobre Nós ====== */}
+                <TabsContent value="about">
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-4">
+                        <Card className="glass-card border-0">
+                            <CardHeader>
+                                <CardTitle className="text-lg font-[family-name:var(--font-heading)] flex items-center gap-2">
+                                    <Building2 className="h-5 w-5 text-bronze" />
+                                    Conteúdo Institucional (Sobre Nós)
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="space-y-2">
+                                    <Label>Título da Página</Label>
+                                    <Input
+                                        value={form.aboutTitle}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('aboutTitle', e.target.value)}
+                                        placeholder="Ex: Nossa História, Conheça a CDJWE"
+                                        className="bg-white/60"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Texto Institucional</Label>
+                                    <Textarea
+                                        value={form.aboutText}
+                                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateField('aboutText', e.target.value)}
+                                        placeholder="Conte a história da sua empresa, seus valores e missão..."
+                                        className="bg-white/60 min-h-[200px] resize-y"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Descreva sua empresa de forma elegante. Você pode usar parágrafos para organizar a leitura.
+                                    </p>
+                                </div>
+
+                                <Separator />
+
+                                <div className="space-y-4">
+                                    <Label>Imagem Institucional</Label>
+                                    <div className="flex flex-col sm:flex-row gap-6 items-start">
+                                        {form.aboutImageUrl ? (
+                                            <div className="relative group shrink-0">
+                                                <div className="w-full sm:w-64 h-40 rounded-xl overflow-hidden border-2 border-white shadow-md">
+                                                    <img
+                                                        src={form.aboutImageUrl}
+                                                        alt="Imagem Sobre Nós"
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={() => updateField('aboutImageUrl', '')}
+                                                    className="absolute -top-2 -right-2 p-1.5 bg-red-100 text-red-600 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                                >
+                                                    <X className="h-4 w-4" />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="w-full sm:w-64 h-40 border-2 border-dashed border-muted rounded-xl bg-muted/20 flex flex-col items-center justify-center gap-2 text-muted-foreground shrink-0">
+                                                <ImageIcon className="h-8 w-8 opacity-20" />
+                                                <span className="text-xs">Sem imagem selecionada</span>
+                                            </div>
+                                        )}
+
+                                        <div className="flex-1 space-y-3">
+                                            <p className="text-sm text-muted-foreground">
+                                                Recomendamos uma imagem retangular (16:9) de alta qualidade para representar sua empresa.
+                                            </p>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    className="hidden"
+                                                    id="about-image-upload"
+                                                    onChange={handleAboutImageUpload}
+                                                />
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="bg-white"
+                                                    asChild
+                                                >
+                                                    <label htmlFor="about-image-upload" className="cursor-pointer">
+                                                        {uploadingAboutImage ? (
+                                                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                                        ) : (
+                                                            <Upload className="h-4 w-4 mr-2" />
+                                                        )}
+                                                        {form.aboutImageUrl ? 'Substituir Imagem' : 'Fazer Upload'}
+                                                    </label>
+                                                </Button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </CardContent>

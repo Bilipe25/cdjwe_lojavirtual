@@ -67,11 +67,10 @@ const dashboardCards: DashboardCard[] = [
     {
         title: 'Sobre',
         icon: Info,
-        href: '#',
-        color: 'bg-slate-50',
-        iconColor: 'text-slate-300',
-        enabled: false,
-        badge: 'Em breve',
+        href: '/about',
+        color: 'bg-navy/5 hover:bg-navy/10',
+        iconColor: 'text-navy',
+        enabled: true,
     },
 ]
 

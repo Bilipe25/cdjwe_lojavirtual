@@ -271,6 +271,9 @@ export interface SystemSettings {
   whatsapp: string | null
   instagram: string | null
   facebook: string | null
+  about_title: string | null
+  about_text: string | null
+  about_image_url: string | null
   created_at: string
   updated_at: string
 }

@@ -15,6 +15,7 @@ import {
     Heart,
     Bell,
     Scissors,
+    Building2,
 } from 'lucide-react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -39,6 +40,7 @@ const navItems = [
     { href: '/catalog', label: 'Catálogo', icon: Package },
     { href: '/fabrics', label: 'Tecidos', icon: Scissors },
     { href: '/orders', label: 'Meus Pedidos', icon: ClipboardList },
+    { href: '/about', label: 'Sobre Nós', icon: Building2 },
 ]
 
 const statusLabels: Record<string, string> = {

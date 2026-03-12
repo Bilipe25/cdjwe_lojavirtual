@@ -32,6 +32,9 @@ interface SaveSettingsInput {
     whatsapp?: string | null
     instagram?: string | null
     facebook?: string | null
+    about_title?: string | null
+    about_text?: string | null
+    about_image_url?: string | null
 }
 
 export async function saveSettingsAction(input: SaveSettingsInput): Promise<{ error: string | null }> {
@@ -71,6 +74,9 @@ export async function saveSettingsAction(input: SaveSettingsInput): Promise<{ er
         whatsapp: input.whatsapp || null,
         instagram: input.instagram || null,
         facebook: input.facebook || null,
+        about_title: input.about_title || null,
+        about_text: input.about_text || null,
+        about_image_url: input.about_image_url || null,
     }
 
     if (input.id) {
@@ -109,6 +115,30 @@ export async function uploadLogoAction(formData: FormData): Promise<{ url: strin
 
     const { error } = await supabase.storage.from('logos').upload(filePath, file, { upsert: true })
     if (error) return { url: null, error: 'Erro ao fazer upload.' }
+
+    const { data: urlData } = supabase.storage.from('logos').getPublicUrl(filePath)
+    return { url: urlData.publicUrl, error: null }
+}
+
+export async function uploadAboutImageAction(formData: FormData): Promise<{ url: string | null; error: string | null }> {
+    const file = formData.get('file') as File | null
+    if (!file) return { url: null, error: 'Nenhum arquivo enviado.' }
+
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp']
+    if (!allowedTypes.includes(file.type)) {
+        return { url: null, error: 'Formato inválido. Use PNG, JPEG ou WebP.' }
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+        return { url: null, error: 'Arquivo muito grande. Máximo 5MB.' }
+    }
+
+    const supabase = await createClient()
+    const ext = file.name.split('.').pop()
+    const filePath = `institutional/about_${Date.now()}.${ext}`
+
+    const { error } = await supabase.storage.from('logos').upload(filePath, file, { upsert: true })
+    if (error) return { url: null, error: 'Erro ao fazer upload da imagem institucional.' }
 
     const { data: urlData } = supabase.storage.from('logos').getPublicUrl(filePath)
     return { url: urlData.publicUrl, error: null }
