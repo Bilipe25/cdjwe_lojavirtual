@@ -26,3 +26,26 @@ export function getWhatsAppLink(phone: string | null | undefined): string | null
   // Otherwise assume it's already a full international number or other format
   return `https://wa.me/${digits}`
 }
+
+/**
+ * Fetches an image from a URL and converts it to a base64 string.
+ * Useful for embedding remote images in pdfmake documents.
+ */
+export async function getBase64ImageFromURL(url: string | null | undefined): Promise<string | null> {
+  if (!url) return null
+  
+  try {
+    const response = await fetch(url)
+    const blob = await response.blob()
+    
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+  } catch (error) {
+    console.error('Error converting image to base64:', error)
+    return null
+  }
+}

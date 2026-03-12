@@ -86,7 +86,7 @@ export function OrderDetailModal({
                 <DialogHeader className="p-4 md:p-6 pb-4 border-b bg-muted/20 sticky top-0 z-10 backdrop-blur-sm shrink-0">
                     <div className="flex items-center justify-between pr-8 sm:pr-4">
                         <div className="min-w-0 pr-2 flex-1">
-                            <DialogTitle className="text-xl md:text-2xl font-[family-name:var(--font-heading)] flex flex-wrap items-center gap-2 sm:gap-3">
+                            <DialogTitle className="text-xl md:text-2xl font-(family-name:--font-heading) flex flex-wrap items-center gap-2 sm:gap-3">
                                 <span className="truncate">Pedido {order.order_number}</span>
                                 <Badge className={`${statusConfig[order.status as keyof typeof statusConfig]?.color} border text-[10px] sm:text-xs`}>
                                     {statusConfig[order.status as keyof typeof statusConfig]?.label}

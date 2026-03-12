@@ -165,6 +165,30 @@ export async function generateFabricCatalogPDF(
     }
   }
 
+  // Dynamic font detection to ensure we use what's actually in the VFS
+  const vfs = (pdfMake as any).vfs || {}
+  const keys = Object.keys(vfs)
+  
+  // Find available Roboto variants in the VFS
+  const findFont = (patterns: string[], fallback: string) => {
+    const match = keys.find(k => patterns.some(p => k.toLowerCase().includes(p.toLowerCase())))
+    return match || fallback
+  }
+
+  const regular = findFont(['roboto-regular.ttf', 'roboto.ttf'], 'Roboto-Regular.ttf')
+  const bold = findFont(['roboto-medium.ttf', 'roboto-bold.ttf'], regular)
+  const italic = findFont(['roboto-italic.ttf'], regular)
+  const boldItalic = findFont(['roboto-mediumitalic.ttf', 'roboto-bolditalic.ttf'], bold)
+
+  ;(pdfMake as any).fonts = {
+    Roboto: {
+      normal: regular,
+      bold: bold,
+      italics: italic,
+      bolditalics: boldItalic
+    }
+  }
+
   pdfMake.createPdf(docDefinition).download(`Catalogo-Tecidos-${settings?.system_name || 'CDJWE'}.pdf`)
 }
 
