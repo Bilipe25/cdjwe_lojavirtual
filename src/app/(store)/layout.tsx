@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { StoreHeader } from '@/components/layout/store-header'
 import { StoreFooter } from '@/components/layout/store-footer'
 import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav'
@@ -17,7 +18,9 @@ export default function StoreLayout({
             </div>
 
             {/* Mobile TopBar - hidden on desktop */}
-            <MobileTopBar />
+            <Suspense fallback={<div className="h-12 border-b bg-muted/20 animate-pulse md:hidden" />}>
+                <MobileTopBar />
+            </Suspense>
 
             <main id="main-content" className="flex-1 pb-(--bottom-nav-height) md:pb-0">
                 {children}
