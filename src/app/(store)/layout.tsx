@@ -114,6 +114,7 @@ function GlobalFloatingActions() {
             <AnimatePresence>
                 {showScrollTop && (
                     <motion.div
+                        key="scroll-top"
                         initial={{ opacity: 0, y: 20, scale: 0.8 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 20, scale: 0.8 }}
@@ -134,6 +135,7 @@ function GlobalFloatingActions() {
 
                 {instagramUrl && (
                     <motion.div
+                        key="instagram-float"
                         initial={{ opacity: 0, y: 20, scale: 0.8 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         className="pointer-events-auto"
@@ -152,6 +154,7 @@ function GlobalFloatingActions() {
 
                 {whatsappLink && (
                     <motion.div
+                        key="whatsapp-float"
                         initial={{ opacity: 0, y: 20, scale: 0.8 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         className="pointer-events-auto"
