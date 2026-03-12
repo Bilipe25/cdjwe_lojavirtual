@@ -51,11 +51,10 @@ const dashboardCards: DashboardCard[] = [
     {
         title: 'Catálogo de Tecidos',
         icon: Scissors,
-        href: '#',
-        color: 'bg-slate-50',
-        iconColor: 'text-slate-300',
-        enabled: false,
-        badge: 'Em breve',
+        href: '/fabrics',
+        color: 'bg-primary/5 hover:bg-primary/10',
+        iconColor: 'text-primary',
+        enabled: true,
     },
     {
         title: 'Meu Perfil',

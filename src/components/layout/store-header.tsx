@@ -14,6 +14,7 @@ import {
     Search,
     Heart,
     Bell,
+    Scissors,
 } from 'lucide-react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,7 @@ import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
 
 const navItems = [
     { href: '/catalog', label: 'Catálogo', icon: Package },
+    { href: '/fabrics', label: 'Tecidos', icon: Scissors },
     { href: '/orders', label: 'Meus Pedidos', icon: ClipboardList },
 ]
 

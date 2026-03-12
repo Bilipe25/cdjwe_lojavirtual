@@ -10,9 +10,11 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Building, User, CreditCard, Calendar, Clock, History } from 'lucide-react'
+import { Building, User, CreditCard, Calendar, Clock, History, Printer, Loader2 } from 'lucide-react'
 import { statusConfig } from './OrderFilters'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 
 interface OrderDetailModalProps {
     order: any | null;
@@ -27,14 +29,23 @@ export function OrderDetailModal({
 }: OrderDetailModalProps) {
     const [history, setHistory] = useState<any[]>([])
     const [loadingHistory, setLoadingHistory] = useState(false)
+    const [isPrinting, setIsPrinting] = useState(false)
+    const [settings, setSettings] = useState<any>(null)
 
     useEffect(() => {
         if (open && order?.id) {
             fetchHistory(order.id)
+            fetchSettings()
         } else {
             setHistory([])
         }
     }, [open, order?.id])
+
+    const fetchSettings = async () => {
+        const supabase = createClient()
+        const { data } = await supabase.from('system_settings').select('*').limit(1).single()
+        if (data) setSettings(data)
+    }
 
     const fetchHistory = async (orderId: string) => {
         setLoadingHistory(true)
@@ -57,6 +68,16 @@ export function OrderDetailModal({
         setLoadingHistory(false)
     }
 
+    const handlePrint = async () => {
+        if (!order) return
+        setIsPrinting(true)
+        try {
+            await generateOrderReceiptPDF(order, order.items || [], settings)
+        } finally {
+            setIsPrinting(false)
+        }
+    }
+
     if (!order) return null;
 
     return (
@@ -64,7 +85,7 @@ export function OrderDetailModal({
             <DialogContent className="max-w-full! sm:max-w-[90vw]! md:max-w-3xl! w-full sm:w-[90vw]! h-dvh sm:h-[85vh] md:max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border-0 sm:border rounded-none sm:rounded-xl">
                 <DialogHeader className="p-4 md:p-6 pb-4 border-b bg-muted/20 sticky top-0 z-10 backdrop-blur-sm shrink-0">
                     <div className="flex items-center justify-between pr-8 sm:pr-4">
-                        <div className="min-w-0 pr-2">
+                        <div className="min-w-0 pr-2 flex-1">
                             <DialogTitle className="text-xl md:text-2xl font-[family-name:var(--font-heading)] flex flex-wrap items-center gap-2 sm:gap-3">
                                 <span className="truncate">Pedido {order.order_number}</span>
                                 <Badge className={`${statusConfig[order.status as keyof typeof statusConfig]?.color} border text-[10px] sm:text-xs`}>
@@ -75,6 +96,18 @@ export function OrderDetailModal({
                                 {format(new Date(order.created_at), "dd 'de' MMMM, yyyy 'às' HH:mm", { locale: ptBR })}
                             </p>
                         </div>
+
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="shrink-0 gap-2 h-9 rounded-lg border-navy/20 text-navy hover:bg-navy/5 font-bold shadow-xs transition-all"
+                            onClick={handlePrint}
+                            disabled={isPrinting}
+                        >
+                            {isPrinting ? <Loader2 className="h-4 w-4 animate-spin text-bronze" /> : <Printer className="h-4 w-4" />}
+                            <span className="hidden sm:inline">Imprimir Comprovante</span>
+                            <span className="sm:hidden">Imprimir</span>
+                        </Button>
                     </div>
                 </DialogHeader>
                 

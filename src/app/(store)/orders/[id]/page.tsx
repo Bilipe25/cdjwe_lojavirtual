@@ -26,11 +26,12 @@ import {
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import type { Order, OrderItem, OrderStatusHistory, OrderStatus } from '@/lib/types'
+import type { Order, OrderItem, OrderStatusHistory, OrderStatus, SystemSettings } from '@/lib/types'
 import { cancelOrderAction } from './actions'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import Image from 'next/image'
+import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 
 const statusConfig: Record<OrderStatus, { label: string; color: string; icon: React.ElementType }> = {
     pending: { label: 'Em Análise', color: 'bg-amber-100 text-amber-800 border-amber-200', icon: Clock },
@@ -51,6 +52,8 @@ export default function OrderDetailPage() {
     const [history, setHistory] = useState<OrderStatusHistory[]>([])
     const [loading, setLoading] = useState(true)
     const [cancelling, setCancelling] = useState(false)
+    const [isPrinting, setIsPrinting] = useState(false)
+    const [settings, setSettings] = useState<SystemSettings | null>(null)
     const [currentUser, setCurrentUser] = useState<any>(null)
 
     useEffect(() => {
@@ -74,6 +77,8 @@ export default function OrderDetailPage() {
             .from('orders')
             .select(`
                 *,
+                store:stores(*),
+                profile:profiles(*),
                 payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage)
             `)
             .eq('id', params.id)
@@ -84,7 +89,15 @@ export default function OrderDetailPage() {
             router.push('/orders')
             return
         }
-        setOrder(orderData as Order)
+        setOrder(orderData as any)
+
+        // Load settings for branding
+        const { data: settingsData } = await supabase
+            .from('system_settings')
+            .select('*')
+            .limit(1)
+            .single()
+        if (settingsData) setSettings(settingsData)
 
         // Load items
         const { data: itemsData } = await supabase
@@ -118,6 +131,19 @@ export default function OrderDetailPage() {
         }
     }
 
+    const handlePrint = async () => {
+        if (!order || items.length === 0) return
+        setIsPrinting(true)
+        try {
+            await generateOrderReceiptPDF(order as any, items, settings)
+        } catch (err) {
+            console.error('PDF generation error:', err)
+            toast.error('Erro ao gerar comprovante.')
+        } finally {
+            setIsPrinting(false)
+        }
+    }
+
     if (loading) {
         return (
             <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-8">
@@ -147,8 +173,15 @@ export default function OrderDetailPage() {
                 </Button>
                 
                 <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="gap-2" onClick={() => window.print()}>
-                        <Printer className="h-4 w-4" /> Imprimir Comprovante
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="gap-2" 
+                        onClick={handlePrint}
+                        disabled={isPrinting}
+                    >
+                        {isPrinting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                        Imprimir Comprovante
                     </Button>
                     
                     {order.status === 'pending' && (
@@ -186,8 +219,15 @@ export default function OrderDetailPage() {
 
             {/* Desktop Print/Action bar (Mobile version) */}
             <div className="flex md:hidden items-center justify-end gap-2 mb-4 print:hidden">
-                <Button variant="outline" size="sm" className="h-8 text-[11px] px-3 gap-1.5 rounded-lg border-border/40" onClick={() => window.print()}>
-                    <Printer className="h-3.5 w-3.5" /> Imprimir
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-8 text-[11px] px-3 gap-1.5 rounded-lg border-border/40" 
+                    onClick={handlePrint}
+                    disabled={isPrinting}
+                >
+                    {isPrinting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+                    Imprimir
                 </Button>
                 {order.status === 'pending' && (
                     <AlertDialog>
