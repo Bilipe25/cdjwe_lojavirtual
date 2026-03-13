@@ -22,6 +22,7 @@ import { CategoryCarousel } from '@/components/catalog/category-carousel'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useSettings } from '@/components/providers/settings-provider'
 import { PullToRefresh } from '@/components/ui/pull-to-refresh'
+import { NoticeCard } from '@/components/store/NoticeCard'
 
 const PAGE_SIZE = 12
 
@@ -212,14 +213,22 @@ function CatalogContent() {
             <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mb-6 hidden md:block"
+                className="mb-6 hidden md:flex flex-col md:flex-row md:items-start md:justify-between gap-6"
             >
-                <h1 className="text-3xl font-bold font-heading text-gradient-navy">
-                    Catálogo
-                </h1>
-                <p className="text-muted-foreground mt-1">
-                    Encontre os melhores estofados para sua loja
-                </p>
+                <div>
+                    <h1 className="text-3xl font-bold font-heading text-gradient-navy">
+                        Catálogo
+                    </h1>
+                    <p className="text-muted-foreground mt-1">
+                        Encontre os melhores estofados para sua loja
+                    </p>
+                </div>
+                
+                <NoticeCard 
+                    notice={settings?.catalog_notice} 
+                    type={settings?.catalog_notice_type} 
+                    className="max-w-md w-full hidden md:block" 
+                />
             </motion.div>
 
             {/* Category Carousel (mobile + desktop) */}
@@ -314,7 +323,7 @@ function CatalogContent() {
                 </aside>
 
                 {/* Products Grid & Pagination */}
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col pt-2 md:pt-0">
                     {loading ? (
                         <ProductGridSkeleton count={9} />
                     ) : products.length === 0 ? (

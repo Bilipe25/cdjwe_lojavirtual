@@ -35,6 +35,8 @@ interface SaveSettingsInput {
     about_title?: string | null
     about_text?: string | null
     about_image_url?: string | null
+    catalog_notice?: string | null
+    catalog_notice_type?: 'info' | 'promotion' | 'attention' | 'message' | null
 }
 
 export async function saveSettingsAction(input: SaveSettingsInput): Promise<{ error: string | null }> {
@@ -77,6 +79,8 @@ export async function saveSettingsAction(input: SaveSettingsInput): Promise<{ er
         about_title: input.about_title || null,
         about_text: input.about_text || null,
         about_image_url: input.about_image_url || null,
+        catalog_notice: input.catalog_notice || null,
+        catalog_notice_type: input.catalog_notice_type || 'info',
     }
 
     if (input.id) {

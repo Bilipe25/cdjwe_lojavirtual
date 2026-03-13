@@ -16,7 +16,11 @@ import {
     ImageIcon,
     Globe,
     MessageCircle,
+    Info,
+    Tag,
+    AlertTriangle,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -79,6 +83,8 @@ interface FormState {
     aboutTitle: string
     aboutText: string
     aboutImageUrl: string
+    catalogNotice: string
+    catalogNoticeType: 'info' | 'promotion' | 'attention' | 'message'
 }
 
 const initialForm: FormState = {
@@ -101,6 +107,8 @@ const initialForm: FormState = {
     aboutTitle: '',
     aboutText: '',
     aboutImageUrl: '',
+    catalogNotice: '',
+    catalogNoticeType: 'info',
 }
 
 export default function AdminSettingsPage() {
@@ -153,6 +161,8 @@ export default function AdminSettingsPage() {
                     aboutTitle: result.data.about_title || '',
                     aboutText: result.data.about_text || '',
                     aboutImageUrl: result.data.about_image_url || '',
+                    catalogNotice: result.data.catalog_notice || '',
+                    catalogNoticeType: (result.data.catalog_notice_type as any) || 'info',
                 }
                 setForm(loaded)
                 setSavedForm(loaded)
@@ -196,6 +206,8 @@ export default function AdminSettingsPage() {
             about_title: form.aboutTitle || null,
             about_text: form.aboutText || null,
             about_image_url: form.aboutImageUrl || null,
+            catalog_notice: form.catalogNotice || null,
+            catalog_notice_type: form.catalogNoticeType,
         })
 
         if (result.error) {
@@ -319,6 +331,10 @@ export default function AdminSettingsPage() {
                     <TabsTrigger value="visibilidade" className="gap-1.5">
                         <Eye className="h-4 w-4" />
                         Visibilidade
+                    </TabsTrigger>
+                    <TabsTrigger value="aviso" className="gap-1.5">
+                        <MessageCircle className="h-4 w-4" />
+                        Aviso do Catálogo
                     </TabsTrigger>
                     <TabsTrigger value="social" className="gap-1.5">
                         <Globe className="h-4 w-4" />
@@ -584,6 +600,68 @@ export default function AdminSettingsPage() {
                                         checked={form.showPricesToUnapproved}
                                         onCheckedChange={(checked: boolean) => updateField('showPricesToUnapproved', checked)}
                                     />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </motion.div>
+                </TabsContent>
+
+                {/* ====== TAB: Aviso do Catálogo ====== */}
+                <TabsContent value="aviso">
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-4">
+                        <Card className="glass-card border-0">
+                            <CardHeader>
+                                <CardTitle className="text-lg font-heading flex items-center gap-2">
+                                    <MessageCircle className="h-5 w-5 text-bronze" />
+                                    Aviso do Catálogo
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label>Texto do Aviso</Label>
+                                    <Textarea
+                                        value={form.catalogNotice}
+                                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateField('catalogNotice', e.target.value)}
+                                        placeholder="Ex: Aproveite nossas condições especiais de parcelamento este mês!"
+                                        className="bg-white/60 min-h-[120px] resize-y"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Este aviso será exibido no topo do catálogo de produtos e no dashboard do cliente. 
+                                        Deixe em branco para não exibir nada.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <Label>Tipo de Aviso</Label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        {[
+                                            { id: 'info', label: 'Aviso', color: 'bg-bronze', icon: Info },
+                                            { id: 'promotion', label: 'Promoção', color: 'bg-emerald-500', icon: Tag },
+                                            { id: 'attention', label: 'Atenção', color: 'bg-amber-500', icon: AlertTriangle },
+                                            { id: 'message', label: 'Mensagem', color: 'bg-slate-500', icon: Mail },
+                                        ].map((t) => {
+                                            const isSelected = form.catalogNoticeType === t.id
+                                            const Icon = t.icon
+                                            return (
+                                                <button
+                                                    key={t.id}
+                                                    type="button"
+                                                    onClick={() => updateField('catalogNoticeType', t.id as any)}
+                                                    className={cn(
+                                                        "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all gap-2",
+                                                        isSelected 
+                                                            ? "border-bronze bg-bronze/5 shadow-sm" 
+                                                            : "border-transparent bg-white/40 hover:bg-white/60 text-muted-foreground"
+                                                    )}
+                                                >
+                                                    <div className={cn("p-2 rounded-lg text-white", t.color)}>
+                                                        <Icon className="h-4 w-4" />
+                                                    </div>
+                                                    <span className="text-xs font-semibold">{t.label}</span>
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
                                 </div>
                             </CardContent>
                         </Card>

@@ -34,7 +34,6 @@ import { logoutAction } from '@/app/(auth)/login/actions'
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
-import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
 
 const navItems = [
     { href: '/catalog', label: 'Catálogo', icon: Package },
@@ -62,7 +61,6 @@ export function StoreHeader() {
     const [notifications, setNotifications] = useState<{ id: string; order_number: string; status: string; created_at: string }[]>([])
     const [unreadCount, setUnreadCount] = useState(0)
     const [lastChecked, setLastChecked] = useState<string | null>(null)
-    const [isViewingAsCustomer, setIsViewingAsCustomer] = useState(false)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
     const cartCount = totalItems()
     const favCount = useFavoritesStore((s) => s.favoriteIds.length)
@@ -110,13 +108,6 @@ export function StoreHeader() {
             }
         }, 30000) // Poll every 30s
         
-        // Handle View as Customer cookie detection
-        const checkViewAsCustomer = () => {
-            const hasCookie = document.cookie.includes('view_as_customer=true')
-            setIsViewingAsCustomer(hasCookie)
-        }
-        checkViewAsCustomer()
-
         // Load Settings for Logo
         const loadSettings = async () => {
             try {
@@ -179,10 +170,7 @@ export function StoreHeader() {
         router.push('/login')
     }
 
-    const handleReturnToAdmin = async () => {
-        await setViewAsCustomerAction(false)
-        router.push('/admin/dashboard')
-    }
+    if (!isMounted) return null
 
     return (
         <motion.header
@@ -191,28 +179,6 @@ export function StoreHeader() {
             className="sticky top-0 z-50 w-full hidden md:block"
             role="banner"
         >
-            {isViewingAsCustomer && (
-                <div className="bg-linear-to-r from-orange-500 to-amber-600 text-white w-full py-1.5 px-4 text-xs font-semibold flex items-center justify-between z-50 rounded-b shadow-sm relative overflow-hidden">
-                    <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDUiLz4KPHBhdGggZD0iTTAgMEw4IDhaTTAgOEw4IDBaIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLW9wYWNpdHk9IjAuMSIvPgo8L3N2Zz4=')] opacity-30"></div>
-                    <div className="flex items-center gap-2 max-w-7xl mx-auto w-full justify-between relative z-10 px-0 sm:px-4">
-                        <span className="flex items-center gap-1.5">
-                            <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-                            </span>
-                            MODO DE VISUALIZAÇÃO: CLIENTE
-                        </span>
-                        <Button 
-                            variant="secondary" 
-                            size="sm" 
-                            className="h-6 text-[10px] bg-white text-orange-600 hover:bg-orange-50 border-white/20 hover:text-orange-700 shadow-sm px-3 ml-2 shrink-0 transition-colors"
-                            onClick={handleReturnToAdmin}
-                        >
-                            Retornar ao Painel
-                        </Button>
-                    </div>
-                </div>
-            )}
             <div className="glass-card border-0 border-b">
                 <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">

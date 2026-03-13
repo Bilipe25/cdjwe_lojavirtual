@@ -290,6 +290,8 @@ export interface SystemSettings {
   about_title: string | null
   about_text: string | null
   about_image_url: string | null
+  catalog_notice: string | null
+  catalog_notice_type: 'info' | 'promotion' | 'attention' | 'message' | null
   created_at: string
   updated_at: string
 }

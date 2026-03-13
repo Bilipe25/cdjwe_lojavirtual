@@ -209,8 +209,9 @@ export function MobileTopBar() {
         for (const [path, title] of Object.entries(pageTitles)) {
             if (pathname.startsWith(path)) return title
         }
-        return settings?.system_name || 'Loja'
     }
+
+    if (!isMounted) return null
 
     return (
         <header

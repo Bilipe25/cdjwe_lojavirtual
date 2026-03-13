@@ -12,6 +12,8 @@ import {
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { NoticeCard } from '@/components/store/NoticeCard'
+import { useSettings } from '@/components/providers/settings-provider'
 
 interface DashboardCard {
     title: string
@@ -90,6 +92,7 @@ const item = {
 }
 
 export default function DashboardPage() {
+    const { settings } = useSettings()
     const [userName, setUserName] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
 
@@ -190,6 +193,13 @@ export default function DashboardPage() {
                     </motion.div>
                 ))}
             </motion.div>
+
+            {/* Catalog Notice - Mobile only visibility handled by caller preference or layout */}
+            <NoticeCard 
+                notice={settings?.catalog_notice} 
+                type={settings?.catalog_notice_type}
+                className="mt-8" 
+            />
         </div>
     )
 }

@@ -11,12 +11,13 @@ import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { useNetworkStatus } from '@/lib/hooks/use-network-status'
 import { WifiOff } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { MessageCircle, ArrowUp, Instagram } from 'lucide-react'
 import { useSettings } from '@/components/providers/settings-provider'
 import { getWhatsAppLink } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
 
 export default function StoreLayout({
     children,
@@ -25,6 +26,25 @@ export default function StoreLayout({
 }) {
     const { isOnline } = useNetworkStatus()
     const pathname = usePathname()
+    const router = useRouter()
+    const [isViewingAsCustomer, setIsViewingAsCustomer] = useState(false)
+
+    useEffect(() => {
+        const checkViewAsCustomer = () => {
+            const hasCookie = document.cookie.includes('view_as_customer=true')
+            setIsViewingAsCustomer(hasCookie)
+        }
+        checkViewAsCustomer()
+        
+        // Polling cookie changes as secondary measure
+        const interval = setInterval(checkViewAsCustomer, 2000)
+        return () => clearInterval(interval)
+    }, [])
+
+    const handleReturnToAdmin = async () => {
+        await setViewAsCustomerAction(false)
+        router.push('/admin/dashboard')
+    }
 
     return (
         <SettingsProvider>
@@ -45,6 +65,29 @@ export default function StoreLayout({
                                 </motion.div>
                             )}
                         </AnimatePresence>
+
+                        {isViewingAsCustomer && (
+                            <div className="bg-linear-to-r from-orange-500 to-amber-600 text-white w-full py-1.5 px-4 text-xs font-semibold flex items-center justify-between z-[60] shadow-sm relative overflow-hidden">
+                                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDUiLz4KPHBhdGggZD0iTTAgMEw4IDhaTTAgOEw4IDBaIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLW9wYWNpdHk9IjAuMSIvPgo8L3N2Zz4=')] opacity-30"></div>
+                                <div className="flex items-center gap-2 max-w-7xl mx-auto w-full justify-between relative z-10">
+                                    <span className="flex items-center gap-1.5 truncate">
+                                        <span className="relative flex h-2 w-2 shrink-0">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                                        </span>
+                                        <span className="truncate">MODO DE VISUALIZAÇÃO: CLIENTE</span>
+                                    </span>
+                                    <Button 
+                                        variant="secondary" 
+                                        size="sm" 
+                                        className="h-6 text-[10px] bg-white text-orange-600 hover:bg-orange-50 border-white/20 hover:text-orange-700 shadow-sm px-3 ml-2 shrink-0 transition-colors"
+                                        onClick={handleReturnToAdmin}
+                                    >
+                                        Retornar ao Painel
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Desktop Header */}
                         <Suspense fallback={<div className="h-16 border-b bg-muted/10 animate-pulse hidden md:block" />}>
