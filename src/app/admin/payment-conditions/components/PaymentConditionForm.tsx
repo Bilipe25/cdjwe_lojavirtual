@@ -23,6 +23,8 @@ const formSchema = z.object({
   discount_percentage: z.number().min(0, 'Mínimo 0%').max(100, 'Máximo 100%'),
   surcharge_percentage: z.number().min(0, 'Mínimo 0%').max(100, 'Máximo 100%'),
   min_installment_value: z.number().min(0, 'Mínimo 0'),
+  min_order_value: z.number().min(0, 'Mínimo 0'),
+  max_order_value: z.number().min(0, 'Mínimo 0').nullable().optional(),
   icon: z.string().nullable().optional(),
   is_active: z.boolean(),
 })
@@ -49,6 +51,8 @@ export function PaymentConditionForm({ isOpen, onClose, condition }: PaymentCond
       discount_percentage: condition?.discount_percentage || 0,
       surcharge_percentage: condition?.surcharge_percentage || 0,
       min_installment_value: condition?.min_installment_value || 0,
+      min_order_value: condition?.min_order_value || 0,
+      max_order_value: condition?.max_order_value || null,
       icon: condition?.icon || 'credit-card',
       is_active: condition ? condition.is_active : true,
     },
@@ -64,6 +68,8 @@ export function PaymentConditionForm({ isOpen, onClose, condition }: PaymentCond
       discount_percentage: condition?.discount_percentage || 0,
       surcharge_percentage: condition?.surcharge_percentage || 0,
       min_installment_value: condition?.min_installment_value || 0,
+      min_order_value: condition?.min_order_value || 0,
+      max_order_value: condition?.max_order_value || null,
       icon: condition?.icon || 'credit-card',
       is_active: condition ? condition.is_active : true,
     })
@@ -86,15 +92,6 @@ export function PaymentConditionForm({ isOpen, onClose, condition }: PaymentCond
     }
   }
 
-  // Simulator Logic
-  const simInstallments = form.watch('installments') || 1
-  const simDiscount = form.watch('discount_percentage') || 0
-  const simSurcharge = form.watch('surcharge_percentage') || 0
-  
-  const SIM_BASE = 1000
-  const simDiscounted = SIM_BASE - (SIM_BASE * simDiscount / 100)
-  const simTotal = simDiscounted + (simDiscounted * simSurcharge / 100)
-  const simInstallmentValue = simTotal / simInstallments
 
   const ICONS = [
     { id: 'credit-card', icon: CreditCard, label: 'Cartão' },
@@ -216,6 +213,43 @@ export function PaymentConditionForm({ isOpen, onClose, condition }: PaymentCond
             </div>
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            <div className="space-y-2">
+              <Label htmlFor="min_order">Valor Mínimo do Pedido (R$)</Label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">R$</span>
+                <Input
+                  id="min_order"
+                  type="number"
+                  step="0.01"
+                  {...form.register('min_order_value', { valueAsNumber: true })}
+                  className="bg-white/60 pl-8 pr-2 text-right"
+                  placeholder="0,00"
+                />
+              </div>
+              {form.formState.errors.min_order_value && (
+                <p className="text-sm text-red-500">{form.formState.errors.min_order_value.message}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="max_order">Valor Máximo do Pedido (R$)</Label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">R$</span>
+                <Input
+                  id="max_order"
+                  type="number"
+                  step="0.01"
+                  {...form.register('max_order_value', { valueAsNumber: true, setValueAs: (v) => v === "" ? null : parseFloat(v) })}
+                  className="bg-white/60 pl-8 pr-2 text-right"
+                  placeholder="Sem limite"
+                />
+              </div>
+              {form.formState.errors.max_order_value && (
+                <p className="text-sm text-red-500">{form.formState.errors.max_order_value.message}</p>
+              )}
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="description">Descrição (Visível ao cliente)</Label>
             <Textarea
@@ -240,37 +274,6 @@ export function PaymentConditionForm({ isOpen, onClose, condition }: PaymentCond
             />
           </div>
 
-          <div className="bg-slate-50 border rounded-lg p-4 space-y-2">
-            <h4 className="text-sm font-semibold text-navy flex items-center gap-2">
-              💳 Simulador de Pedido (Base: R$ 1.000,00)
-            </h4>
-            <div className="grid grid-cols-2 gap-2 text-sm max-w-sm">
-              <span className="text-muted-foreground">Valor Base:</span>
-              <span className="text-right">R$ 1.000,00</span>
-
-              {simDiscount > 0 && (
-                <>
-                  <span className="text-green-600">Desconto (-{simDiscount}%):</span>
-                  <span className="text-right text-green-600">- R$ {(SIM_BASE * simDiscount / 100).toFixed(2)}</span>
-                </>
-              )}
-
-              {simSurcharge > 0 && (
-                <>
-                  <span className="text-amber-600">Acréscimo (+{simSurcharge}%):</span>
-                  <span className="text-right text-amber-600">+ R$ {(simDiscounted * simSurcharge / 100).toFixed(2)}</span>
-                </>
-              )}
-
-              <span className="font-semibold text-navy mt-1 pt-1 border-t">Total Simulado:</span>
-              <span className="text-right font-bold text-navy mt-1 pt-1 border-t">R$ {simTotal.toFixed(2)}</span>
-
-              <span className="text-muted-foreground">Como o cliente verá:</span>
-              <span className="text-right font-medium">
-                {simInstallments}x de R$ {simInstallmentValue.toFixed(2)}
-              </span>
-            </div>
-          </div>
 
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>

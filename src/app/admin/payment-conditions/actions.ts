@@ -12,6 +12,8 @@ const paymentConditionSchema = z.object({
   discount_percentage: z.number().min(0).max(100),
   surcharge_percentage: z.number().min(0).max(100),
   min_installment_value: z.number().min(0).default(0),
+  min_order_value: z.number().min(0).default(0),
+  max_order_value: z.number().min(0).nullable().optional(),
   icon: z.string().nullable().optional(),
   is_active: z.boolean(),
   sort_order: z.number().int().optional(),
@@ -23,7 +25,12 @@ export async function savePaymentCondition(formData: z.infer<typeof paymentCondi
     return { error: 'Dados inválidos.', details: result.error.flatten().fieldErrors }
   }
 
-  const { id, name, description, installments, discount_percentage, surcharge_percentage, min_installment_value, icon, is_active } = result.data
+  const { 
+    id, name, description, installments, 
+    discount_percentage, surcharge_percentage, 
+    min_installment_value, min_order_value, max_order_value,
+    icon, is_active 
+  } = result.data
   const supabase = await createClient()
 
   try {
@@ -38,6 +45,8 @@ export async function savePaymentCondition(formData: z.infer<typeof paymentCondi
           discount_percentage,
           surcharge_percentage,
           min_installment_value,
+          min_order_value,
+          max_order_value,
           icon,
           is_active
         })
@@ -65,6 +74,8 @@ export async function savePaymentCondition(formData: z.infer<typeof paymentCondi
           discount_percentage,
           surcharge_percentage,
           min_installment_value,
+          min_order_value,
+          max_order_value,
           icon,
           is_active,
           sort_order: nextSortOrder

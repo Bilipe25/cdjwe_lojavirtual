@@ -74,21 +74,30 @@ export default function CartPage() {
                 supabase.from('orders').select('order_number').order('created_at', { ascending: false }).limit(1).single()
             ])
             
-            if (rulesRes.priceTableRules && rulesRes.priceTableRules.length > 0) {
-                setPriceTableRules(rulesRes.priceTableRules)
+            const hasTableRules = rulesRes.priceTableRules && rulesRes.priceTableRules.length > 0;
+            const hasGlobals = rulesRes.globalConditions && rulesRes.globalConditions.length > 0;
+
+            setPriceTableRules(rulesRes.priceTableRules || [])
+            setPaymentConditions(rulesRes.globalConditions || [])
+
+            // PRIORITY LOGIC:
+            // 1. If we have Table Rules, they take precedence in the selection.
+            // 2. We only fall back to Global Conditions if NO Table Rules exist for this value range.
+            
+            if (hasTableRules) {
                 setIsTableRule(true)
-                setPaymentConditions([])
-                // Only change if current selected is not in rules
+                // Auto-select first rule if nothing valid selected
                 if (!rulesRes.priceTableRules.find(r => r.id === selectedPayment)) {
                     setSelectedPayment(rulesRes.priceTableRules[0].id)
                 }
-            } else if (rulesRes.globalConditions) {
-                setPaymentConditions(rulesRes.globalConditions)
+            } else if (hasGlobals) {
                 setIsTableRule(false)
-                setPriceTableRules([])
+                // Auto-select first global if nothing valid selected
                 if (!rulesRes.globalConditions.find(c => c.id === selectedPayment)) {
-                    if (rulesRes.globalConditions.length > 0) setSelectedPayment(rulesRes.globalConditions[0].id)
+                    setSelectedPayment(rulesRes.globalConditions[0].id)
                 }
+            } else {
+                setSelectedPayment('')
             }
             
             // Calculate next order number
@@ -340,7 +349,16 @@ export default function CartPage() {
                             {/* Payment Condition */}
                             <div className="space-y-2">
                                 <Label>Condição de Pagamento</Label>
-                                <Select value={selectedPayment} onValueChange={(v: any) => setSelectedPayment(v)}>
+                                <Select 
+                                    value={selectedPayment} 
+                                    onValueChange={(v: string | null) => {
+                                        if (!v) return;
+                                        setSelectedPayment(v);
+                                        // Update isTableRule based on which list the ID belongs to
+                                        const isInTable = priceTableRules.some(r => r.id === v);
+                                        setIsTableRule(isInTable);
+                                    }}
+                                >
                                     <SelectTrigger className="bg-white/60">
                                         <SelectValue placeholder="Selecione">
                                             {isTableRule && selectedRule ? (
@@ -353,20 +371,29 @@ export default function CartPage() {
                                         </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {isTableRule ? (
-                                            priceTableRules.map((rule) => (
-                                                <SelectItem key={rule.id} value={rule.id}>
-                                                    {rule.number_of_installments}x {rule.installment_days && `(${rule.installment_days})`}
-                                                    {rule.discount_percentage > 0 && ` (-${rule.discount_percentage}%)`}
-                                                </SelectItem>
-                                            ))
-                                        ) : (
-                                            paymentConditions.map((pc) => (
-                                                <SelectItem key={pc.id} value={pc.id}>
-                                                    {pc.name}
-                                                    {pc.discount_percentage > 0 && ` (-${pc.discount_percentage}%)`}
-                                                </SelectItem>
-                                            ))
+                                        {priceTableRules.length > 0 && (
+                                            <>
+                                                <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase bg-slate-50/50">Condições de Tabela</div>
+                                                {priceTableRules.map((rule) => (
+                                                    <SelectItem key={rule.id} value={rule.id}>
+                                                        {rule.number_of_installments}x {rule.installment_days && `(${rule.installment_days})`}
+                                                        {rule.discount_percentage > 0 && ` (-${rule.discount_percentage}%)`}
+                                                    </SelectItem>
+                                                ))}
+                                                <Separator className="my-1" />
+                                            </>
+                                        )}
+                                        
+                                        {paymentConditions.length > 0 && (
+                                            <>
+                                                <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase bg-slate-50/50">Condições Gerais</div>
+                                                {paymentConditions.map((pc) => (
+                                                    <SelectItem key={pc.id} value={pc.id}>
+                                                        {pc.name}
+                                                        {pc.discount_percentage > 0 && ` (-${pc.discount_percentage}%)`}
+                                                    </SelectItem>
+                                                ))}
+                                            </>
                                         )}
                                     </SelectContent>
                                 </Select>

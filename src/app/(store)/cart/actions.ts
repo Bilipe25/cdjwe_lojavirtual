@@ -36,6 +36,8 @@ export async function getAvailablePaymentRules(cartTotal: number) {
         priceTableId = defaultTable?.id
     }
 
+    // 1. Fetch Table Specific Rules
+    let tableRules: PriceTablePaymentRule[] = []
     if (priceTableId) {
         const { data: rules } = await supabase
             .from('price_table_payment_rules')
@@ -44,21 +46,34 @@ export async function getAvailablePaymentRules(cartTotal: number) {
             .order('min_order_value', { ascending: true })
 
         if (rules && rules.length > 0) {
-            const validRules = rules.filter(r => 
+            tableRules = (rules as PriceTablePaymentRule[]).filter(r => 
                 cartTotal >= r.min_order_value && 
                 (!r.max_order_value || cartTotal <= r.max_order_value)
             )
-            return { priceTableRules: validRules as PriceTablePaymentRule[] }
         }
     }
 
+    // 2. Fetch Global Conditions filtered by value range
     const { data: globals } = await supabase
         .from('payment_conditions')
         .select('*')
         .eq('is_active', true)
+        .lte('min_order_value', cartTotal)
         .order('sort_order')
 
-    return { globalConditions: globals as PaymentCondition[] || [] }
+    const validGlobals = (globals as PaymentCondition[] || []).filter(g => 
+        !g.max_order_value || cartTotal <= g.max_order_value
+    )
+
+    // IMPORTANT: If there are table rules for THIS value range, they take priority.
+    // However, the user might want a mix. The instruction says Table Rule > Global Condition.
+    // We will return both but the UI will decide how to show them.
+    // In our logic, if Table Rules exist, they usually "win" for those specific installments.
+    
+    return { 
+        priceTableRules: tableRules,
+        globalConditions: validGlobals 
+    }
 }
 
 export async function checkoutAction(
@@ -209,21 +224,33 @@ export async function checkoutAction(
     if (isTableRule) {
         const { data: rule } = await supabase
             .from('price_table_payment_rules')
-            .select('id, discount_percentage')
+            .select('*')
             .eq('id', selectedPaymentId)
             .single()
         
         if (!rule) return { error: 'Regra de pagamento vinculada à tabela não encontrada.' }
+        
+        // Final Range Validation on Server
+        if (secureSubtotal < rule.min_order_value || (rule.max_order_value && secureSubtotal > rule.max_order_value)) {
+            return { error: 'O valor do pedido não é mais válido para esta regra de pagamento.' }
+        }
+
         discountPercentage = rule.discount_percentage
         paymentRuleId = rule.id
     } else {
         const { data: paymentCondition } = await supabase
             .from('payment_conditions')
-            .select('id, discount_percentage, surcharge_percentage')
+            .select('*')
             .eq('id', selectedPaymentId)
             .single()
 
         if (!paymentCondition) return { error: 'Condição de pagamento global não encontrada.' }
+        
+        // Final Range Validation on Server
+        if (secureSubtotal < paymentCondition.min_order_value || (paymentCondition.max_order_value && secureSubtotal > paymentCondition.max_order_value)) {
+            return { error: 'O valor do pedido não é mais válido para esta condição de pagamento.' }
+        }
+
         discountPercentage = paymentCondition.discount_percentage
         surchargePercentage = paymentCondition.surcharge_percentage || 0
         paymentConditionId = paymentCondition.id

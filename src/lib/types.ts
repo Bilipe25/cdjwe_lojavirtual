@@ -244,6 +244,8 @@ export interface PaymentCondition {
   installments: number
   discount_percentage: number // desconto extra por condição
   min_installment_value: number
+  min_order_value: number
+  max_order_value: number | null
   surcharge_percentage: number // acrescimo extra por condicao, ex: 3% para longo prazo
   icon?: string | null
   is_active: boolean

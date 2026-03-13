@@ -123,8 +123,18 @@ function SortablePaymentCard({
                   </Badge>
                 )}
                 {cond.min_installment_value > 0 && (
-                  <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                    Min R$ {cond.min_installment_value.toFixed(2)}
+                  <Badge variant="outline" className="text-[10px] text-muted-foreground" title="Mínimo da Parcela">
+                    Parc. {'>'} R$ {cond.min_installment_value.toFixed(2)}
+                  </Badge>
+                )}
+                {cond.min_order_value > 0 && (
+                  <Badge variant="outline" className="text-[10px] text-navy border-navy/20 bg-navy/5" title="Mínimo do Pedido">
+                    Pedido {'>'} R$ {cond.min_order_value.toFixed(2)}
+                  </Badge>
+                )}
+                {cond.max_order_value !== null && cond.max_order_value > 0 && (
+                  <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-200 bg-amber-50" title="Máximo do Pedido">
+                    Pedido {'<'} R$ {cond.max_order_value.toFixed(2)}
                   </Badge>
                 )}
                 {(cond.surcharge_percentage > 0) && (
