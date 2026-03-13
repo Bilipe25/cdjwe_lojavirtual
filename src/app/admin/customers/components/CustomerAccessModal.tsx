@@ -30,7 +30,7 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
     const [sendingLink, setSendingLink] = useState(false);
 
     const store = customer?.stores?.[0];
-    const appUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app';
     const loginUrl = `${appUrl}/login`;
 
     const handleGenerate = async () => {
