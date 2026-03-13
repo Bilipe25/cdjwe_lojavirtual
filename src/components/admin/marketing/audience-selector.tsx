@@ -22,24 +22,28 @@ import {
 export type TargetSegment = {
     states: string[]
     cities: string[]
+    clientIds: string[]
 }
 
 interface AudienceSelectorProps {
-    value: 'all' | 'segment'
+    value: 'all' | 'segment' | 'specific'
     segmentData: TargetSegment
-    onChangeValue: (val: 'all' | 'segment') => void
+    onChangeValue: (val: 'all' | 'segment' | 'specific') => void
     onChangeSegment: (segment: TargetSegment) => void
 }
 
 export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSegment }: AudienceSelectorProps) {
     const [availableStates, setAvailableStates] = useState<string[]>([])
     const [availableCities, setAvailableCities] = useState<string[]>([])
+    const [availableClients, setAvailableClients] = useState<{ id: string; name: string; email: string }[]>([])
     
     const [openState, setOpenState] = useState(false)
     const [openCity, setOpenCity] = useState(false)
+    const [openClient, setOpenClient] = useState(false)
 
     useEffect(() => {
         loadLocations()
+        loadClients()
     }, [])
 
     useEffect(() => {
@@ -69,6 +73,22 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
         }
     }
 
+    const loadClients = async () => {
+        const supabase = createClient()
+        const { data } = await supabase
+            .from('profiles')
+            .select('id, full_name, email')
+            .eq('role', 'client')
+            .eq('status', 'approved')
+        if (data) {
+            setAvailableClients(data.map(d => ({
+                id: d.id,
+                name: d.full_name || 'Sem nome',
+                email: d.email || ''
+            })))
+        }
+    }
+
     const toggleState = (state: string) => {
         const current = new Set(segmentData.states)
         if (current.has(state)) {
@@ -79,9 +99,10 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
         
         const newStates = Array.from(current)
         onChangeSegment({
+            ...segmentData,
             states: newStates,
             // Automatically clear cities if their state was unselected
-            cities: segmentData.cities.filter(c => availableCities.includes(c)) // simplified cleanup handled by backend or next render
+            cities: segmentData.cities.filter(c => availableCities.includes(c))
         })
     }
 
@@ -98,8 +119,22 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
         })
     }
 
+    const toggleClient = (clientId: string) => {
+        const current = new Set(segmentData.clientIds || [])
+        if (current.has(clientId)) {
+            current.delete(clientId)
+        } else {
+            current.add(clientId)
+        }
+        onChangeSegment({
+            ...segmentData,
+            clientIds: Array.from(current)
+        })
+    }
+
     const removeState = (state: string) => toggleState(state)
     const removeCity = (city: string) => toggleCity(city)
+    const removeClient = (clientId: string) => toggleClient(clientId)
 
     return (
         <div className="space-y-4">
@@ -127,7 +162,19 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
                             : "border-border text-muted-foreground hover:bg-slate-50"
                     )}
                 >
-                    Segmentar por Região
+                    Região
+                </button>
+                <button
+                    type="button"
+                    onClick={() => onChangeValue('specific')}
+                    className={cn(
+                        "flex-1 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all text-center",
+                        value === 'specific'
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-border text-muted-foreground hover:bg-slate-50"
+                    )}
+                >
+                    Clientes Específicos
                 </button>
             </div>
 
@@ -249,6 +296,76 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
                             </p>
                         </div>
                     )}
+                </div>
+            )}
+
+            {value === 'specific' && (
+                <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                    <div>
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
+                            Buscar e Selecionar Clientes
+                        </label>
+                        <Popover open={openClient} onOpenChange={setOpenClient}>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    aria-expanded={openClient}
+                                    className="w-full justify-between bg-white text-left font-normal"
+                                >
+                                    Selecione os clientes...
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-full p-0">
+                                <Command>
+                                    <CommandInput placeholder="Buscar por nome ou email..." />
+                                    <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
+                                    <CommandGroup className="max-h-60 overflow-y-auto">
+                                        {availableClients.map((client) => {
+                                            const isSelected = (segmentData.clientIds || []).includes(client.id)
+                                            return (
+                                                <CommandItem
+                                                    key={client.id}
+                                                    onSelect={() => toggleClient(client.id)}
+                                                    value={`${client.name} ${client.email}`} // for better searching
+                                                >
+                                                    <Check
+                                                        className={cn(
+                                                            "mr-2 h-4 w-4 shrink-0",
+                                                            isSelected ? "opacity-100" : "opacity-0"
+                                                        )}
+                                                    />
+                                                    <div className="flex flex-col">
+                                                        <span>{client.name}</span>
+                                                        <span className="text-xs text-muted-foreground">{client.email}</span>
+                                                    </div>
+                                                </CommandItem>
+                                            )
+                                        })}
+                                    </CommandGroup>
+                                </Command>
+                            </PopoverContent>
+                        </Popover>
+
+                        {/* Selected Clients Badges */}
+                        {(segmentData.clientIds || []).length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-3">
+                                {(segmentData.clientIds || []).map(clientId => {
+                                    const client = availableClients.find(c => c.id === clientId)
+                                    if (!client) return null
+                                    return (
+                                        <Badge key={clientId} variant="secondary" className="pl-2 pr-1 py-1 gap-1">
+                                            <span className="truncate max-w-[150px]">{client.name}</span>
+                                            <button onClick={() => removeClient(clientId)} className="rounded-full hover:bg-muted p-0.5">
+                                                <X className="h-3 w-3" />
+                                            </button>
+                                        </Badge>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
         </div>

@@ -49,6 +49,12 @@ export async function POST(req: Request) {
                     clientQuery = clientQuery.in('id', ['00000000-0000-0000-0000-000000000000'])
                 }
             }
+        } else if (target_audience === 'specific' && target_segment) {
+            if (target_segment.clientIds && target_segment.clientIds.length > 0) {
+                clientQuery = clientQuery.in('id', target_segment.clientIds)
+            } else {
+                clientQuery = clientQuery.in('id', ['00000000-0000-0000-0000-000000000000'])
+            }
         }
 
         const { data: clients } = await clientQuery

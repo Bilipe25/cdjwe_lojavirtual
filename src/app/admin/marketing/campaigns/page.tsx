@@ -33,7 +33,7 @@ interface Campaign {
     scheduled_at: string | null
     display_from: string | null
     display_until: string | null
-    target_audience: 'all' | 'segment'
+    target_audience: 'all' | 'segment' | 'specific'
     target_segment?: TargetSegment | null
     created_at: string
     updated_at: string
@@ -79,8 +79,8 @@ export default function CampaignsPage() {
     const [scheduledAt, setScheduledAt] = useState('')
     const [displayFrom, setDisplayFrom] = useState('')
     const [displayUntil, setDisplayUntil] = useState('')
-    const [targetAudience, setTargetAudience] = useState('all')
-    const [targetSegment, setTargetSegment] = useState<TargetSegment>({ states: [], cities: [] })
+    const [targetAudience, setTargetAudience] = useState<'all' | 'segment' | 'specific'>('all')
+    const [targetSegment, setTargetSegment] = useState<TargetSegment>({ states: [], cities: [], clientIds: [] })
     const [saving, setSaving] = useState(false)
     const [imageFile, setImageFile] = useState<File | null>(null)
 
@@ -116,7 +116,7 @@ export default function CampaignsPage() {
         setDisplayFrom('')
         setDisplayUntil('')
         setTargetAudience('all')
-        setTargetSegment({ states: [], cities: [] })
+        setTargetSegment({ states: [], cities: [], clientIds: [] })
         setEditingCampaign(null)
         setImageFile(null)
     }
@@ -137,7 +137,7 @@ export default function CampaignsPage() {
         setDisplayFrom(campaign.display_from ? campaign.display_from.slice(0, 16) : '')
         setDisplayUntil(campaign.display_until ? campaign.display_until.slice(0, 16) : '')
         setTargetAudience(campaign.target_audience)
-        setTargetSegment(campaign.target_segment || { states: [], cities: [] })
+        setTargetSegment(campaign.target_segment || { states: [], cities: [], clientIds: [] })
         setEditingCampaign(campaign)
         setShowForm(true)
     }
@@ -188,7 +188,7 @@ export default function CampaignsPage() {
                 display_from: displayFrom ? new Date(displayFrom).toISOString() : null,
                 display_until: displayUntil ? new Date(displayUntil).toISOString() : null,
                 target_audience: targetAudience,
-                target_segment: targetAudience === 'segment' ? targetSegment : null,
+                target_segment: targetAudience !== 'all' ? targetSegment : null,
             }
 
             if (editingCampaign) {

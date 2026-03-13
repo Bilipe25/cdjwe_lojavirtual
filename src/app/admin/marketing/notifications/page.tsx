@@ -26,8 +26,8 @@ export default function NotificationsPage() {
     const [showForm, setShowForm] = useState(false)
     const [title, setTitle] = useState('')
     const [message, setMessage] = useState('')
-    const [targetAudience, setTargetAudience] = useState<'all' | 'segment'>('all')
-    const [targetSegment, setTargetSegment] = useState<TargetSegment>({ states: [], cities: [] })
+    const [targetAudience, setTargetAudience] = useState<'all' | 'segment' | 'specific'>('all')
+    const [targetSegment, setTargetSegment] = useState<TargetSegment>({ states: [], cities: [], clientIds: [] })
     const [sending, setSending] = useState(false)
 
     useEffect(() => {
@@ -87,6 +87,13 @@ export default function NotificationsPage() {
                         clientQuery = clientQuery.in('id', ['00000000-0000-0000-0000-000000000000'])
                     }
                 }
+            } else if (targetAudience === 'specific') {
+                if (targetSegment.clientIds && targetSegment.clientIds.length > 0) {
+                    clientQuery = clientQuery.in('id', targetSegment.clientIds)
+                } else {
+                    // Force empty result if no specific client selected
+                    clientQuery = clientQuery.in('id', ['00000000-0000-0000-0000-000000000000'])
+                }
             }
 
             const { data: clients, error: clientError } = await clientQuery
@@ -113,7 +120,7 @@ export default function NotificationsPage() {
             setTitle('')
             setMessage('')
             setTargetAudience('all')
-            setTargetSegment({ states: [], cities: [] })
+            setTargetSegment({ states: [], cities: [], clientIds: [] })
             fetchNotifications()
         } catch (err: any) {
             toast.error('Erro ao enviar: ' + err.message)

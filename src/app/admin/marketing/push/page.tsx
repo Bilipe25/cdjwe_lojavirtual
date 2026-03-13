@@ -16,8 +16,8 @@ export default function PushPage() {
     const [title, setTitle] = useState('')
     const [message, setMessage] = useState('')
     const [link, setLink] = useState('')
-    const [targetAudience, setTargetAudience] = useState<'all' | 'segment'>('all')
-    const [targetSegment, setTargetSegment] = useState<TargetSegment>({ states: [], cities: [] })
+    const [targetAudience, setTargetAudience] = useState<'all' | 'segment' | 'specific'>('all')
+    const [targetSegment, setTargetSegment] = useState<TargetSegment>({ states: [], cities: [], clientIds: [] })
     const [sending, setSending] = useState(false)
 
     useEffect(() => {
@@ -55,7 +55,7 @@ export default function PushPage() {
                     body: message.trim(),
                     url: link.trim() || undefined,
                     target_audience: targetAudience,
-                    target_segment: targetAudience === 'segment' ? targetSegment : undefined,
+                    target_segment: targetAudience !== 'all' ? targetSegment : undefined,
                 }),
             })
             const data = await res.json()
@@ -66,7 +66,7 @@ export default function PushPage() {
             setMessage('')
             setLink('')
             setTargetAudience('all')
-            setTargetSegment({ states: [], cities: [] })
+            setTargetSegment({ states: [], cities: [], clientIds: [] })
         } catch (err: any) {
             toast.error('Erro ao enviar: ' + err.message)
         } finally {

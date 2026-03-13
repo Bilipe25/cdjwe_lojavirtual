@@ -42,6 +42,12 @@ export async function POST(req: Request) {
                     subQuery = subQuery.in('profile_id', ['00000000-0000-0000-0000-000000000000'])
                 }
             }
+        } else if (target_audience === 'specific' && target_segment) {
+            if (target_segment.clientIds && target_segment.clientIds.length > 0) {
+                subQuery = subQuery.in('profile_id', target_segment.clientIds)
+            } else {
+                subQuery = subQuery.in('profile_id', ['00000000-0000-0000-0000-000000000000'])
+            }
         }
 
         const { data: subscriptions, error } = await subQuery
