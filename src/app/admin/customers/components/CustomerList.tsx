@@ -197,10 +197,8 @@ export function CustomerList({
                                                 </>
                                             )}
                                             <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-navy">
-                                                        <MoreHorizontal className="h-4 w-4" />
-                                                    </Button>
+                                                <DropdownMenuTrigger className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-navy hover:bg-accent transition-colors focus:outline-none">
+                                                    <MoreHorizontal className="h-4 w-4" />
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
                                                     <DropdownMenuItem onClick={() => onViewDetail(customer)}>
@@ -372,10 +370,8 @@ export function CustomerList({
                                                 </div>
                                             )}
                                             <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-navy">
-                                                        <MoreHorizontal className="h-4 w-4" />
-                                                    </Button>
+                                                <DropdownMenuTrigger className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-navy hover:bg-accent transition-colors focus:outline-none">
+                                                    <MoreHorizontal className="h-4 w-4" />
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
                                                     <DropdownMenuItem onClick={() => onViewDetail(customer)}>
