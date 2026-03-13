@@ -19,22 +19,22 @@ const outfit = Outfit({
 
 export const metadata: Metadata = {
   title: {
-    default: "CDJWE Estofados — Portal B2B",
-    template: "%s | CDJWE B2B",
+    default: "JWE Centro de Distribuição — Portal B2B",
+    template: "%s | JWE B2B",
   },
   description:
     "Portal de vendas B2B para lojistas — catálogo de sofás, tecidos e cores. Faça seus pedidos de atacado online.",
-  keywords: ["B2B", "estofados", "sofás", "atacado", "lojista", "tecidos"],
-  authors: [{ name: "CDJWE Estofados" }],
+  keywords: ["B2B", "estofados", "sofás", "atacado", "lojista", "tecidos", "JWE"],
+  authors: [{ name: "JWE Centro de Distribuição" }],
   openGraph: {
-    title: "CDJWE Estofados — Portal B2B",
+    title: "JWE Centro de Distribuição — Portal B2B",
     description: "Portal de vendas B2B para lojistas",
     type: "website",
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "CDJWE B2B",
+    title: "JWE B2B",
   },
   formatDetection: {
     telephone: false,
@@ -57,6 +57,8 @@ export default function RootLayout({
     <html lang="pt-BR" suppressHydrationWarning>
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
       </head>
       <body

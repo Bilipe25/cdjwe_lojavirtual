@@ -11,6 +11,7 @@ import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { useNetworkStatus } from '@/lib/hooks/use-network-status'
 import { PromotionalPopup } from '@/components/marketing/promotional-popup'
 import { PushNotificationProvider } from '@/components/providers/push-notification-provider'
+import { PWAInstallPrompt } from '@/components/pwa/PWAInstallPrompt'
 import { WifiOff } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePathname, useRouter } from 'next/navigation'
@@ -132,6 +133,9 @@ export default function StoreLayout({
 
                     {/* Promotional Popup */}
                     <PromotionalPopup />
+
+                    {/* PWA Install Prompt */}
+                    <PWAInstallPrompt />
 
                     {/* Push Notification Provider (invisible — registers SW) */}
                     <PushNotificationProvider />

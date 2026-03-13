@@ -1,13 +1,15 @@
-/// <reference lib="webworker" />
-
-const CACHE_NAME = 'cdjwe-v1'
+const CACHE_NAME = 'cdjwe-v2'
 const STATIC_ASSETS = [
     '/manifest.webmanifest',
+    '/icons/icon-72.png',
+    '/icons/icon-96.png',
+    '/icons/icon-128.png',
+    '/icons/icon-144.png',
+    '/icons/icon-152.png',
     '/icons/icon-192.png',
+    '/icons/icon-384.png',
     '/icons/icon-512.png',
 ]
-
-declare const self: ServiceWorkerGlobalScope
 
 // Install — precache static assets
 self.addEventListener('install', (event) => {
@@ -41,8 +43,12 @@ self.addEventListener('fetch', (event) => {
     // Skip non-GET requests
     if (request.method !== 'GET') return
 
-    // Skip Supabase API calls and Next.js internal
-    if (url.pathname.startsWith('/api') || url.pathname.startsWith('/_next')) return
+    // Skip Supabase API calls, Next.js internal requests, and chrome extensions
+    if (
+        url.pathname.startsWith('/api') ||
+        url.pathname.startsWith('/_next') ||
+        url.protocol === 'chrome-extension:'
+    ) return
 
     // Network-first for HTML pages
     if (request.headers.get('accept')?.includes('text/html')) {
@@ -64,8 +70,10 @@ self.addEventListener('fetch', (event) => {
             caches.match(request).then((cached) => {
                 if (cached) return cached
                 return fetch(request).then((response) => {
-                    const clone = response.clone()
-                    caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+                    if (response.ok) {
+                        const clone = response.clone()
+                        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+                    }
                     return response
                 })
             })
@@ -84,7 +92,7 @@ self.addEventListener('push', (event) => {
         const options = {
             body: data.body || '',
             icon: data.icon || '/icons/icon-192.png',
-            badge: '/icons/icon-192.png',
+            badge: '/icons/icon-96.png',
             data: { url: data.url || '/' },
             vibrate: [100, 50, 100],
             actions: [
@@ -120,5 +128,3 @@ self.addEventListener('notificationclick', (event) => {
         })
     )
 })
-
-export {}
