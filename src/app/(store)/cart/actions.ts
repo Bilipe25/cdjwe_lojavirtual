@@ -2,12 +2,70 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
-import type { CartItem } from '@/lib/types'
+import type { CartItem, PriceTablePaymentRule, PaymentCondition } from '@/lib/types'
+
+export async function getAvailablePaymentRules(cartTotal: number) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { globalConditions: [] }
+
+    const { data: store } = await supabase
+        .from('stores')
+        .select('id')
+        .eq('profile_id', user.id)
+        .single()
+
+    if (!store) return { globalConditions: [] }
+
+    const { data: pivot } = await supabase
+        .from('store_price_tables')
+        .select('price_table_id')
+        .eq('store_id', store.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+    let priceTableId = pivot?.price_table_id
+
+    if (!priceTableId) {
+        const { data: defaultTable } = await supabase
+            .from('price_tables')
+            .select('id')
+            .eq('is_default', true)
+            .single()
+        priceTableId = defaultTable?.id
+    }
+
+    if (priceTableId) {
+        const { data: rules } = await supabase
+            .from('price_table_payment_rules')
+            .select('*')
+            .eq('price_table_id', priceTableId)
+            .order('min_order_value', { ascending: true })
+
+        if (rules && rules.length > 0) {
+            const validRules = rules.filter(r => 
+                cartTotal >= r.min_order_value && 
+                (!r.max_order_value || cartTotal <= r.max_order_value)
+            )
+            return { priceTableRules: validRules as PriceTablePaymentRule[] }
+        }
+    }
+
+    const { data: globals } = await supabase
+        .from('payment_conditions')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order')
+
+    return { globalConditions: globals as PaymentCondition[] || [] }
+}
 
 export async function checkoutAction(
     items: CartItem[], 
     selectedPaymentId: string, 
-    notes: string
+    notes: string,
+    isTableRule: boolean = false
 ) {
     if (!items || items.length === 0) {
         return { error: 'O carrinho está vazio.' }
@@ -143,14 +201,33 @@ export async function checkoutAction(
     }
 
     // 5. Calculate Payment Discounts and Surcharges
-    const { data: paymentRule } = await supabase
-        .from('payment_conditions')
-        .select('discount_percentage, surcharge_percentage')
-        .eq('id', selectedPaymentId)
-        .single()
+    let discountPercentage = 0
+    let surchargePercentage = 0
+    let paymentRuleId: string | null = null
+    let paymentConditionId: string | null = null
 
-    const discountPercentage = paymentRule?.discount_percentage || 0
-    const surchargePercentage = paymentRule?.surcharge_percentage || 0
+    if (isTableRule) {
+        const { data: rule } = await supabase
+            .from('price_table_payment_rules')
+            .select('id, discount_percentage')
+            .eq('id', selectedPaymentId)
+            .single()
+        
+        if (!rule) return { error: 'Regra de pagamento vinculada à tabela não encontrada.' }
+        discountPercentage = rule.discount_percentage
+        paymentRuleId = rule.id
+    } else {
+        const { data: paymentCondition } = await supabase
+            .from('payment_conditions')
+            .select('id, discount_percentage, surcharge_percentage')
+            .eq('id', selectedPaymentId)
+            .single()
+
+        if (!paymentCondition) return { error: 'Condição de pagamento global não encontrada.' }
+        discountPercentage = paymentCondition.discount_percentage
+        surchargePercentage = paymentCondition.surcharge_percentage || 0
+        paymentConditionId = paymentCondition.id
+    }
     
     // Apply discount first
     const paymentDiscount = (secureSubtotal * discountPercentage) / 100
@@ -168,7 +245,8 @@ export async function checkoutAction(
             profile_id: user.id,
             status: 'pending',
             payment_status: 'pending',
-            payment_condition_id: selectedPaymentId,
+            payment_condition_id: paymentConditionId,
+            payment_rule_id: paymentRuleId,
             subtotal: secureSubtotal,
             discount_amount: paymentDiscount,
             total: finalTotal,

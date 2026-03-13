@@ -12,6 +12,7 @@ import { PriceTableList, type PriceTable } from './components/PriceTableList'
 import { PriceTableForm, type PriceTableData } from './components/PriceTableForm'
 import { PriceTableItemsDrawer } from './components/PriceTableItemsDrawer'
 import { PriceTableAssignDrawer } from './components/PriceTableAssignDrawer'
+import { PriceTablePaymentRulesDrawer } from './components/PriceTablePaymentRulesDrawer'
 
 const PAGE_SIZE = 15
 
@@ -37,6 +38,10 @@ export default function PriceTablesPage() {
     // Assign Drawer states
     const [isAssignOpen, setIsAssignOpen] = useState(false)
     const [assignTable, setAssignTable] = useState<PriceTable | null>(null)
+
+    // Rules Drawer states
+    const [isRulesOpen, setIsRulesOpen] = useState(false)
+    const [rulesTable, setRulesTable] = useState<PriceTable | null>(null)
 
     // Debounce listener
     useEffect(() => {
@@ -217,6 +222,11 @@ export default function PriceTablesPage() {
         setIsAssignOpen(true)
     }
 
+    const openManageRules = (table: PriceTable) => {
+        setRulesTable(table)
+        setIsRulesOpen(true)
+    }
+
     const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
     return (
@@ -261,6 +271,7 @@ export default function PriceTablesPage() {
                     onManageItems={openManageItems}
                     onClone={handleClone}
                     onAssign={openAssignDrawer}
+                    onManageRules={openManageRules}
                 />
 
                 {/* Secure Pagination Boundaries */}
@@ -309,6 +320,12 @@ export default function PriceTablesPage() {
                 isOpen={isAssignOpen}
                 table={assignTable}
                 onClose={() => setIsAssignOpen(false)}
+            />
+
+            <PriceTablePaymentRulesDrawer 
+                isOpen={isRulesOpen}
+                table={rulesTable}
+                onClose={() => setIsRulesOpen(false)}
             />
         </div>
     )

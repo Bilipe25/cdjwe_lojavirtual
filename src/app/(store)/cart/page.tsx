@@ -46,9 +46,9 @@ import { useCartStore } from '@/lib/stores/cart-store'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { useSettings } from '@/components/providers/settings-provider'
-import type { PaymentCondition, SystemSettings } from '@/lib/types'
+import type { PaymentCondition, SystemSettings, PriceTablePaymentRule } from '@/lib/types'
 import Image from 'next/image'
-import { checkoutAction } from './actions'
+import { checkoutAction, getAvailablePaymentRules } from './actions'
 
 export default function CartPage() {
     const router = useRouter()
@@ -56,6 +56,8 @@ export default function CartPage() {
     const { settings } = useSettings()
     const [loading, setLoading] = useState(false)
     const [paymentConditions, setPaymentConditions] = useState<PaymentCondition[]>([])
+    const [priceTableRules, setPriceTableRules] = useState<PriceTablePaymentRule[]>([])
+    const [isTableRule, setIsTableRule] = useState(false)
     const [selectedPayment, setSelectedPayment] = useState<string>('')
     const [notes, setNotes] = useState('')
     const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
@@ -67,13 +69,26 @@ export default function CartPage() {
     useEffect(() => {
         const loadConditions = async () => {
             const supabase = createClient()
-            const [payRes, orderRes] = await Promise.all([
-                supabase.from('payment_conditions').select('*').eq('is_active', true).order('sort_order'),
+            const [rulesRes, orderRes] = await Promise.all([
+                getAvailablePaymentRules(total),
                 supabase.from('orders').select('order_number').order('created_at', { ascending: false }).limit(1).single()
             ])
-            if (payRes.data) {
-                setPaymentConditions(payRes.data)
-                if (payRes.data.length > 0) setSelectedPayment(payRes.data[0].id)
+            
+            if (rulesRes.priceTableRules && rulesRes.priceTableRules.length > 0) {
+                setPriceTableRules(rulesRes.priceTableRules)
+                setIsTableRule(true)
+                setPaymentConditions([])
+                // Only change if current selected is not in rules
+                if (!rulesRes.priceTableRules.find(r => r.id === selectedPayment)) {
+                    setSelectedPayment(rulesRes.priceTableRules[0].id)
+                }
+            } else if (rulesRes.globalConditions) {
+                setPaymentConditions(rulesRes.globalConditions)
+                setIsTableRule(false)
+                setPriceTableRules([])
+                if (!rulesRes.globalConditions.find(c => c.id === selectedPayment)) {
+                    if (rulesRes.globalConditions.length > 0) setSelectedPayment(rulesRes.globalConditions[0].id)
+                }
             }
             
             // Calculate next order number
@@ -83,12 +98,17 @@ export default function CartPage() {
             setNextOrderNumber(`Pedido${nextNum}`)
         }
         loadConditions()
-    }, [])
+    }, [total])
 
-    const selectedCondition = paymentConditions.find(p => p.id === selectedPayment)
-    const paymentDiscount = selectedCondition ? (total * selectedCondition.discount_percentage / 100) : 0
+    const selectedRule = isTableRule ? priceTableRules.find(r => r.id === selectedPayment) : null
+    const selectedCondition = !isTableRule ? paymentConditions.find(p => p.id === selectedPayment) : null
+
+    const discountPercentage = selectedRule ? selectedRule.discount_percentage : (selectedCondition ? selectedCondition.discount_percentage : 0)
+    const surchargePercentage = selectedCondition ? (selectedCondition.surcharge_percentage || 0) : 0
+
+    const paymentDiscount = (total * discountPercentage / 100)
     const discountedTotal = total - paymentDiscount
-    const paymentSurcharge = selectedCondition ? (discountedTotal * (selectedCondition.surcharge_percentage || 0) / 100) : 0
+    const paymentSurcharge = (discountedTotal * surchargePercentage / 100)
     const finalTotal = discountedTotal + paymentSurcharge
 
     const minOrderMet = !settings?.min_order_amount || total >= settings.min_order_amount
@@ -114,7 +134,7 @@ export default function CartPage() {
         setLoading(true)
         setConfirmCheckoutOpen(false)
         try {
-            const result = await checkoutAction(items, selectedPayment, notes)
+            const result = await checkoutAction(items, selectedPayment, notes, isTableRule)
 
             if (result.error) {
                 toast.error(result.error)
@@ -243,6 +263,7 @@ export default function CartPage() {
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: i * 0.05 }}
+                            layout
                         >
                             <Card className="glass-card border-0">
                                 <CardContent className="p-4">
@@ -322,7 +343,9 @@ export default function CartPage() {
                                 <Select value={selectedPayment} onValueChange={(v: any) => setSelectedPayment(v)}>
                                     <SelectTrigger className="bg-white/60">
                                         <SelectValue placeholder="Selecione">
-                                            {selectedCondition ? (
+                                            {isTableRule && selectedRule ? (
+                                                `${selectedRule.number_of_installments}x ${selectedRule.installment_days ? `(${selectedRule.installment_days})` : ''}${selectedRule.discount_percentage > 0 ? ` (-${selectedRule.discount_percentage}%)` : ''}`
+                                            ) : selectedCondition ? (
                                                 `${selectedCondition.name}${selectedCondition.discount_percentage > 0 ? ` (-${selectedCondition.discount_percentage}%)` : ''}`
                                             ) : (
                                                 "Selecione"
@@ -330,16 +353,28 @@ export default function CartPage() {
                                         </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {paymentConditions.map((pc) => (
-                                            <SelectItem key={pc.id} value={pc.id}>
-                                                {pc.name}
-                                                {pc.discount_percentage > 0 && ` (-${pc.discount_percentage}%)`}
-                                            </SelectItem>
-                                        ))}
+                                        {isTableRule ? (
+                                            priceTableRules.map((rule) => (
+                                                <SelectItem key={rule.id} value={rule.id}>
+                                                    {rule.number_of_installments}x {rule.installment_days && `(${rule.installment_days})`}
+                                                    {rule.discount_percentage > 0 && ` (-${rule.discount_percentage}%)`}
+                                                </SelectItem>
+                                            ))
+                                        ) : (
+                                            paymentConditions.map((pc) => (
+                                                <SelectItem key={pc.id} value={pc.id}>
+                                                    {pc.name}
+                                                    {pc.discount_percentage > 0 && ` (-${pc.discount_percentage}%)`}
+                                                </SelectItem>
+                                            ))
+                                        )}
                                     </SelectContent>
                                 </Select>
                                 {selectedCondition?.description && (
                                     <p className="text-xs text-muted-foreground">{selectedCondition.description}</p>
+                                )}
+                                {isTableRule && (
+                                    <p className="text-[10px] text-amber-600 font-medium">Condições exclusivas da sua rede aplicadas.</p>
                                 )}
                             </div>
 
@@ -365,13 +400,13 @@ export default function CartPage() {
                                 </div>
                                 {paymentDiscount > 0 && (
                                     <div className="flex justify-between text-sm text-green-600">
-                                        <span>Desconto ({selectedCondition?.discount_percentage}%)</span>
+                                        <span>Desconto de Pagamento ({discountPercentage}%)</span>
                                         <span>- R$ {paymentDiscount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                     </div>
                                 )}
                                 {paymentSurcharge > 0 && (
                                     <div className="flex justify-between text-sm text-amber-600">
-                                        <span>Acréscimo ({selectedCondition?.surcharge_percentage}%)</span>
+                                        <span>Acréscimo de Pagamento ({surchargePercentage}%)</span>
                                         <span>+ R$ {paymentSurcharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                     </div>
                                 )}
@@ -441,9 +476,15 @@ export default function CartPage() {
                                 <span>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                             </div>
 
-                            <div className="flex justify-between text-sm">
+                             <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Pagamento</span>
-                                <span className="font-medium text-right max-w-[150px] truncate">{selectedCondition?.name}</span>
+                                <span className="font-medium text-right max-w-[150px] truncate">
+                                    {isTableRule && selectedRule ? (
+                                        `${selectedRule.number_of_installments}x ${selectedRule.installment_days ? `(${selectedRule.installment_days})` : ''}`
+                                    ) : (
+                                        selectedCondition?.name
+                                    )}
+                                </span>
                             </div>
 
                             {(paymentDiscount > 0 || paymentSurcharge > 0) && (

@@ -160,6 +160,18 @@ export interface StorePriceTable {
   created_at: string
 }
 
+export interface PriceTablePaymentRule {
+  id: string
+  price_table_id: string
+  min_order_value: number
+  max_order_value: number | null
+  number_of_installments: number
+  installment_days: string | null // Ex: "30, 60, 90"
+  discount_percentage: number
+  created_at: string
+  updated_at: string
+}
+
 // ==================== ORDERS ====================
 
 export type OrderStatus = 
@@ -180,6 +192,7 @@ export interface Order {
   status: OrderStatus
   payment_status: PaymentStatus
   payment_condition_id: string | null
+  payment_rule_id: string | null
   subtotal: number
   discount_amount: number
   total: number
@@ -194,6 +207,7 @@ export interface Order {
   items?: OrderItem[]
   status_history?: OrderStatusHistory[]
   payment_condition?: PaymentCondition
+  payment_rule?: PriceTablePaymentRule
 }
 
 export interface OrderItem {

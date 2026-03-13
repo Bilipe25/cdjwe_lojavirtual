@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Edit2, Trash2, Check, Tag, Settings2, Users } from 'lucide-react'
+import { Edit2, Trash2, Check, Tag, Settings2, Users, CreditCard } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -26,9 +26,10 @@ interface PriceTableListProps {
     onManageItems: (table: PriceTable) => void
     onClone: (table: PriceTable) => void
     onAssign: (table: PriceTable) => void
+    onManageRules: (table: PriceTable) => void
 }
 
-export function PriceTableList({ tables, loading, onEdit, onDelete, onManageItems, onClone, onAssign }: PriceTableListProps) {
+export function PriceTableList({ tables, loading, onEdit, onDelete, onManageItems, onClone, onAssign, onManageRules }: PriceTableListProps) {
     if (loading) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -68,7 +69,7 @@ export function PriceTableList({ tables, loading, onEdit, onDelete, onManageItem
                     animate={{ opacity: 1, scale: 1 }}
                     layout
                 >
-                    <Card className={`glass-card border-0 relative overflow-hidden transition-all hover:shadow-md ${!table.is_active ? 'opacity-70 grayscale-[30%]' : ''}`}>
+                    <Card className={`glass-card border-0 relative overflow-hidden transition-all hover:shadow-md ${!table.is_active ? 'opacity-70 grayscale-30' : ''}`}>
                         {table.is_default && (
                             <div className="absolute top-0 right-0 bg-bronze text-white text-[10px] font-bold px-3 py-1 rounded-bl-lg flex items-center gap-1 shadow-sm">
                                 <Check className="h-3 w-3" /> PADRÃO
@@ -114,6 +115,16 @@ export function PriceTableList({ tables, loading, onEdit, onDelete, onManageItem
                                 >
                                     <Users className="h-4 w-4 mr-2" />
                                     Atribuir Lojistas
+                                </Button>
+                                
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full text-slate-600 border-slate-200 hover:bg-slate-100 transition-colors"
+                                    onClick={() => onManageRules(table)}
+                                >
+                                    <CreditCard className="h-4 w-4 mr-2" />
+                                    Regras de Pagamento
                                 </Button>
                                 
                                 <div className="flex items-center justify-between w-full mt-1">
