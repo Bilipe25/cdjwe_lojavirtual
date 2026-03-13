@@ -176,14 +176,19 @@ export function ProductImageGallery({
                                             initial={{ opacity: 0 }}
                                             animate={{ opacity: 1 }}
                                             exit={{ opacity: 0 }}
+                                            transition={{ duration: 0.2 }}
                                             className="absolute inset-0 pointer-events-none z-20 hidden md:block overflow-hidden rounded-2xl"
                                         >
-                                            <div 
-                                                className="absolute inset-0 scale-[3]"
+                                            <motion.div 
+                                                className="absolute inset-0"
+                                                animate={{ 
+                                                    backgroundPosition: `${hoverPos.x}% ${hoverPos.y}%`
+                                                }}
+                                                transition={{ type: "spring", stiffness: 100, damping: 20, mass: 0.5 }}
                                                 style={{
                                                     backgroundImage: `url(${img.url})`,
-                                                    backgroundPosition: `${hoverPos.x}% ${hoverPos.y}%`,
-                                                    backgroundSize: 'cover'
+                                                    backgroundSize: '250%', // Professional 2.5x zoom
+                                                    backgroundRepeat: 'no-repeat'
                                                 }}
                                             />
                                         </motion.div>
