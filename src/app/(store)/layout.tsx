@@ -9,6 +9,8 @@ import { CartDrawer } from '@/components/cart/cart-drawer'
 import { SettingsProvider } from '@/components/providers/settings-provider'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { useNetworkStatus } from '@/lib/hooks/use-network-status'
+import { PromotionalPopup } from '@/components/marketing/promotional-popup'
+import { PushNotificationProvider } from '@/components/providers/push-notification-provider'
 import { WifiOff } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePathname, useRouter } from 'next/navigation'
@@ -127,6 +129,12 @@ export default function StoreLayout({
 
                     {/* Global Floating Actions - Correctly nested inside Providers */}
                     <GlobalFloatingActions />
+
+                    {/* Promotional Popup */}
+                    <PromotionalPopup />
+
+                    {/* Push Notification Provider (invisible — registers SW) */}
+                    <PushNotificationProvider />
                 </div>
             </ErrorBoundary>
         </SettingsProvider>

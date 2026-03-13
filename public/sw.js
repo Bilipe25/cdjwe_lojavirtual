@@ -73,4 +73,52 @@ self.addEventListener('fetch', (event) => {
     }
 })
 
+// ==================== PUSH NOTIFICATIONS ====================
+
+// Handle incoming push notification
+self.addEventListener('push', (event) => {
+    if (!event.data) return
+
+    try {
+        const data = event.data.json()
+        const options = {
+            body: data.body || '',
+            icon: data.icon || '/icons/icon-192.png',
+            badge: '/icons/icon-192.png',
+            data: { url: data.url || '/' },
+            vibrate: [100, 50, 100],
+            actions: [
+                { action: 'open', title: 'Abrir' },
+                { action: 'close', title: 'Fechar' },
+            ],
+        }
+
+        event.waitUntil(
+            self.registration.showNotification(data.title || 'Nova notificação', options)
+        )
+    } catch {
+        // Silent
+    }
+})
+
+// Handle notification click
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close()
+
+    const url = event.notification.data?.url || '/'
+    if (event.action === 'close') return
+
+    event.waitUntil(
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+            for (const client of clientList) {
+                if (client.url.includes(self.location.origin) && 'focus' in client) {
+                    client.navigate(url)
+                    return client.focus()
+                }
+            }
+            return self.clients.openWindow(url)
+        })
+    )
+})
+
 export {}

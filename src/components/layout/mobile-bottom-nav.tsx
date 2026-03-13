@@ -12,102 +12,30 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { NotificationsBottomSheet } from '@/components/layout/notifications-bottom-sheet'
-import { useState, useEffect, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useNotifications } from '@/lib/hooks/use-notifications'
+import { useState, useEffect } from 'react'
 
 export function MobileBottomNav() {
     const pathname = usePathname()
     const router = useRouter()
     const { totalItems, openCart } = useCartStore()
     const [isMounted, setIsMounted] = useState(false)
-    const [unreadCount, setUnreadCount] = useState(0)
-    const [lastChecked, setLastChecked] = useState<string | null>(null)
-    const [dismissedIds, setDismissedIds] = useState<string[]>([])
-    const [notifications, setNotifications] = useState<{ id: string; order_id: string; order_number: string; status: string; created_at: string }[]>([])
     const [notifOpen, setNotifOpen] = useState(false)
+
+    const {
+        notifications,
+        unreadCount,
+        markAsRead,
+        markAllAsRead,
+        removeNotification,
+        clearAll,
+    } = useNotifications()
 
     const cartCount = totalItems()
 
-    const fetchNotifications = useCallback(async () => {
-        try {
-            const supabase = createClient()
-            const { data } = await supabase
-                .from('order_status_history')
-                .select('id, status, created_at, order_id, order:orders(order_number)')
-                .order('created_at', { ascending: false })
-                .limit(20)
-            if (data) {
-                // Get current dismissed ids from state (which is synced with localStorage)
-                const mapped = data
-                    .map((n: any) => ({
-                        id: n.id,
-                        order_id: n.order_id,
-                        order_number: n.order?.order_number || '',
-                        status: n.status,
-                        created_at: n.created_at,
-                    }))
-                    .filter((n: any) => !dismissedIds.includes(n.id))
-                
-                setNotifications(mapped)
-                
-                if (lastChecked) {
-                    const newCount = mapped.filter((n) => n.created_at > lastChecked).length
-                    setUnreadCount(newCount)
-                }
-            }
-        } catch { /* silent */ }
-    }, [lastChecked, dismissedIds])
-
     useEffect(() => {
         setIsMounted(true)
-        // Load dismissed ids AND lastChecked from localStorage once on mount
-        const storedDismissed = localStorage.getItem('dismissed_notifications')
-        if (storedDismissed) {
-            try {
-                setDismissedIds(JSON.parse(storedDismissed))
-            } catch { /* silent */ }
-        }
-
-        const storedLastChecked = localStorage.getItem('notifications_last_checked')
-        if (storedLastChecked) {
-            setLastChecked(storedLastChecked)
-        } else {
-            // If first time, set to now but don't show any as unread yet
-            const now = new Date().toISOString()
-            setLastChecked(now)
-            localStorage.setItem('notifications_last_checked', now)
-        }
     }, [])
-
-    useEffect(() => {
-        if (!isMounted) return
-        
-        fetchNotifications()
-        const interval = setInterval(fetchNotifications, 30000)
-        return () => clearInterval(interval)
-    }, [fetchNotifications, isMounted])
-
-    const handleMarkRead = () => {
-        const now = new Date().toISOString()
-        setUnreadCount(0)
-        setLastChecked(now)
-        localStorage.setItem('notifications_last_checked', now)
-    }
-
-    const handleRemoveNotification = (id: string) => {
-        const updated = [...dismissedIds, id]
-        setDismissedIds(updated)
-        localStorage.setItem('dismissed_notifications', JSON.stringify(updated))
-        setNotifications(prev => prev.filter(n => n.id !== id))
-    }
-
-    const handleClearAll = () => {
-        const allIds = notifications.map(n => n.id)
-        const updated = [...dismissedIds, ...allIds]
-        setDismissedIds(updated)
-        localStorage.setItem('dismissed_notifications', JSON.stringify(updated))
-        setNotifications([])
-    }
 
     const isActive = (href: string) => {
         if (href === '/dashboard') return pathname === '/dashboard' || pathname === '/'
@@ -161,7 +89,7 @@ export function MobileBottomNav() {
 
                     {/* Notificações — Opens Bottom Sheet */}
                     <button
-                        onClick={() => { setNotifOpen(true); handleMarkRead() }}
+                        onClick={() => { setNotifOpen(true); markAllAsRead() }}
                         className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative mobile-touch-target"
                         aria-label={`Notificações${unreadCount > 0 ? ` — ${unreadCount} não lidas` : ''}`}
                     >
@@ -234,10 +162,10 @@ export function MobileBottomNav() {
                 onClose={() => setNotifOpen(false)}
                 notifications={notifications}
                 unreadCount={unreadCount}
-                onMarkRead={handleMarkRead}
-                onRemove={handleRemoveNotification}
-                onClearAll={handleClearAll}
-                lastChecked={lastChecked}
+                onMarkAllRead={markAllAsRead}
+                onRemove={removeNotification}
+                onClearAll={clearAll}
+                onMarkRead={markAsRead}
             />
         </>
     )

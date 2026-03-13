@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
     ShoppingCart,
     Package,
@@ -16,6 +16,17 @@ import {
     Bell,
     Scissors,
     Building2,
+    Megaphone,
+    Gift,
+    Info,
+    CheckCheck,
+    Trash2,
+    Clock,
+    CheckCircle2,
+    Factory,
+    Truck,
+    AlertCircle,
+    ExternalLink,
 } from 'lucide-react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -24,16 +35,19 @@ import { Input } from '@/components/ui/input'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
     DropdownMenuItem,
     DropdownMenuSeparator,
-    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { logoutAction } from '@/app/(auth)/login/actions'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
+import { useNotifications, type ClientNotification } from '@/lib/hooks/use-notifications'
 
 const navItems = [
     { href: '/catalog', label: 'Catálogo', icon: Package },
@@ -42,13 +56,32 @@ const navItems = [
     { href: '/about', label: 'Sobre Nós', icon: Building2 },
 ]
 
-const statusLabels: Record<string, string> = {
-    pending: 'Em Análise',
-    approved: 'Aprovado',
-    in_production: 'Em Produção',
-    shipped: 'Enviado',
-    delivered: 'Entregue',
-    cancelled: 'Cancelado',
+const typeConfig: Record<string, { icon: any; color: string; bg: string; label: string }> = {
+    order_status: { icon: Package, color: 'text-blue-600', bg: 'bg-blue-50', label: 'Pedido' },
+    campaign: { icon: Megaphone, color: 'text-purple-600', bg: 'bg-purple-50', label: 'Campanha' },
+    promo: { icon: Gift, color: 'text-amber-600', bg: 'bg-amber-50', label: 'Promoção' },
+    system: { icon: Info, color: 'text-slate-600', bg: 'bg-slate-50', label: 'Sistema' },
+}
+
+const statusIcons: Record<string, any> = {
+    pending: Clock,
+    approved: CheckCircle2,
+    in_production: Factory,
+    shipped: Truck,
+    delivered: CheckCircle2,
+    cancelled: AlertCircle,
+}
+
+function timeAgo(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime()
+    const minutes = Math.floor(diff / 60000)
+    if (minutes < 1) return 'agora'
+    if (minutes < 60) return `${minutes}min`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h`
+    const days = Math.floor(hours / 24)
+    if (days < 7) return `${days}d`
+    return new Date(dateStr).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 }
 
 export function StoreHeader() {
@@ -58,57 +91,21 @@ export function StoreHeader() {
     const { totalItems, openCart } = useCartStore()
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
-    const [notifications, setNotifications] = useState<{ id: string; order_number: string; status: string; created_at: string }[]>([])
-    const [unreadCount, setUnreadCount] = useState(0)
-    const [lastChecked, setLastChecked] = useState<string | null>(null)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
     const cartCount = totalItems()
     const favCount = useFavoritesStore((s) => s.favoriteIds.length)
     const [isMounted, setIsMounted] = useState(false)
+    const [notifOpen, setNotifOpen] = useState(false)
 
-    // Poll for order status changes
-    const fetchNotifications = useCallback(async () => {
-        try {
-            const supabase = createClient()
-            const { data } = await supabase
-                .from('order_status_history')
-                .select('id, status, created_at, order:orders(order_number)')
-                .order('created_at', { ascending: false })
-                .limit(10)
-            if (data) {
-                const mapped = data.map((n: any) => ({
-                    id: n.id,
-                    order_number: n.order?.order_number || '',
-                    status: n.status,
-                    created_at: n.created_at,
-                }))
-                setNotifications(mapped)
-                if (lastChecked) {
-                    const newCount = mapped.filter((n: any) => n.created_at > lastChecked).length
-                    setUnreadCount(newCount)
-                }
-            }
-        } catch { /* silent */ }
-    }, [lastChecked])
+    const {
+        notifications,
+        unreadCount,
+        markAsRead,
+        markAllAsRead,
+        removeNotification,
+    } = useNotifications()
 
     useEffect(() => {
-        let isMountedRef = true
-
-        const initialize = () => {
-            if (isMountedRef) {
-                setLastChecked(new Date().toISOString())
-                fetchNotifications()
-            }
-        }
-
-        initialize()
-        const interval = setInterval(() => {
-            if (isMountedRef) {
-                fetchNotifications()
-            }
-        }, 30000) // Poll every 30s
-        
-        // Load Settings for Logo
         const loadSettings = async () => {
             try {
                 const supabase = createClient()
@@ -122,15 +119,9 @@ export function StoreHeader() {
         useFavoritesStore.getState().syncFromDb()
         
         setIsMounted(true)
-        
-        return () => {
-            isMountedRef = false
-            clearInterval(interval)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // Live Search Sync with URL (Pattern from MobileTopBar)
+    // Live Search Sync with URL
     useEffect(() => {
         const query = searchParams.get('search') || ''
         if (query !== searchQuery) setSearchQuery(query)
@@ -147,7 +138,6 @@ export function StoreHeader() {
                     params.delete('search')
                 }
                 
-                // If we are on catalog, update URL in place, otherwise redirect
                 if (pathname.startsWith('/catalog')) {
                     router.replace(`${pathname}?${params.toString()}`, { scroll: false })
                 }
@@ -170,7 +160,15 @@ export function StoreHeader() {
         router.push('/login')
     }
 
+    const handleNotificationClick = (n: ClientNotification) => {
+        if (!n.is_read) markAsRead(n.id)
+        setNotifOpen(false)
+        if (n.link) router.push(n.link)
+    }
+
     if (!isMounted) return null
+
+    const displayNotifications = notifications.slice(0, 8)
 
     return (
         <motion.header
@@ -243,39 +241,124 @@ export function StoreHeader() {
                             </Button>
                         </Link>
 
-                        {/* Notifications bell */}
-                        <DropdownMenu>
+                        {/* Notifications bell — Professional Panel */}
+                        <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
                             <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="relative" />}>
                                 <Bell className="h-5 w-5" />
-                                {unreadCount > 0 && (
-                                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[9px] bg-blue-500 border-0 text-white">
-                                        {unreadCount}
-                                    </Badge>
-                                )}
+                                <AnimatePresence>
+                                    {unreadCount > 0 && (
+                                        <motion.div
+                                            initial={{ scale: 0 }}
+                                            animate={{ scale: 1 }}
+                                            exit={{ scale: 0 }}
+                                        >
+                                            <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[9px] bg-blue-500 border-0 text-white">
+                                                {unreadCount > 9 ? '9+' : unreadCount}
+                                            </Badge>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-72">
-                                <div className="px-3 py-2 border-b">
-                                    <p className="text-sm font-semibold">Notificações</p>
+                            <DropdownMenuContent align="end" className="w-96 p-0 rounded-xl shadow-xl border-border/50 overflow-hidden">
+                                {/* Header */}
+                                <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="h-7 w-7 rounded-lg gradient-bronze flex items-center justify-center">
+                                            <Bell className="h-3.5 w-3.5 text-white" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold font-heading">Notificações</p>
+                                            {unreadCount > 0 && (
+                                                <p className="text-[10px] text-primary font-medium -mt-0.5">{unreadCount} não lida{unreadCount > 1 ? 's' : ''}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {unreadCount > 0 && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); markAllAsRead() }}
+                                            className="text-[11px] font-medium text-primary hover:text-primary/80 flex items-center gap-1 px-2 py-1 rounded-md hover:bg-primary/5 transition-colors"
+                                        >
+                                            <CheckCheck className="h-3.5 w-3.5" />
+                                            Ler tudo
+                                        </button>
+                                    )}
                                 </div>
-                                {notifications.length === 0 ? (
-                                    <div className="px-3 py-6 text-center text-sm text-muted-foreground">Nenhuma atualização</div>
-                                ) : (
-                                    notifications.slice(0, 5).map((n) => (
-                                        <DropdownMenuItem key={n.id} render={<Link href={`/orders`} className="cursor-pointer" />}>
-                                            <div className="flex flex-col gap-0.5">
-                                                <span className="text-xs font-medium">Pedido {n.order_number}</span>
-                                                <span className="text-[10px] text-muted-foreground">Status: {statusLabels[n.status] || n.status}</span>
+
+                                {/* Notification List */}
+                                <div className="max-h-[400px] overflow-y-auto">
+                                    {displayNotifications.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-10 text-center">
+                                            <div className="h-12 w-12 rounded-xl bg-muted/60 flex items-center justify-center mb-3">
+                                                <Bell className="h-5 w-5 text-muted-foreground/40" />
                                             </div>
-                                        </DropdownMenuItem>
-                                    ))
+                                            <p className="text-sm font-medium text-foreground">Nenhuma notificação</p>
+                                            <p className="text-[11px] text-muted-foreground mt-1">
+                                                Atualizações aparecerão aqui.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="divide-y divide-border/30">
+                                            {displayNotifications.map((n) => {
+                                                const config = typeConfig[n.type] || typeConfig.system
+                                                const Icon = n.type === 'order_status' && n.metadata?.status
+                                                    ? (statusIcons[n.metadata.status] || config.icon)
+                                                    : config.icon
+
+                                                return (
+                                                    <div
+                                                        key={n.id}
+                                                        onClick={() => handleNotificationClick(n)}
+                                                        className={`flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors group ${
+                                                            !n.is_read
+                                                                ? 'bg-primary/2 hover:bg-primary/5'
+                                                                : 'hover:bg-muted/30'
+                                                        }`}
+                                                    >
+                                                        <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${config.bg}`}>
+                                                            <Icon className={`h-4.5 w-4.5 ${config.color}`} />
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                                    <p className={`text-[13px] truncate ${!n.is_read ? 'font-bold text-foreground' : 'font-medium text-foreground/80'}`}>
+                                                                        {n.title}
+                                                                    </p>
+                                                                    {!n.is_read && (
+                                                                        <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                                                                    )}
+                                                                </div>
+                                                                <span className="text-[10px] text-muted-foreground shrink-0">
+                                                                    {timeAgo(n.created_at)}
+                                                                </span>
+                                                            </div>
+                                                            {n.message && (
+                                                                <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5 line-clamp-1">
+                                                                    {n.message}
+                                                                </p>
+                                                            )}
+                                                            <span className={`text-[9px] font-semibold uppercase tracking-wider ${config.color} mt-1 inline-block`}>
+                                                                {config.label}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Footer */}
+                                {notifications.length > 0 && (
+                                    <div className="border-t bg-muted/10 px-4 py-2.5 flex items-center justify-center">
+                                        <Link
+                                            href="/orders"
+                                            onClick={() => setNotifOpen(false)}
+                                            className="text-[11px] text-primary font-semibold hover:underline"
+                                        >
+                                            Ver todas as notificações →
+                                        </Link>
+                                    </div>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    render={<Link href="/orders" className="cursor-pointer text-center" />}
-                                    onClick={() => { setUnreadCount(0); setLastChecked(new Date().toISOString()) }}
-                                >
-                                    <span className="text-xs text-primary w-full text-center">Ver todos os pedidos</span>
-                                </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
 

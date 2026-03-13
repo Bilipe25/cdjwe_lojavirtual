@@ -16,6 +16,11 @@ import {
     BarChart3,
     Layers,
     Store,
+    Megaphone,
+    Bell,
+    Send,
+    Image as ImageIcon,
+    History,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -38,6 +43,14 @@ const adminNavItems = [
     { href: '/admin/payment-conditions', label: 'Pagamento', icon: CreditCard },
     { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
     { href: '/admin/settings', label: 'Configurações', icon: Settings },
+]
+
+const marketingNavItems = [
+    { href: '/admin/marketing/campaigns', label: 'Campanhas', icon: Megaphone },
+    { href: '/admin/marketing/notifications', label: 'Notificações', icon: Bell },
+    { href: '/admin/marketing/push', label: 'Push Notifications', icon: Send },
+    { href: '/admin/marketing/popups', label: 'Popups', icon: ImageIcon },
+    { href: '/admin/marketing/history', label: 'Histórico', icon: History },
 ]
 
 export function AdminMobileHeader() {
@@ -66,7 +79,7 @@ export function AdminMobileHeader() {
     }
 
     // Find active page title
-    const activeItem = adminNavItems.find(item => pathname.startsWith(item.href))
+    const activeItem = [...adminNavItems, ...marketingNavItems].find(item => pathname.startsWith(item.href))
 
     return (
         <header className="md:hidden sticky top-0 z-50 glass border-b px-4 h-14 flex items-center justify-between">
@@ -116,6 +129,30 @@ export function AdminMobileHeader() {
                                     </Link>
                                 )
                             })}
+
+                            {/* Marketing Section */}
+                            <div className="pt-3 mt-3 border-t border-sidebar-border">
+                                <div className="px-3 pb-2">
+                                    <span className="text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider">Marketing</span>
+                                </div>
+                                {marketingNavItems.map((item) => {
+                                    const isActive = pathname.startsWith(item.href)
+                                    return (
+                                        <Link key={item.href} href={item.href} onClick={() => setOpen(false)}>
+                                            <Button
+                                                variant="ghost"
+                                                className={cn(
+                                                    'w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                                    isActive && 'bg-sidebar-accent text-sidebar-primary font-medium'
+                                                )}
+                                            >
+                                                <item.icon className="h-5 w-5" />
+                                                {item.label}
+                                            </Button>
+                                        </Link>
+                                    )
+                                })}
+                            </div>
                         </nav>
 
                         {/* Bottom Actions */}
