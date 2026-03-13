@@ -16,6 +16,7 @@ import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { AudienceSelector, TargetSegment } from '@/components/admin/marketing/audience-selector'
 import { toast } from 'sonner'
 
 interface Campaign {
@@ -27,10 +28,13 @@ interface Campaign {
     channels: string[]
     status: string
     send_type: string
+    button_link: string | null
+    is_active: boolean
     scheduled_at: string | null
     display_from: string | null
     display_until: string | null
-    target_audience: string
+    target_audience: 'all' | 'segment'
+    target_segment?: TargetSegment | null
     created_at: string
     updated_at: string
 }
@@ -76,6 +80,7 @@ export default function CampaignsPage() {
     const [displayFrom, setDisplayFrom] = useState('')
     const [displayUntil, setDisplayUntil] = useState('')
     const [targetAudience, setTargetAudience] = useState('all')
+    const [targetSegment, setTargetSegment] = useState<TargetSegment>({ states: [], cities: [] })
     const [saving, setSaving] = useState(false)
     const [imageFile, setImageFile] = useState<File | null>(null)
 
@@ -111,6 +116,7 @@ export default function CampaignsPage() {
         setDisplayFrom('')
         setDisplayUntil('')
         setTargetAudience('all')
+        setTargetSegment({ states: [], cities: [] })
         setEditingCampaign(null)
         setImageFile(null)
     }
@@ -131,6 +137,7 @@ export default function CampaignsPage() {
         setDisplayFrom(campaign.display_from ? campaign.display_from.slice(0, 16) : '')
         setDisplayUntil(campaign.display_until ? campaign.display_until.slice(0, 16) : '')
         setTargetAudience(campaign.target_audience)
+        setTargetSegment(campaign.target_segment || { states: [], cities: [] })
         setEditingCampaign(campaign)
         setShowForm(true)
     }
@@ -181,6 +188,7 @@ export default function CampaignsPage() {
                 display_from: displayFrom ? new Date(displayFrom).toISOString() : null,
                 display_until: displayUntil ? new Date(displayUntil).toISOString() : null,
                 target_audience: targetAudience,
+                target_segment: targetAudience === 'segment' ? targetSegment : null,
             }
 
             if (editingCampaign) {
@@ -524,33 +532,12 @@ export default function CampaignsPage() {
                             </div>
 
                             {/* Target Audience */}
-                            <div>
-                                <label className="text-sm font-medium mb-2 block">Público Alvo</label>
-                                <div className="flex gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setTargetAudience('all')}
-                                        className={`flex-1 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
-                                            targetAudience === 'all'
-                                                ? 'border-primary bg-primary/5 text-primary'
-                                                : 'border-border text-muted-foreground'
-                                        }`}
-                                    >
-                                        Todos os Clientes
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setTargetAudience('segment')}
-                                        className={`flex-1 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
-                                            targetAudience === 'segment'
-                                                ? 'border-primary bg-primary/5 text-primary'
-                                                : 'border-border text-muted-foreground'
-                                        }`}
-                                    >
-                                        Segmento Específico
-                                    </button>
-                                </div>
-                            </div>
+                            <AudienceSelector
+                                value={targetAudience as 'all' | 'segment'}
+                                segmentData={targetSegment}
+                                onChangeValue={(val) => setTargetAudience(val)}
+                                onChangeSegment={setTargetSegment}
+                            />
                         </div>
 
                         {/* Footer Actions */}

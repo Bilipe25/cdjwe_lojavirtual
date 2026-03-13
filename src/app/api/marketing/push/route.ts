@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 export async function POST(req: Request) {
     try {
         const body = await req.json()
-        const { title, body: messageBody, url } = body
+        const { title, body: messageBody, url, target_audience, target_segment } = body
 
         if (!title) {
             return NextResponse.json({ error: 'Título é obrigatório' }, { status: 400 })
@@ -16,14 +16,39 @@ export async function POST(req: Request) {
             process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         )
 
-        // Get all push subscriptions
-        const { data: subscriptions, error } = await supabase
+        // Build base query to get push subscriptions
+        let subQuery = supabase
             .from('push_subscriptions')
             .select('*')
 
+        if (target_audience === 'segment' && target_segment) {
+            if (target_segment.states && target_segment.states.length > 0) {
+                // Find profile_ids for the matching stores
+                let storeQuery = supabase
+                    .from('stores')
+                    .select('profile_id')
+                    .in('state', target_segment.states)
+                
+                if (target_segment.cities && target_segment.cities.length > 0) {
+                    storeQuery = storeQuery.in('city', target_segment.cities)
+                }
+
+                const { data: storeData } = await storeQuery
+
+                if (storeData && storeData.length > 0) {
+                    subQuery = subQuery.in('profile_id', storeData.map((s: any) => s.profile_id))
+                } else {
+                    // Force empty result if segment has no clients/stores
+                    subQuery = subQuery.in('profile_id', ['00000000-0000-0000-0000-000000000000'])
+                }
+            }
+        }
+
+        const { data: subscriptions, error } = await subQuery
+
         if (error) throw error
         if (!subscriptions?.length) {
-            return NextResponse.json({ sent: 0, message: 'Nenhuma inscrição encontrada' })
+            return NextResponse.json({ sent: 0, message: 'Nenhuma inscrição compatível encontrada com este segmento' })
         }
 
         let webPush: any

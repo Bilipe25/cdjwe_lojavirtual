@@ -5,7 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Bell, Send, Search, Users, CheckCircle2, Clock } from 'lucide-react'
+import { Bell, Users, CheckCircle2, Clock, Send, XCircle } from 'lucide-react'
+import { AudienceSelector, TargetSegment } from '@/components/admin/marketing/audience-selector'
 import { toast } from 'sonner'
 
 interface NotificationEntry {
@@ -25,6 +26,8 @@ export default function NotificationsPage() {
     const [showForm, setShowForm] = useState(false)
     const [title, setTitle] = useState('')
     const [message, setMessage] = useState('')
+    const [targetAudience, setTargetAudience] = useState<'all' | 'segment'>('all')
+    const [targetSegment, setTargetSegment] = useState<TargetSegment>({ states: [], cities: [] })
     const [sending, setSending] = useState(false)
 
     useEffect(() => {
@@ -49,7 +52,7 @@ export default function NotificationsPage() {
         }
     }
 
-    const handleSendToAll = async () => {
+    const handleSendNotification = async () => {
         if (!title.trim()) {
             toast.error('Título é obrigatório.')
             return
@@ -57,12 +60,36 @@ export default function NotificationsPage() {
         setSending(true)
         try {
             const supabase = createClient()
-            // Get all approved clients
-            const { data: clients, error: clientError } = await supabase
+            let clientQuery = supabase
                 .from('profiles')
                 .select('id')
                 .eq('role', 'client')
                 .eq('status', 'approved')
+
+            if (targetAudience === 'segment') {
+                if (targetSegment.states.length > 0) {
+                    let storeQuery = supabase
+                        .from('stores')
+                        .select('profile_id')
+                        .in('state', targetSegment.states)
+                        
+                    // If cities are specified, filter by them inside the selected states
+                    if (targetSegment.cities.length > 0) {
+                        storeQuery = storeQuery.in('city', targetSegment.cities)
+                    }
+                    
+                    const { data: storeData } = await storeQuery
+                    
+                    if (storeData && storeData.length > 0) {
+                        clientQuery = clientQuery.in('id', storeData.map((s: any) => s.profile_id))
+                    } else {
+                        // Force empty result if segment has no clients
+                        clientQuery = clientQuery.in('id', ['00000000-0000-0000-0000-000000000000'])
+                    }
+                }
+            }
+
+            const { data: clients, error: clientError } = await clientQuery
 
             if (clientError) throw clientError
             if (!clients?.length) {
@@ -85,6 +112,8 @@ export default function NotificationsPage() {
             setShowForm(false)
             setTitle('')
             setMessage('')
+            setTargetAudience('all')
+            setTargetSegment({ states: [], cities: [] })
             fetchNotifications()
         } catch (err: any) {
             toast.error('Erro ao enviar: ' + err.message)
@@ -176,9 +205,14 @@ export default function NotificationsPage() {
             {showForm && (
                 <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-                        <div className="px-6 py-4 border-b">
-                            <h2 className="text-lg font-bold font-heading">Enviar Notificação</h2>
-                            <p className="text-xs text-muted-foreground mt-0.5">Será enviada para todos os clientes aprovados.</p>
+                        <div className="px-6 py-4 border-b flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold font-heading">Enviar Notificação Interna</h2>
+                                <p className="text-xs text-muted-foreground mt-0.5">Aparecerá no painel de notificações do sistema para os clientes selecionados.</p>
+                            </div>
+                            <button onClick={() => setShowForm(false)} className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/80">
+                                <XCircle className="h-4 w-4" />
+                            </button>
                         </div>
                         <div className="p-6 space-y-4">
                             <div>
@@ -194,12 +228,20 @@ export default function NotificationsPage() {
                                     className="w-full rounded-lg border px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
                                 />
                             </div>
+                            
+                            {/* Target Audience */}
+                            <AudienceSelector
+                                value={targetAudience}
+                                segmentData={targetSegment}
+                                onChangeValue={setTargetAudience}
+                                onChangeSegment={setTargetSegment}
+                            />
                         </div>
                         <div className="px-6 py-4 border-t flex items-center justify-between">
                             <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
-                            <Button onClick={handleSendToAll} disabled={sending} className="gradient-bronze text-white gap-2">
-                                <Users className="h-4 w-4" />
-                                Enviar para Todos
+                            <Button onClick={handleSendNotification} disabled={sending} className="gradient-bronze text-white gap-2">
+                                <Send className="h-4 w-4" />
+                                Enviar Notificação
                             </Button>
                         </div>
                     </div>

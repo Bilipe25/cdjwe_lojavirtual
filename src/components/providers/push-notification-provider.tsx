@@ -2,46 +2,61 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { PushOptInModal } from '@/components/marketing/push-opt-in-modal'
 
 export function PushNotificationProvider() {
     const [registered, setRegistered] = useState(false)
+    const [subscriptionStatus, setSubscriptionStatus] = useState<'pending' | 'granted' | 'denied' | 'default'>('pending')
+    const [showOptIn, setShowOptIn] = useState(false)
 
     useEffect(() => {
-        registerPushSubscription()
+        // Initial setup and check
+        checkAndRegisterExisting()
     }, [])
 
-    const registerPushSubscription = async () => {
+    const checkAndRegisterExisting = async () => {
         try {
-            // Check prerequisites
             if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+            
+            // Allow notification permission to be read
+            const permission = window.Notification.permission
+            setSubscriptionStatus(permission as any)
+
+            // Register service worker regardless of permission 
+            // (it does no harm and handles future subscriptions)
+            await navigator.serviceWorker.register('/sw.js')
+
+            // If already granted, ensure subscription is synced to backend
+            if (permission === 'granted') {
+                await syncSubscription()
+            } else if (permission === 'default' && localStorage.getItem('push_opt_in_dismissed') !== 'true') {
+                // If not asked yet and not dismissed, show modal after a small delay
+                setTimeout(() => setShowOptIn(true), 3000)
+            }
+        } catch { /* silent */ }
+    }
+
+    const syncSubscription = async () => {
+        try {
             const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
             if (!vapidKey) return
 
-            // Get current user
             const supabase = createClient()
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) return
 
-            // Register service worker
-            const registration = await navigator.serviceWorker.register('/sw.js')
-            await navigator.serviceWorker.ready
-
-            // Check existing subscription
+            const registration = await navigator.serviceWorker.ready
             let subscription = await registration.pushManager.getSubscription()
 
+            // If permitted but not subscribed, subscribe now
             if (!subscription) {
-                // Request permission
-                const permission = await Notification.requestPermission()
-                if (permission !== 'granted') return
-
-                // Subscribe
                 subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
                     applicationServerKey: urlBase64ToUint8Array(vapidKey) as any,
                 })
             }
 
-            // Save subscription to backend
+            // Save to backend
             const subJson = subscription.toJSON()
             await fetch('/api/marketing/push', {
                 method: 'PUT',
@@ -57,12 +72,25 @@ export function PushNotificationProvider() {
             })
 
             setRegistered(true)
-        } catch {
-            // Silent — push is optional
-        }
+        } catch { /* silent */ }
     }
 
-    return null
+    const handleRequestPermission = async () => {
+        setShowOptIn(false)
+        try {
+            const permission = await Notification.requestPermission()
+            setSubscriptionStatus(permission as any)
+            if (permission === 'granted') {
+                await syncSubscription()
+            }
+        } catch { /* silent */ }
+    }
+
+    return (
+        <>
+            {showOptIn && <PushOptInModal onRequestPermission={handleRequestPermission} />}
+        </>
+    )
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {

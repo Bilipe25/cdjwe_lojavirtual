@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Send, Users, Bell, Smartphone, Link as LinkIcon, Image as ImageIcon, XCircle } from 'lucide-react'
+import { AudienceSelector, TargetSegment } from '@/components/admin/marketing/audience-selector'
 import { toast } from 'sonner'
 
 export default function PushPage() {
@@ -15,6 +16,8 @@ export default function PushPage() {
     const [title, setTitle] = useState('')
     const [message, setMessage] = useState('')
     const [link, setLink] = useState('')
+    const [targetAudience, setTargetAudience] = useState<'all' | 'segment'>('all')
+    const [targetSegment, setTargetSegment] = useState<TargetSegment>({ states: [], cities: [] })
     const [sending, setSending] = useState(false)
 
     useEffect(() => {
@@ -51,6 +54,8 @@ export default function PushPage() {
                     title: title.trim(),
                     body: message.trim(),
                     url: link.trim() || undefined,
+                    target_audience: targetAudience,
+                    target_segment: targetAudience === 'segment' ? targetSegment : undefined,
                 }),
             })
             const data = await res.json()
@@ -60,6 +65,8 @@ export default function PushPage() {
             setTitle('')
             setMessage('')
             setLink('')
+            setTargetAudience('all')
+            setTargetSegment({ states: [], cities: [] })
         } catch (err: any) {
             toast.error('Erro ao enviar: ' + err.message)
         } finally {
@@ -174,6 +181,14 @@ export default function PushPage() {
                                     />
                                 </div>
                             </div>
+
+                            {/* Target Audience */}
+                            <AudienceSelector
+                                value={targetAudience}
+                                segmentData={targetSegment}
+                                onChangeValue={setTargetAudience}
+                                onChangeSegment={setTargetSegment}
+                            />
                         </div>
                         <div className="px-6 py-4 border-t flex items-center justify-between">
                             <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
