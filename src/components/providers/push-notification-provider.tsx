@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { PushOptInModal } from '@/components/marketing/push-opt-in-modal'
 
@@ -9,41 +9,14 @@ export function PushNotificationProvider() {
     const [subscriptionStatus, setSubscriptionStatus] = useState<'pending' | 'granted' | 'denied' | 'default'>('pending')
     const [showOptIn, setShowOptIn] = useState(false)
 
-    useEffect(() => {
-        // Initial setup and check
-        checkAndRegisterExisting()
-    }, [])
-
-    const checkAndRegisterExisting = async () => {
-        try {
-            if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
-            
-            // Allow notification permission to be read
-            const permission = window.Notification.permission
-            setSubscriptionStatus(permission as any)
-
-            // Register service worker regardless of permission 
-            // (it does no harm and handles future subscriptions)
-            await navigator.serviceWorker.register('/sw.js')
-
-            // If already granted, ensure subscription is synced to backend
-            if (permission === 'granted') {
-                await syncSubscription()
-            } else if (permission === 'default' && localStorage.getItem('push_opt_in_dismissed') !== 'true') {
-                // If not asked yet and not dismissed, show modal after a small delay
-                setTimeout(() => setShowOptIn(true), 3000)
-            }
-        } catch { /* silent */ }
-    }
-
-    const syncSubscription = async () => {
+    const syncSubscription = useCallback(async () => {
         try {
             const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
             if (!vapidKey) return
 
             const supabase = createClient()
             const { data: { user } } = await supabase.auth.getUser()
-            if (!user) return
+            if (!user) return // Don't sync push without a logged-in user
 
             const registration = await navigator.serviceWorker.ready
             let subscription = await registration.pushManager.getSubscription()
@@ -72,8 +45,40 @@ export function PushNotificationProvider() {
             })
 
             setRegistered(true)
-        } catch { /* silent */ }
-    }
+        } catch (err) {
+            console.warn('Failed to sync push subscription:', err)
+        }
+    }, [])
+
+    const checkAndRegisterExisting = useCallback(async () => {
+        try {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+            
+            // Allow notification permission to be read
+            const permission = window.Notification.permission
+            setSubscriptionStatus(permission as any)
+
+            // Register service worker regardless of permission 
+            // (it does no harm and handles future subscriptions)
+            await navigator.serviceWorker.register('/sw.js')
+
+            // If already granted, ensure subscription is synced to backend
+            if (permission === 'granted') {
+                await syncSubscription()
+            } else if (permission === 'default' && localStorage.getItem('push_opt_in_dismissed') !== 'true') {
+                // If not asked yet and not dismissed, show modal after a small delay
+                const timer = setTimeout(() => setShowOptIn(true), 3000)
+                return () => clearTimeout(timer)
+            }
+        } catch (err) {
+            console.warn('Service worker registration failed:', err)
+        }
+    }, [syncSubscription])
+
+    useEffect(() => {
+        // Initial setup and check
+        checkAndRegisterExisting()
+    }, [checkAndRegisterExisting])
 
     const handleRequestPermission = async () => {
         setShowOptIn(false)

@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import type { CustomerType } from '@/lib/types'
 
 export interface PriceTableData {
     id?: string
@@ -20,6 +22,7 @@ export interface PriceTableData {
     is_active: boolean
     valid_from: string | null
     valid_until: string | null
+    customer_type_id: string | null
 }
 
 interface PriceTableFormProps {
@@ -27,9 +30,10 @@ interface PriceTableFormProps {
     onClose: () => void
     initialData?: PriceTableData | null
     onSave: (data: Omit<PriceTableData, 'id'>) => Promise<void>
+    customerTypes: CustomerType[]
 }
 
-export function PriceTableForm({ isOpen, onClose, initialData, onSave }: PriceTableFormProps) {
+export function PriceTableForm({ isOpen, onClose, initialData, onSave, customerTypes }: PriceTableFormProps) {
     const [name, setName] = useState('')
     const [description, setDescription] = useState('')
     const [discount, setDiscount] = useState('0')
@@ -37,6 +41,7 @@ export function PriceTableForm({ isOpen, onClose, initialData, onSave }: PriceTa
     const [isActive, setIsActive] = useState(true)
     const [validFrom, setValidFrom] = useState('')
     const [validUntil, setValidUntil] = useState('')
+    const [customerTypeId, setCustomerTypeId] = useState<string>('none')
     const [isSaving, setIsSaving] = useState(false)
 
     useEffect(() => {
@@ -47,6 +52,7 @@ export function PriceTableForm({ isOpen, onClose, initialData, onSave }: PriceTa
                 setDiscount(initialData.discount_percentage.toString())
                 setIsDefault(initialData.is_default)
                 setIsActive(initialData.is_active)
+                setCustomerTypeId(initialData.customer_type_id || 'none')
                 
                 // Cut the ISO string to YYYY-MM-DDTHH:mm to fit datetime-local
                 setValidFrom(initialData.valid_from ? initialData.valid_from.substring(0, 16) : '')
@@ -59,6 +65,7 @@ export function PriceTableForm({ isOpen, onClose, initialData, onSave }: PriceTa
                 setIsActive(true)
                 setValidFrom('')
                 setValidUntil('')
+                setCustomerTypeId('none')
             }
         }
     }, [isOpen, initialData])
@@ -82,7 +89,8 @@ export function PriceTableForm({ isOpen, onClose, initialData, onSave }: PriceTa
                 is_default: isDefault,
                 is_active: isActive,
                 valid_from: payloadValidFrom,
-                valid_until: payloadValidUntil
+                valid_until: payloadValidUntil,
+                customer_type_id: customerTypeId === 'none' ? null : customerTypeId,
             })
             onClose()
         } finally {
@@ -166,6 +174,25 @@ export function PriceTableForm({ isOpen, onClose, initialData, onSave }: PriceTa
                                 className="bg-white/60 text-sm h-9"
                             />
                         </div>
+                    </div>
+
+                    {/* Customer Type Association */}
+                    <div className="space-y-2">
+                        <Label>Tipo de Cliente Associado</Label>
+                        <Select value={customerTypeId} onValueChange={(v) => setCustomerTypeId(v || 'none')}>
+                            <SelectTrigger className="bg-white/60">
+                                <SelectValue placeholder="Selecione o tipo" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">Sem tipo — atribuição manual</SelectItem>
+                                {customerTypes.map(t => (
+                                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">
+                            Se definido, esta tabela será aplicada automaticamente a todos os clientes deste tipo.
+                        </p>
                     </div>
 
                     <div className="flex items-center justify-between p-3 rounded-lg border bg-white/40 mt-2">

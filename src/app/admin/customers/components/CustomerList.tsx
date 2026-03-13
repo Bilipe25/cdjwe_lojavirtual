@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Users, MoreHorizontal, Check, X, Ban, Eye, CheckSquare, Square } from 'lucide-react';
+import { Users, MoreHorizontal, Check, X, Ban, Eye, CheckSquare, Square, Pencil, Key, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,14 +13,15 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { Profile, Store } from '@/lib/types';
+import type { Profile, Store, CustomerType } from '@/lib/types';
 
-export type CustomerWithStore = Profile & { stores: Store[] };
+export type CustomerWithStore = Profile & { stores: (Store & { customer_type?: CustomerType })[] };
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; color: string }> = {
     pending: { label: 'Pendente', color: 'bg-amber-100 text-amber-800 border-amber-200' },
-    approved: { label: 'Aprovado', color: 'bg-green-100 text-green-800 border-green-200' },
+    approved: { label: 'Ativo', color: 'bg-green-100 text-green-800 border-green-200' },
     blocked: { label: 'Bloqueado', color: 'bg-red-100 text-red-800 border-red-200' },
+    imported: { label: 'Importado', color: 'bg-blue-100 text-blue-800 border-blue-200' },
 };
 
 interface CustomerListProps {
@@ -30,6 +31,8 @@ interface CustomerListProps {
     onToggleSelect: (id: string) => void;
     onViewDetail: (customer: CustomerWithStore) => void;
     onUpdateStatus: (id: string, status: string) => void;
+    onEditCustomer: (customer: CustomerWithStore) => void;
+    onManageAccess: (customer: CustomerWithStore) => void;
 }
 
 export function CustomerList({
@@ -38,7 +41,9 @@ export function CustomerList({
     selectedIds,
     onToggleSelect,
     onViewDetail,
-    onUpdateStatus
+    onUpdateStatus,
+    onEditCustomer,
+    onManageAccess
 }: CustomerListProps) {
     if (loading) {
         return (
@@ -80,8 +85,9 @@ export function CustomerList({
         <div className="space-y-3">
             {customers.map((customer, i) => {
                 const store = customer.stores?.[0];
-                const config = statusConfig[customer.status];
+                const config = statusConfig[customer.status] || statusConfig.pending;
                 const isSelected = selectedIds.includes(customer.id);
+                const customerTypeName = store?.customer_type?.name;
 
                 return (
                     <motion.div
@@ -120,6 +126,11 @@ export function CustomerList({
                                             <Badge className={`text-[10px] border shadow-sm ${config.color}`}>
                                                 {config.label}
                                             </Badge>
+                                            {customerTypeName && (
+                                                <Badge variant="outline" className="text-[10px] border-bronze/30 text-bronze bg-bronze/5">
+                                                    {customerTypeName}
+                                                </Badge>
+                                            )}
                                         </div>
                                         <p className="text-sm text-muted-foreground truncate" title={store?.company_name || 'Sem empresa'}>
                                             {store?.company_name || 'Sem empresa'} <span className="text-xs opacity-70">• {store?.cnpj || 'S/ CNPJ'}</span>
@@ -131,7 +142,7 @@ export function CustomerList({
 
                                     {/* Actions */}
                                     <div className="flex items-center gap-2 shrink-0 ml-12 sm:ml-0" onClick={e => e.stopPropagation()}>
-                                        {customer.status === 'pending' && (
+                                        {(customer.status === 'pending' || customer.status === 'imported') && (
                                             <>
                                                 <Button
                                                     size="sm"
@@ -160,6 +171,14 @@ export function CustomerList({
                                                 <DropdownMenuItem onClick={() => onViewDetail(customer)}>
                                                     <Eye className="h-4 w-4 mr-2" />
                                                     Ver Detalhes
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => onEditCustomer(customer)}>
+                                                    <Pencil className="h-4 w-4 mr-2" />
+                                                    Editar
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => onManageAccess(customer)}>
+                                                    <Key className="h-4 w-4 mr-2" />
+                                                    Gerenciar Acesso
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 {customer.status !== 'approved' && (
@@ -197,4 +216,3 @@ export function CustomerList({
         </div>
     );
 }
-

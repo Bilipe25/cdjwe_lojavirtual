@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import type { CustomerType } from '@/lib/types'
 
 import { PriceTableList, type PriceTable } from './components/PriceTableList'
 import { PriceTableForm, type PriceTableData } from './components/PriceTableForm'
@@ -43,6 +44,9 @@ export default function PriceTablesPage() {
     const [isRulesOpen, setIsRulesOpen] = useState(false)
     const [rulesTable, setRulesTable] = useState<PriceTable | null>(null)
 
+    // Customer types
+    const [customerTypes, setCustomerTypes] = useState<CustomerType[]>([])
+
     // Debounce listener
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -51,6 +55,20 @@ export default function PriceTablesPage() {
         }, 500)
         return () => clearTimeout(timer)
     }, [search])
+
+    // Load customer types once
+    useEffect(() => {
+        const loadTypes = async () => {
+            const supabase = createClient()
+            const { data } = await supabase
+                .from('customer_types')
+                .select('*')
+                .eq('is_active', true)
+                .order('sort_order')
+            if (data) setCustomerTypes(data)
+        }
+        loadTypes()
+    }, [])
 
     useEffect(() => {
         loadPriceTables()
@@ -62,7 +80,7 @@ export default function PriceTablesPage() {
         
         let query = supabase
             .from('price_tables')
-            .select('*', { count: 'exact' })
+            .select('*, customer_type:customer_types(*)', { count: 'exact' })
             .order('name')
             
         if (debouncedSearch) {
@@ -172,7 +190,8 @@ export default function PriceTablesPage() {
                     is_default: false,
                     is_active: false, // Start paused to allow adjustments
                     valid_from: table.valid_from,
-                    valid_until: table.valid_until
+                    valid_until: table.valid_until,
+                    customer_type_id: table.customer_type_id || null,
                 })
                 .select('id')
                 .single()
@@ -306,6 +325,7 @@ export default function PriceTablesPage() {
                 onClose={() => setIsFormOpen(false)}
                 initialData={editingTable}
                 onSave={handleSave}
+                customerTypes={customerTypes}
             />
 
             {/* Custom Prices Drawer Component */}

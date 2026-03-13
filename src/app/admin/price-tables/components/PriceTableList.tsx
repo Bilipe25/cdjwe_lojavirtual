@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { CustomerType } from '@/lib/types'
 
 export interface PriceTable {
     id: string
@@ -15,7 +16,10 @@ export interface PriceTable {
     is_active: boolean
     valid_from: string | null
     valid_until: string | null
+    customer_type_id: string | null
     created_at: string
+    // Relations
+    customer_type?: CustomerType | null
 }
 
 interface PriceTableListProps {
@@ -81,6 +85,11 @@ export function PriceTableList({ tables, loading, onEdit, onDelete, onManageItem
                                     <h3 className="font-semibold text-lg text-navy line-clamp-1" title={table.name}>{table.name}</h3>
                                     {!table.is_active && (
                                         <Badge variant="secondary" className="mt-1 text-[10px]">Inativa</Badge>
+                                    )}
+                                    {table.customer_type?.name && (
+                                        <Badge variant="outline" className="mt-1 text-[10px] border-bronze/30 text-bronze bg-bronze/5">
+                                            {table.customer_type.name}
+                                        </Badge>
                                     )}
                                 </div>
                                 <div className="text-right shrink-0">

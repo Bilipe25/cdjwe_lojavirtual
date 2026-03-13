@@ -4,7 +4,7 @@
 
 export type UserRole = 'admin' | 'client'
 
-export type ApprovalStatus = 'pending' | 'approved' | 'blocked'
+export type ApprovalStatus = 'pending' | 'approved' | 'blocked' | 'imported'
 
 export interface Profile {
   id: string
@@ -14,6 +14,19 @@ export interface Profile {
   role: UserRole
   status: ApprovalStatus
   avatar_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ==================== CUSTOMER TYPES ====================
+
+export interface CustomerType {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  is_active: boolean
+  sort_order: number
   created_at: string
   updated_at: string
 }
@@ -35,9 +48,12 @@ export interface Store {
   phone: string | null
   email: string | null
   notes: string | null
+  customer_type_id: string | null
   is_active: boolean
   created_at: string
   updated_at: string
+  // Relations
+  customer_type?: CustomerType
 }
 
 // ==================== PRODUCT CATALOG ====================
@@ -142,7 +158,10 @@ export interface PriceTable {
   is_active: boolean
   valid_from: string | null
   valid_until: string | null
+  customer_type_id: string | null
   created_at: string
+  // Relations
+  customer_type?: CustomerType | null
 }
 
 export interface PriceTableItem {
@@ -308,6 +327,17 @@ export interface CartItem {
   imageUrl: string | null
   quantity: number
   unitPrice: number
+}
+
+// ==================== CUSTOMER LOGIN AUDIT ====================
+
+export interface CustomerLoginAudit {
+  id: string
+  profile_id: string
+  ip_address: string | null
+  user_agent: string | null
+  device_info: string | null
+  created_at: string
 }
 
 // ==================== API Response helpers ====================

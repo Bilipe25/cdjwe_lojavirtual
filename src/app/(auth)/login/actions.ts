@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { loginSchema, type LoginFormData } from './schema'
 
 export async function loginAction(data: LoginFormData) {
@@ -11,25 +11,53 @@ export async function loginAction(data: LoginFormData) {
         return { error: 'Dados inválidos. Verifique o formulário.' };
     }
 
-    const { email, password } = parsed.data;
+    const { identifier, password } = parsed.data;
 
     try {
         const supabase = await createClient()
 
-        // 2. SignIn with Supabase SSR
+        let emailToAuthenticate = identifier.trim();
+        const isEmailOrSimilar = identifier.includes('@');
+
+        // 2. Lookup email if identifier is not an email
+        if (!isEmailOrSimilar) {
+            const cleanIdentifier = identifier.replace(/[^\d]+/g, '');
+            const isCnpj = cleanIdentifier.length === 14;
+
+            let query = supabase.from('stores').select('profile_id, profiles!inner(email)');
+
+            if (isCnpj) {
+                query = query.or(`cnpj.eq.${identifier},cnpj.eq.${cleanIdentifier}`);
+            } else {
+                query = query.ilike('company_name', `%${identifier}%`);
+            }
+
+            const { data: storeData } = await query.limit(1).maybeSingle();
+
+            const profileData: any = storeData?.profiles;
+            const foundEmail = Array.isArray(profileData) ? profileData[0]?.email : profileData?.email;
+
+            if (storeData && foundEmail) {
+                emailToAuthenticate = foundEmail;
+            } else {
+                return { error: 'Nenhuma conta encontrada com este CNPJ ou Razão Social.' };
+            }
+        }
+
+        // 3. SignIn with Supabase SSR
         const { error: authError } = await supabase.auth.signInWithPassword({ 
-            email, 
+            email: emailToAuthenticate, 
             password 
         });
 
         if (authError) {
             if (authError.message.includes('Invalid login credentials')) {
-                return { error: 'Email ou senha incorretos' }
+                return { error: 'Credenciais incorretas. Tente novamente.' }
             }
             return { error: authError.message }
         }
 
-        // 3. Fetch user profile data to define the routing and metadata
+        // 4. Fetch user profile data to define the routing and metadata
         const { data: { user } } = await supabase.auth.getUser()
         
         if (!user) {
@@ -45,27 +73,40 @@ export async function loginAction(data: LoginFormData) {
         const role = profile?.role || 'client';
         const status = profile?.status || 'approved';
 
-        // 4. Set Enterprise Static State Cookies (Valid across NextJS Middleware safely)
+        // 4.5 Audit Logging for clients
+        if (role === 'client') {
+            const reqHeaders = await headers();
+            const userAgent = reqHeaders.get('user-agent') || 'Unknown';
+            const ipAddress = reqHeaders.get('x-forwarded-for') || reqHeaders.get('x-real-ip') || 'Local';
+
+            try {
+                await supabase.from('customer_login_audit').insert({
+                    profile_id: user.id,
+                    ip_address: ipAddress.split(',')[0].trim(),
+                    user_agent: userAgent
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // 5. Set Enterprise Static State Cookies
         const cookieStore = await cookies();
-        cookieStore.set('jwt_role', role, { 
+        const cookieOptions = { 
             httpOnly: true, 
             secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
+            sameSite: 'lax' as const,
             maxAge: 60 * 60 * 24 * 7 // 1 Week
-        });
-        
-        cookieStore.set('jwt_status', status, { 
-            httpOnly: true, 
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 60 * 60 * 24 * 7 // 1 Week
-        });
+        };
+
+        cookieStore.set('jwt_role', role, cookieOptions);
+        cookieStore.set('jwt_status', status, cookieOptions);
 
         // Resolve Destination URL safely
         let redirectUrl = '/catalog';
         if (role === 'admin') {
             redirectUrl = '/admin/dashboard';
-        } else if (status === 'pending') {
+        } else if (status === 'pending' || status === 'imported') {
             redirectUrl = '/pending-approval';
         } else if (status === 'blocked') {
             redirectUrl = '/blocked';

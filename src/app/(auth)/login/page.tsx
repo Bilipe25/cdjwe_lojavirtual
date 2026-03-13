@@ -37,7 +37,7 @@ export default function LoginPage() {
     const form = useForm<LoginFormData>({
         resolver: zodResolver(loginSchema) as any,
         defaultValues: {
-            email: '',
+            identifier: '',
             password: ''
         }
     })
@@ -108,17 +108,17 @@ export default function LoginPage() {
                 <CardContent className="pt-4">
                     <form onSubmit={handleSubmit(handleLogin)} className="space-y-4">
                         <div className="space-y-2">
-                            <Label htmlFor="email">Email</Label>
+                            <Label htmlFor="identifier">E-mail, CNPJ ou Nome da Empresa</Label>
                             <Input
-                                id="email"
-                                type="email"
-                                placeholder="seu@email.com"
+                                id="identifier"
+                                type="text"
+                                placeholder="joao@loja.com.br ou 00.000.000/0001-00"
                                 disabled={loading}
-                                className={`h-11 bg-white/60 ${errors.email ? 'border-red-500' : ''}`}
-                                {...register('email')}
+                                className={`h-11 bg-white/60 ${errors.identifier ? 'border-red-500' : ''}`}
+                                {...register('identifier')}
                             />
-                            {errors.email && (
-                                <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>
+                            {errors.identifier && (
+                                <p className="text-xs text-red-500 mt-1">{errors.identifier.message}</p>
                             )}
                         </div>
 

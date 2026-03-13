@@ -1,133 +1,114 @@
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Users, Building2, MapPin, Check } from 'lucide-react';
+import { Loader2, Save, MapPin, Building2, Users } from 'lucide-react';
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
+    Sheet,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetDescription,
+    SheetFooter,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { customerSchema, type CustomerFormData } from '../schema';
+import { customerEditSchema, type CustomerEditFormData } from '../schema';
 import type { CustomerType } from '@/lib/types';
+import type { CustomerWithStore } from './CustomerList';
 
-interface CustomerFormModalProps {
-    isOpen: boolean;
-    onOpenChange: (open: boolean) => void;
-    saving: boolean;
-    onSave: (data: CustomerFormData) => Promise<void>;
+interface CustomerEditDrawerProps {
+    customer: CustomerWithStore | null;
     customerTypes: CustomerType[];
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (profileId: string, storeId: string, data: CustomerEditFormData) => Promise<void>;
 }
 
-export function CustomerFormModal({
+export function CustomerEditDrawer({
+    customer,
+    customerTypes,
     isOpen,
-    onOpenChange,
-    saving,
-    onSave,
-    customerTypes
-}: CustomerFormModalProps) {
-    const form = useForm<CustomerFormData>({
-        resolver: zodResolver(customerSchema) as any,
-        defaultValues: {
-            fullName: '',
-            email: '',
-            phone: '',
-            password: '',
-            companyName: '',
-            tradeName: '',
-            cnpj: '',
-            customerTypeId: '',
-            address: '',
-            city: '',
-            state: '',
-            zipCode: ''
-        }
+    onClose,
+    onSave
+}: CustomerEditDrawerProps) {
+    const [saving, setSaving] = useState(false);
+    const store = customer?.stores?.[0];
+
+    const form = useForm<CustomerEditFormData>({
+        resolver: zodResolver(customerEditSchema) as any,
     });
 
-    const { register, handleSubmit, reset, formState: { errors, isDirty }, setValue, watch } = form;
+    const { register, handleSubmit, reset, formState: { errors }, setValue } = form;
 
-    // Reset when opening modal fresh
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && customer) {
             reset({
-                fullName: '',
-                email: '',
-                phone: '',
-                password: '',
-                companyName: '',
-                tradeName: '',
-                cnpj: '',
-                customerTypeId: '',
-                address: '',
-                city: '',
-                state: '',
-                zipCode: ''
+                fullName: customer.full_name || '',
+                email: customer.email || '',
+                phone: customer.phone || '',
+                companyName: store?.company_name || '',
+                tradeName: store?.trade_name || '',
+                cnpj: store?.cnpj || '',
+                customerTypeId: store?.customer_type_id || '',
+                address: store?.address || '',
+                city: store?.city || '',
+                state: store?.state || '',
+                zipCode: store?.zip_code || '',
             });
         }
-    }, [isOpen, reset]);
+    }, [isOpen, customer, store, reset]);
 
-    const handleOpenChange = (open: boolean) => {
-        if (!open && isDirty) {
-            if (!confirm('Você tem alterações não salvas. Deseja realmente fechar?')) {
-                return;
-            }
+    const onSubmit = async (data: CustomerEditFormData) => {
+        if (!customer || !store) return;
+        setSaving(true);
+        try {
+            await onSave(customer.id, store.id, data);
+            onClose();
+        } finally {
+            setSaving(false);
         }
-        onOpenChange(open);
-    };
-
-    const onSubmit = async (data: CustomerFormData) => {
-        await onSave(data);
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle className="font-heading text-2xl">
-                        Novo Cliente
-                    </DialogTitle>
-                    <DialogDescription>
-                        Crie um novo acesso de lojista. A conta já será aprovada automaticamente.
-                    </DialogDescription>
-                </DialogHeader>
+        <Sheet open={isOpen} onOpenChange={onClose}>
+            <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0">
+                <SheetHeader className="p-6 border-b bg-white z-10">
+                    <SheetTitle className="text-xl font-heading text-navy">
+                        Editar Cliente
+                    </SheetTitle>
+                    <SheetDescription>
+                        {customer?.full_name} — {store?.company_name}
+                    </SheetDescription>
+                </SheetHeader>
 
-                <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 mt-4">
-                    {/* Pessoais / Acesso */}
+                <form onSubmit={handleSubmit(onSubmit)} className="flex-1 overflow-y-auto p-6 space-y-6">
+                    {/* Dados Pessoais */}
                     <div className="space-y-4">
                         <div className="flex items-center gap-2 text-muted-foreground border-b pb-2">
                             <Users className="h-4 w-4" />
-                            <span className="text-sm font-medium">Dados de Acesso (Login)</span>
+                            <span className="text-sm font-medium">Dados Pessoais</span>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-2">
+                            <div className="space-y-2 sm:col-span-2">
                                 <Label>Nome do Responsável *</Label>
-                                <Input {...register('fullName')} placeholder="João da Silva" className="bg-white/60" />
+                                <Input {...register('fullName')} className="bg-white/60" />
                                 {errors.fullName && <p className="text-xs text-red-500">{errors.fullName.message}</p>}
                             </div>
                             <div className="space-y-2">
-                                <Label>Telefone / WhatsApp</Label>
-                                <Input {...register('phone')} placeholder="(11) 99999-9999" className="bg-white/60" />
-                                {errors.phone && <p className="text-xs text-red-500">{errors.phone.message}</p>}
-                            </div>
-                            <div className="space-y-2">
-                                <Label>E-mail (Login) *</Label>
-                                <Input {...register('email')} type="email" placeholder="joao@loja.com.br" className="bg-white/60" />
+                                <Label>E-mail *</Label>
+                                <Input {...register('email')} type="email" className="bg-white/60" disabled />
                                 {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
                             </div>
                             <div className="space-y-2">
-                                <Label>Senha Inicial *</Label>
-                                <Input {...register('password')} type="text" placeholder="Min 6 caracteres" className="bg-white/60" />
-                                {errors.password && <p className="text-xs text-red-500">{errors.password.message}</p>}
+                                <Label>Telefone / WhatsApp</Label>
+                                <Input {...register('phone')} className="bg-white/60" />
                             </div>
                         </div>
                     </div>
 
-                    {/* Empresa */}
+                    {/* Dados da Empresa */}
                     <div className="space-y-4">
                         <div className="flex items-center gap-2 text-muted-foreground border-b pb-2">
                             <Building2 className="h-4 w-4" />
@@ -136,23 +117,22 @@ export function CustomerFormModal({
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2 sm:col-span-2">
                                 <Label>Razão Social *</Label>
-                                <Input {...register('companyName')} placeholder="João da Silva Móveis ME" className="bg-white/60" />
+                                <Input {...register('companyName')} className="bg-white/60" />
                                 {errors.companyName && <p className="text-xs text-red-500">{errors.companyName.message}</p>}
                             </div>
                             <div className="space-y-2">
                                 <Label>Nome Fantasia</Label>
-                                <Input {...register('tradeName')} placeholder="Loja do João" className="bg-white/60" />
-                                {errors.tradeName && <p className="text-xs text-red-500">{errors.tradeName.message}</p>}
+                                <Input {...register('tradeName')} className="bg-white/60" />
                             </div>
                             <div className="space-y-2">
                                 <Label>CNPJ *</Label>
-                                <Input {...register('cnpj')} placeholder="00.000.000/0001-00" className="bg-white/60" />
+                                <Input {...register('cnpj')} className="bg-white/60" />
                                 {errors.cnpj && <p className="text-xs text-red-500">{errors.cnpj.message}</p>}
                             </div>
                             <div className="space-y-2 sm:col-span-2">
                                 <Label>Tipo de Cliente</Label>
                                 <Select
-                                    value={watch('customerTypeId') ?? 'none'}
+                                    value={form.watch('customerTypeId') || 'none'}
                                     onValueChange={(v) => setValue('customerTypeId', v === 'none' ? '' : v)}
                                 >
                                     <SelectTrigger className="bg-white/60">
@@ -173,7 +153,7 @@ export function CustomerFormModal({
                     <div className="space-y-4">
                         <div className="flex items-center gap-2 text-muted-foreground border-b pb-2">
                             <MapPin className="h-4 w-4" />
-                            <span className="text-sm font-medium">Endereço (Opcional)</span>
+                            <span className="text-sm font-medium">Endereço</span>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2 sm:col-span-2">
@@ -182,7 +162,7 @@ export function CustomerFormModal({
                             </div>
                             <div className="space-y-2">
                                 <Label>Cidade</Label>
-                                <Input {...register('city')} placeholder="Cidade" className="bg-white/60" />
+                                <Input {...register('city')} className="bg-white/60" />
                             </div>
                             <div className="space-y-2">
                                 <Label>Estado</Label>
@@ -194,18 +174,24 @@ export function CustomerFormModal({
                             </div>
                         </div>
                     </div>
+                </form>
 
-                    <div className="flex justify-end gap-3 pt-4 border-t">
-                        <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
+                <SheetFooter className="p-4 border-t bg-white mt-auto shrink-0">
+                    <div className="flex gap-3 w-full">
+                        <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={saving}>
                             Cancelar
                         </Button>
-                        <Button type="submit" disabled={saving} className="gradient-navy border-0 text-white min-w-[140px]">
-                            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
-                            Salvar e Aprovar
+                        <Button
+                            onClick={handleSubmit(onSubmit)}
+                            disabled={saving}
+                            className="flex-1 gradient-navy border-0 text-white"
+                        >
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                            Salvar Alterações
                         </Button>
                     </div>
-                </form>
-            </DialogContent>
-        </Dialog>
+                </SheetFooter>
+            </SheetContent>
+        </Sheet>
     );
 }

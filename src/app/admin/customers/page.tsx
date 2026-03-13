@@ -1,17 +1,22 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { createCustomerAsAdmin } from './actions'
+import { createCustomerAsAdmin, updateCustomerAsAdmin } from './actions'
+import type { CustomerType } from '@/lib/types'
+import type { CustomerEditFormData } from './schema'
 
 // Components
 import { CustomerFilters } from './components/CustomerFilters'
 import { CustomerList, type CustomerWithStore } from './components/CustomerList'
 import { CustomerFormModal } from './components/CustomerFormModal'
 import { CustomerDetailModal } from './components/CustomerDetailModal'
+import { CustomerEditDrawer } from './components/CustomerEditDrawer'
+import { CustomerImportModal } from './components/CustomerImportModal'
+import { CustomerAccessModal } from './components/CustomerAccessModal'
 import { type CustomerFormData } from './schema'
 
 const ITEMS_PER_PAGE = 15;
@@ -21,11 +26,13 @@ export default function CustomersPage() {
 
     // Data State
     const [customers, setCustomers] = useState<CustomerWithStore[]>([])
+    const [customerTypes, setCustomerTypes] = useState<CustomerType[]>([])
     
     // Server-side State
     const [loading, setLoading] = useState(true)
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('all')
+    const [typeFilter, setTypeFilter] = useState('all')
     const [currentPage, setCurrentPage] = useState(1)
     const [totalCount, setTotalCount] = useState(0)
 
@@ -35,6 +42,11 @@ export default function CustomersPage() {
     const [isCreating, setIsCreating] = useState(false)
     const [selectedIds, setSelectedIds] = useState<string[]>([])
 
+    // New modals
+    const [editCustomer, setEditCustomer] = useState<CustomerWithStore | null>(null)
+    const [isImportOpen, setIsImportOpen] = useState(false)
+    const [accessCustomer, setAccessCustomer] = useState<CustomerWithStore | null>(null)
+
     // Apply Debounce for Search filter
     const [debouncedSearch, setDebouncedSearch] = useState(search)
     useEffect(() => {
@@ -42,13 +54,26 @@ export default function CustomersPage() {
         return () => clearTimeout(timer)
     }, [search])
 
+    // Load customer types once
+    useEffect(() => {
+        const loadTypes = async () => {
+            const { data } = await supabase
+                .from('customer_types')
+                .select('*')
+                .eq('is_active', true)
+                .order('sort_order')
+            if (data) setCustomerTypes(data)
+        }
+        loadTypes()
+    }, [])
+
     const loadData = useCallback(async () => {
         setLoading(true)
         
-        // Base Query with Stores Inner Join
+        // Base Query with Stores Inner Join + customer_type relation
         let query = supabase
             .from('profiles')
-            .select('*, stores(*)', { count: 'exact' })
+            .select('*, stores(*, customer_type:customer_types(*))', { count: 'exact' })
             .eq('role', 'client')
 
         // Apply Filters
@@ -57,7 +82,6 @@ export default function CustomersPage() {
         }
         
         if (debouncedSearch) {
-            // Buscando os IDs das stores que batem com o CNPJ ou Company Name
             const { data: storeMatches } = await supabase
                 .from('stores')
                 .select('profile_id')
@@ -65,15 +89,32 @@ export default function CustomersPage() {
                 
             const storeProfileIds = storeMatches?.map(s => s.profile_id) || [];
             
-            // Filtro Complexo: Ou o nome/email bate no profile, ou bateu lá na tabela stores
             const nameOrEmailFilter = `full_name.ilike.%${debouncedSearch}%,email.ilike.%${debouncedSearch}%`;
             
             if (storeProfileIds.length > 0) {
-                // Monta string de profiles ex: 'id.in.(1,2,3)'
                 const profileInFilter = `id.in.(${storeProfileIds.join(',')})`;
                 query = query.or(`${nameOrEmailFilter},${profileInFilter}`);
             } else {
                 query = query.or(nameOrEmailFilter);
+            }
+        }
+
+        // Type filter — need to filter by store's customer_type_id
+        if (typeFilter !== 'all') {
+            const { data: typeStores } = await supabase
+                .from('stores')
+                .select('profile_id')
+                .eq('customer_type_id', typeFilter)
+            
+            const typeProfileIds = typeStores?.map(s => s.profile_id) || []
+            if (typeProfileIds.length > 0) {
+                query = query.in('id', typeProfileIds)
+            } else {
+                // No matches for this type, set empty result
+                setCustomers([])
+                setTotalCount(0)
+                setLoading(false)
+                return
             }
         }
 
@@ -93,7 +134,7 @@ export default function CustomersPage() {
         }
         
         setLoading(false)
-    }, [debouncedSearch, statusFilter, currentPage, supabase])
+    }, [debouncedSearch, statusFilter, typeFilter, currentPage, supabase])
 
     useEffect(() => {
         loadData()
@@ -102,7 +143,7 @@ export default function CustomersPage() {
     // Reset pagination on filter changes
     useEffect(() => {
         setCurrentPage(1)
-    }, [debouncedSearch, statusFilter])
+    }, [debouncedSearch, statusFilter, typeFilter])
 
     // Toggle Selection
     const toggleSelect = (id: string) => {
@@ -154,13 +195,19 @@ export default function CustomersPage() {
         setCustomers(prev =>
             prev.map(c => c.id === profileId ? { ...c, status: status as any } : c)
         )
-        toast.success(`Cliente ${status === 'approved' ? 'aprovado' : status === 'blocked' ? 'bloqueado' : 'atualizado'}!`)
+        
+        const statusLabels: Record<string, string> = {
+            approved: 'aprovado',
+            blocked: 'bloqueado',
+            imported: 'marcado como importado',
+            pending: 'marcado como pendente',
+        }
+        toast.success(`Cliente ${statusLabels[status] || 'atualizado'}!`)
     }
 
     const handleCreateCustomer = async (data: CustomerFormData) => {
         setIsCreating(true)
         
-        // Manual form data creation to adapt existing Server Action
         const formData = new FormData()
         formData.append('fullName', data.fullName)
         formData.append('email', data.email)
@@ -170,6 +217,11 @@ export default function CustomersPage() {
         
         if (data.phone) formData.append('phone', data.phone)
         if (data.tradeName) formData.append('tradeName', data.tradeName)
+        if (data.customerTypeId) formData.append('customerTypeId', data.customerTypeId)
+        if (data.address) formData.append('address', data.address)
+        if (data.city) formData.append('city', data.city)
+        if (data.state) formData.append('state', data.state)
+        if (data.zipCode) formData.append('zipCode', data.zipCode)
 
         const res = await createCustomerAsAdmin(formData)
 
@@ -185,12 +237,36 @@ export default function CustomersPage() {
         loadData() 
     }
 
+    const handleEditCustomer = async (profileId: string, storeId: string, data: CustomerEditFormData) => {
+        const res = await updateCustomerAsAdmin(profileId, storeId, {
+            fullName: data.fullName,
+            email: data.email,
+            phone: data.phone,
+            companyName: data.companyName,
+            tradeName: data.tradeName,
+            cnpj: data.cnpj,
+            customerTypeId: data.customerTypeId,
+            address: data.address,
+            city: data.city,
+            state: data.state,
+            zipCode: data.zipCode,
+        })
+
+        if (res.error) {
+            toast.error(res.error)
+            return
+        }
+
+        toast.success('Cliente atualizado com sucesso!')
+        setEditCustomer(null)
+        loadData()
+    }
+
     // Bulk Actions
     const handleBulkApprove = async () => {
         const { error } = await supabase.from('profiles').update({ status: 'approved' }).in('id', selectedIds)
         if (error) { toast.error('Erro ao aprovar clientes em massa.'); return }
 
-        // Send approval emails to each approved customer
         const approvedCustomers = customers.filter(c => selectedIds.includes(c.id))
         for (const customer of approvedCustomers) {
             if (customer.email) {
@@ -240,13 +316,19 @@ export default function CustomersPage() {
                         Clientes
                     </h1>
                     <p className="text-muted-foreground mt-1">
-                        Gerencie os cadastros dos clientes
+                        Centro de gerenciamento de clientes
                     </p>
                 </div>
-                <Button onClick={() => setIsCreateOpen(true)} className="gradient-navy border-0 text-white gap-2">
-                    <Plus className="h-4 w-4" />
-                    Novo Cliente
-                </Button>
+                <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setIsImportOpen(true)} className="gap-2">
+                        <Upload className="h-4 w-4" />
+                        Importar CSV
+                    </Button>
+                    <Button onClick={() => setIsCreateOpen(true)} className="gradient-navy border-0 text-white gap-2">
+                        <Plus className="h-4 w-4" />
+                        Novo Cliente
+                    </Button>
+                </div>
             </div>
 
             <CustomerFilters 
@@ -254,6 +336,9 @@ export default function CustomersPage() {
                 onSearchChange={setSearch}
                 statusFilter={statusFilter}
                 onStatusChange={setStatusFilter}
+                typeFilter={typeFilter}
+                onTypeChange={setTypeFilter}
+                customerTypes={customerTypes}
                 selectedCount={selectedIds.length}
                 onBulkApprove={handleBulkApprove}
                 onBulkBlock={handleBulkBlock}
@@ -267,6 +352,8 @@ export default function CustomersPage() {
                 onToggleSelect={toggleSelect}
                 onViewDetail={setSelectedCustomer}
                 onUpdateStatus={updateStatus}
+                onEditCustomer={setEditCustomer}
+                onManageAccess={setAccessCustomer}
             />
 
             {/* Pagination Controls */}
@@ -296,16 +383,44 @@ export default function CustomersPage() {
                 </div>
             )}
 
+            {/* Detail Drawer */}
             <CustomerDetailModal 
                 customer={selectedCustomer}
                 onClose={() => setSelectedCustomer(null)}
+                onEdit={(c) => { setSelectedCustomer(null); setEditCustomer(c); }}
+                onManageAccess={(c) => { setSelectedCustomer(null); setAccessCustomer(c); }}
             />
 
+            {/* Create Modal */}
             <CustomerFormModal 
                 isOpen={isCreateOpen}
                 onOpenChange={setIsCreateOpen}
                 saving={isCreating}
                 onSave={handleCreateCustomer}
+                customerTypes={customerTypes}
+            />
+
+            {/* Edit Drawer */}
+            <CustomerEditDrawer
+                customer={editCustomer}
+                customerTypes={customerTypes}
+                isOpen={!!editCustomer}
+                onClose={() => setEditCustomer(null)}
+                onSave={handleEditCustomer}
+            />
+
+            {/* Import Modal */}
+            <CustomerImportModal
+                isOpen={isImportOpen}
+                onOpenChange={setIsImportOpen}
+                onImportComplete={loadData}
+            />
+
+            {/* Access Modal */}
+            <CustomerAccessModal
+                customer={accessCustomer}
+                isOpen={!!accessCustomer}
+                onClose={() => setAccessCustomer(null)}
             />
         </div>
     )

@@ -1,13 +1,17 @@
-import { Search, Users } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import type { CustomerType } from '@/lib/types';
 
 interface CustomerFiltersProps {
     search: string;
     onSearchChange: (val: string) => void;
     statusFilter: string;
     onStatusChange: (val: string) => void;
+    typeFilter: string;
+    onTypeChange: (val: string) => void;
+    customerTypes: CustomerType[];
     selectedCount: number;
     onBulkApprove: () => void;
     onBulkBlock: () => void;
@@ -19,6 +23,9 @@ export function CustomerFilters({
     onSearchChange,
     statusFilter,
     onStatusChange,
+    typeFilter,
+    onTypeChange,
+    customerTypes,
     selectedCount,
     onBulkApprove,
     onBulkBlock,
@@ -26,8 +33,8 @@ export function CustomerFilters({
 }: CustomerFiltersProps) {
     return (
         <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-white/60 p-4 rounded-xl border shadow-sm">
-            <div className="flex flex-1 w-full gap-4 items-center">
-                <div className="relative flex-1 max-w-sm">
+            <div className="flex flex-1 w-full gap-3 items-center flex-wrap">
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         placeholder="Buscar por nome, email, CNPJ..."
@@ -37,14 +44,26 @@ export function CustomerFilters({
                     />
                 </div>
                 <Select value={statusFilter} onValueChange={(v) => v && onStatusChange(v)}>
-                    <SelectTrigger className="w-full sm:w-48 h-11 bg-white">
+                    <SelectTrigger className="w-full sm:w-40 h-11 bg-white">
                         <SelectValue placeholder="Status" />
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Todos</SelectItem>
                         <SelectItem value="pending">Pendentes</SelectItem>
-                        <SelectItem value="approved">Aprovados</SelectItem>
+                        <SelectItem value="approved">Ativos</SelectItem>
                         <SelectItem value="blocked">Bloqueados</SelectItem>
+                        <SelectItem value="imported">Importados</SelectItem>
+                    </SelectContent>
+                </Select>
+                <Select value={typeFilter} onValueChange={(v) => v && onTypeChange(v)}>
+                    <SelectTrigger className="w-full sm:w-44 h-11 bg-white">
+                        <SelectValue placeholder="Tipo de Cliente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Todos os Tipos</SelectItem>
+                        {customerTypes.map(t => (
+                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                        ))}
                     </SelectContent>
                 </Select>
             </div>

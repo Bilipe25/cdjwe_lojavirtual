@@ -74,7 +74,7 @@ export async function updateSession(request: NextRequest) {
             request.nextUrl.pathname.startsWith('/cart') ||
             request.nextUrl.pathname.startsWith('/orders')
         ) {
-            if (role === 'client' && status === 'pending') {
+            if (role === 'client' && (status === 'pending' || status === 'imported')) {
                 const url = request.nextUrl.clone()
                 url.pathname = '/pending-approval'
                 return NextResponse.redirect(url)
