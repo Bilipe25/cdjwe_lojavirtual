@@ -11,11 +11,13 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { requestPasswordReset } from './actions'
 
 export default function ForgotPasswordPage() {
-    const [email, setEmail] = useState('')
+    const [identifier, setIdentifier] = useState('')
     const [loading, setLoading] = useState(false)
     const [sent, setSent] = useState(false)
+    const [maskedEmail, setMaskedEmail] = useState('')
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
 
     useEffect(() => {
@@ -29,23 +31,23 @@ export default function ForgotPasswordPage() {
 
     const handleReset = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!email) {
-            toast.error('Informe seu email')
+        if (!identifier) {
+            toast.error('Informe seu E-mail ou CNPJ')
             return
         }
 
         setLoading(true)
         try {
-            const supabase = createClient()
-            const { error } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: `${window.location.origin}/reset-password`,
-            })
+            const res = await requestPasswordReset(identifier, window.location.origin)
 
-            if (error) {
-                toast.error(error.message)
+            if (res.error) {
+                toast.error(res.error)
                 return
             }
 
+            if (res.maskedEmail) {
+                setMaskedEmail(res.maskedEmail)
+            }
             setSent(true)
         } catch {
             toast.error('Erro inesperado. Tente novamente.')
@@ -89,8 +91,8 @@ export default function ForgotPasswordPage() {
                         </CardTitle>
                         <CardDescription className="mt-1">
                             {sent
-                                ? 'Verifique sua caixa de entrada e siga as instruções.'
-                                : 'Informe seu email para receber o link de recuperação.'}
+                                ? 'Verifique a caixa de entrada para seguir as instruções.'
+                                : 'Informe seu E-mail ou CNPJ para receber o link de recuperação.'}
                         </CardDescription>
                     </div>
                 </CardHeader>
@@ -100,8 +102,10 @@ export default function ForgotPasswordPage() {
                         <div className="space-y-4">
                             <div className="rounded-lg bg-primary/5 p-4 text-sm text-center">
                                 <p className="text-muted-foreground">
-                                    Enviamos um link de recuperação para{' '}
-                                    <span className="font-medium text-foreground">{email}</span>.
+                                    Enviamos um link de recuperação{maskedEmail ? ` para o e-mail associado:` : '.'}
+                                    {maskedEmail && <span className="block font-medium text-foreground mt-1">{maskedEmail}</span>}
+                                </p>
+                                <p className="text-muted-foreground text-xs mt-2">
                                     Caso não encontre, verifique a pasta de spam.
                                 </p>
                             </div>
@@ -115,13 +119,13 @@ export default function ForgotPasswordPage() {
                     ) : (
                         <form onSubmit={handleReset} className="space-y-4">
                             <div className="space-y-2">
-                                <Label htmlFor="email">Email</Label>
+                                <Label htmlFor="identifier">E-mail ou CNPJ</Label>
                                 <Input
-                                    id="email"
-                                    type="email"
-                                    placeholder="seu@email.com"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
+                                    id="identifier"
+                                    type="text"
+                                    placeholder="seu@email.com ou 00.000.../0001-00"
+                                    value={identifier}
+                                    onChange={(e) => setIdentifier(e.target.value)}
                                     disabled={loading}
                                     className="h-11 bg-white/60"
                                 />

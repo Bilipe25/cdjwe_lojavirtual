@@ -5,8 +5,8 @@ import { Plus, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { createCustomerAsAdmin, updateCustomerAsAdmin } from './actions'
-import type { CustomerType } from '@/lib/types'
+import { createCustomerAsAdmin, updateCustomerAsAdmin, getCustomerTags, getRepresentatives } from './actions'
+import type { CustomerType, CustomerTag, Profile } from '@/lib/types'
 import type { CustomerEditFormData } from './schema'
 
 // Components
@@ -27,6 +27,9 @@ export default function CustomersPage() {
     // Data State
     const [customers, setCustomers] = useState<CustomerWithStore[]>([])
     const [customerTypes, setCustomerTypes] = useState<CustomerType[]>([])
+    const [customerTags, setCustomerTags] = useState<CustomerTag[]>([])
+    const [representatives, setRepresentatives] = useState<Partial<Profile>[]>([])
+
     
     // Server-side State
     const [loading, setLoading] = useState(true)
@@ -54,26 +57,32 @@ export default function CustomersPage() {
         return () => clearTimeout(timer)
     }, [search])
 
-    // Load customer types once
+    // Load auxiliary data once
     useEffect(() => {
-        const loadTypes = async () => {
-            const { data } = await supabase
+        const loadAuxData = async () => {
+            const { data: typesData } = await supabase
                 .from('customer_types')
                 .select('*')
                 .eq('is_active', true)
                 .order('sort_order')
-            if (data) setCustomerTypes(data)
+            if (typesData) setCustomerTypes(typesData)
+
+            const tagsRes = await getCustomerTags()
+            if (tagsRes.data) setCustomerTags(tagsRes.data as CustomerTag[])
+
+            const repsRes = await getRepresentatives()
+            if (repsRes.data) setRepresentatives(repsRes.data as Partial<Profile>[])
         }
-        loadTypes()
-    }, [])
+        loadAuxData()
+    }, [supabase])
 
     const loadData = useCallback(async () => {
         setLoading(true)
         
-        // Base Query with Stores Inner Join + customer_type relation
+        // Base Query with Stores Inner Join + customer_type relation + store_tags relation
         let query = supabase
             .from('profiles')
-            .select('*, stores(*, customer_type:customer_types(*))', { count: 'exact' })
+            .select('*, stores(*, customer_type:customer_types(*), store_tags(customer_tags(*)), representative:profiles!stores_representative_id_fkey(id, full_name))', { count: 'exact' })
             .eq('role', 'client')
 
         // Apply Filters
@@ -218,6 +227,8 @@ export default function CustomersPage() {
         if (data.phone) formData.append('phone', data.phone)
         if (data.tradeName) formData.append('tradeName', data.tradeName)
         if (data.customerTypeId) formData.append('customerTypeId', data.customerTypeId)
+        if (data.representativeId) formData.append('representativeId', data.representativeId)
+        if (data.tagIds) formData.append('tagIds', JSON.stringify(data.tagIds))
         if (data.address) formData.append('address', data.address)
         if (data.city) formData.append('city', data.city)
         if (data.state) formData.append('state', data.state)
@@ -246,6 +257,8 @@ export default function CustomersPage() {
             tradeName: data.tradeName,
             cnpj: data.cnpj,
             customerTypeId: data.customerTypeId,
+            representativeId: data.representativeId,
+            tagIds: data.tagIds,
             address: data.address,
             city: data.city,
             state: data.state,
@@ -398,12 +411,16 @@ export default function CustomersPage() {
                 saving={isCreating}
                 onSave={handleCreateCustomer}
                 customerTypes={customerTypes}
+                customerTags={customerTags}
+                representatives={representatives}
             />
 
             {/* Edit Drawer */}
             <CustomerEditDrawer
                 customer={editCustomer}
                 customerTypes={customerTypes}
+                customerTags={customerTags}
+                representatives={representatives}
                 isOpen={!!editCustomer}
                 onClose={() => setEditCustomer(null)}
                 onSave={handleEditCustomer}

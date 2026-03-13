@@ -11,6 +11,8 @@ export const customerSchema = z.object({
     tradeName: z.string().optional(),
     cnpj: z.string().min(14, 'CNPJ inválido (mínimo 14 caracteres)'),
     customerTypeId: z.string().optional(),
+    representativeId: z.string().optional(),
+    tagIds: z.array(z.string()).optional(),
     // Address fields
     address: z.string().optional(),
     city: z.string().optional(),
@@ -30,6 +32,8 @@ export const customerEditSchema = z.object({
     tradeName: z.string().optional(),
     cnpj: z.string().min(14, 'CNPJ inválido (mínimo 14 caracteres)'),
     customerTypeId: z.string().optional(),
+    representativeId: z.string().optional(),
+    tagIds: z.array(z.string()).optional(),
     // Address fields
     address: z.string().optional(),
     city: z.string().optional(),

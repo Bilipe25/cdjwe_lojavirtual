@@ -13,9 +13,15 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { Profile, Store, CustomerType } from '@/lib/types';
+import type { Profile, Store, CustomerType, StoreTag, CustomerTag } from '@/lib/types';
 
-export type CustomerWithStore = Profile & { stores: (Store & { customer_type?: CustomerType })[] };
+export type CustomerWithStore = Profile & { 
+    stores: (Store & { 
+        customer_type?: CustomerType,
+        store_tags?: (StoreTag & { customer_tags?: CustomerTag })[],
+        representative?: Profile
+    })[] 
+};
 
 const statusConfig: Record<string, { label: string; color: string }> = {
     pending: { label: 'Pendente', color: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -88,6 +94,8 @@ export function CustomerList({
                 const config = statusConfig[customer.status] || statusConfig.pending;
                 const isSelected = selectedIds.includes(customer.id);
                 const customerTypeName = store?.customer_type?.name;
+                const representativeName = store?.representative?.full_name;
+                const storeTags = store?.store_tags?.map(st => st.customer_tags).filter(Boolean) || [];
 
                 return (
                     <motion.div
@@ -131,12 +139,27 @@ export function CustomerList({
                                                     {customerTypeName}
                                                 </Badge>
                                             )}
+                                            {storeTags.map((t, idx) => (
+                                                <Badge key={idx} className={`text-[10px] font-normal border shadow-sm ${t?.color || 'bg-slate-100 text-slate-800'}`}>
+                                                    {t?.name}
+                                                </Badge>
+                                            ))}
                                         </div>
                                         <p className="text-sm text-muted-foreground truncate" title={store?.company_name || 'Sem empresa'}>
                                             {store?.company_name || 'Sem empresa'} <span className="text-xs opacity-70">• {store?.cnpj || 'S/ CNPJ'}</span>
                                         </p>
-                                        <p className="text-xs text-muted-foreground mt-0.5 opacity-80">
-                                            {customer.email} • {format(new Date(customer.created_at), 'dd/MM/yyyy', { locale: ptBR })}
+                                        <p className="text-xs text-muted-foreground mt-0.5 opacity-80 flex items-center gap-2">
+                                            <span>{customer.email}</span>
+                                            {representativeName && (
+                                                <>
+                                                    <span>•</span>
+                                                    <span className="text-navy font-medium text-[11px]" title="Representante">
+                                                        👤 {representativeName}
+                                                    </span>
+                                                </>
+                                            )}
+                                            <span>•</span>
+                                            <span>{format(new Date(customer.created_at), 'dd/MM/yyyy', { locale: ptBR })}</span>
                                         </p>
                                     </div>
 

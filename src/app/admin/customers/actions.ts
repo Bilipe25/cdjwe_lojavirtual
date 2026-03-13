@@ -57,6 +57,12 @@ export async function createCustomerAsAdmin(formData: FormData) {
     const cnpj = formData.get('cnpj') as string
     const tradeName = formData.get('tradeName') as string
     const customerTypeId = formData.get('customerTypeId') as string
+    const representativeId = formData.get('representativeId') as string
+    const tagIdsJson = formData.get('tagIds') as string
+    let tagIds: string[] = []
+    if (tagIdsJson) {
+        try { tagIds = JSON.parse(tagIdsJson) } catch (e) { }
+    }
     const address = formData.get('address') as string
     const city = formData.get('city') as string
     const state = formData.get('state') as string
@@ -93,7 +99,7 @@ export async function createCustomerAsAdmin(formData: FormData) {
             .eq('id', authData.user.id)
 
         // 3. Create Store
-        const { error: storeError } = await supabaseAdmin.from('stores')
+        const { data: storeData, error: storeError } = await supabaseAdmin.from('stores')
             .insert({
                 profile_id: authData.user.id,
                 company_name: companyName,
@@ -102,15 +108,29 @@ export async function createCustomerAsAdmin(formData: FormData) {
                 email,
                 phone: phone || null,
                 customer_type_id: customerTypeId || null,
+                representative_id: representativeId || null,
                 address: address || null,
                 city: city || null,
                 state: state || null,
                 zip_code: zipCode || null,
             })
+            .select('id')
+            .single()
 
         if (storeError) throw storeError
 
-        // 4. Send welcome email
+        const newStoreId = storeData?.id
+
+        // 4. Create tags if any
+        if (newStoreId && tagIds.length > 0) {
+            const tagsToInsert = tagIds.map(tagId => ({
+                store_id: newStoreId,
+                tag_id: tagId
+            }))
+            await supabaseAdmin.from('store_tags').insert(tagsToInsert)
+        }
+
+        // 5. Send welcome email
         try {
             const { sendEmail } = await import('@/lib/email')
             const React = (await import('react')).default
@@ -159,6 +179,8 @@ export async function updateCustomerAsAdmin(
         tradeName?: string
         cnpj: string
         customerTypeId?: string
+        representativeId?: string
+        tagIds?: string[]
         address?: string
         city?: string
         state?: string
@@ -186,6 +208,7 @@ export async function updateCustomerAsAdmin(
                 trade_name: data.tradeName || null,
                 cnpj: data.cnpj,
                 customer_type_id: data.customerTypeId || null,
+                representative_id: data.representativeId || null,
                 address: data.address || null,
                 city: data.city || null,
                 state: data.state || null,
@@ -194,6 +217,21 @@ export async function updateCustomerAsAdmin(
             .eq('id', storeId)
 
         if (storeError) throw storeError
+
+        // Update tags
+        if (data.tagIds !== undefined) {
+            // Remove existing
+            await supabaseAdmin.from('store_tags').delete().eq('store_id', storeId)
+            
+            // Insert new
+            if (data.tagIds.length > 0) {
+                const tagsToInsert = data.tagIds.map(tagId => ({
+                    store_id: storeId,
+                    tag_id: tagId
+                }))
+                await supabaseAdmin.from('store_tags').insert(tagsToInsert)
+            }
+        }
 
         return { success: true }
     } catch (err: any) {
@@ -460,5 +498,46 @@ export async function getCustomerOrders(profileId: string) {
     } catch (err: any) {
         console.error('Get Customer Orders Error:', err)
         return { error: err.message || 'Erro ao buscar pedidos.' }
+    }
+}
+
+// ==================== GET TAGS AND REPRESENTATIVES ====================
+
+export async function getCustomerTags() {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const { data, error } = await supabaseAdmin
+            .from('customer_tags')
+            .select('id, name, color')
+            .order('name')
+
+        if (error) throw error
+        return { data: data || [] }
+    } catch (err: any) {
+        console.error('Get Tags Error:', err)
+        return { error: err.message || 'Erro ao buscar tags.' }
+    }
+}
+
+export async function getRepresentatives() {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        // Assumption: representatives are profiles where role might be 'admin' or 'representative'. 
+        // We'll fetch all admins for now as 'commercial' roles, or add 'representative' if it exists.
+        const { data, error } = await supabaseAdmin
+            .from('profiles')
+            .select('id, full_name, role')
+            .in('role', ['admin', 'representative'])
+            .order('full_name')
+
+        if (error) throw error
+        return { data: data || [] }
+    } catch (err: any) {
+        console.error('Get Representatives Error:', err)
+        return { error: err.message || 'Erro ao buscar representantes.' }
     }
 }

@@ -22,6 +22,8 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
+    const [lastLogin, setLastLogin] = useState<{ companyName: string, identifier: string } | null>(null)
+    const [useDifferentAccount, setUseDifferentAccount] = useState(false)
 
     useEffect(() => {
         const loadSettings = async () => {
@@ -32,6 +34,16 @@ export default function LoginPage() {
             } catch { /* silent */ }
         }
         loadSettings()
+
+        const savedLogin = localStorage.getItem('last_b2b_login')
+        if (savedLogin) {
+            try {
+                const parsed = JSON.parse(savedLogin)
+                if (parsed.identifier) {
+                    setLastLogin(parsed)
+                }
+            } catch (e) {}
+        }
     }, [])
 
     const form = useForm<LoginFormData>({
@@ -41,6 +53,12 @@ export default function LoginPage() {
             password: ''
         }
     })
+
+    useEffect(() => {
+        if (lastLogin && !useDifferentAccount) {
+            form.setValue('identifier', lastLogin.identifier)
+        }
+    }, [lastLogin, useDifferentAccount, form])
 
     const { register, handleSubmit, formState: { errors } } = form
 
@@ -57,6 +75,12 @@ export default function LoginPage() {
             }
 
             if (result.success && result.redirectUrl) {
+                if (result.companyName && result.identifier) {
+                    localStorage.setItem('last_b2b_login', JSON.stringify({
+                        companyName: result.companyName,
+                        identifier: result.identifier
+                    }))
+                }
                 toast.success('Login realizado com sucesso!')
                 router.push(result.redirectUrl)
                 // Do not turn off loading here to prevent flickering while redirecting
@@ -107,20 +131,46 @@ export default function LoginPage() {
 
                 <CardContent className="pt-4">
                     <form onSubmit={handleSubmit(handleLogin)} className="space-y-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="identifier">E-mail, CNPJ ou Nome da Empresa</Label>
-                            <Input
-                                id="identifier"
-                                type="text"
-                                placeholder="joao@loja.com.br ou 00.000.000/0001-00"
-                                disabled={loading}
-                                className={`h-11 bg-white/60 ${errors.identifier ? 'border-red-500' : ''}`}
-                                {...register('identifier')}
-                            />
-                            {errors.identifier && (
-                                <p className="text-xs text-red-500 mt-1">{errors.identifier.message}</p>
-                            )}
-                        </div>
+                        {lastLogin && !useDifferentAccount ? (
+                            <div className="flex items-center justify-between p-3 rounded-xl border bg-slate-50 border-slate-200/60 shadow-sm mb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-10 w-10 rounded-full gradient-navy flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-sm">
+                                        {lastLogin.companyName.substring(0, 2).toUpperCase()}
+                                    </div>
+                                    <div className="overflow-hidden">
+                                        <p className="font-semibold text-sm text-navy truncate" title={lastLogin.companyName}>{lastLogin.companyName}</p>
+                                        <p className="text-xs text-muted-foreground truncate" title={lastLogin.identifier}>{lastLogin.identifier}</p>
+                                    </div>
+                                </div>
+                                <Button 
+                                    type="button" 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="text-xs h-8 text-muted-foreground hover:text-navy"
+                                    onClick={() => {
+                                        setUseDifferentAccount(true)
+                                        form.setValue('identifier', '')
+                                    }}
+                                >
+                                    Trocar
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <Label htmlFor="identifier">E-mail, CNPJ ou Nome da Empresa</Label>
+                                <Input
+                                    id="identifier"
+                                    type="text"
+                                    placeholder="joao@loja.com.br ou 00.000.000/0001-00"
+                                    disabled={loading}
+                                    className={`h-11 bg-white/60 ${errors.identifier ? 'border-red-500' : ''}`}
+                                    {...register('identifier')}
+                                />
+                                {errors.identifier && (
+                                    <p className="text-xs text-red-500 mt-1">{errors.identifier.message}</p>
+                                )}
+                            </div>
+                        )}
 
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">

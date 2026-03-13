@@ -31,6 +31,23 @@ export interface CustomerType {
   updated_at: string
 }
 
+// ==================== CUSTOMER TAGS ====================
+
+export interface CustomerTag {
+  id: string
+  name: string
+  color: string
+  created_at: string
+}
+
+export interface StoreTag {
+  store_id: string
+  tag_id: string
+  created_at: string
+  // Relations
+  customer_tags?: CustomerTag
+}
+
 // ==================== STORES (Clientes) ====================
 
 export interface Store {
@@ -49,11 +66,14 @@ export interface Store {
   email: string | null
   notes: string | null
   customer_type_id: string | null
+  representative_id: string | null
   is_active: boolean
   created_at: string
   updated_at: string
   // Relations
   customer_type?: CustomerType
+  representative?: Profile | null
+  store_tags?: StoreTag[]
 }
 
 // ==================== PRODUCT CATALOG ====================

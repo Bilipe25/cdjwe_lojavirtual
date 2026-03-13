@@ -66,12 +66,13 @@ export async function loginAction(data: LoginFormData) {
 
         const { data: profile } = await supabase
             .from('profiles')
-            .select('role, status')
+            .select('role, status, full_name, stores(company_name)')
             .eq('id', user.id)
             .single()
 
         const role = profile?.role || 'client';
         const status = profile?.status || 'approved';
+        const companyName = profile?.stores?.[0]?.company_name || profile?.full_name || 'Usuário';
 
         // 4.5 Audit Logging for clients
         if (role === 'client') {
@@ -112,7 +113,7 @@ export async function loginAction(data: LoginFormData) {
             redirectUrl = '/blocked';
         }
 
-        return { success: true, redirectUrl };
+        return { success: true, redirectUrl, companyName, identifier: emailToAuthenticate };
 
     } catch (err: any) {
         console.error('Login action error:', err);

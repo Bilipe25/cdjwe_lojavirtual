@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Users, Building2, MapPin, Check } from 'lucide-react';
+import { Loader2, Users, Building2, MapPin, Check, Tag } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { customerSchema, type CustomerFormData } from '../schema';
-import type { CustomerType } from '@/lib/types';
+import type { CustomerType, CustomerTag, Profile } from '@/lib/types';
 
 interface CustomerFormModalProps {
     isOpen: boolean;
@@ -22,6 +22,8 @@ interface CustomerFormModalProps {
     saving: boolean;
     onSave: (data: CustomerFormData) => Promise<void>;
     customerTypes: CustomerType[];
+    customerTags: CustomerTag[];
+    representatives: Partial<Profile>[];
 }
 
 export function CustomerFormModal({
@@ -29,7 +31,9 @@ export function CustomerFormModal({
     onOpenChange,
     saving,
     onSave,
-    customerTypes
+    customerTypes,
+    customerTags,
+    representatives
 }: CustomerFormModalProps) {
     const form = useForm<CustomerFormData>({
         resolver: zodResolver(customerSchema) as any,
@@ -42,6 +46,8 @@ export function CustomerFormModal({
             tradeName: '',
             cnpj: '',
             customerTypeId: '',
+            representativeId: '',
+            tagIds: [],
             address: '',
             city: '',
             state: '',
@@ -63,6 +69,8 @@ export function CustomerFormModal({
                 tradeName: '',
                 cnpj: '',
                 customerTypeId: '',
+                representativeId: '',
+                tagIds: [],
                 address: '',
                 city: '',
                 state: '',
@@ -149,23 +157,77 @@ export function CustomerFormModal({
                                 <Input {...register('cnpj')} placeholder="00.000.000/0001-00" className="bg-white/60" />
                                 {errors.cnpj && <p className="text-xs text-red-500">{errors.cnpj.message}</p>}
                             </div>
-                            <div className="space-y-2 sm:col-span-2">
+                            <div className="space-y-2">
                                 <Label>Tipo de Cliente</Label>
                                 <Select
-                                    value={watch('customerTypeId') ?? 'none'}
-                                    onValueChange={(v) => setValue('customerTypeId', v === 'none' ? '' : v)}
+                                    value={watch('customerTypeId') || 'none'}
+                                    onValueChange={(v) => setValue('customerTypeId', v === 'none' ? '' : (v as any))}
                                 >
                                     <SelectTrigger className="bg-white/60">
-                                        <SelectValue placeholder="Selecione o tipo" />
+                                        <SelectValue placeholder="Selecione..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="none">Sem tipo definido</SelectItem>
+                                        <SelectItem value="none">Sem tipo</SelectItem>
                                         {customerTypes.map(t => (
                                             <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                             </div>
+                            <div className="space-y-2">
+                                <Label>Representante Responsável</Label>
+                                <Select
+                                    value={watch('representativeId') || 'none'}
+                                    onValueChange={(v) => setValue('representativeId', v === 'none' ? '' : (v as any))}
+                                >
+                                    <SelectTrigger className="bg-white/60">
+                                        <SelectValue placeholder="Selecione..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">Nenhum representante</SelectItem>
+                                        {representatives.map(r => (
+                                            <SelectItem key={r.id as string} value={r.id as string}>{r.full_name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Tags */}
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 text-muted-foreground border-b pb-2">
+                            <Tag className="h-4 w-4" />
+                            <span className="text-sm font-medium">Tags (Segmentação)</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {customerTags.map(tag => {
+                                const selectedIds = watch('tagIds') || [];
+                                const isSelected = selectedIds.includes(tag.id);
+                                return (
+                                    <button
+                                        key={tag.id}
+                                        type="button"
+                                        onClick={() => {
+                                            if (isSelected) {
+                                                setValue('tagIds', selectedIds.filter(id => id !== tag.id), { shouldDirty: true });
+                                            } else {
+                                                setValue('tagIds', [...selectedIds, tag.id], { shouldDirty: true });
+                                            }
+                                        }}
+                                        className={`px-3 py-1 text-xs border rounded-full transition-colors ${
+                                            isSelected 
+                                                ? tag.color 
+                                                : 'bg-white text-muted-foreground border-border hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        {tag.name}
+                                    </button>
+                                );
+                            })}
+                            {customerTags.length === 0 && (
+                                <span className="text-xs text-muted-foreground">Nenhuma tag cadastrada.</span>
+                            )}
                         </div>
                     </div>
 
