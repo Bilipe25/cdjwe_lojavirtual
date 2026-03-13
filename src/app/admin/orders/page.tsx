@@ -168,6 +168,33 @@ export default function AdminOrdersPage() {
         loadOrders(); // Bruteforce refresh to get accurate data and timeline configs
     }
 
+    const deleteOrder = async (orderId: string) => {
+        const supabase = createClient()
+        
+        // 1. Delete dependent items first (History & Items)
+        // Note: If DB has ON DELETE CASCADE this is redundant but safe
+        await supabase.from('order_status_history').delete().eq('order_id', orderId)
+        await supabase.from('order_items').delete().eq('order_id', orderId)
+        
+        // 2. Delete main order
+        const { error } = await supabase
+            .from('orders')
+            .delete()
+            .eq('id', orderId)
+
+        if (error) {
+            toast.error('Erro ao excluir o pedido.')
+            return false
+        }
+
+        setOrders(prev => prev.filter(o => o.id !== orderId))
+        if (selectedOrderDetail?.id === orderId) {
+            setSelectedOrderDetail(null)
+        }
+        toast.success('Pedido excluído com sucesso.')
+        return true
+    }
+
     const toggleSelectOrder = (id: string) => {
         setSelectedOrders(prev => 
             prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -244,6 +271,7 @@ export default function AdminOrdersPage() {
                 onToggleSelect={toggleSelectOrder}
                 onViewDetail={setSelectedOrderDetail}
                 onUpdateStatus={updateOrderStatus}
+                onDelete={deleteOrder}
             />
 
             {/* Next/Prev Server Pagination */}
@@ -278,6 +306,7 @@ export default function AdminOrdersPage() {
                 order={selectedOrderDetail}
                 open={!!selectedOrderDetail}
                 onOpenChange={(open) => !open && setSelectedOrderDetail(null)}
+                onDelete={deleteOrder}
             />
         </div>
     )

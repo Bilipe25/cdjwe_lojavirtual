@@ -8,7 +8,9 @@ import {
     XCircle,
     CheckSquare,
     Square,
-    ClipboardList
+    ClipboardList,
+    Trash2,
+    AlertCircle
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -21,6 +23,16 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { statusConfig } from './OrderFilters'
 import type { OrderStatus } from '@/lib/types'
 
@@ -48,6 +60,7 @@ interface OrderListProps {
     onToggleSelect: (id: string) => void;
     onViewDetail: (order: OrderWithDetails) => void;
     onUpdateStatus: (id: string, newStatus: OrderStatus) => void;
+    onDelete?: (id: string) => void;
 }
 
 export function OrderList({
@@ -56,8 +69,10 @@ export function OrderList({
     selectedOrders,
     onToggleSelect,
     onViewDetail,
-    onUpdateStatus
+    onUpdateStatus,
+    onDelete
 }: OrderListProps) {
+    const [orderToDelete, setOrderToDelete] = React.useState<string | null>(null)
 
     if (loading) {
         return (
@@ -199,9 +214,21 @@ export function OrderList({
                                                             <DropdownMenuSeparator />
                                                             <DropdownMenuItem 
                                                                 onClick={() => onUpdateStatus(order.id, 'cancelled')} 
-                                                                className="text-destructive focus:bg-destructive/10"
+                                                                className="text-amber-600 focus:bg-amber-50"
                                                             >
                                                                 <XCircle className="h-4 w-4 mr-2" /> Cancelar Pedido
+                                                            </DropdownMenuItem>
+                                                        </>
+                                                    )}
+
+                                                    {onDelete && (
+                                                        <>
+                                                            <DropdownMenuSeparator />
+                                                            <DropdownMenuItem 
+                                                                onClick={() => setOrderToDelete(order.id)} 
+                                                                className="text-destructive focus:bg-destructive/10"
+                                                            >
+                                                                <Trash2 className="h-4 w-4 mr-2" /> Excluir Pedido
                                                             </DropdownMenuItem>
                                                         </>
                                                     )}
@@ -216,6 +243,35 @@ export function OrderList({
                     </motion.div>
                 )
             })}
+
+            {/* Confirmation Dialog */}
+            <AlertDialog open={!!orderToDelete} onOpenChange={(open) => !open && setOrderToDelete(null)}>
+                <AlertDialogContent className="w-[95vw] max-w-md rounded-2xl border-0 shadow-2xl">
+                    <AlertDialogHeader>
+                        <div className="mx-auto h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center mb-2">
+                            <AlertCircle className="h-6 w-6 text-destructive" />
+                        </div>
+                        <AlertDialogTitle className="text-center text-xl">Excluir Pedido?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-center text-balance">
+                            Esta ação é permanente e removerá todos os dados do pedido, itens e histórico de status. Deseja continuar?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="flex-row gap-3 sm:gap-0 mt-4">
+                        <AlertDialogCancel className="flex-1 mt-0 rounded-xl border-navy/10 hover:bg-navy/5">Cancelar</AlertDialogCancel>
+                        <AlertDialogAction 
+                            onClick={() => {
+                                if (orderToDelete) {
+                                    onDelete?.(orderToDelete)
+                                    setOrderToDelete(null)
+                                }
+                            }}
+                            className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl shadow-lg shadow-destructive/20"
+                        >
+                            Excluir Agora
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     )
 }

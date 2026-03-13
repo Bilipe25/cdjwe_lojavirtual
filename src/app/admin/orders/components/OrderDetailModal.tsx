@@ -10,27 +10,40 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Building, User, CreditCard, Calendar, Clock, History, Printer, Loader2 } from 'lucide-react'
+import { Building, User, CreditCard, Calendar, Clock, History, Printer, Loader2, Trash2, AlertCircle } from 'lucide-react'
 import { statusConfig } from './OrderFilters'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface OrderDetailModalProps {
     order: any | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    onDelete?: (id: string) => void;
 }
 
 export function OrderDetailModal({
     order,
     open,
     onOpenChange,
+    onDelete
 }: OrderDetailModalProps) {
     const [history, setHistory] = useState<any[]>([])
     const [loadingHistory, setLoadingHistory] = useState(false)
     const [isPrinting, setIsPrinting] = useState(false)
     const [settings, setSettings] = useState<any>(null)
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
     useEffect(() => {
         if (open && order?.id) {
@@ -97,17 +110,31 @@ export function OrderDetailModal({
                             </p>
                         </div>
 
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="shrink-0 gap-2 h-9 rounded-lg border-navy/20 text-navy hover:bg-navy/5 font-bold shadow-xs transition-all"
-                            onClick={handlePrint}
-                            disabled={isPrinting}
-                        >
-                            {isPrinting ? <Loader2 className="h-4 w-4 animate-spin text-bronze" /> : <Printer className="h-4 w-4" />}
-                            <span className="hidden sm:inline">Imprimir Comprovante</span>
-                            <span className="sm:hidden">Imprimir</span>
-                        </Button>
+                        <div className="flex items-center gap-2 shrink-0">
+                            {onDelete && (
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="h-9 w-9 sm:w-auto px-0 sm:px-3 text-destructive hover:bg-destructive/5 border-destructive/20 gap-2 shrink-0 rounded-lg"
+                                    onClick={() => setIsDeleteDialogOpen(true)}
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                    <span className="hidden sm:inline">Excluir</span>
+                                </Button>
+                            )}
+
+                            <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="shrink-0 gap-2 h-9 rounded-lg border-navy/20 text-navy hover:bg-navy/5 font-bold shadow-xs transition-all"
+                                onClick={handlePrint}
+                                disabled={isPrinting}
+                            >
+                                {isPrinting ? <Loader2 className="h-4 w-4 animate-spin text-bronze" /> : <Printer className="h-4 w-4" />}
+                                <span className="hidden sm:inline">Imprimir Comprovante</span>
+                                <span className="sm:hidden">Imprimir</span>
+                            </Button>
+                        </div>
                     </div>
                 </DialogHeader>
                 
@@ -239,6 +266,37 @@ export function OrderDetailModal({
                     <div className="h-4"></div>
                 </div>
             </DialogContent>
+
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent className="w-[95vw] max-w-md rounded-2xl border-0 shadow-2xl">
+                    <AlertDialogHeader>
+                        <div className="mx-auto h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center mb-2">
+                            <AlertCircle className="h-6 w-6 text-destructive" />
+                        </div>
+                        <AlertDialogTitle className="text-center text-xl">Excluir Pedido?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-center text-balance">
+                            Você está prestes a excluir permanentemente o pedido <strong>{order.order_number}</strong>. Esta ação removerá todos os itens e históricos e não pode ser desfeita.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="flex-row gap-3 sm:gap-0 mt-4">
+                        <AlertDialogCancel className="flex-1 mt-0 rounded-xl border-navy/10 hover:bg-navy/5">Voltar</AlertDialogCancel>
+                        <AlertDialogAction 
+                            onClick={async () => {
+                                if (onDelete && order) {
+                                    const success = await (onDelete as any)(order.id)
+                                    if (success) {
+                                        onOpenChange(false)
+                                    }
+                                    setIsDeleteDialogOpen(false)
+                                }
+                            }}
+                            className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl shadow-lg shadow-destructive/20"
+                        >
+                            Confirmar Exclusão
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Dialog>
     )
 }
