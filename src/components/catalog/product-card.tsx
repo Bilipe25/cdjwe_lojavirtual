@@ -9,6 +9,7 @@ import type { Product } from '@/lib/types'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 
 import { useRouter } from 'next/navigation'
+import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 
 interface ProductCardProps {
     product: Product & {
@@ -21,12 +22,17 @@ interface ProductCardProps {
 
 export function ProductCard({ product, onQuickView, hidePrices = false }: ProductCardProps) {
     const router = useRouter()
+    const isMobile = useIsMobile()
     const primaryImage = product.images?.find((img) => img.is_primary) || product.images?.[0]
     const { isFavorite, toggle } = useFavoritesStore()
     const favorited = isFavorite(product.id)
 
     const handleCardClick = () => {
-        router.push(`/catalog/${product.id}`)
+        if (isMobile && onQuickView) {
+            onQuickView(product.id)
+        } else {
+            router.push(`/catalog/${product.id}`)
+        }
     }
 
     return (
