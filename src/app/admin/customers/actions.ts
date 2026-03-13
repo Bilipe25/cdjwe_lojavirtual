@@ -130,6 +130,21 @@ export async function createCustomerAsAdmin(formData: FormData) {
             await supabaseAdmin.from('store_tags').insert(tagsToInsert)
         }
 
+        // 4.5 Insert initial main address if provided
+        if (newStoreId && (address || zipCode || city || state)) {
+            await supabaseAdmin.from('store_addresses').insert({
+                store_id: newStoreId,
+                title: 'Endereço Principal',
+                is_main: true,
+                zip_code: zipCode || '',
+                address: address || '',
+                city: city || '',
+                state: state || '',
+                number: '',
+                neighborhood: '',
+            })
+        }
+
         // 5. Send welcome email
         try {
             const { sendEmail } = await import('@/lib/email')
@@ -539,5 +554,94 @@ export async function getRepresentatives() {
     } catch (err: any) {
         console.error('Get Representatives Error:', err)
         return { error: err.message || 'Erro ao buscar representantes.' }
+    }
+}
+
+// ==================== STORE ADDRESSES CRUD ====================
+
+export async function getStoreAddresses(storeId: string) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const { data, error } = await supabaseAdmin
+            .from('store_addresses')
+            .select('*')
+            .eq('store_id', storeId)
+            .order('is_main', { ascending: false })
+            .order('created_at', { ascending: true })
+
+        if (error) throw error
+        return { data: data || [] }
+    } catch (err: any) {
+        console.error('Get Addresses Error:', err)
+        return { error: err.message || 'Erro ao buscar endereços do cliente.' }
+    }
+}
+
+export async function upsertStoreAddress(data: {
+    id?: string,
+    storeId: string,
+    title: string,
+    isMain: boolean,
+    zipCode: string,
+    address: string,
+    number?: string,
+    complement?: string,
+    neighborhood?: string,
+    city: string,
+    state: string
+}) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const payload = {
+            store_id: data.storeId,
+            title: data.title,
+            is_main: data.isMain,
+            zip_code: data.zipCode,
+            address: data.address,
+            number: data.number || null,
+            complement: data.complement || null,
+            neighborhood: data.neighborhood || null,
+            city: data.city,
+            state: data.state,
+            updated_at: new Date().toISOString()
+        }
+
+        let result;
+        if (data.id) {
+            result = await supabaseAdmin.from('store_addresses')
+                .update(payload)
+                .eq('id', data.id)
+        } else {
+            // Se for o único endereço, a trigger define como true, ou podemos confiar no formulário
+            result = await supabaseAdmin.from('store_addresses')
+                .insert(payload)
+        }
+
+        if (result.error) throw result.error
+        return { success: true }
+    } catch (err: any) {
+        console.error('Upsert Address Error:', err)
+        return { error: err.message || 'Erro ao salvar o endereço.' }
+    }
+}
+
+export async function deleteStoreAddress(id: string) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        // Check if it's main. Although trigger handles new mains, deleting the only main might leave store without main.
+        // We will just let them delete it for now.
+        const { error } = await supabaseAdmin.from('store_addresses').delete().eq('id', id)
+
+        if (error) throw error
+        return { success: true }
+    } catch (err: any) {
+        console.error('Delete Address Error:', err)
+        return { error: err.message || 'Erro ao excluir o endereço.' }
     }
 }

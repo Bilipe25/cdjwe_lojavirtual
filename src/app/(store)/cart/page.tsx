@@ -46,9 +46,9 @@ import { useCartStore } from '@/lib/stores/cart-store'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { useSettings } from '@/components/providers/settings-provider'
-import type { PaymentCondition, SystemSettings, PriceTablePaymentRule } from '@/lib/types'
+import type { PaymentCondition, SystemSettings, PriceTablePaymentRule, StoreAddress } from '@/lib/types'
 import Image from 'next/image'
-import { checkoutAction, getAvailablePaymentRules } from './actions'
+import { checkoutAction, getAvailablePaymentRules, getAvailableStoreAddresses } from './actions'
 
 export default function CartPage() {
     const router = useRouter()
@@ -59,6 +59,8 @@ export default function CartPage() {
     const [priceTableRules, setPriceTableRules] = useState<PriceTablePaymentRule[]>([])
     const [isTableRule, setIsTableRule] = useState(false)
     const [selectedPayment, setSelectedPayment] = useState<string>('')
+    const [storeAddresses, setStoreAddresses] = useState<StoreAddress[]>([])
+    const [selectedAddressId, setSelectedAddressId] = useState<string>('')
     const [notes, setNotes] = useState('')
     const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
     const [nextOrderNumber, setNextOrderNumber] = useState('')
@@ -69,10 +71,19 @@ export default function CartPage() {
     useEffect(() => {
         const loadConditions = async () => {
             const supabase = createClient()
-            const [rulesRes, orderRes] = await Promise.all([
+            const [rulesRes, orderRes, addressesRes] = await Promise.all([
                 getAvailablePaymentRules(total),
-                supabase.from('orders').select('order_number').order('created_at', { ascending: false }).limit(1).single()
+                supabase.from('orders').select('order_number').order('created_at', { ascending: false }).limit(1).single(),
+                getAvailableStoreAddresses()
             ])
+            
+            setStoreAddresses(addressesRes || [])
+            const mainAddress = addressesRes?.find(a => a.is_main)
+            if (mainAddress) {
+                setSelectedAddressId(mainAddress.id)
+            } else if (addressesRes && addressesRes.length > 0) {
+                setSelectedAddressId(addressesRes[0].id)
+            }
             
             const hasTableRules = rulesRes.priceTableRules && rulesRes.priceTableRules.length > 0;
             const hasGlobals = rulesRes.globalConditions && rulesRes.globalConditions.length > 0;
@@ -143,7 +154,7 @@ export default function CartPage() {
         setLoading(true)
         setConfirmCheckoutOpen(false)
         try {
-            const result = await checkoutAction(items, selectedPayment, notes, isTableRule)
+            const result = await checkoutAction(items, selectedPayment, notes, isTableRule, selectedAddressId)
 
             if (result.error) {
                 toast.error(result.error)
@@ -346,6 +357,28 @@ export default function CartPage() {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
+                            {/* Address Selection */}
+                            {storeAddresses.length > 0 && (
+                                <div className="space-y-2">
+                                    <Label>Endereço de Entrega</Label>
+                                    <Select 
+                                        value={selectedAddressId} 
+                                        onValueChange={(val: string | null) => val && setSelectedAddressId(val)}
+                                    >
+                                        <SelectTrigger className="bg-white/60">
+                                            <SelectValue placeholder="Selecione o Endereço de Entrega" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {storeAddresses.map(addr => (
+                                                <SelectItem key={addr.id} value={addr.id}>
+                                                    {addr.title} - {addr.city}/{addr.state}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+
                             {/* Payment Condition */}
                             <div className="space-y-2">
                                 <Label>Condição de Pagamento</Label>

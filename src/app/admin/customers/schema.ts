@@ -13,7 +13,7 @@ export const customerSchema = z.object({
     customerTypeId: z.string().optional(),
     representativeId: z.string().optional(),
     tagIds: z.array(z.string()).optional(),
-    // Address fields
+    // Legacy Address fields (kept optional for fallback, will prioritize store_addresses)
     address: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
@@ -34,7 +34,7 @@ export const customerEditSchema = z.object({
     customerTypeId: z.string().optional(),
     representativeId: z.string().optional(),
     tagIds: z.array(z.string()).optional(),
-    // Address fields
+    // Legacy Address fields
     address: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
@@ -42,3 +42,20 @@ export const customerEditSchema = z.object({
 });
 
 export type CustomerEditFormData = z.infer<typeof customerEditSchema>;
+
+// Schema for creating/editing a store address
+export const storeAddressSchema = z.object({
+    id: z.string().optional(),
+    storeId: z.string(),
+    title: z.string().min(2, 'Título deve ter no mínimo 2 caracteres').max(100, 'Título muito longo'),
+    isMain: z.boolean().default(false),
+    zipCode: z.string().min(8, 'CEP inválido'),
+    address: z.string().min(3, 'Endereço muito curto'),
+    number: z.string().optional(),
+    complement: z.string().optional(),
+    neighborhood: z.string().optional(),
+    city: z.string().min(2, 'Cidade inválida'),
+    state: z.string().length(2, 'Use a sigla do estado (ex: SP)'),
+});
+
+export type StoreAddressFormData = z.infer<typeof storeAddressSchema>;

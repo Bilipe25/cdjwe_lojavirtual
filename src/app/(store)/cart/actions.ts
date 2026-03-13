@@ -76,11 +76,35 @@ export async function getAvailablePaymentRules(cartTotal: number) {
     }
 }
 
+export async function getAvailableStoreAddresses() {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return []
+
+    const { data: store } = await supabase
+        .from('stores')
+        .select('id')
+        .eq('profile_id', user.id)
+        .single()
+
+    if (!store) return []
+
+    const { data: addresses } = await supabase
+        .from('store_addresses')
+        .select('*')
+        .eq('store_id', store.id)
+        .order('is_main', { ascending: false })
+        .order('created_at', { ascending: true })
+
+    return addresses || []
+}
+
 export async function checkoutAction(
     items: CartItem[], 
     selectedPaymentId: string, 
     notes: string,
-    isTableRule: boolean = false
+    isTableRule: boolean = false,
+    selectedAddressId?: string | null
 ) {
     if (!items || items.length === 0) {
         return { error: 'O carrinho está vazio.' }
@@ -264,6 +288,22 @@ export async function checkoutAction(
     const paymentSurcharge = (finalTotal * surchargePercentage) / 100
     finalTotal = finalTotal + paymentSurcharge
 
+    // 5.5 Fetch/Format Shipping Address
+    let shippingAddressStr = null;
+    let addressQuery = supabase.from('store_addresses').select('*').eq('store_id', store.id)
+    
+    if (selectedAddressId) {
+        addressQuery = addressQuery.eq('id', selectedAddressId)
+    } else {
+        addressQuery = addressQuery.eq('is_main', true)
+    }
+
+    const { data: addressData } = await addressQuery.limit(1).single()
+    
+    if (addressData) {
+        shippingAddressStr = `${addressData.title ? `[${addressData.title}] ` : ''}${addressData.address}${addressData.number ? `, ${addressData.number}` : ''}${addressData.complement ? ` - ${addressData.complement}` : ''}, ${addressData.neighborhood ? `${addressData.neighborhood}, ` : ''}${addressData.city} - ${addressData.state}, CEP: ${addressData.zip_code}`
+    }
+
     // 6. Execute Order Creation safely
     const { data: newOrder, error: insertError } = await supabase
         .from('orders')
@@ -277,6 +317,7 @@ export async function checkoutAction(
             subtotal: secureSubtotal,
             discount_amount: paymentDiscount,
             total: finalTotal,
+            shipping_address: shippingAddressStr,
             notes: notes || null,
         })
         .select('id')

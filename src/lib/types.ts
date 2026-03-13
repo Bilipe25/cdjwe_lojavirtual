@@ -48,6 +48,22 @@ export interface StoreTag {
   customer_tags?: CustomerTag
 }
 
+export interface StoreAddress {
+  id: string
+  store_id: string
+  title: string
+  is_main: boolean
+  zip_code: string
+  address: string
+  number: string | null
+  complement: string | null
+  neighborhood: string | null
+  city: string
+  state: string
+  created_at: string
+  updated_at: string
+}
+
 // ==================== STORES (Clientes) ====================
 
 export interface Store {
@@ -74,6 +90,7 @@ export interface Store {
   customer_type?: CustomerType
   representative?: Profile | null
   store_tags?: StoreTag[]
+  store_addresses?: StoreAddress[]
 }
 
 // ==================== PRODUCT CATALOG ====================

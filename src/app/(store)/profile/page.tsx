@@ -26,6 +26,7 @@ import { ProfileSkeleton } from '@/components/ui/skeletons'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import type { Profile, Store } from '@/lib/types'
+import { ProfileAddressManager } from './components/ProfileAddressManager'
 
 export default function ProfilePage() {
     const router = useRouter()
@@ -282,6 +283,9 @@ export default function ProfilePage() {
                         </CardContent>
                     </Card>
                 )}
+
+                {/* Addresses Info */}
+                <ProfileAddressManager />
 
                 {/* Account Actions */}
                 <Card className="glass-card border-0 border-t-4 border-t-red-500/10">

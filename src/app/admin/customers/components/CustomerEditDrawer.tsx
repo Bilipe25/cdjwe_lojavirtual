@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { customerEditSchema, type CustomerEditFormData } from '../schema';
 import type { CustomerType, CustomerTag, Profile } from '@/lib/types';
 import type { CustomerWithStore } from './CustomerList';
+import { CustomerAddressManager } from './CustomerAddressManager';
 
 interface CustomerEditDrawerProps {
     customer: CustomerWithStore | null;
@@ -209,31 +210,10 @@ export function CustomerEditDrawer({
                         </div>
                     </div>
 
-                    {/* Endereço */}
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-2 text-muted-foreground border-b pb-2">
-                            <MapPin className="h-4 w-4" />
-                            <span className="text-sm font-medium">Endereço</span>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-2 sm:col-span-2">
-                                <Label>Endereço</Label>
-                                <Input {...register('address')} placeholder="Rua, número" className="bg-white/60" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Cidade</Label>
-                                <Input {...register('city')} className="bg-white/60" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Estado</Label>
-                                <Input {...register('state')} placeholder="UF" className="bg-white/60" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>CEP</Label>
-                                <Input {...register('zipCode')} placeholder="00000-000" className="bg-white/60" />
-                            </div>
-                        </div>
-                    </div>
+                    {/* Endereço Multiponto */}
+                    {store && (
+                        <CustomerAddressManager storeId={store.id} />
+                    )}
                 </form>
 
                 <SheetFooter className="p-4 border-t bg-white mt-auto shrink-0">
