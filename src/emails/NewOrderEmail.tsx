@@ -33,7 +33,7 @@ export default function NewOrderEmail({
     itemCount,
     total,
     systemName = 'CDJWE',
-    appUrl = 'http://localhost:3000',
+    appUrl = 'https://cdjwe-lojavirtual.vercel.app',
 }: NewOrderEmailProps) {
     const infoValueLarge = { color: '#1e3a5f', fontSize: '20px', fontWeight: '700' as const, margin: '0 0 4px' }
     const hrInner = { borderColor: '#e2e8f0', margin: '16px 0' }

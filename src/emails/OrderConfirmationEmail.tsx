@@ -46,7 +46,7 @@ export default function OrderConfirmationEmail({
     discount,
     total,
     systemName = 'CDJWE',
-    appUrl = 'http://localhost:3000',
+    appUrl = 'https://cdjwe-lojavirtual.vercel.app',
 }: OrderConfirmationEmailProps) {
     // Template-specific styles
     const orderBadge = { backgroundColor: '#1e3a5f', borderRadius: '8px', padding: '12px', textAlign: 'center' as const, margin: '0 0 20px' }

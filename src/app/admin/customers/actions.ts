@@ -110,7 +110,7 @@ export async function createCustomerAsAdmin(formData: FormData) {
                 .single()
 
             const systemName = settings?.system_name || 'CDJWE'
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
 
             await sendEmail({
                 to: email,

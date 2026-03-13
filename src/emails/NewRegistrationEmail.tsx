@@ -31,7 +31,7 @@ export default function NewRegistrationEmail({
     companyName,
     cnpj,
     systemName = 'CDJWE',
-    appUrl = 'http://localhost:3000',
+    appUrl = 'https://cdjwe-lojavirtual.vercel.app',
 }: NewRegistrationEmailProps) {
     return (
         <Html>

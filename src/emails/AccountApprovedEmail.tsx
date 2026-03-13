@@ -24,7 +24,7 @@ interface AccountApprovedEmailProps {
 export default function AccountApprovedEmail({
     clientName,
     systemName = 'CDJWE',
-    appUrl = 'http://localhost:3000',
+    appUrl = 'https://cdjwe-lojavirtual.vercel.app',
 }: AccountApprovedEmailProps) {
     const headingStyle = { color: '#16a34a', fontSize: '22px', fontWeight: '700' as const, margin: '0 0 16px' }
     const paragraphStyle = { color: '#555', fontSize: '15px', lineHeight: '24px', margin: '0 0 12px' }

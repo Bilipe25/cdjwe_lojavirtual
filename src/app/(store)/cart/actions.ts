@@ -330,7 +330,7 @@ export async function checkoutAction(
         const clientName = profileRes.data?.full_name || 'Cliente'
         const clientEmail = profileRes.data?.email || user.email
         const companyName = storeDataRes.data?.company_name || 'N/A'
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
 
         // Get order number
         const { data: orderDetail } = await supabase

@@ -54,7 +54,7 @@ export async function POST(req: Request) {
                 message: message || '',
                 imageUrl: image_url,
                 buttonText: 'Ver mais',
-                buttonUrl: process.env.NEXT_PUBLIC_APP_URL || '',
+                buttonUrl: process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app',
             })
 
             await processInChunks(clients, 20, async (client) => {
@@ -121,7 +121,7 @@ export async function POST(req: Request) {
         // Channel: Push — delegate to push API
         if (channels?.includes('push')) {
             try {
-                const pushRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/marketing/push`, {
+                const pushRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'}/api/marketing/push`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ title, body: message }),

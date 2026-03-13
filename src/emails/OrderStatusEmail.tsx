@@ -37,7 +37,7 @@ export default function OrderStatusEmail({
     clientName,
     newStatus,
     systemName = 'CDJWE',
-    appUrl = 'http://localhost:3000',
+    appUrl = 'https://cdjwe-lojavirtual.vercel.app',
 }: OrderStatusEmailProps) {
     const config = statusConfig[newStatus] || statusConfig.pending
 

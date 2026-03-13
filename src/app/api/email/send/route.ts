@@ -8,7 +8,7 @@ import OrderConfirmationEmail from '@/emails/OrderConfirmationEmail'
 import OrderStatusEmail from '@/emails/OrderStatusEmail'
 import React from 'react'
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
 
 export async function POST(req: NextRequest) {
     try {
