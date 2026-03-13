@@ -38,9 +38,9 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
         setGenerating(true);
         try {
             const result = await generateCustomerPassword(customer.id);
-            if (result.error) {
+            if ('error' in result && result.error) {
                 toast.error(result.error);
-            } else if (result.password) {
+            } else if ('password' in result && result.password) {
                 setPassword(result.password);
                 toast.success('Senha gerada com sucesso!');
             }
@@ -58,7 +58,7 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
         setSettingPassword(true);
         try {
             const result = await setCustomerPassword(customer.id, customPassword);
-            if (result.error) {
+            if ('error' in result && result.error) {
                 toast.error(result.error);
             } else {
                 setPassword(customPassword);
@@ -80,9 +80,9 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
         setSendingLink(true);
         try {
             const result = await sendAccessLink(customer.id, 'whatsapp', password || undefined);
-            if (result.error) {
+            if ('error' in result && result.error) {
                 toast.error(result.error);
-            } else if (result.whatsappUrl) {
+            } else if ('whatsappUrl' in result && result.whatsappUrl) {
                 window.open(result.whatsappUrl, '_blank');
                 toast.success('WhatsApp aberto com a mensagem!');
             }
@@ -96,7 +96,7 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
         setSendingLink(true);
         try {
             const result = await sendAccessLink(customer.id, 'email', password || undefined);
-            if (result.error) {
+            if ('error' in result && result.error) {
                 toast.error(result.error);
             } else {
                 toast.success('Email de acesso enviado com sucesso!');
