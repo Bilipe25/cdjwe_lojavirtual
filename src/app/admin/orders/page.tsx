@@ -13,6 +13,9 @@ import { OrderFilters, statusConfig } from './components/OrderFilters'
 import { OrderList, OrderWithDetails } from './components/OrderList'
 import { OrderDetailModal } from './components/OrderDetailModal'
 
+// Actions
+import { deleteOrderAction } from './actions'
+
 const ITEMS_PER_PAGE = 15;
 
 export default function AdminOrdersPage() {
@@ -169,21 +172,10 @@ export default function AdminOrdersPage() {
     }
 
     const deleteOrder = async (orderId: string) => {
-        const supabase = createClient()
-        
-        // 1. Delete dependent items first (History & Items)
-        // Note: If DB has ON DELETE CASCADE this is redundant but safe
-        await supabase.from('order_status_history').delete().eq('order_id', orderId)
-        await supabase.from('order_items').delete().eq('order_id', orderId)
-        
-        // 2. Delete main order
-        const { error } = await supabase
-            .from('orders')
-            .delete()
-            .eq('id', orderId)
+        const result = await deleteOrderAction(orderId)
 
-        if (error) {
-            toast.error('Erro ao excluir o pedido.')
+        if (result.error) {
+            toast.error(result.error)
             return false
         }
 
