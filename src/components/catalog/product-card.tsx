@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import type { Product } from '@/lib/types'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 
+import { useRouter } from 'next/navigation'
+
 interface ProductCardProps {
     product: Product & {
         images?: { url: string; is_primary: boolean }[]
@@ -18,15 +20,13 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product, onQuickView, hidePrices = false }: ProductCardProps) {
+    const router = useRouter()
     const primaryImage = product.images?.find((img) => img.is_primary) || product.images?.[0]
     const { isFavorite, toggle } = useFavoritesStore()
     const favorited = isFavorite(product.id)
 
     const handleCardClick = () => {
-        // On mobile, trigger quick view directly via card tap
-        if (onQuickView) {
-            onQuickView(product.id)
-        }
+        router.push(`/catalog/${product.id}`)
     }
 
     return (
