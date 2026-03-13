@@ -72,7 +72,7 @@ export default function ReportsPage() {
             // 1. Fetch Orders (Current Period)
             const { data: currentOrders, error: err1 } = await supabase
                 .from('orders')
-                .select('*, order_items(*), profiles(full_name, stores(company_name))')
+                .select('*, order_items(*), profiles(full_name, stores!stores_profile_id_fkey(company_name))')
                 .gte('created_at', startDateIso)
                 .lte('created_at', nowIso)
 

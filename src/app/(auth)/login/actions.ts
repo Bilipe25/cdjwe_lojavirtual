@@ -24,7 +24,7 @@ export async function loginAction(data: LoginFormData) {
             const cleanIdentifier = identifier.replace(/[^\d]+/g, '');
             const isCnpj = cleanIdentifier.length === 14;
 
-            let query = supabase.from('stores').select('profile_id, profiles!inner(email)');
+            let query = supabase.from('stores').select('profile_id, profiles!stores_profile_id_fkey!inner(email)');
 
             if (isCnpj) {
                 query = query.or(`cnpj.eq.${identifier},cnpj.eq.${cleanIdentifier}`);
@@ -66,7 +66,7 @@ export async function loginAction(data: LoginFormData) {
 
         const { data: profile } = await supabase
             .from('profiles')
-            .select('role, status, full_name, stores(company_name)')
+            .select('role, status, full_name, stores!stores_profile_id_fkey(company_name)')
             .eq('id', user.id)
             .single()
 

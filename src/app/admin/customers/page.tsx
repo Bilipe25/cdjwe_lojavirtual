@@ -82,7 +82,7 @@ export default function CustomersPage() {
         // Base Query with Stores Inner Join + customer_type relation + store_tags relation
         let query = supabase
             .from('profiles')
-            .select('*, stores(*, customer_type:customer_types(*), store_tags(customer_tags(*)), representative:profiles!stores_representative_id_fkey(id, full_name))', { count: 'exact' })
+            .select('*, stores!stores_profile_id_fkey(*, customer_type:customer_types(*), store_tags(customer_tags(*)), representative:profiles!stores_representative_id_fkey(id, full_name))', { count: 'exact' })
             .eq('role', 'client')
 
         // Apply Filters
