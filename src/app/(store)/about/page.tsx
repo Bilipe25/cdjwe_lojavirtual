@@ -35,7 +35,7 @@ export default function AboutPage() {
                             <Skeleton className="h-4 w-[80%]" />
                         </div>
                     </div>
-                    <Skeleton className="aspect-video md:aspect-[4/3] rounded-3xl" />
+                    <Skeleton className="aspect-video md:aspect-4/3 rounded-3xl" />
                 </div>
             </div>
         )
@@ -61,7 +61,7 @@ export default function AboutPage() {
                             INSTITUCIONAL
                         </div>
                         
-                        <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-navy mb-8 leading-tight font-[family-name:var(--font-heading)]">
+                        <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-navy mb-8 leading-tight font-heading">
                             {title}
                         </h1>
 
@@ -101,7 +101,7 @@ export default function AboutPage() {
                         <div className="absolute -top-10 -right-10 w-40 h-40 bg-bronze/5 rounded-full blur-3xl -z-10" />
                         <div className="absolute -bottom-10 -left-10 w-60 h-60 bg-navy/5 rounded-full blur-3xl -z-10" />
 
-                        <div className="relative aspect-video lg:aspect-[4/5] overflow-hidden rounded-[2.5rem] shadow-2xl border-8 border-white group">
+                        <div className="relative aspect-video lg:aspect-4/5 overflow-hidden rounded-[2.5rem] shadow-2xl border-8 border-white group">
                             {imageUrl ? (
                                 <img 
                                     src={imageUrl} 

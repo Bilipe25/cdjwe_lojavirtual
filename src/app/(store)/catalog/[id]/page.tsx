@@ -26,6 +26,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { toast } from 'sonner'
 import type { Product, ProductImage, Fabric, FabricColor, ProductVariant } from '@/lib/types'
+import { ProductImageGallery } from '@/components/products/ProductImageGallery'
 
 export default function ProductDetailPage() {
     const params = useParams()
@@ -43,25 +44,6 @@ export default function ProductDetailPage() {
     const [quantities, setQuantities] = useState<Record<string, number>>({})
     const [addingToCart, setAddingToCart] = useState(false)
     const [activeImageIndex, setActiveImageIndex] = useState(0)
-
-    // Touch swipe support for image gallery
-    const touchStartX = useRef<number | null>(null)
-    const handleTouchStart = (e: React.TouchEvent) => {
-        touchStartX.current = e.touches[0].clientX
-    }
-    const handleTouchEnd = (e: React.TouchEvent) => {
-        if (touchStartX.current === null || displayImages.length <= 1) return
-        const diff = touchStartX.current - e.changedTouches[0].clientX
-        const threshold = 50
-        if (diff > threshold) {
-            // Swipe left → next image
-            setActiveImageIndex(prev => prev === displayImages.length - 1 ? 0 : prev + 1)
-        } else if (diff < -threshold) {
-            // Swipe right → previous image
-            setActiveImageIndex(prev => prev === 0 ? displayImages.length - 1 : prev - 1)
-        }
-        touchStartX.current = null
-    }
 
     useEffect(() => {
         loadProduct()
@@ -219,76 +201,12 @@ export default function ProductDetailPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
                 {/* Image Gallery */}
                 <div className="space-y-4">
-                    {/* Main Image */}
-                    <motion.div
-                        key={displayImages[activeImageIndex]?.url}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="relative aspect-square rounded-2xl overflow-hidden bg-muted glass-card touch-pan-y"
-                        onTouchStart={handleTouchStart}
-                        onTouchEnd={handleTouchEnd}
-                    >
-                        {displayImages.length > 0 ? (
-                            <Image
-                                src={displayImages[activeImageIndex]?.url}
-                                alt={product.name}
-                                fill
-                                className="object-cover"
-                                priority
-                            />
-                        ) : (
-                            <div className="h-full w-full flex items-center justify-center">
-                                <Package className="h-24 w-24 text-muted-foreground/20" />
-                            </div>
-                        )}
-
-                        {/* Nav Arrows */}
-                        {displayImages.length > 1 && (
-                            <>
-                                <button
-                                    onClick={() => setActiveImageIndex(
-                                        activeImageIndex === 0 ? displayImages.length - 1 : activeImageIndex - 1
-                                    )}
-                                    className="absolute left-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 backdrop-blur flex items-center justify-center hover:bg-white transition-colors shadow"
-                                >
-                                    <ChevronLeft className="h-5 w-5" />
-                                </button>
-                                <button
-                                    onClick={() => setActiveImageIndex(
-                                        activeImageIndex === displayImages.length - 1 ? 0 : activeImageIndex + 1
-                                    )}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/80 backdrop-blur flex items-center justify-center hover:bg-white transition-colors shadow"
-                                >
-                                    <ChevronRight className="h-5 w-5" />
-                                </button>
-                            </>
-                        )}
-
-                        {/* Image counter */}
-                        {displayImages.length > 1 && (
-                            <div className="absolute bottom-3 right-3 px-2 py-1 rounded-full bg-black/50 text-white text-xs backdrop-blur">
-                                {activeImageIndex + 1} / {displayImages.length}
-                            </div>
-                        )}
-                    </motion.div>
-
-                    {/* Thumbnails */}
-                    {displayImages.length > 1 && (
-                        <div className="flex gap-2 overflow-x-auto pb-2">
-                            {displayImages.map((img, i) => (
-                                <button
-                                    key={img.id}
-                                    onClick={() => setActiveImageIndex(i)}
-                                    className={`relative h-16 w-16 rounded-lg overflow-hidden shrink-0 border-2 transition-all ${i === activeImageIndex
-                                            ? 'border-primary shadow-md'
-                                            : 'border-transparent opacity-60 hover:opacity-100'
-                                        }`}
-                                >
-                                    <Image src={img.url} alt="" fill className="object-cover" />
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                    <ProductImageGallery 
+                        images={displayImages}
+                        productName={product.name}
+                        activeImageIndex={activeImageIndex}
+                        onImageChange={setActiveImageIndex}
+                    />
                 </div>
 
                 {/* Product Info */}
@@ -398,9 +316,12 @@ export default function ProductDetailPage() {
                                                         backgroundColor: color.hex_code || '#e5e7eb',
                                                         ...(color.image_url ? { backgroundImage: `url(${color.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
                                                     }}
-                                                    onClick={() => setActiveImageIndex(
-                                                        displayImages.findIndex(img => img.url === (color as any).image_url) !== -1 ? displayImages.findIndex(img => img.url === (color as any).image_url) : 0
-                                                    )}
+                                                    onClick={() => {
+                                                        const imgIndex = displayImages.findIndex(img => img.url === color.image_url)
+                                                        if (imgIndex !== -1) {
+                                                            setActiveImageIndex(imgIndex)
+                                                        }
+                                                    }}
                                                 >
                                                     {qty > 0 && (
                                                         <Check className="h-5 w-5 text-white drop-shadow-md mix-blend-difference" />

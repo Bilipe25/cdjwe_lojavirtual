@@ -67,7 +67,7 @@ export default function StoreLayout({
                         </AnimatePresence>
 
                         {isViewingAsCustomer && (
-                            <div className="bg-linear-to-r from-orange-500 to-amber-600 text-white w-full py-1.5 px-4 text-xs font-semibold flex items-center justify-between z-[60] shadow-sm relative overflow-hidden">
+                            <div className="bg-linear-to-r from-orange-500 to-amber-600 text-white w-full py-1.5 px-4 text-xs font-semibold flex items-center justify-between z-60 shadow-sm relative overflow-hidden">
                                 <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDUiLz4KPHBhdGggZD0iTTAgMEw4IDhaTTAgOEw4IDBaIiBzdHJva2U9IiMzMzMiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLW9wYWNpdHk9IjAuMSIvPgo8L3N2Zz4=')] opacity-30"></div>
                                 <div className="flex items-center gap-2 max-w-7xl mx-auto w-full justify-between relative z-10">
                                     <span className="flex items-center gap-1.5 truncate">

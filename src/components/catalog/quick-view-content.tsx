@@ -15,6 +15,7 @@ import { useCartStore } from '@/lib/stores/cart-store'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { toast } from 'sonner'
 import type { Product, ProductImage, ProductVariant, Fabric, FabricColor } from '@/lib/types'
+import { ProductImageGallery } from '../products/ProductImageGallery'
 
 export interface QuickViewData {
     product: Product | null
@@ -155,45 +156,18 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
     return (
         <div className="flex flex-col md:grid md:grid-cols-[1.2fr_1fr] h-full overflow-hidden">
             {/* Image Gallery */}
-            <div className="relative bg-muted shrink-0 aspect-4/3 sm:aspect-square md:aspect-auto md:h-full">
-                {images.length > 0 ? (
-                    <Image
-                        src={images[activeImageIndex]?.url}
-                        alt={product.name}
-                        fill
-                        className="object-cover"
-                    />
-                ) : (
-                    <div className="h-full w-full flex items-center justify-center">
-                        <Package className="h-16 w-16 text-muted-foreground/20" />
-                    </div>
-                )}
-
-                {/* Image nav arrows */}
-                {images.length > 1 && (
-                    <>
-                        <button
-                            onClick={() => setActiveImageIndex(i => i === 0 ? images.length - 1 : i - 1)}
-                            className="absolute left-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-white/80 backdrop-blur flex items-center justify-center shadow mobile-touch-target"
-                        >
-                            <ChevronLeft className="h-4 w-4" />
-                        </button>
-                        <button
-                            onClick={() => setActiveImageIndex(i => i === images.length - 1 ? 0 : i + 1)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-white/80 backdrop-blur flex items-center justify-center shadow mobile-touch-target"
-                        >
-                            <ChevronRight className="h-4 w-4" />
-                        </button>
-                        <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/50 text-white text-[10px] backdrop-blur">
-                            {activeImageIndex + 1}/{images.length}
-                        </div>
-                    </>
-                )}
+            <div className="relative shrink-0 md:h-full overflow-hidden">
+                <ProductImageGallery 
+                    images={images}
+                    productName={product.name}
+                    activeImageIndex={activeImageIndex}
+                    onImageChange={setActiveImageIndex}
+                />
 
                 {/* Favorite button on image */}
                 <button
                     onClick={() => toggle(product.id)}
-                    className="absolute top-3 left-3 h-9 w-9 rounded-full bg-white/80 backdrop-blur flex items-center justify-center shadow mobile-touch-target"
+                    className="absolute top-3 left-3 h-9 w-9 rounded-full bg-white/80 backdrop-blur flex items-center justify-center shadow-lg z-20 hover:scale-110 transition-transform mobile-touch-target"
                 >
                     <Heart className={`h-4 w-4 ${favorited ? 'fill-red-500 text-red-500' : 'text-muted-foreground'}`} />
                 </button>
@@ -285,13 +259,20 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                         >
                                             <div className="flex items-center gap-4">
                                                 <div
-                                                    className="h-10 w-10 rounded-full border border-black/10 shadow-inner shrink-0 overflow-hidden flex items-center justify-center relative"
+                                                    className="h-10 w-10 rounded-full border border-black/10 shadow-inner shrink-0 overflow-hidden flex items-center justify-center relative cursor-pointer group"
                                                     style={{
                                                         backgroundColor: color.hex_code || '#f3f4f6',
                                                         ...(color.image_url ? { backgroundImage: `url(${color.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
                                                     }}
+                                                    onClick={() => {
+                                                        const imgIndex = images.findIndex(img => img.url === color.image_url)
+                                                        if (imgIndex !== -1) {
+                                                            setActiveImageIndex(imgIndex)
+                                                        }
+                                                    }}
                                                 >
-                                                    {qty > 0 && <div className="absolute inset-0 bg-primary/30 flex items-center justify-center"><Check className="h-5 w-5 text-white" /></div>}
+                                                    {qty > 0 && <div className="absolute inset-0 bg-primary/30 flex items-center justify-center transition-opacity"><Check className="h-5 w-5 text-white" /></div>}
+                                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                                                 </div>
                                                 <span className={`text-sm ${qty > 0 ? 'font-bold text-foreground' : 'text-muted-foreground font-medium'}`}>
                                                     {color.name}
