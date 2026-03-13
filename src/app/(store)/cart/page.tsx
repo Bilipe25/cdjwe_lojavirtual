@@ -61,6 +61,8 @@ export default function CartPage() {
     const [selectedPayment, setSelectedPayment] = useState<string>('')
     const [storeAddresses, setStoreAddresses] = useState<StoreAddress[]>([])
     const [selectedAddressId, setSelectedAddressId] = useState<string>('')
+    const [addressesLoading, setAddressesLoading] = useState(true)
+    const [addressError, setAddressError] = useState<string | null>(null)
     const [notes, setNotes] = useState('')
     const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
     const [nextOrderNumber, setNextOrderNumber] = useState('')
@@ -71,19 +73,27 @@ export default function CartPage() {
     useEffect(() => {
         const loadConditions = async () => {
             const supabase = createClient()
-            const [rulesRes, orderRes, addressesRes] = await Promise.all([
+            // Load addresses separately with error catching
+            try {
+                const addressesRes = await getAvailableStoreAddresses()
+                setStoreAddresses(addressesRes || [])
+                const mainAddress = addressesRes?.find(a => a.is_main)
+                if (mainAddress) {
+                    setSelectedAddressId(mainAddress.id)
+                } else if (addressesRes && addressesRes.length > 0) {
+                    setSelectedAddressId(addressesRes[0].id)
+                }
+            } catch (err: any) {
+                console.error('[CART] Failed to load addresses:', err)
+                setAddressError(err?.message || 'Erro ao carregar endereços')
+            } finally {
+                setAddressesLoading(false)
+            }
+
+            const [rulesRes, orderRes] = await Promise.all([
                 getAvailablePaymentRules(total),
                 supabase.from('orders').select('order_number').order('created_at', { ascending: false }).limit(1).single(),
-                getAvailableStoreAddresses()
             ])
-            
-            setStoreAddresses(addressesRes || [])
-            const mainAddress = addressesRes?.find(a => a.is_main)
-            if (mainAddress) {
-                setSelectedAddressId(mainAddress.id)
-            } else if (addressesRes && addressesRes.length > 0) {
-                setSelectedAddressId(addressesRes[0].id)
-            }
             
             const hasTableRules = rulesRes.priceTableRules && rulesRes.priceTableRules.length > 0;
             const hasGlobals = rulesRes.globalConditions && rulesRes.globalConditions.length > 0;
@@ -358,9 +368,27 @@ export default function CartPage() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {/* Address Selection */}
-                            {storeAddresses.length > 0 && (
-                                <div className="space-y-2">
-                                    <Label>Endereço de Entrega</Label>
+                            <div className="space-y-2 pb-2 border-b">
+                                <Label className="flex items-center gap-2">
+                                    <Truck className="h-4 w-4 text-bronze" />
+                                    Endereço de Entrega
+                                </Label>
+                                {addressesLoading ? (
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Carregando endereços...
+                                    </div>
+                                ) : addressError ? (
+                                    <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                        <AlertCircle className="h-4 w-4 shrink-0" />
+                                        <span>Não foi possível carregar os endereços. Verifique com o administrador.</span>
+                                    </div>
+                                ) : storeAddresses.length === 0 ? (
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground bg-slate-50 border border-dashed rounded-lg p-3">
+                                        <AlertCircle className="h-4 w-4 shrink-0" />
+                                        <span>Nenhum endereço cadastrado. O pedido será feito sem endereço de entrega.</span>
+                                    </div>
+                                ) : (
                                     <Select 
                                         value={selectedAddressId} 
                                         onValueChange={(val: string | null) => val && setSelectedAddressId(val)}
@@ -371,14 +399,13 @@ export default function CartPage() {
                                         <SelectContent>
                                             {storeAddresses.map(addr => (
                                                 <SelectItem key={addr.id} value={addr.id}>
-                                                    {addr.title} - {addr.city}/{addr.state}
+                                                    {addr.is_main ? '⭐ ' : ''}{addr.title} — {addr.city}/{addr.state}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                </div>
-                            )}
-
+                                )}
+                            </div>
                             {/* Payment Condition */}
                             <div className="space-y-2">
                                 <Label>Condição de Pagamento</Label>
