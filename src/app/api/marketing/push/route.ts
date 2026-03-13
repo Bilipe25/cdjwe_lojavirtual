@@ -60,7 +60,15 @@ export async function POST(req: Request) {
         let sent = 0
         const failedIds: string[] = []
 
-        for (const sub of subscriptions) {
+        // Helper function to process arrays in chunks
+        const processInChunks = async <T,>(items: T[], chunkSize: number, processor: (item: T) => Promise<void>) => {
+            for (let i = 0; i < items.length; i += chunkSize) {
+                const chunk = items.slice(i, i + chunkSize)
+                await Promise.allSettled(chunk.map(processor))
+            }
+        }
+
+        await processInChunks(subscriptions, 50, async (sub) => {
             try {
                 await webPush.sendNotification(
                     {
@@ -76,7 +84,7 @@ export async function POST(req: Request) {
                     failedIds.push(sub.id)
                 }
             }
-        }
+        })
 
         // Clean up invalid subscriptions
         if (failedIds.length > 0) {

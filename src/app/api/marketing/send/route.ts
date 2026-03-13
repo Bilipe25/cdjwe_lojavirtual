@@ -30,25 +30,35 @@ export async function POST(req: Request) {
             .eq('role', 'client')
             .eq('status', 'approved')
 
+        // Default to returning immediately if no clients
         if (!clients?.length) {
             return NextResponse.json({ error: 'Nenhum cliente encontrado' }, { status: 404 })
         }
 
         const results = { email: 0, notification: 0, push: 0, errors: 0 }
 
+        // Helper function to process arrays in chunks
+        const processInChunks = async <T, R>(items: T[], chunkSize: number, processor: (item: T) => Promise<R>) => {
+            for (let i = 0; i < items.length; i += chunkSize) {
+                const chunk = items.slice(i, i + chunkSize)
+                await Promise.allSettled(chunk.map(processor))
+            }
+        }
+
         // Channel: Email
         if (channels?.includes('email')) {
-            for (const client of clients) {
-                try {
-                    const emailElement = React.createElement(CampaignEmail, {
-                        systemName,
-                        title,
-                        message: message || '',
-                        imageUrl: image_url,
-                        buttonText: 'Ver mais',
-                        buttonUrl: process.env.NEXT_PUBLIC_APP_URL || '',
-                    })
+            // Build the email react element strictly once
+            const emailElement = React.createElement(CampaignEmail, {
+                systemName,
+                title,
+                message: message || '',
+                imageUrl: image_url,
+                buttonText: 'Ver mais',
+                buttonUrl: process.env.NEXT_PUBLIC_APP_URL || '',
+            })
 
+            await processInChunks(clients, 20, async (client) => {
+                try {
                     await sendEmail({
                         to: client.email,
                         subject: title,
@@ -78,7 +88,7 @@ export async function POST(req: Request) {
                         })
                     }
                 }
-            }
+            })
         }
 
         // Channel: In-app Notification

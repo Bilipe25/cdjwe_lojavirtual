@@ -111,7 +111,14 @@ export function useNotifications(): UseNotificationsReturn {
 
     useEffect(() => {
         fetchNotifications()
-        const interval = setInterval(fetchNotifications, 30000)
+        
+        // Only poll if the tab is currently visible to save database reads
+        const interval = setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                fetchNotifications()
+            }
+        }, 30000)
+        
         return () => clearInterval(interval)
     }, [fetchNotifications])
 
