@@ -177,17 +177,26 @@ export default function CartPage() {
             if (!('orderId' in result) || !result.orderId) {
                 toast.error('Pedido criado, mas não foi possível redirecionar. Verifique seus pedidos.')
                 clearCart()
+                setLoading(false)
                 router.push('/orders')
                 return
             }
 
-            clearCart()
-            toast.success('Pedido realizado com sucesso!')
+            // DO NOT setLoading(false) here. We leave it true so the UI stays locked
+            // while we redirect, preventing the "empty cart" flash because we won't
+            // clear the items state until immediately before unmounting.
+            toast.success('Pedido realizado com sucesso!', { duration: 2500 })
             router.push(`/order-confirmation/${result.orderId}`)
+            
+            // Clear cart slightly after push so it doesn't trigger a re-render
+            // of the empty cart before the next page actually loads
+            setTimeout(() => {
+                clearCart()
+            }, 500)
+            
         } catch (err) {
             console.error('[CHECKOUT] Unexpected error:', err)
             toast.error('Ocorreu um erro interno de conexão.')
-        } finally {
             setLoading(false)
         }
     }
