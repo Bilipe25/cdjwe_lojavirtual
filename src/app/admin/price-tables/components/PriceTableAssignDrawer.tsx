@@ -57,7 +57,7 @@ export function PriceTableAssignDrawer({ table, isOpen, onClose }: PriceTableAss
                 .from('stores')
                 .select(`
                     id, company_name, trade_name, city, state,
-                    profile:profiles(full_name)
+                    profile:profiles!stores_profile_id_fkey(full_name)
                 `)
                 .eq('is_active', true)
                 .order('company_name')
