@@ -42,7 +42,7 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                     </button>
 
                     {/* Content — fills remaining height, scrolls internally */}
-                    <div className="flex-1 overflow-y-auto overscroll-contain">
+                    <div className="flex-1 overflow-y-auto overscroll-contain" data-vaul-no-drag>
                         <QuickViewContent
                             data={data}
                             onClose={onClose}

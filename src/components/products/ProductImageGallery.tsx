@@ -10,8 +10,10 @@ import Thumbnails from 'yet-another-react-lightbox/plugins/thumbnails'
 import 'yet-another-react-lightbox/styles.css'
 import 'yet-another-react-lightbox/plugins/thumbnails.css'
 import { motion, AnimatePresence } from 'framer-motion'
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 
 interface ProductImage {
     id: string
@@ -35,6 +37,7 @@ export function ProductImageGallery({
     const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
     const [isHovering, setIsHovering] = useState(false)
     const [imagesLoaded, setImagesLoaded] = useState<Record<string, boolean>>({})
+    const isMobile = useIsMobile()
     
     // Embla Carousel for Main Image
     const [emblaMainRef, emblaMainApi] = useEmblaCarousel({
@@ -156,17 +159,37 @@ export function ProductImageGallery({
                                 onMouseLeave={() => setIsHovering(false)}
                                 onClick={() => setLightboxOpen(true)}
                             >
-                                <Image
-                                    src={img.url}
-                                    alt={`${productName} - Imagem ${index + 1}`}
-                                    fill
-                                    priority={index <= 1}
-                                    className="object-cover"
-                                    onLoad={() => handleImageLoad(img.id)}
-                                />
+                                {isMobile ? (
+                                    <TransformWrapper
+                                        initialScale={1}
+                                        panning={{ disabled: false }}
+                                        wheel={{ disabled: true }}
+                                        doubleClick={{ disabled: false }}
+                                    >
+                                        <TransformComponent wrapperClass="w-full h-full" contentClass="w-full h-full">
+                                            <Image
+                                                src={img.url}
+                                                alt={`${productName} - Imagem ${index + 1}`}
+                                                fill
+                                                priority={index <= 1}
+                                                className="object-cover"
+                                                onLoad={() => handleImageLoad(img.id)}
+                                            />
+                                        </TransformComponent>
+                                    </TransformWrapper>
+                                ) : (
+                                    <Image
+                                        src={img.url}
+                                        alt={`${productName} - Imagem ${index + 1}`}
+                                        fill
+                                        priority={index <= 1}
+                                        className="object-cover"
+                                        onLoad={() => handleImageLoad(img.id)}
+                                    />
+                                )}
                                 
                                 {!imagesLoaded[img.id] && (
-                                    <Skeleton className="absolute inset-0 z-10" />
+                                    <Skeleton className="absolute inset-0 z-10 pointer-events-none" />
                                 )}
                                 
                                 {/* Hover Zoom Effect (Desktop Only) */}

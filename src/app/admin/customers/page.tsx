@@ -5,7 +5,7 @@ import { Plus, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { createCustomerAsAdmin, updateCustomerAsAdmin, getCustomerTags, getRepresentatives } from './actions'
+import { createCustomerAsAdmin, updateCustomerAsAdmin, getCustomerTags, getRepresentatives, deleteCustomerAction, bulkDeleteCustomersAction } from './actions'
 import type { CustomerType, CustomerTag, Profile } from '@/lib/types'
 import type { CustomerEditFormData } from './schema'
 
@@ -166,9 +166,9 @@ export default function CustomersPage() {
         if (status === 'delete') {
             if (!confirm('Tem certeza que deseja EXCLUIR este cliente? Esta ação não pode ser desfeita.')) return
             
-            const { error } = await supabase.from('profiles').delete().eq('id', profileId)
-            if (error) {
-                toast.error('Erro ao excluir cliente')
+            const result = await deleteCustomerAction(profileId)
+            if (result.error) {
+                toast.error(result.error)
                 return
             }
             toast.success('Cliente excluído com sucesso!')
@@ -312,8 +312,8 @@ export default function CustomersPage() {
 
     const handleBulkDelete = async () => {
         if (!confirm(`Tem certeza que deseja EXCLUIR DEFINITIVAMENTE os ${selectedIds.length} clientes selecionados?`)) return
-        const { error } = await supabase.from('profiles').delete().in('id', selectedIds)
-        if (error) { toast.error('Erro ao excluir clientes.'); return }
+        const result = await bulkDeleteCustomersAction(selectedIds)
+        if (result.error) { toast.error(result.error); return }
         toast.success(`${selectedIds.length} clientes excluídos!`)
         setSelectedIds([])
         loadData()

@@ -23,6 +23,7 @@ import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useSettings } from '@/components/providers/settings-provider'
 import { PullToRefresh } from '@/components/ui/pull-to-refresh'
 import { NoticeCard } from '@/components/store/NoticeCard'
+import { useCustomerGreeting } from '@/lib/hooks/use-customer-greeting'
 
 const PAGE_SIZE = 12
 
@@ -57,6 +58,7 @@ function CatalogContent() {
     const [hidePrices, setHidePrices] = useState(false)
     const [socialUrls, setSocialUrls] = useState<{ whatsapp: string | null; instagram: string | null }>({ whatsapp: null, instagram: null })
     const isMobile = useIsMobile()
+    const greetingData = useCustomerGreeting()
 
     // Sync search state with URL search params (TopBar search)
     // We REMOVED the internal debounce as it's handled by MobileTopBar
@@ -216,12 +218,21 @@ function CatalogContent() {
                 className="mb-6 hidden md:flex flex-col md:flex-row md:items-start md:justify-between gap-6"
             >
                 <div>
-                    <h1 className="text-3xl font-bold font-heading text-gradient-navy">
-                        Catálogo
-                    </h1>
-                    <p className="text-muted-foreground mt-1">
-                        Encontre os melhores estofados para sua loja
-                    </p>
+                    {greetingData.loading ? (
+                        <>
+                            <div className="h-9 w-64 bg-navy/10 animate-pulse rounded-md mb-2" />
+                            <div className="h-5 w-80 bg-muted animate-pulse rounded-md" />
+                        </>
+                    ) : (
+                        <>
+                            <h1 className="text-3xl font-bold font-heading text-gradient-navy">
+                                Bem-vindo(a), {greetingData.customerName || 'visitante'}
+                            </h1>
+                            <p className="text-muted-foreground mt-1 text-balance">
+                                {greetingData.greetingMessage}
+                            </p>
+                        </>
+                    )}
                 </div>
                 
                 <NoticeCard 

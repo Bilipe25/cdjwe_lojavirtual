@@ -645,3 +645,54 @@ export async function deleteStoreAddress(id: string) {
         return { error: err.message || 'Erro ao excluir o endereço.' }
     }
 }
+
+// ==================== DELETE CUSTOMERS ====================
+
+export async function deleteCustomerAction(id: string) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        // Delete user via Auth Admin API (this cascades to profiles and related tables)
+        const { error } = await supabaseAdmin.auth.admin.deleteUser(id)
+
+        if (error) {
+           console.error('Delete Customer Error:', error)
+           return { error: 'Falha ao excluir o cliente no Supabase Auth.' }
+        }
+
+        return { success: true }
+    } catch (err: any) {
+        console.error('Delete Customer Action Error:', err)
+        return { error: err.message || 'Erro ao excluir o cliente.' }
+    }
+}
+
+export async function bulkDeleteCustomersAction(ids: string[]) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        let successCount = 0
+        let errorCount = 0
+
+        for (const id of ids) {
+            const { error } = await supabaseAdmin.auth.admin.deleteUser(id)
+            if (error) {
+                console.error(`Error deleting customer ${id}:`, error)
+                errorCount++
+            } else {
+                successCount++
+            }
+        }
+
+        if (errorCount > 0) {
+            return { error: `Deletados: ${successCount}. Falhas: ${errorCount}.` }
+        }
+
+        return { success: true }
+    } catch (err: any) {
+        console.error('Bulk Delete Customers Action Error:', err)
+        return { error: err.message || 'Erro ao iniciar a exclusão em lote.' }
+    }
+}
