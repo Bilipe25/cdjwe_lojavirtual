@@ -86,6 +86,7 @@ export async function POST(req: NextRequest) {
                     subject: `🛒 Novo pedido #${payload.orderNumber} — ${systemName}`,
                     ...emailOptions,
                     react: React.createElement(NewOrderEmail, {
+                        orderId: payload.orderId,
                         orderNumber: payload.orderNumber,
                         clientName: payload.clientName,
                         companyName: payload.companyName,
@@ -106,6 +107,7 @@ export async function POST(req: NextRequest) {
                     subject: `📋 Pedido #${payload.orderNumber} confirmado — ${systemName}`,
                     ...emailOptions,
                     react: React.createElement(OrderConfirmationEmail, {
+                        orderId: payload.orderId,
                         orderNumber: payload.orderNumber,
                         clientName: payload.clientName,
                         items: payload.items,
@@ -127,6 +129,7 @@ export async function POST(req: NextRequest) {
                     subject: `🔄 Pedido #${payload.orderNumber} — Atualização de status — ${systemName}`,
                     ...emailOptions,
                     react: React.createElement(OrderStatusEmail, {
+                        orderId: payload.orderId,
                         orderNumber: payload.orderNumber,
                         clientName: payload.clientName,
                         newStatus: payload.newStatus,

@@ -25,6 +25,7 @@ const statusConfig: Record<string, { label: string; emoji: string; color: string
 }
 
 interface OrderStatusEmailProps {
+    orderId: string
     orderNumber: string
     clientName: string
     newStatus: string
@@ -33,6 +34,7 @@ interface OrderStatusEmailProps {
 }
 
 export default function OrderStatusEmail({
+    orderId,
     orderNumber,
     clientName,
     newStatus,
@@ -77,8 +79,8 @@ export default function OrderStatusEmail({
                         </Text>
 
                         <Section style={ctaSection}>
-                            <Button style={buttonPrimary} href={`${appUrl}/orders`}>
-                                Ver Meus Pedidos
+                            <Button style={buttonPrimary} href={`${appUrl}/order/${orderId}`}>
+                                Ver Detalhes do Pedido
                             </Button>
                         </Section>
                     </Section>

@@ -28,6 +28,7 @@ interface OrderItem {
 }
 
 interface OrderConfirmationEmailProps {
+    orderId: string
     orderNumber: string
     clientName: string
     items: OrderItem[]
@@ -39,6 +40,7 @@ interface OrderConfirmationEmailProps {
 }
 
 export default function OrderConfirmationEmail({
+    orderId,
     orderNumber,
     clientName,
     items,
@@ -150,8 +152,8 @@ export default function OrderConfirmationEmail({
                         </Text>
 
                         <Section style={ctaSection}>
-                            <Button style={buttonPrimary} href={`${appUrl}/orders`}>
-                                Acompanhar Meus Pedidos
+                            <Button style={buttonPrimary} href={`${appUrl}/order/${orderId}`}>
+                                Acompanhar Seu Pedido
                             </Button>
                         </Section>
                     </Section>

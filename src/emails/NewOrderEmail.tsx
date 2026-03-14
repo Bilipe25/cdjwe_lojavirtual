@@ -17,6 +17,7 @@ import {
 } from './styles'
 
 interface NewOrderEmailProps {
+    orderId: string
     orderNumber: string
     clientName: string
     companyName: string
@@ -27,6 +28,7 @@ interface NewOrderEmailProps {
 }
 
 export default function NewOrderEmail({
+    orderId,
     orderNumber,
     clientName,
     companyName,
@@ -88,8 +90,8 @@ export default function NewOrderEmail({
                         </Section>
 
                         <Section style={ctaSection}>
-                            <Button style={buttonPrimary} href={`${appUrl}/admin/orders`}>
-                                Ver Pedido no Painel
+                            <Button style={buttonPrimary} href={`${appUrl}/order/${orderId}`}>
+                                Ver Detalhes do Pedido
                             </Button>
                         </Section>
                     </Section>

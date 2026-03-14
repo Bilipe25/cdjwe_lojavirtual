@@ -168,17 +168,24 @@ export default function CartPage() {
         try {
             const result = await checkoutAction(items, selectedPayment, notes, isTableRule, selectedAddressId)
 
-            if (result.error) {
+            if ('error' in result && result.error) {
                 toast.error(result.error)
                 setLoading(false)
                 return
             }
 
+            if (!('orderId' in result) || !result.orderId) {
+                toast.error('Pedido criado, mas não foi possível redirecionar. Verifique seus pedidos.')
+                clearCart()
+                router.push('/orders')
+                return
+            }
+
             clearCart()
             toast.success('Pedido realizado com sucesso!')
-            router.push(`/orders/${result.orderId}`)
+            router.push(`/order-confirmation/${result.orderId}`)
         } catch (err) {
-            console.error(err)
+            console.error('[CHECKOUT] Unexpected error:', err)
             toast.error('Ocorreu um erro interno de conexão.')
         } finally {
             setLoading(false)

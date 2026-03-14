@@ -72,7 +72,8 @@ export async function updateSession(request: NextRequest) {
         if (
             request.nextUrl.pathname.startsWith('/catalog') ||
             request.nextUrl.pathname.startsWith('/cart') ||
-            request.nextUrl.pathname.startsWith('/orders')
+            request.nextUrl.pathname.startsWith('/orders') ||
+            request.nextUrl.pathname.startsWith('/order-confirmation')
         ) {
             if (role === 'client' && (status === 'pending' || status === 'imported')) {
                 const url = request.nextUrl.clone()

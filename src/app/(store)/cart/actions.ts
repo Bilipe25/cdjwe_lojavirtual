@@ -431,6 +431,7 @@ export async function checkoutAction(
                 subject: `🛒 Novo pedido #${orderNumber} — ${systemName}`,
                 senderName: systemName,
                 react: React.createElement(NewOrderEmail, {
+                    orderId: newOrder.id,
                     orderNumber,
                     clientName,
                     companyName,
@@ -449,6 +450,7 @@ export async function checkoutAction(
                 subject: `📋 Pedido #${orderNumber} confirmado — ${systemName}`,
                 senderName: systemName,
                 react: React.createElement(OrderConfirmationEmail, {
+                    orderId: newOrder.id,
                     orderNumber,
                     clientName,
                     items: validatedItems.map(item => ({
