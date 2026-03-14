@@ -15,8 +15,9 @@ import {
     AlertCircle,
     Truck,
 } from 'lucide-react'
-import { Check } from 'lucide-react'
+import { Check, PlusCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { AddressForm } from '@/components/store/AddressForm'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -66,6 +67,7 @@ export default function CartPage() {
     const [notes, setNotes] = useState('')
     const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
     const [nextOrderNumber, setNextOrderNumber] = useState('')
+    const [newAddressDialogOpen, setNewAddressDialogOpen] = useState(false)
 
     const total = subtotal()
     const count = totalItems()
@@ -388,22 +390,97 @@ export default function CartPage() {
                                         <AlertCircle className="h-4 w-4 shrink-0" />
                                         <span>Nenhum endereço cadastrado. O pedido será feito sem endereço de entrega.</span>
                                     </div>
-                                ) : (
-                                    <Select 
-                                        value={selectedAddressId} 
-                                        onValueChange={(val: string | null) => val && setSelectedAddressId(val)}
-                                    >
-                                        <SelectTrigger className="bg-white/60">
-                                            <SelectValue placeholder="Selecione o Endereço de Entrega" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {storeAddresses.map(addr => (
-                                                <SelectItem key={addr.id} value={addr.id}>
-                                                    {addr.is_main ? '⭐ ' : ''}{addr.title} — {addr.city}/{addr.state}
+                                 ) : (
+                                    <div className="space-y-3">
+                                        <Select 
+                                            value={selectedAddressId} 
+                                            onValueChange={(val: string | null) => {
+                                                if (val === 'add_new') {
+                                                    setNewAddressDialogOpen(true)
+                                                } else if (val) {
+                                                    setSelectedAddressId(val)
+                                                }
+                                            }}
+                                        >
+                                            <SelectTrigger className="bg-white/60 min-h-11 h-auto py-2">
+                                                <SelectValue placeholder="Selecione o Endereço de Entrega">
+                                                    {selectedAddressId && storeAddresses.find(a => a.id === selectedAddressId) ? (
+                                                        <div className="flex flex-col items-start text-left">
+                                                            <span className="font-bold text-xs uppercase tracking-tight text-primary">
+                                                                {storeAddresses.find(a => a.id === selectedAddressId)?.title}
+                                                            </span>
+                                                            <span className="text-sm truncate max-w-[200px] sm:max-w-[300px]">
+                                                                {storeAddresses.find(a => a.id === selectedAddressId)?.address}, {storeAddresses.find(a => a.id === selectedAddressId)?.number}
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        "Selecione o Endereço de Entrega"
+                                                    )}
+                                                </SelectValue>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase bg-slate-50/50">Meus Endereços</div>
+                                                {storeAddresses.map(addr => (
+                                                    <SelectItem key={addr.id} value={addr.id} className="py-3">
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <span className="font-bold flex items-center gap-1.5">
+                                                                {addr.is_main && <Check className="h-3 w-3 text-green-600" />}
+                                                                {addr.title}
+                                                            </span>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {addr.address}, {addr.number} — {addr.city}/{addr.state}
+                                                            </span>
+                                                        </div>
+                                                    </SelectItem>
+                                                ))}
+                                                <Separator className="my-1" />
+                                                <SelectItem value="add_new" className="py-3 text-primary font-bold focus:bg-primary/5">
+                                                    <div className="flex items-center gap-2">
+                                                        <PlusCircle className="h-4 w-4" />
+                                                        + Adicionar novo endereço
+                                                    </div>
                                                 </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                            </SelectContent>
+                                        </Select>
+
+                                        {selectedAddressId && storeAddresses.find(a => a.id === selectedAddressId) && (
+                                            <div className="p-3 rounded-xl bg-primary/5 border border-primary/10 space-y-1">
+                                                <p className="text-xs font-bold text-primary uppercase tracking-wider">Endereço Selecionado</p>
+                                                <p className="text-sm font-medium">
+                                                    {storeAddresses.find(a => a.id === selectedAddressId)?.address}, {storeAddresses.find(a => a.id === selectedAddressId)?.number}
+                                                    {storeAddresses.find(a => a.id === selectedAddressId)?.complement && ` — ${storeAddresses.find(a => a.id === selectedAddressId)?.complement}`}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {storeAddresses.find(a => a.id === selectedAddressId)?.neighborhood} — {storeAddresses.find(a => a.id === selectedAddressId)?.city} / {storeAddresses.find(a => a.id === selectedAddressId)?.state}
+                                                    <br />
+                                                    CEP: {storeAddresses.find(a => a.id === selectedAddressId)?.zip_code}
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        <Dialog open={newAddressDialogOpen} onOpenChange={setNewAddressDialogOpen}>
+                                            <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+                                                <DialogHeader>
+                                                    <DialogTitle className="text-xl font-bold font-heading">
+                                                        Novo Endereço de Entrega
+                                                    </DialogTitle>
+                                                    <DialogDescription>
+                                                        Adicione um novo local para entrega deste pedido.
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                                <div className="py-4">
+                                                    <AddressForm 
+                                                        onCancel={() => setNewAddressDialogOpen(false)}
+                                                        onSuccess={(newAddr) => {
+                                                            setStoreAddresses(prev => [...prev, newAddr])
+                                                            setSelectedAddressId(newAddr.id)
+                                                            setNewAddressDialogOpen(false)
+                                                        }}
+                                                    />
+                                                </div>
+                                            </DialogContent>
+                                        </Dialog>
+                                    </div>
                                 )}
                             </div>
                             {/* Payment Condition */}

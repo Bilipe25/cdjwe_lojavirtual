@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, Filter, X, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -27,15 +28,16 @@ import { useCustomerGreeting } from '@/lib/hooks/use-customer-greeting'
 
 const PAGE_SIZE = 12
 
+const CatalogContent = dynamic(() => Promise.resolve(CatalogContentInner), {
+    ssr: false,
+    loading: () => <div className="p-8"><ProductGridSkeleton count={12} /></div>
+})
+
 export default function CatalogPage() {
-    return (
-        <Suspense fallback={<div className="p-8"><ProductGridSkeleton count={12} /></div>}>
-            <CatalogContent />
-        </Suspense>
-    )
+    return <CatalogContent />
 }
 
-function CatalogContent() {
+function CatalogContentInner() {
     const [products, setProducts] = useState<(Product & { images: { url: string; is_primary: boolean }[] })[]>([])
     const [categories, setCategories] = useState<Category[]>([])
     const [fabrics, setFabrics] = useState<Fabric[]>([])
@@ -252,7 +254,8 @@ function CatalogContent() {
             {/* Filter Button (tablet only) - hidden on mobile (handled by MobileTopBar) and large desktop (sidebar) */}
             <div className="hidden md:flex lg:hidden mb-6">
                 <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-                    <SheetTrigger render={<Button variant="outline" className="w-full h-11 gap-2 bg-white/60" />}>
+                    <SheetTrigger asChild>
+                        <Button variant="outline" className="w-full h-11 gap-2 bg-white/60">
                             <SlidersHorizontal className="h-4 w-4" />
                             Filtros
                             {activeFilters.length > 0 && (
@@ -260,6 +263,7 @@ function CatalogContent() {
                                     {activeFilters.length}
                                 </Badge>
                             )}
+                        </Button>
                     </SheetTrigger>
                     <SheetContent side="left" className="w-80">
                         <SheetHeader>
@@ -291,8 +295,8 @@ function CatalogContent() {
             {activeFilters.length > 0 && (
                 <div className="flex items-center gap-2 mb-4 flex-wrap">
                     <Filter className="h-4 w-4 text-muted-foreground" />
-                    {activeFilters.map((filter) => (
-                        <Badge key={filter || Math.random()} variant="secondary" className="gap-1">
+                    {activeFilters.filter((filter): filter is string => typeof filter === 'string').map((filter) => (
+                        <Badge key={filter} variant="secondary" className="gap-1">
                             {filter}
                         </Badge>
                     ))}

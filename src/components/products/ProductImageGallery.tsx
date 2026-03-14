@@ -62,12 +62,32 @@ export function ProductImageGallery({
         startIndex: activeImageIndex
     })
 
-    // Synchronize carousels with prop index
+    // Sincronizar carousels com prop index
     useEffect(() => {
         if (emblaMainApi) emblaMainApi.scrollTo(activeImageIndex)
         if (emblaThumbsApi) emblaThumbsApi.scrollTo(activeImageIndex)
         if (emblaMobileThumbsApi) emblaMobileThumbsApi.scrollTo(activeImageIndex)
     }, [activeImageIndex, emblaMainApi, emblaThumbsApi, emblaMobileThumbsApi])
+
+    // Notificar estado do lightbox para outros componentes (ex: Vaul Drawer)
+    useEffect(() => {
+        const event = new CustomEvent('lightbox-state-change', { detail: { open: lightboxOpen } })
+        window.dispatchEvent(event)
+    }, [lightboxOpen])
+
+    // Quando a lightbox abre, o Radix (base do Vaul) seta pointer-events:none no body
+    // bloqueando o portal da lightbox. Precisamos forçar reset aqui.
+    useEffect(() => {
+        if (!lightboxOpen) return
+        const prev = document.body.style.pointerEvents
+        const prevTouch = document.body.style.touchAction
+        document.body.style.pointerEvents = 'auto'
+        document.body.style.touchAction = 'auto'
+        return () => {
+            document.body.style.pointerEvents = prev
+            document.body.style.touchAction = prevTouch
+        }
+    }, [lightboxOpen])
 
     const onThumbClick = useCallback(
         (index: number) => {
@@ -148,7 +168,7 @@ export function ProductImageGallery({
 
             {/* Main Gallery Wrapper */}
             <div className="flex-1 min-w-0 relative group">
-                <div className="overflow-hidden rounded-2xl bg-muted glass-card aspect-square touch-pan-y" ref={emblaMainRef}>
+                <div className={`overflow-hidden rounded-2xl bg-muted glass-card aspect-square${lightboxOpen ? ' pointer-events-none' : ''}`} ref={emblaMainRef}>
                     <div className="flex">
                         {images.map((img, index) => (
                             <div 
@@ -157,24 +177,37 @@ export function ProductImageGallery({
                                 onMouseMove={handleMouseMove}
                                 onMouseEnter={() => setIsHovering(true)}
                                 onMouseLeave={() => setIsHovering(false)}
-                                onClick={() => setLightboxOpen(true)}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (!lightboxOpen) setLightboxOpen(true)
+                                }}
                             >
                                 {isMobile ? (
                                     <TransformWrapper
                                         initialScale={1}
-                                        panning={{ disabled: false }}
+                                        disabled={lightboxOpen}
+                                        panning={{ disabled: lightboxOpen }}
+                                        pinch={{ disabled: lightboxOpen }}
                                         wheel={{ disabled: true }}
-                                        doubleClick={{ disabled: false }}
+                                        doubleClick={{ disabled: lightboxOpen }}
                                     >
-                                        <TransformComponent wrapperClass="w-full h-full" contentClass="w-full h-full">
-                                            <Image
-                                                src={img.url}
-                                                alt={`${productName} - Imagem ${index + 1}`}
-                                                fill
-                                                priority={index <= 1}
-                                                className="object-cover"
-                                                onLoad={() => handleImageLoad(img.id)}
-                                            />
+                                        <TransformComponent 
+                                            wrapperClass="absolute inset-0 w-full h-full" 
+                                            contentClass="w-full h-full"
+                                            wrapperStyle={{ width: '100%', height: '100%' }}
+                                            contentStyle={{ width: '100%', height: '100%' }}
+                                        >
+                                            <div className="relative w-full h-full">
+                                                <Image
+                                                    src={img.url}
+                                                    alt={`${productName} - Imagem ${index + 1}`}
+                                                    fill
+                                                    sizes="(max-width: 768px) 100vw, 50vw"
+                                                    priority={index <= 1}
+                                                    className="object-cover"
+                                                    onLoad={() => handleImageLoad(img.id)}
+                                                />
+                                            </div>
                                         </TransformComponent>
                                     </TransformWrapper>
                                 ) : (
@@ -295,28 +328,44 @@ export function ProductImageGallery({
                 </div>
             )}
 
-            {/* Fullscreen Lightbox */}
+            {/* Lightbox — renderiza em portal no document.body, z-index 9999 */}
             <Lightbox
-                open={lightboxOpen}
-                close={() => setLightboxOpen(false)}
-                index={activeImageIndex}
-                slides={slides}
-                plugins={[Zoom, Thumbnails]}
-                zoom={{
-                    maxZoomPixelRatio: 4,
-                    zoomInMultiplier: 2.5,
-                    doubleTapDelay: 300,
-                    doubleClickDelay: 300,
-                    doubleClickMaxStops: 2,
-                    keyboardMoveDistance: 50,
-                    wheelZoomDistanceFactor: 100,
-                    pinchZoomDistanceFactor: 100,
-                    scrollToZoom: true,
-                }}
-                styles={{
-                    container: { backgroundColor: "rgba(0, 0, 0, .95)" },
-                }}
-            />
+                    open={lightboxOpen}
+                    close={() => setLightboxOpen(false)}
+                    index={activeImageIndex}
+                    slides={slides}
+                    plugins={[Zoom, Thumbnails]}
+                    on={{
+                        view: ({ index }) => onImageChange?.(index)
+                    }}
+                    carousel={{
+                        finite: false,
+                        preload: 2,
+                        padding: isMobile ? "16px" : "0px",
+                    }}
+                    controller={{
+                        closeOnPullDown: false,
+                        closeOnPullUp: false,
+                        closeOnBackdropClick: true,
+                    }}
+                    zoom={{
+                        maxZoomPixelRatio: 4,
+                        zoomInMultiplier: 2.5,
+                        doubleTapDelay: 300,
+                        doubleClickDelay: 300,
+                        doubleClickMaxStops: 2,
+                        keyboardMoveDistance: 50,
+                        wheelZoomDistanceFactor: 100,
+                        pinchZoomDistanceFactor: 100,
+                        scrollToZoom: !isMobile,
+                    }}
+                    styles={{
+                        container: { 
+                            backgroundColor: "rgba(0, 0, 0, 1)", 
+                            zIndex: 9999 
+                        },
+                    }}
+                />
         </div>
     )
 }

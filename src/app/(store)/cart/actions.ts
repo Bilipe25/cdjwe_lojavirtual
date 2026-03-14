@@ -99,6 +99,46 @@ export async function getAvailableStoreAddresses() {
     return addresses || []
 }
 
+export async function createStoreAddress(data: {
+    title: string
+    zip_code: string
+    address: string
+    number?: string
+    complement?: string
+    neighborhood?: string
+    city: string
+    state: string
+    is_main?: boolean
+}) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: 'Usuário não autenticado.' }
+
+    const { data: store } = await supabase
+        .from('stores')
+        .select('id')
+        .eq('profile_id', user.id)
+        .single()
+
+    if (!store) return { error: 'Loja do usuário não localizada.' }
+
+    const { data: newAddress, error } = await supabase
+        .from('store_addresses')
+        .insert({
+            ...data,
+            store_id: store.id
+        })
+        .select('*')
+        .single()
+
+    if (error) {
+        console.error('[CART_ACTIONS] Create address error:', error)
+        return { error: 'Erro ao criar endereço.' }
+    }
+
+    return { success: true, address: newAddress }
+}
+
 export async function checkoutAction(
     items: CartItem[], 
     selectedPaymentId: string, 

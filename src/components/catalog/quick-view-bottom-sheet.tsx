@@ -1,5 +1,4 @@
-'use client'
-
+import { useState, useEffect, useRef } from 'react'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { useQuickViewData, QuickViewContent } from '@/components/catalog/quick-view-content'
@@ -12,12 +11,36 @@ interface QuickViewBottomSheetProps {
 
 export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBottomSheetProps) {
     const data = useQuickViewData(productId, open)
+    const [isLightboxOpen, setIsLightboxOpen] = useState(false)
+    const drawerContentRef = useRef<HTMLDivElement>(null)
+
+    // Quando a lightbox abre, aplica inert no Drawer.Content para silenciar
+    // TODOS os listeners de toque do Vaul no nível do browser (funciona mesmo
+    // contra capture listeners no document/window).
+    useEffect(() => {
+        const el = drawerContentRef.current
+        if (!el) return
+        if (isLightboxOpen) {
+            el.setAttribute('inert', '')
+        } else {
+            el.removeAttribute('inert')
+        }
+    }, [isLightboxOpen])
+
+    useEffect(() => {
+        const handleLightboxState = (e: any) => {
+            setIsLightboxOpen(!!e.detail?.open)
+        }
+        window.addEventListener('lightbox-state-change', handleLightboxState)
+        return () => window.removeEventListener('lightbox-state-change', handleLightboxState)
+    }, [])
 
     return (
         <Drawer.Root
             open={open}
             onOpenChange={(val) => !val && onClose()}
             shouldScaleBackground
+            dismissible={!isLightboxOpen}
         >
             <Drawer.Portal>
                 <Drawer.Overlay
@@ -25,6 +48,7 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                     onClick={onClose}
                 />
                 <Drawer.Content
+                    ref={drawerContentRef}
                     className="fixed bottom-0 left-0 right-0 z-50 flex flex-col bg-white rounded-t-3xl focus:outline-none"
                     style={{ maxHeight: '92dvh' }}
                 >
