@@ -134,11 +134,11 @@ export function ProductImageGallery({
     const slides = images.map(img => ({ src: img.url }))
 
     return (
-        <div className="flex flex-col md:flex-row gap-4">
+        <div className="flex flex-col md:flex-row gap-2 md:gap-4 h-full p-2 md:p-4">
             {/* Desktop Thumbnails (Vertical) */}
             {images.length > 1 && (
-                <div className="hidden md:block w-20 shrink-0">
-                    <div className="overflow-hidden h-[450px]" ref={emblaThumbsRef}>
+                <div className="hidden md:flex flex-col w-[72px] shrink-0 h-full"> 
+                    <div className="overflow-hidden flex-1 relative" ref={emblaThumbsRef}>
                         <div className="flex flex-col gap-3 py-1">
                             {images.map((img, index) => (
                                 <button
@@ -167,13 +167,13 @@ export function ProductImageGallery({
             )}
 
             {/* Main Gallery Wrapper */}
-            <div className="flex-1 min-w-0 relative group">
-                <div className={`overflow-hidden rounded-2xl bg-muted glass-card aspect-square${lightboxOpen ? ' pointer-events-none' : ''}`} ref={emblaMainRef}>
-                    <div className="flex">
+            <div className="flex-1 min-w-0 relative group flex flex-col justify-center">
+                <div className={`overflow-hidden rounded-2xl bg-muted/30 aspect-square flex items-center justify-center${lightboxOpen ? ' pointer-events-none' : ''}`} ref={emblaMainRef}>
+                    <div className="flex w-full h-full">
                         {images.map((img, index) => (
                             <div 
                                 key={img.id + '-' + index} 
-                                className="relative flex-[0_0_100%] min-w-0 aspect-square cursor-zoom-in group/main"
+                                className="relative flex-[0_0_100%] min-w-0 h-full cursor-zoom-in group/main"
                                 onMouseMove={handleMouseMove}
                                 onMouseEnter={() => setIsHovering(true)}
                                 onMouseLeave={() => setIsHovering(false)}

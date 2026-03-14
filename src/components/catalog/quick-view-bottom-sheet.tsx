@@ -49,21 +49,24 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                 />
                 <Drawer.Content
                     ref={drawerContentRef}
-                    className="fixed bottom-0 left-0 right-0 z-50 flex flex-col bg-white rounded-t-3xl focus:outline-none"
+                    className="fixed bottom-0 left-0 right-0 z-50 flex flex-col bg-white rounded-t-2xl focus:outline-none"
                     style={{ maxHeight: '92dvh' }}
                 >
                     <Drawer.Title className="sr-only">Detalhes do produto</Drawer.Title>
-                    {/* Drag Handle */}
-                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 rounded-full bg-muted shrink-0" />
-
-                    {/* Close button */}
-                    <button
-                        onClick={onClose}
-                        className="absolute top-4 right-4 h-8 w-8 rounded-full bg-muted/60 flex items-center justify-center hover:bg-muted transition-colors z-10"
-                        aria-label="Fechar"
-                    >
-                        <X className="h-4 w-4 text-muted-foreground" />
-                    </button>
+                    
+                    {/* Header compactado para ganhar espaço de tela */}
+                    <div className="flex items-center justify-between px-4 py-2 shrink-0 border-b border-border/50 bg-muted/10">
+                        {/* Fake drag handle alinhado à esquerda na barra pra não roubar altura extra (ou remover visual no B2B já que swipe funciona igual) */}
+                        <div className="mx-auto h-1.5 w-10 rounded text-transparent bg-muted/60 absolute left-1/2 -translate-x-1/2 top-3" />
+                        <span className="text-xs font-semibold text-muted-foreground invisible">Modal</span>
+                        <button
+                            onClick={onClose}
+                            className="h-8 w-8 rounded-md bg-white border border-border shadow-sm flex items-center justify-center hover:bg-muted transition-colors ml-auto z-10"
+                            aria-label="Fechar"
+                        >
+                            <X className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                    </div>
 
                     {/* Content — fills remaining height, scrolls internally */}
                     <div className="flex-1 overflow-y-auto overscroll-contain" data-vaul-no-drag>
