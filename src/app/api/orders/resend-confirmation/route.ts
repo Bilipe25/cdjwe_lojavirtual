@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
             subject: `📋 Pedido #${order.order_number} confirmado — ${systemName}`,
             senderName: systemName,
             react: React.createElement(OrderConfirmationEmail, {
+                orderId: order.id,
                 orderNumber: order.order_number,
                 clientName: profile?.full_name || 'Cliente',
                 items: (items || []).map((item: any) => ({
