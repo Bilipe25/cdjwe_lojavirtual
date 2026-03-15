@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { Product } from '@/lib/types'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
+import { usePriceTableStore } from '@/lib/stores/price-table-store'
 
 import { useRouter } from 'next/navigation'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
@@ -25,7 +26,10 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
     const isMobile = useIsMobile()
     const primaryImage = product.images?.find((img) => img.is_primary) || product.images?.[0]
     const { isFavorite, toggle } = useFavoritesStore()
+    const { calculateB2BPrice } = usePriceTableStore()
     const favorited = isFavorite(product.id)
+
+    const basePriceCalc = calculateB2BPrice(product.base_price) ?? product.base_price
 
     const handleCardClick = () => {
         if (isMobile && onQuickView) {
@@ -130,7 +134,7 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
                                 <>
                                     <p className="text-[10px] sm:text-xs text-muted-foreground">A partir de</p>
                                     <p className="text-base sm:text-lg font-bold text-gradient-bronze">
-                                        R$ {product.base_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                        R$ {basePriceCalc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                     </p>
                                 </>
                             )}

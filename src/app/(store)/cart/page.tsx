@@ -621,7 +621,7 @@ export default function CartPage() {
                             )}
 
                             <Button
-                                className="w-full h-12 text-base gradient-navy border-0 text-white"
+                                className="w-full h-12 text-base gradient-bronze border-0 text-white shadow-md hover:shadow-lg transition-all"
                                 onClick={handlePlaceOrder}
                                 disabled={loading || !minOrderMet}
                             >

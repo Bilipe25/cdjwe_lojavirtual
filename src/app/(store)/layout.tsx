@@ -21,6 +21,7 @@ import { getWhatsAppLink } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
+import { PriceTableInitializer } from '@/components/store/PriceTableInitializer'
 
 export default function StoreLayout({
     children,
@@ -127,6 +128,9 @@ export default function StoreLayout({
 
                     {/* Mobile Bottom Nav - hidden on desktop */}
                     <MobileBottomNav />
+
+                    {/* Price Table State Populator (Client-side) */}
+                    <PriceTableInitializer />
 
                     {/* Global Floating Actions - Correctly nested inside Providers */}
                     <GlobalFloatingActions />

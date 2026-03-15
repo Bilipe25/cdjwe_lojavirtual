@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator'
 import { createClient } from '@/lib/supabase/client'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
+import { usePriceTableStore } from '@/lib/stores/price-table-store'
 import { toast } from 'sonner'
 import type { Product, ProductImage, ProductVariant, Fabric, FabricColor } from '@/lib/types'
 import { ProductImageGallery } from '../products/ProductImageGallery'
@@ -90,6 +91,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
     const { product, images, fabrics, variants, loading } = data
     const { addItem, openCart } = useCartStore()
     const { isFavorite, toggle } = useFavoritesStore()
+    const { calculateB2BPrice, discountPercentage, overrides } = usePriceTableStore()
 
     const [selectedFabric, setSelectedFabric] = useState<string | null>(null)
     const [quantities, setQuantities] = useState<Record<string, number>>({})
@@ -141,31 +143,52 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
 
     const totalQuantity = Object.values(quantities).reduce((a, b) => a + b, 0)
     const selectedFabricObj = fabrics.find(f => f.id === selectedFabric)
-    const displayPrice = (product?.base_price ?? 0) + (selectedFabricObj?.price_modifier ?? 0)
+    const baseDisplayPrice = (product?.base_price ?? 0) + (selectedFabricObj?.price_modifier ?? 0)
+    const displayPrice = calculateB2BPrice(baseDisplayPrice) ?? baseDisplayPrice
     const favorited = product ? isFavorite(product.id) : false
-    const totalPrice = displayPrice * totalQuantity
+    
+    // Calculate accurate total summing each variant due to individual price overrides
+    let accTotalPrice = 0;
+    Object.entries(quantities).filter(([_, qty]) => qty > 0).forEach(([variantId, qty]) => {
+        const matchedVariant = variants.find((v: any) => v.id === variantId);
+        if (!matchedVariant) return;
+        
+        const fabricObjForTotal = fabrics.find(f => f.id === matchedVariant.fabric_id);
+        const calcBase = product?.base_price ?? 0;
+        const calcMod = matchedVariant?.fabric?.price_modifier ?? fabricObjForTotal?.price_modifier ?? 0;
+        
+        const sysBase = (matchedVariant as any)?.price_override ?? (calcBase + calcMod);
+        const variantFinalPrice = calculateB2BPrice(sysBase, matchedVariant?.id) ?? sysBase;
+        
+        accTotalPrice += variantFinalPrice * qty;
+    })
+    
+    const totalPrice = accTotalPrice
 
     const handleAddToCart = () => {
-        if (!product || !selectedFabric) return
-        const colorsToAdd = Object.entries(quantities).filter(([_, qty]) => qty > 0)
-        if (colorsToAdd.length === 0) return
+        if (!product) return
+        const variantsToAdd = Object.entries(quantities).filter(([_, qty]) => qty > 0)
+        if (variantsToAdd.length === 0) return
 
         setAddingToCart(true)
-        colorsToAdd.forEach(([colorId, qty]) => {
-            const matchedVariant = variants.find(
-                (v: any) => v.fabric_id === selectedFabric && v.fabric_color_id === colorId
-            )
-            const colorObj = selectedFabricObj?.colors.find(c => c.id === colorId)
-            const variantPrice = (matchedVariant as any)?.price_override ?? displayPrice
+        variantsToAdd.forEach(([variantId, qty]) => {
+            const matchedVariant = variants.find((v: any) => v.id === variantId)
+            if (!matchedVariant) return
+
+            const fabricObj = fabrics.find(f => f.id === matchedVariant.fabric_id)
+            const colorObj = fabricObj?.colors.find(c => c.id === matchedVariant.fabric_color_id)
+            
+            const variantBase = (matchedVariant as any)?.price_override ?? ((product.base_price ?? 0) + (fabricObj?.price_modifier ?? 0));
+            const variantPrice = calculateB2BPrice(variantBase, matchedVariant.id) ?? variantBase;
 
             addItem({
-                variantId: matchedVariant?.id || `${product.id}-${selectedFabric}-${colorId}`,
+                variantId: matchedVariant.id,
                 productId: product.id,
                 productName: product.name,
-                fabricName: selectedFabricObj?.name || '',
+                fabricName: fabricObj?.name || '',
                 colorName: colorObj?.name || '',
                 size: product.size,
-                imageUrl: images[0]?.url || null,
+                imageUrl: colorObj?.image_url || images[0]?.url || null,
                 quantity: qty,
                 unitPrice: variantPrice,
             })
@@ -239,7 +262,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                 {fabrics.map(f => (
                                     <button
                                         key={f.id}
-                                        onClick={() => { setSelectedFabric(f.id); setQuantities({}) }}
+                                        onClick={() => { setSelectedFabric(f.id); }}
                                         className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
                                             selectedFabric === f.id
                                                 ? 'bg-primary text-primary-foreground border-primary'
@@ -284,14 +307,18 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                             {/* Color List Dense */}
                             <div className="flex flex-col gap-1.5">
                                 {filteredColors.map(color => {
-                                    const qty = quantities[color.id] || 0
-                                    const isSelected = qty > 0
-
-                                    // Identificar o preço específico dessa variante/cor
+                                    // Identificar a variante correspondente a esta cor no tecido selecionado
                                     const variant = variants.find(
                                         (v: any) => v.fabric_id === selectedFabric && v.fabric_color_id === color.id
                                     )
-                                    const unitPrice = (variant as any)?.price_override ?? displayPrice
+                                    if (!variant) return null;
+
+                                    const qty = quantities[variant.id] || 0
+                                    const isSelected = qty > 0
+
+                                    const variantBase = (variant as any)?.price_override ?? ((product?.base_price ?? 0) + (selectedFabricObj.price_modifier ?? 0))
+                                    const unitPrice = calculateB2BPrice(variantBase, variant.id) ?? variantBase
+                                    const isOverridden = overrides[variant.id] !== undefined
                                     const lineTotal = unitPrice * qty
 
                                     return (
@@ -318,9 +345,17 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                                     <span className={`text-sm truncate select-none ${isSelected ? 'font-semibold text-foreground' : 'text-muted-foreground font-medium'}`}>
                                                         {color.name}
                                                     </span>
-                                                    <span className="text-[10px] text-muted-foreground font-medium">
-                                                        R$ {unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / un
-                                                    </span>
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span className="text-[10px] text-muted-foreground font-medium">
+                                                            R$ {unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / un
+                                                        </span>
+                                                        {isOverridden && (
+                                                            <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-medium">Fixo</span>
+                                                        )}
+                                                        {!isOverridden && discountPercentage > 0 && (
+                                                            <span className="text-[9px] bg-green-100 text-green-800 px-1 rounded font-medium">-{discountPercentage}%</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
 
@@ -336,7 +371,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                                     <button
                                                         className="h-6 w-6 md:h-7 md:w-8 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
                                                         disabled={qty === 0}
-                                                        onClick={() => setQuantities(prev => ({ ...prev, [color.id]: Math.max(0, qty - 1) }))}
+                                                        onClick={() => setQuantities(prev => ({ ...prev, [variant.id]: Math.max(0, qty - 1) }))}
                                                     >
                                                         <Minus className="h-3 w-3" />
                                                     </button>
@@ -346,7 +381,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                                     </span>
                                                     <button
                                                         className="h-6 w-6 md:h-7 md:w-8 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95 transition-all"
-                                                        onClick={() => setQuantities(prev => ({ ...prev, [color.id]: qty + 1 }))}
+                                                        onClick={() => setQuantities(prev => ({ ...prev, [variant.id]: qty + 1 }))}
                                                     >
                                                         <Plus className="h-3 w-3" />
                                                     </button>
