@@ -16,18 +16,38 @@ export async function POST(req: NextRequest) {
         const { type, payload } = body
 
         if (!type || !payload) {
-            return NextResponse.json({ error: 'Tipo e payload obrigatórios.' }, { status: 400 })
+            return NextResponse.json({ error: 'Tipo e payload obrigatorios.' }, { status: 400 })
         }
 
         const supabase = await createClient()
 
-        // 🔒 Security: Verify authenticated user
+        // Auth check
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) {
-            return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+            return NextResponse.json({ error: 'Nao autorizado.' }, { status: 401 })
         }
 
-        // Fetch system settings for system_name and admin email
+        const { data: requesterProfile } = await supabase
+            .from('profiles')
+            .select('role, email')
+            .eq('id', user.id)
+            .single()
+
+        const requesterRole = requesterProfile?.role || 'client'
+        const requesterEmail = requesterProfile?.email || user.email || null
+
+        const adminOnlyTypes = new Set(['account_approved', 'new_order_admin', 'order_status'])
+        if (adminOnlyTypes.has(type) && requesterRole !== 'admin') {
+            return NextResponse.json({ error: 'Acesso negado para este tipo de envio.' }, { status: 403 })
+        }
+
+        // For order confirmation, allow admins or the order owner email only.
+        if (type === 'order_confirmation' && requesterRole !== 'admin') {
+            if (!requesterEmail || payload.clientEmail !== requesterEmail) {
+                return NextResponse.json({ error: 'Acesso negado para confirmar este pedido.' }, { status: 403 })
+            }
+        }
+
         const { data: settings } = await supabase
             .from('system_settings')
             .select('system_name, email')
@@ -37,18 +57,17 @@ export async function POST(req: NextRequest) {
         const systemName = settings?.system_name || 'CDJWE'
         const adminEmail = settings?.email
 
-        // Common props for all templates
         const commonProps = { systemName, appUrl: APP_URL }
         const emailOptions = { senderName: systemName }
 
         switch (type) {
             case 'new_registration': {
                 if (!adminEmail) {
-                    return NextResponse.json({ error: 'Email do admin não configurado nas configurações do sistema.' }, { status: 400 })
+                    return NextResponse.json({ error: 'Email do admin nao configurado nas configuracoes do sistema.' }, { status: 400 })
                 }
                 await sendEmail({
                     to: adminEmail,
-                    subject: `📋 Novo cadastro: ${payload.clientName} — ${systemName}`,
+                    subject: `Novo cadastro: ${payload.clientName} - ${systemName}`,
                     ...emailOptions,
                     react: React.createElement(NewRegistrationEmail, {
                         clientName: payload.clientName,
@@ -63,11 +82,11 @@ export async function POST(req: NextRequest) {
 
             case 'account_approved': {
                 if (!payload.clientEmail) {
-                    return NextResponse.json({ error: 'Email do cliente obrigatório.' }, { status: 400 })
+                    return NextResponse.json({ error: 'Email do cliente obrigatorio.' }, { status: 400 })
                 }
                 await sendEmail({
                     to: payload.clientEmail,
-                    subject: `✅ Sua conta foi aprovada — ${systemName}`,
+                    subject: `Sua conta foi aprovada - ${systemName}`,
                     ...emailOptions,
                     react: React.createElement(AccountApprovedEmail, {
                         clientName: payload.clientName,
@@ -79,11 +98,11 @@ export async function POST(req: NextRequest) {
 
             case 'new_order_admin': {
                 if (!adminEmail) {
-                    return NextResponse.json({ error: 'Email do admin não configurado.' }, { status: 400 })
+                    return NextResponse.json({ error: 'Email do admin nao configurado.' }, { status: 400 })
                 }
                 await sendEmail({
                     to: adminEmail,
-                    subject: `🛒 Novo pedido #${payload.orderNumber} — ${systemName}`,
+                    subject: `Novo pedido #${payload.orderNumber} - ${systemName}`,
                     ...emailOptions,
                     react: React.createElement(NewOrderEmail, {
                         orderId: payload.orderId,
@@ -101,11 +120,11 @@ export async function POST(req: NextRequest) {
 
             case 'order_confirmation': {
                 if (!payload.clientEmail) {
-                    return NextResponse.json({ error: 'Email do cliente obrigatório.' }, { status: 400 })
+                    return NextResponse.json({ error: 'Email do cliente obrigatorio.' }, { status: 400 })
                 }
                 await sendEmail({
                     to: payload.clientEmail,
-                    subject: `📋 Pedido #${payload.orderNumber} confirmado — ${systemName}`,
+                    subject: `Pedido #${payload.orderNumber} confirmado - ${systemName}`,
                     ...emailOptions,
                     react: React.createElement(OrderConfirmationEmail, {
                         orderId: payload.orderId,
@@ -124,11 +143,11 @@ export async function POST(req: NextRequest) {
 
             case 'order_status': {
                 if (!payload.clientEmail) {
-                    return NextResponse.json({ error: 'Email do cliente obrigatório.' }, { status: 400 })
+                    return NextResponse.json({ error: 'Email do cliente obrigatorio.' }, { status: 400 })
                 }
                 await sendEmail({
                     to: payload.clientEmail,
-                    subject: `🔄 Pedido #${payload.orderNumber} — Atualização de status — ${systemName}`,
+                    subject: `Pedido #${payload.orderNumber} - Atualizacao de status - ${systemName}`,
                     ...emailOptions,
                     react: React.createElement(OrderStatusEmail, {
                         orderId: payload.orderId,
@@ -147,7 +166,7 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ success: true })
     } catch (error: unknown) {
-        console.error('[API Email] Erro:', error)
+        console.error('[API Email] Error:', error)
         const message = error instanceof Error ? error.message : 'Erro interno.'
         return NextResponse.json({ error: message }, { status: 500 })
     }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Key, Copy, Send, Loader2, MessageCircle, Mail, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Key, Copy, Loader2, MessageCircle, Mail, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import {
     Dialog,
     DialogContent,

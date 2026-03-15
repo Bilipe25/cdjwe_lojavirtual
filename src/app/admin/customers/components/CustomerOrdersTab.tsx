@@ -1,19 +1,28 @@
-import { format } from 'date-fns'
+﻿import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { ShoppingBag } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
 const orderStatusLabels: Record<string, string> = {
-    pending: 'Em análise',
+    pending: 'Em analise',
     approved: 'Aprovado',
-    in_production: 'Em produção',
+    in_production: 'Em producao',
     shipped: 'Enviado',
     delivered: 'Entregue',
     cancelled: 'Cancelado',
 }
 
+export interface CustomerOrderSummary {
+    id: string
+    order_number: string
+    status: string
+    payment_status: string
+    total: number
+    created_at: string
+}
+
 interface CustomerOrdersTabProps {
-    orders: any[]
+    orders: CustomerOrderSummary[]
     loading: boolean
 }
 

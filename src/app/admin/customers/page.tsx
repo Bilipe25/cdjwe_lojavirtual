@@ -1,11 +1,20 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { createCustomerAsAdmin, updateCustomerAsAdmin, getCustomerTags, getRepresentatives, deleteCustomerAction, bulkDeleteCustomersAction } from './actions'
+import {
+    createCustomerAsAdminTx,
+    updateCustomerAsAdminTx,
+    getCustomerTags,
+    getRepresentatives,
+    deleteCustomerAction,
+    bulkDeleteCustomersAction,
+    updateCustomerStatusAsAdmin,
+    bulkUpdateCustomerStatusAsAdmin,
+} from './actions'
 import type { CustomerType, CustomerTag, Profile } from '@/lib/types'
 import type { CustomerEditFormData } from './schema'
 
@@ -20,9 +29,10 @@ import { CustomerAccessModal } from './components/CustomerAccessModal'
 import { type CustomerFormData } from './schema'
 
 const ITEMS_PER_PAGE = 15;
+type CustomerStatusAction = 'pending' | 'approved' | 'blocked' | 'imported' | 'delete'
 
 export default function CustomersPage() {
-    const supabase = createClient()
+    const supabase = useMemo(() => createClient(), [])
 
     // Data State
     const [customers, setCustomers] = useState<CustomerWithStore[]>([])
@@ -146,13 +156,26 @@ export default function CustomersPage() {
     }, [debouncedSearch, statusFilter, typeFilter, currentPage, supabase])
 
     useEffect(() => {
-        loadData()
+        const timer = setTimeout(() => {
+            void loadData()
+        }, 0)
+        return () => clearTimeout(timer)
     }, [loadData])
 
-    // Reset pagination on filter changes
-    useEffect(() => {
+    const handleSearchChange = (value: string) => {
+        setSearch(value)
         setCurrentPage(1)
-    }, [debouncedSearch, statusFilter, typeFilter])
+    }
+
+    const handleStatusFilterChange = (value: string) => {
+        setStatusFilter(value)
+        setCurrentPage(1)
+    }
+
+    const handleTypeFilterChange = (value: string) => {
+        setTypeFilter(value)
+        setCurrentPage(1)
+    }
 
     // Toggle Selection
     const toggleSelect = (id: string) => {
@@ -162,7 +185,7 @@ export default function CustomersPage() {
     }
 
     // Server Actions
-    const updateStatus = async (profileId: string, status: string) => {
+    const updateStatus = async (profileId: string, status: CustomerStatusAction) => {
         if (status === 'delete') {
             if (!confirm('Tem certeza que deseja EXCLUIR este cliente? Esta ação não pode ser desfeita.')) return
             
@@ -176,33 +199,14 @@ export default function CustomersPage() {
             return
         }
 
-        const { error } = await supabase.from('profiles').update({ status }).eq('id', profileId)
-
-        if (error) {
-            toast.error('Erro ao atualizar status')
+        const result = await updateCustomerStatusAsAdmin(profileId, status)
+        if (result.error) {
+            toast.error(result.error)
             return
         }
 
-        // Send approval email to customer
-        if (status === 'approved') {
-            const customer = customers.find(c => c.id === profileId)
-            if (customer?.email) {
-                fetch('/api/email/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type: 'account_approved',
-                        payload: {
-                            clientName: customer.full_name,
-                            clientEmail: customer.email,
-                        },
-                    }),
-                }).catch(() => {})
-            }
-        }
-
         setCustomers(prev =>
-            prev.map(c => c.id === profileId ? { ...c, status: status as any } : c)
+            prev.map(c => c.id === profileId ? { ...c, status } : c)
         )
         
         const statusLabels: Record<string, string> = {
@@ -234,7 +238,7 @@ export default function CustomersPage() {
         if (data.state) formData.append('state', data.state)
         if (data.zipCode) formData.append('zipCode', data.zipCode)
 
-        const res = await createCustomerAsAdmin(formData)
+        const res = await createCustomerAsAdminTx(formData)
 
         setIsCreating(false)
         
@@ -249,7 +253,7 @@ export default function CustomersPage() {
     }
 
     const handleEditCustomer = async (profileId: string, storeId: string, data: CustomerEditFormData) => {
-        const res = await updateCustomerAsAdmin(profileId, storeId, {
+        const res = await updateCustomerAsAdminTx(profileId, storeId, {
             fullName: data.fullName,
             email: data.email,
             phone: data.phone,
@@ -277,25 +281,8 @@ export default function CustomersPage() {
 
     // Bulk Actions
     const handleBulkApprove = async () => {
-        const { error } = await supabase.from('profiles').update({ status: 'approved' }).in('id', selectedIds)
-        if (error) { toast.error('Erro ao aprovar clientes em massa.'); return }
-
-        const approvedCustomers = customers.filter(c => selectedIds.includes(c.id))
-        for (const customer of approvedCustomers) {
-            if (customer.email) {
-                fetch('/api/email/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type: 'account_approved',
-                        payload: {
-                            clientName: customer.full_name,
-                            clientEmail: customer.email,
-                        },
-                    }),
-                }).catch(() => {})
-            }
-        }
+        const result = await bulkUpdateCustomerStatusAsAdmin(selectedIds, 'approved')
+        if (result.error) { toast.error(result.error); return }
 
         toast.success(`${selectedIds.length} clientes aprovados!`)
         setSelectedIds([])
@@ -303,8 +290,8 @@ export default function CustomersPage() {
     }
 
     const handleBulkBlock = async () => {
-        const { error } = await supabase.from('profiles').update({ status: 'blocked' }).in('id', selectedIds)
-        if (error) { toast.error('Erro ao bloquear clientes em massa.'); return }
+        const result = await bulkUpdateCustomerStatusAsAdmin(selectedIds, 'blocked')
+        if (result.error) { toast.error(result.error); return }
         toast.success(`${selectedIds.length} clientes bloqueados!`)
         setSelectedIds([])
         loadData()
@@ -346,11 +333,11 @@ export default function CustomersPage() {
 
             <CustomerFilters 
                 search={search}
-                onSearchChange={setSearch}
+                onSearchChange={handleSearchChange}
                 statusFilter={statusFilter}
-                onStatusChange={setStatusFilter}
+                onStatusChange={handleStatusFilterChange}
                 typeFilter={typeFilter}
-                onTypeChange={setTypeFilter}
+                onTypeChange={handleTypeFilterChange}
                 customerTypes={customerTypes}
                 selectedCount={selectedIds.length}
                 onBulkApprove={handleBulkApprove}

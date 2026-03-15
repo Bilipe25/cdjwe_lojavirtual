@@ -1,14 +1,14 @@
 'use server'
 
 import { createServerClient } from '@supabase/ssr'
-import { cookies, headers } from 'next/headers'
+import { cookies } from 'next/headers'
 
 // ==================== HELPER: Get Admin Supabase Client ====================
 
 async function getAdminClient() {
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     if (!serviceRoleKey) {
-        throw new Error('Chave SUPABASE_SERVICE_ROLE_KEY não configurada no servidor.')
+        throw new Error('Chave SUPABASE_SERVICE_ROLE_KEY nao configurada no servidor.')
     }
 
     const cookieStore = await cookies()
@@ -41,144 +41,117 @@ async function verifyAdmin() {
     if (!user) throw new Error('Acesso negado')
 
     const { data: adminProfile } = await supabaseAuth.from('profiles').select('role').eq('id', user.id).single()
-    if (adminProfile?.role !== 'admin') throw new Error('Permissão negada')
+    if (adminProfile?.role !== 'admin') throw new Error('Permissao negada')
 
     return user
+}
+
+type CustomerStatus = 'pending' | 'approved' | 'blocked' | 'imported'
+
+type UpsertCustomerDomainInput = {
+    profileId: string
+    fullName: string
+    phone?: string | null
+    status?: CustomerStatus | null
+    storeId?: string | null
+    companyName: string
+    tradeName?: string | null
+    cnpj: string
+    email: string
+    customerTypeId?: string | null
+    representativeId?: string | null
+    address?: string | null
+    city?: string | null
+    state?: string | null
+    zipCode?: string | null
+    tagIds?: string[]
+}
+
+async function sendAccountApprovedEmail(params: { email: string; fullName: string }) {
+    try {
+        const supabaseAdmin = await getAdminClient()
+        const { sendEmail } = await import('@/lib/email')
+        const React = (await import('react')).default
+        const { default: AccountApprovedEmail } = await import('@/emails/AccountApprovedEmail')
+
+        const { data: settings } = await supabaseAdmin
+            .from('system_settings')
+            .select('system_name')
+            .limit(1)
+            .single()
+
+        const systemName = settings?.system_name || 'CDJWE'
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
+
+        await sendEmail({
+            to: params.email,
+            subject: `Sua conta foi aprovada - ${systemName}`,
+            senderName: systemName,
+            react: React.createElement(AccountApprovedEmail, {
+                clientName: params.fullName,
+                systemName,
+                appUrl,
+            }),
+        })
+    } catch (emailErr) {
+        console.error('[CUSTOMER APPROVAL EMAIL] Error:', emailErr)
+    }
+}
+
+async function upsertCustomerDomainViaRpc(
+    supabaseAdmin: Awaited<ReturnType<typeof getAdminClient>>,
+    input: UpsertCustomerDomainInput
+) {
+    const { data, error } = await supabaseAdmin.rpc('admin_upsert_customer_domain', {
+        p_profile_id: input.profileId,
+        p_full_name: input.fullName,
+        p_phone: input.phone ?? null,
+        p_status: input.status ?? null,
+        p_store_id: input.storeId ?? null,
+        p_company_name: input.companyName,
+        p_trade_name: input.tradeName ?? null,
+        p_cnpj: input.cnpj,
+        p_email: input.email,
+        p_customer_type_id: input.customerTypeId ?? null,
+        p_representative_id: input.representativeId ?? null,
+        p_address: input.address ?? null,
+        p_city: input.city ?? null,
+        p_state: input.state ?? null,
+        p_zip_code: input.zipCode ?? null,
+        p_tag_ids: input.tagIds && input.tagIds.length > 0 ? input.tagIds : [],
+    })
+
+    if (error) {
+        return { error: error.message }
+    }
+
+    const firstRow = Array.isArray(data) ? data[0] : data
+    return { storeId: firstRow?.store_id as string | undefined }
+}
+
+function normalizeEmail(email: string) {
+    return email.trim().toLowerCase()
+}
+
+function mapAuthCreateUserErrorMessage(rawMessage?: string) {
+    if (!rawMessage) return 'Falha ao criar usuario no Auth.'
+    const normalized = rawMessage.toLowerCase()
+    if (normalized.includes('already registered') || normalized.includes('already exists')) {
+        return 'Este email ja esta cadastrado.'
+    }
+    return rawMessage
+}
+
+function toErrorMessage(error: unknown, fallback: string) {
+    if (error instanceof Error && error.message) return error.message
+    if (typeof error === 'string' && error.length > 0) return error
+    return fallback
 }
 
 // ==================== CREATE CUSTOMER ====================
 
 export async function createCustomerAsAdmin(formData: FormData) {
-    const email = formData.get('email') as string
-    const password = formData.get('password') as string
-    const fullName = formData.get('fullName') as string
-    const phone = formData.get('phone') as string
-    const companyName = formData.get('companyName') as string
-    const cnpj = formData.get('cnpj') as string
-    const tradeName = formData.get('tradeName') as string
-    const customerTypeId = formData.get('customerTypeId') as string
-    const representativeId = formData.get('representativeId') as string
-    const tagIdsJson = formData.get('tagIds') as string
-    let tagIds: string[] = []
-    if (tagIdsJson) {
-        try { tagIds = JSON.parse(tagIdsJson) } catch (e) { }
-    }
-    const address = formData.get('address') as string
-    const city = formData.get('city') as string
-    const state = formData.get('state') as string
-    const zipCode = formData.get('zipCode') as string
-
-    if (!email || !password || !fullName || !companyName || !cnpj) {
-        return { error: 'Campos obrigatórios faltando.' }
-    }
-
-    try {
-        await verifyAdmin()
-        const supabaseAdmin = await getAdminClient()
-
-        // 1. Create Auth User
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-            user_metadata: {
-                full_name: fullName,
-                role: 'client'
-            }
-        })
-
-        if (authError) throw authError
-
-        // 2. Update Profile → approved
-        await supabaseAdmin.from('profiles')
-            .update({
-                full_name: fullName,
-                phone: phone || null,
-                status: 'approved'
-            })
-            .eq('id', authData.user.id)
-
-        // 3. Create Store
-        const { data: storeData, error: storeError } = await supabaseAdmin.from('stores')
-            .insert({
-                profile_id: authData.user.id,
-                company_name: companyName,
-                trade_name: tradeName || null,
-                cnpj,
-                email,
-                phone: phone || null,
-                customer_type_id: customerTypeId || null,
-                representative_id: representativeId || null,
-                address: address || null,
-                city: city || null,
-                state: state || null,
-                zip_code: zipCode || null,
-            })
-            .select('id')
-            .single()
-
-        if (storeError) throw storeError
-
-        const newStoreId = storeData?.id
-
-        // 4. Create tags if any
-        if (newStoreId && tagIds.length > 0) {
-            const tagsToInsert = tagIds.map(tagId => ({
-                store_id: newStoreId,
-                tag_id: tagId
-            }))
-            await supabaseAdmin.from('store_tags').insert(tagsToInsert)
-        }
-
-        // 4.5 Insert initial main address if provided
-        if (newStoreId && (address || zipCode || city || state)) {
-            await supabaseAdmin.from('store_addresses').insert({
-                store_id: newStoreId,
-                title: 'Endereço Principal',
-                is_main: true,
-                zip_code: zipCode || '',
-                address: address || '',
-                city: city || '',
-                state: state || '',
-                number: '',
-                neighborhood: '',
-            })
-        }
-
-        // 5. Send welcome email
-        try {
-            const { sendEmail } = await import('@/lib/email')
-            const React = (await import('react')).default
-            const { default: AccountApprovedEmail } = await import('@/emails/AccountApprovedEmail')
-
-            const { data: settings } = await supabaseAdmin
-                .from('system_settings')
-                .select('system_name')
-                .limit(1)
-                .single()
-
-            const systemName = settings?.system_name || 'CDJWE'
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
-            
-            await sendEmail({
-                to: email,
-                subject: `✅ Sua conta foi aprovada — ${systemName}`,
-                senderName: systemName,
-                react: React.createElement(AccountApprovedEmail, {
-                    clientName: fullName,
-                    systemName,
-                    appUrl,
-                }),
-            })
-        } catch (emailErr) {
-            console.error('[ADMIN CREATE CUSTOMER EMAIL] Error:', emailErr)
-        }
-
-        return { success: true }
-    } catch (err: any) {
-        console.error('Customer Creation Error:', err)
-        return { error: err.message || 'Erro ao criar o cliente no servidor.' }
-    }
+    return createCustomerAsAdminTx(formData)
 }
 
 // ==================== UPDATE CUSTOMER ====================
@@ -202,56 +175,239 @@ export async function updateCustomerAsAdmin(
         zipCode?: string
     }
 ) {
+    return updateCustomerAsAdminTx(profileId, storeId, data)
+}
+
+// ==================== TX V2 (RPC-BASED) ====================
+
+export async function createCustomerAsAdminTx(formData: FormData) {
+    const email = formData.get('email') as string
+    const password = formData.get('password') as string
+    const fullName = formData.get('fullName') as string
+    const phone = formData.get('phone') as string
+    const companyName = formData.get('companyName') as string
+    const cnpj = formData.get('cnpj') as string
+    const tradeName = formData.get('tradeName') as string
+    const customerTypeId = formData.get('customerTypeId') as string
+    const representativeId = formData.get('representativeId') as string
+    const tagIdsJson = formData.get('tagIds') as string
+    let tagIds: string[] = []
+    if (tagIdsJson) {
+        try { tagIds = JSON.parse(tagIdsJson) } catch { }
+    }
+    const address = formData.get('address') as string
+    const city = formData.get('city') as string
+    const state = formData.get('state') as string
+    const zipCode = formData.get('zipCode') as string
+
+    if (!email || !password || !fullName || !companyName || !cnpj) {
+        return { error: 'Campos obrigatorios faltando.' }
+    }
+
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+        const normalizedEmail = normalizeEmail(email)
+
+        const { data: existingProfileByEmail } = await supabaseAdmin
+            .from('profiles')
+            .select('id')
+            .eq('email', normalizedEmail)
+            .limit(1)
+            .maybeSingle()
+
+        if (existingProfileByEmail?.id) {
+            return { error: 'Este email ja esta cadastrado.' }
+        }
+
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+            email: normalizedEmail,
+            password,
+            email_confirm: true,
+            user_metadata: {
+                full_name: fullName,
+                role: 'client',
+            },
+        })
+
+        if (authError || !authData?.user?.id) {
+            throw new Error(mapAuthCreateUserErrorMessage(authError?.message))
+        }
+
+        const upsertResult = await upsertCustomerDomainViaRpc(supabaseAdmin, {
+            profileId: authData.user.id,
+            fullName,
+            phone: phone || null,
+            status: 'approved',
+            companyName,
+            tradeName: tradeName || null,
+            cnpj,
+            email: normalizedEmail,
+            customerTypeId: customerTypeId || null,
+            representativeId: representativeId || null,
+            address: address || null,
+            city: city || null,
+            state: state || null,
+            zipCode: zipCode || null,
+            tagIds,
+        })
+
+        if (upsertResult.error) {
+            await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+            throw new Error(upsertResult.error)
+        }
+
+        await sendAccountApprovedEmail({
+            email: normalizedEmail,
+            fullName,
+        })
+
+        return { success: true }
+    } catch (err: unknown) {
+        console.error('Customer Creation TX Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao criar o cliente.') }
+    }
+}
+
+export async function updateCustomerAsAdminTx(
+    profileId: string,
+    storeId: string,
+    data: {
+        fullName: string
+        email: string
+        phone?: string
+        companyName: string
+        tradeName?: string
+        cnpj: string
+        customerTypeId?: string
+        representativeId?: string
+        tagIds?: string[]
+        address?: string
+        city?: string
+        state?: string
+        zipCode?: string
+    }
+) {
     try {
         await verifyAdmin()
         const supabaseAdmin = await getAdminClient()
 
-        // Update profile
-        const { error: profileError } = await supabaseAdmin.from('profiles')
-            .update({
-                full_name: data.fullName,
-                phone: data.phone || null,
-            })
-            .eq('id', profileId)
+        const upsertResult = await upsertCustomerDomainViaRpc(supabaseAdmin, {
+            profileId,
+            storeId,
+            fullName: data.fullName,
+            phone: data.phone || null,
+            companyName: data.companyName,
+            tradeName: data.tradeName || null,
+            cnpj: data.cnpj,
+            email: data.email,
+            customerTypeId: data.customerTypeId || null,
+            representativeId: data.representativeId || null,
+            address: data.address || null,
+            city: data.city || null,
+            state: data.state || null,
+            zipCode: data.zipCode || null,
+            tagIds: data.tagIds || [],
+        })
 
-        if (profileError) throw profileError
-
-        // Update store
-        const { error: storeError } = await supabaseAdmin.from('stores')
-            .update({
-                company_name: data.companyName,
-                trade_name: data.tradeName || null,
-                cnpj: data.cnpj,
-                customer_type_id: data.customerTypeId || null,
-                representative_id: data.representativeId || null,
-                address: data.address || null,
-                city: data.city || null,
-                state: data.state || null,
-                zip_code: data.zipCode || null,
-            })
-            .eq('id', storeId)
-
-        if (storeError) throw storeError
-
-        // Update tags
-        if (data.tagIds !== undefined) {
-            // Remove existing
-            await supabaseAdmin.from('store_tags').delete().eq('store_id', storeId)
-            
-            // Insert new
-            if (data.tagIds.length > 0) {
-                const tagsToInsert = data.tagIds.map(tagId => ({
-                    store_id: storeId,
-                    tag_id: tagId
-                }))
-                await supabaseAdmin.from('store_tags').insert(tagsToInsert)
-            }
+        if (upsertResult.error) {
+            throw new Error(upsertResult.error)
         }
 
         return { success: true }
-    } catch (err: any) {
-        console.error('Customer Update Error:', err)
-        return { error: err.message || 'Erro ao atualizar o cliente.' }
+    } catch (err: unknown) {
+        console.error('Customer Update TX Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao atualizar o cliente.') }
+    }
+}
+
+export async function updateCustomerStatusAsAdmin(profileId: string, status: CustomerStatus) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const { data: profile, error: profileLoadError } = await supabaseAdmin
+            .from('profiles')
+            .select('id, role, status, email, full_name')
+            .eq('id', profileId)
+            .single()
+
+        if (profileLoadError || !profile) {
+            return { error: 'Cliente nao encontrado.' }
+        }
+
+        if (profile.role !== 'client') {
+            return { error: 'Apenas clientes podem ter status alterado.' }
+        }
+
+        if (profile.status !== status) {
+            const { error: updateError } = await supabaseAdmin
+                .from('profiles')
+                .update({ status })
+                .eq('id', profileId)
+
+            if (updateError) throw updateError
+        }
+
+        if (status === 'approved' && profile.status !== 'approved' && profile.email) {
+            await sendAccountApprovedEmail({
+                email: profile.email,
+                fullName: profile.full_name || 'Cliente',
+            })
+        }
+
+        return { success: true }
+    } catch (err: unknown) {
+        console.error('Update Customer Status Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao atualizar status do cliente.') }
+    }
+}
+
+export async function bulkUpdateCustomerStatusAsAdmin(ids: string[], status: CustomerStatus) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const uniqueIds = Array.from(new Set(ids.filter(Boolean)))
+        if (uniqueIds.length === 0) {
+            return { error: 'Nenhum cliente selecionado.' }
+        }
+
+        const { data: customers, error: loadError } = await supabaseAdmin
+            .from('profiles')
+            .select('id, role, status, email, full_name')
+            .in('id', uniqueIds)
+            .eq('role', 'client')
+
+        if (loadError) throw loadError
+        if (!customers || customers.length === 0) {
+            return { error: 'Nenhum cliente valido encontrado.' }
+        }
+
+        const customerIds = customers.map((customer) => customer.id)
+        const { error: updateError } = await supabaseAdmin
+            .from('profiles')
+            .update({ status })
+            .in('id', customerIds)
+
+        if (updateError) throw updateError
+
+        if (status === 'approved') {
+            const emailTargets = customers.filter((customer) => customer.status !== 'approved' && customer.email)
+            await Promise.allSettled(
+                emailTargets.map((customer) =>
+                    sendAccountApprovedEmail({
+                        email: customer.email as string,
+                        fullName: customer.full_name || 'Cliente',
+                    })
+                )
+            )
+        }
+
+        return { success: true, updatedCount: customerIds.length }
+    } catch (err: unknown) {
+        console.error('Bulk Update Customer Status Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao atualizar status em lote.') }
     }
 }
 
@@ -268,9 +424,9 @@ export async function setCustomerPassword(profileId: string, password: string) {
 
         if (error) throw error
         return { success: true }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Set Password Error:', err)
-        return { error: err.message || 'Erro ao alterar senha.' }
+        return { error: toErrorMessage(err, 'Erro ao alterar senha.') }
     }
 }
 
@@ -303,15 +459,18 @@ interface CSVCustomerRow {
 }
 
 export async function importCustomersFromCSV(rows: CSVCustomerRow[]) {
+    return importCustomersFromCSVTx(rows)
+}
+
+export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
     try {
         await verifyAdmin()
         const supabaseAdmin = await getAdminClient()
 
-        // Load customer types for name→id mapping
         const { data: types } = await supabaseAdmin
             .from('customer_types')
             .select('id, name, slug')
-        
+
         const typeMap = new Map<string, string>()
         types?.forEach(t => {
             typeMap.set(t.name.toLowerCase(), t.id)
@@ -324,68 +483,115 @@ export async function importCustomersFromCSV(rows: CSVCustomerRow[]) {
             const row = rows[i]
             try {
                 if (!row.email || !row.fullName || !row.companyName || !row.cnpj) {
-                    results.push({ row: i + 1, status: 'error', message: 'Campos obrigatórios faltando' })
+                    results.push({ row: i + 1, status: 'error', message: 'Campos obrigatorios faltando' })
                     continue
                 }
 
-                // Generate a temporary password
-                const tempPassword = Math.random().toString(36).slice(-8) + 'A1!'
+                const normalizedEmail = normalizeEmail(row.email)
+                const { data: existingProfileByEmail } = await supabaseAdmin
+                    .from('profiles')
+                    .select('id, role')
+                    .eq('email', normalizedEmail)
+                    .limit(1)
+                    .maybeSingle()
 
-                // Create Auth User
-                const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-                    email: row.email,
-                    password: tempPassword,
-                    email_confirm: true,
-                    user_metadata: {
-                        full_name: row.fullName,
-                        role: 'client'
+                let targetProfileId: string | null = null
+                let targetStoreId: string | null = null
+                let createdNow = false
+
+                if (existingProfileByEmail?.id) {
+                    if (existingProfileByEmail.role !== 'client') {
+                        results.push({
+                            row: i + 1,
+                            status: 'error',
+                            message: 'Email ja pertence a um usuario nao cliente',
+                        })
+                        continue
                     }
-                })
 
-                if (authError) {
-                    results.push({ row: i + 1, status: 'error', message: authError.message })
+                    targetProfileId = existingProfileByEmail.id
+                    const { data: existingStore } = await supabaseAdmin
+                        .from('stores')
+                        .select('id')
+                        .eq('profile_id', targetProfileId)
+                        .limit(1)
+                        .maybeSingle()
+
+                    targetStoreId = existingStore?.id ?? null
+                } else {
+                    const tempPassword = Math.random().toString(36).slice(-8) + 'A1!'
+                    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+                        email: normalizedEmail,
+                        password: tempPassword,
+                        email_confirm: true,
+                        user_metadata: {
+                            full_name: row.fullName,
+                            role: 'client',
+                        },
+                    })
+
+                    if (authError || !authData?.user?.id) {
+                        results.push({
+                            row: i + 1,
+                            status: 'error',
+                            message: mapAuthCreateUserErrorMessage(authError?.message),
+                        })
+                        continue
+                    }
+
+                    targetProfileId = authData.user.id
+                    createdNow = true
+                }
+
+                if (!targetProfileId) {
+                    results.push({ row: i + 1, status: 'error', message: 'Falha ao resolver perfil do cliente' })
                     continue
                 }
 
-                // Set profile as imported
-                await supabaseAdmin.from('profiles')
-                    .update({
-                        full_name: row.fullName,
-                        phone: row.phone || null,
-                        status: 'imported'
-                    })
-                    .eq('id', authData.user.id)
-
-                // Resolve customer type
-                const typeId = row.customerType
-                    ? typeMap.get(row.customerType.toLowerCase()) || null
-                    : null
-
-                // Create Store
-                await supabaseAdmin.from('stores').insert({
-                    profile_id: authData.user.id,
-                    company_name: row.companyName,
-                    cnpj: row.cnpj,
-                    email: row.email,
+                const upsertResult = await upsertCustomerDomainViaRpc(supabaseAdmin, {
+                    profileId: targetProfileId,
+                    storeId: targetStoreId,
+                    fullName: row.fullName,
                     phone: row.phone || null,
-                    customer_type_id: typeId,
+                    status: 'imported',
+                    companyName: row.companyName,
+                    tradeName: null,
+                    cnpj: row.cnpj,
+                    email: normalizedEmail,
+                    customerTypeId: row.customerType
+                        ? typeMap.get(row.customerType.toLowerCase()) || null
+                        : null,
+                    representativeId: null,
                     address: row.address || null,
                     city: row.city || null,
                     state: row.state || null,
-                    zip_code: row.zipCode || null,
+                    zipCode: row.zipCode || null,
+                    tagIds: [],
                 })
 
-                results.push({ row: i + 1, status: 'success', message: 'Importado com sucesso' })
-            } catch (err: any) {
-                results.push({ row: i + 1, status: 'error', message: err.message || 'Erro desconhecido' })
+                if (upsertResult.error) {
+                    if (createdNow && targetProfileId) {
+                        await supabaseAdmin.auth.admin.deleteUser(targetProfileId)
+                    }
+                    results.push({ row: i + 1, status: 'error', message: upsertResult.error })
+                    continue
+                }
+
+                results.push({
+                    row: i + 1,
+                    status: 'success',
+                    message: createdNow ? 'Importado com sucesso' : 'Cliente existente atualizado',
+                })
+            } catch (err: unknown) {
+                results.push({ row: i + 1, status: 'error', message: toErrorMessage(err, 'Erro desconhecido') })
             }
         }
 
         const successCount = results.filter(r => r.status === 'success').length
         return { success: true, results, totalImported: successCount, totalErrors: results.length - successCount }
-    } catch (err: any) {
-        console.error('Import CSV Error:', err)
-        return { error: err.message || 'Erro ao importar clientes.' }
+    } catch (err: unknown) {
+        console.error('Import CSV TX Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao importar clientes.') }
     }
 }
 
@@ -406,12 +612,7 @@ export async function sendAccessLink(
             .eq('id', profileId)
             .single()
 
-        if (!profile) return { error: 'Cliente não encontrado' }
-
-        const { data: store } = await supabaseAdmin.from('stores')
-            .select('company_name')
-            .eq('profile_id', profileId)
-            .single()
+        if (!profile) return { error: 'Cliente nao encontrado' }
 
         const { data: settings } = await supabaseAdmin
             .from('system_settings')
@@ -425,15 +626,15 @@ export async function sendAccessLink(
 
         if (channel === 'whatsapp') {
             const phone = profile.phone?.replace(/\D/g, '')
-            if (!phone) return { error: 'Cliente não possui telefone cadastrado' }
+            if (!phone) return { error: 'Cliente nao possui telefone cadastrado' }
 
             const message = encodeURIComponent(
-                `Olá ${profile.full_name}! 👋\n\n` +
-                `Seu acesso ao *${systemName}* está liberado!\n\n` +
-                `🔗 Link de acesso: ${loginUrl}\n` +
-                `📧 Usuário: ${profile.email}\n` +
-                (password ? `🔑 Senha: ${password}\n` : '') +
-                `\nEm caso de dúvidas, entre em contato conosco.`
+                `Ola ${profile.full_name}!\n\n` +
+                `Seu acesso ao *${systemName}* esta liberado!\n\n` +
+                `Link de acesso: ${loginUrl}\n` +
+                `Usuario: ${profile.email}\n` +
+                (password ? `Senha: ${password}\n` : '') +
+                `\nEm caso de duvidas, entre em contato conosco.`
             )
 
             const whatsappUrl = `https://wa.me/55${phone}?text=${message}`
@@ -448,7 +649,7 @@ export async function sendAccessLink(
 
                 await sendEmail({
                     to: profile.email,
-                    subject: `🔑 Seus dados de acesso — ${systemName}`,
+                    subject: `Seus dados de acesso - ${systemName}`,
                     senderName: systemName,
                     react: React.createElement(AccountApprovedEmail, {
                         clientName: profile.full_name,
@@ -465,10 +666,10 @@ export async function sendAccessLink(
             }
         }
 
-        return { error: 'Canal de envio inválido' }
-    } catch (err: any) {
+        return { error: 'Canal de envio invalido' }
+    } catch (err: unknown) {
         console.error('Send Access Link Error:', err)
-        return { error: err.message || 'Erro ao enviar link de acesso.' }
+        return { error: toErrorMessage(err, 'Erro ao enviar link de acesso.') }
     }
 }
 
@@ -488,9 +689,9 @@ export async function getCustomerAuditLog(profileId: string) {
 
         if (error) throw error
         return { data: data || [] }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Get Audit Log Error:', err)
-        return { error: err.message || 'Erro ao buscar histórico de acessos.' }
+        return { error: toErrorMessage(err, 'Erro ao buscar historico de acessos.') }
     }
 }
 
@@ -510,9 +711,9 @@ export async function getCustomerOrders(profileId: string) {
 
         if (error) throw error
         return { data: data || [] }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Get Customer Orders Error:', err)
-        return { error: err.message || 'Erro ao buscar pedidos.' }
+        return { error: toErrorMessage(err, 'Erro ao buscar pedidos.') }
     }
 }
 
@@ -530,9 +731,9 @@ export async function getCustomerTags() {
 
         if (error) throw error
         return { data: data || [] }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Get Tags Error:', err)
-        return { error: err.message || 'Erro ao buscar tags.' }
+        return { error: toErrorMessage(err, 'Erro ao buscar tags.') }
     }
 }
 
@@ -551,9 +752,9 @@ export async function getRepresentatives() {
 
         if (error) throw error
         return { data: data || [] }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Get Representatives Error:', err)
-        return { error: err.message || 'Erro ao buscar representantes.' }
+        return { error: toErrorMessage(err, 'Erro ao buscar representantes.') }
     }
 }
 
@@ -573,9 +774,9 @@ export async function getStoreAddresses(storeId: string) {
 
         if (error) throw error
         return { data: data || [] }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Get Addresses Error:', err)
-        return { error: err.message || 'Erro ao buscar endereços do cliente.' }
+        return { error: toErrorMessage(err, 'Erro ao buscar enderecos do cliente.') }
     }
 }
 
@@ -616,16 +817,16 @@ export async function upsertStoreAddress(data: {
                 .update(payload)
                 .eq('id', data.id)
         } else {
-            // Se for o único endereço, a trigger define como true, ou podemos confiar no formulário
+            // Se for o unico endereco, a trigger define como true, ou podemos confiar no formulario
             result = await supabaseAdmin.from('store_addresses')
                 .insert(payload)
         }
 
         if (result.error) throw result.error
         return { success: true }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Upsert Address Error:', err)
-        return { error: err.message || 'Erro ao salvar o endereço.' }
+        return { error: toErrorMessage(err, 'Erro ao salvar o endereco.') }
     }
 }
 
@@ -640,9 +841,9 @@ export async function deleteStoreAddress(id: string) {
 
         if (error) throw error
         return { success: true }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Delete Address Error:', err)
-        return { error: err.message || 'Erro ao excluir o endereço.' }
+        return { error: toErrorMessage(err, 'Erro ao excluir o endereco.') }
     }
 }
 
@@ -662,9 +863,9 @@ export async function deleteCustomerAction(id: string) {
         }
 
         return { success: true }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Delete Customer Action Error:', err)
-        return { error: err.message || 'Erro ao excluir o cliente.' }
+        return { error: toErrorMessage(err, 'Erro ao excluir o cliente.') }
     }
 }
 
@@ -673,26 +874,35 @@ export async function bulkDeleteCustomersAction(ids: string[]) {
         await verifyAdmin()
         const supabaseAdmin = await getAdminClient()
 
+        const uniqueIds = Array.from(new Set(ids.filter(Boolean)))
+        const deleteResults = await Promise.allSettled(
+            uniqueIds.map((id) => supabaseAdmin.auth.admin.deleteUser(id))
+        )
+
         let successCount = 0
         let errorCount = 0
 
-        for (const id of ids) {
-            const { error } = await supabaseAdmin.auth.admin.deleteUser(id)
-            if (error) {
-                console.error(`Error deleting customer ${id}:`, error)
-                errorCount++
+        deleteResults.forEach((result, idx) => {
+            if (result.status === 'fulfilled') {
+                if (result.value.error) {
+                    console.error(`Error deleting customer ${uniqueIds[idx]}:`, result.value.error)
+                    errorCount++
+                } else {
+                    successCount++
+                }
             } else {
-                successCount++
+                console.error(`Error deleting customer ${uniqueIds[idx]}:`, result.reason)
+                errorCount++
             }
-        }
+        })
 
         if (errorCount > 0) {
             return { error: `Deletados: ${successCount}. Falhas: ${errorCount}.` }
         }
 
         return { success: true }
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Bulk Delete Customers Action Error:', err)
-        return { error: err.message || 'Erro ao iniciar a exclusão em lote.' }
+        return { error: toErrorMessage(err, 'Erro ao iniciar a exclusao em lote.') }
     }
 }

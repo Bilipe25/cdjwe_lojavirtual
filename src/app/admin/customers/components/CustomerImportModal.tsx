@@ -1,154 +1,233 @@
-import { useState, useRef } from 'react';
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download } from 'lucide-react';
+﻿import { useRef, useState } from 'react'
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download } from 'lucide-react'
 import {
     Dialog,
     DialogContent,
     DialogDescription,
     DialogHeader,
     DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { importCustomersFromCSV } from '../actions';
-import { toast } from 'sonner';
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { importCustomersFromCSVTx } from '../actions'
+import { toast } from 'sonner'
 
 interface CSVRow {
-    fullName: string;
-    email: string;
-    phone?: string;
-    companyName: string;
-    cnpj: string;
-    customerType?: string;
-    address?: string;
-    city?: string;
-    state?: string;
-    zipCode?: string;
+    fullName: string
+    email: string
+    phone?: string
+    companyName: string
+    cnpj: string
+    customerType?: string
+    address?: string
+    city?: string
+    state?: string
+    zipCode?: string
 }
 
 interface CustomerImportModalProps {
-    isOpen: boolean;
-    onOpenChange: (open: boolean) => void;
-    onImportComplete: () => void;
+    isOpen: boolean
+    onOpenChange: (open: boolean) => void
+    onImportComplete: () => void
 }
 
-const CSV_HEADERS = ['nome', 'email', 'telefone', 'razao_social', 'cnpj', 'tipo_cliente', 'endereco', 'cidade', 'estado', 'cep'];
+const CSV_HEADERS = ['nome', 'email', 'telefone', 'razao_social', 'cnpj', 'tipo_cliente', 'endereco', 'cidade', 'estado', 'cep']
+
+function normalizeHeader(header: string) {
+    return header
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/"/g, '')
+}
+
+function detectSeparator(line: string) {
+    let commaCount = 0
+    let semicolonCount = 0
+    let insideQuotes = false
+
+    for (let index = 0; index < line.length; index += 1) {
+        const char = line[index]
+        if (char === '"') {
+            if (insideQuotes && line[index + 1] === '"') {
+                index += 1
+                continue
+            }
+            insideQuotes = !insideQuotes
+            continue
+        }
+
+        if (!insideQuotes && char === ',') commaCount += 1
+        if (!insideQuotes && char === ';') semicolonCount += 1
+    }
+
+    return semicolonCount > commaCount ? ';' : ','
+}
+
+function parseCsvToMatrix(text: string): string[][] {
+    const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    const firstLine = normalized.split('\n').find((line) => line.trim().length > 0) || ''
+    const separator = detectSeparator(firstLine)
+
+    const rows: string[][] = []
+    let row: string[] = []
+    let current = ''
+    let insideQuotes = false
+
+    for (let index = 0; index < normalized.length; index += 1) {
+        const char = normalized[index]
+
+        if (char === '"') {
+            if (insideQuotes && normalized[index + 1] === '"') {
+                current += '"'
+                index += 1
+            } else {
+                insideQuotes = !insideQuotes
+            }
+            continue
+        }
+
+        if (!insideQuotes && char === separator) {
+            row.push(current.trim())
+            current = ''
+            continue
+        }
+
+        if (!insideQuotes && char === '\n') {
+            row.push(current.trim())
+            if (row.some((cell) => cell.length > 0)) {
+                rows.push(row)
+            }
+            row = []
+            current = ''
+            continue
+        }
+
+        current += char
+    }
+
+    row.push(current.trim())
+    if (row.some((cell) => cell.length > 0)) {
+        rows.push(row)
+    }
+
+    return rows
+}
 
 function parseCSV(text: string): CSVRow[] {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    if (lines.length < 2) return [];
+    const matrix = parseCsvToMatrix(text)
+    if (matrix.length < 2) return []
 
-    // Parse header to find column indices
-    const headerLine = lines[0].toLowerCase();
-    const separator = headerLine.includes(';') ? ';' : ',';
-    const headers = headerLine.split(separator).map(h => h.trim().replace(/"/g, ''));
+    const headers = matrix[0].map(normalizeHeader)
+    const findColumnIndex = (aliases: string[]) => headers.findIndex((header) => aliases.some((alias) => header.includes(alias)))
 
-    const findCol = (names: string[]) => headers.findIndex(h => names.some(n => h.includes(n)));
+    const nameIndex = findColumnIndex(['nome', 'name', 'responsavel'])
+    const emailIndex = findColumnIndex(['email', 'e-mail'])
+    const phoneIndex = findColumnIndex(['telefone', 'phone', 'whatsapp', 'celular'])
+    const companyIndex = findColumnIndex(['razao', 'company', 'empresa'])
+    const cnpjIndex = findColumnIndex(['cnpj', 'cpf', 'documento'])
+    const typeIndex = findColumnIndex(['tipo', 'type', 'categoria'])
+    const addressIndex = findColumnIndex(['endereco', 'address', 'rua'])
+    const cityIndex = findColumnIndex(['cidade', 'city'])
+    const stateIndex = findColumnIndex(['estado', 'state', 'uf'])
+    const zipIndex = findColumnIndex(['cep', 'zip', 'codigo_postal'])
 
-    const nameIdx = findCol(['nome', 'name', 'responsavel']);
-    const emailIdx = findCol(['email', 'e-mail']);
-    const phoneIdx = findCol(['telefone', 'phone', 'whatsapp', 'celular']);
-    const companyIdx = findCol(['razao', 'company', 'empresa', 'razão']);
-    const cnpjIdx = findCol(['cnpj', 'cpf', 'documento']);
-    const typeIdx = findCol(['tipo', 'type', 'categoria']);
-    const addressIdx = findCol(['endereco', 'endereço', 'address', 'rua']);
-    const cityIdx = findCol(['cidade', 'city']);
-    const stateIdx = findCol(['estado', 'state', 'uf']);
-    const zipIdx = findCol(['cep', 'zip', 'codigo_postal']);
+    const rows: CSVRow[] = []
 
-    const rows: CSVRow[] = [];
+    for (let rowIndex = 1; rowIndex < matrix.length; rowIndex += 1) {
+        const columns = matrix[rowIndex]
+        const getCell = (index: number) => (index >= 0 ? columns[index]?.trim() : '') || ''
 
-    for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(separator).map(c => c.trim().replace(/^"|"$/g, ''));
+        const parsed: CSVRow = {
+            fullName: getCell(nameIndex),
+            email: getCell(emailIndex),
+            phone: getCell(phoneIndex) || undefined,
+            companyName: getCell(companyIndex),
+            cnpj: getCell(cnpjIndex),
+            customerType: getCell(typeIndex) || undefined,
+            address: getCell(addressIndex) || undefined,
+            city: getCell(cityIndex) || undefined,
+            state: getCell(stateIndex) || undefined,
+            zipCode: getCell(zipIndex) || undefined,
+        }
 
-        const row: CSVRow = {
-            fullName: nameIdx >= 0 ? cols[nameIdx] || '' : '',
-            email: emailIdx >= 0 ? cols[emailIdx] || '' : '',
-            phone: phoneIdx >= 0 ? cols[phoneIdx] : undefined,
-            companyName: companyIdx >= 0 ? cols[companyIdx] || '' : '',
-            cnpj: cnpjIdx >= 0 ? cols[cnpjIdx] || '' : '',
-            customerType: typeIdx >= 0 ? cols[typeIdx] : undefined,
-            address: addressIdx >= 0 ? cols[addressIdx] : undefined,
-            city: cityIdx >= 0 ? cols[cityIdx] : undefined,
-            state: stateIdx >= 0 ? cols[stateIdx] : undefined,
-            zipCode: zipIdx >= 0 ? cols[zipIdx] : undefined,
-        };
-
-        // Only include rows with at least name and email
-        if (row.fullName && row.email) {
-            rows.push(row);
+        if (parsed.fullName && parsed.email) {
+            rows.push(parsed)
         }
     }
 
-    return rows;
+    return rows
 }
 
 export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: CustomerImportModalProps) {
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const [parsedRows, setParsedRows] = useState<CSVRow[]>([]);
-    const [importing, setImporting] = useState(false);
-    const [importResults, setImportResults] = useState<{ row: number; status: string; message: string }[] | null>(null);
-    const [fileName, setFileName] = useState('');
+    const fileInputRef = useRef<HTMLInputElement>(null)
+    const [parsedRows, setParsedRows] = useState<CSVRow[]>([])
+    const [importing, setImporting] = useState(false)
+    const [importResults, setImportResults] = useState<{ row: number; status: string; message: string }[] | null>(null)
+    const [fileName, setFileName] = useState('')
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        if (!file) return
 
-        setFileName(file.name);
-        setImportResults(null);
+        setFileName(file.name)
+        setImportResults(null)
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const text = event.target?.result as string;
-            const rows = parseCSV(text);
-            setParsedRows(rows);
+        const reader = new FileReader()
+        reader.onload = (loadEvent) => {
+            const text = (loadEvent.target?.result as string) || ''
+            const rows = parseCSV(text)
+            setParsedRows(rows)
 
             if (rows.length === 0) {
-                toast.error('Nenhuma linha válida encontrada no CSV. Verifique o formato.');
+                toast.error('Nenhuma linha valida encontrada no CSV. Verifique o formato.')
             }
-        };
-        reader.readAsText(file, 'UTF-8');
-    };
+        }
+        reader.readAsText(file, 'UTF-8')
+    }
 
     const handleImport = async () => {
-        if (parsedRows.length === 0) return;
-        setImporting(true);
+        if (parsedRows.length === 0) return
+        setImporting(true)
 
         try {
-            const result = await importCustomersFromCSV(parsedRows);
+            const result = await importCustomersFromCSVTx(parsedRows)
             if (result.error) {
-                toast.error(result.error);
-            } else {
-                setImportResults(result.results || []);
-                toast.success(`${result.totalImported} clientes importados com sucesso!`);
-                if (result.totalImported && result.totalImported > 0) {
-                    onImportComplete();
-                }
+                toast.error(result.error)
+                return
+            }
+
+            setImportResults(result.results || [])
+            toast.success(`${result.totalImported} clientes importados com sucesso!`)
+            if (result.totalImported && result.totalImported > 0) {
+                onImportComplete()
             }
         } catch {
-            toast.error('Erro inesperado ao importar clientes.');
+            toast.error('Erro inesperado ao importar clientes.')
         } finally {
-            setImporting(false);
+            setImporting(false)
         }
-    };
+    }
 
     const handleClose = () => {
-        setParsedRows([]);
-        setImportResults(null);
-        setFileName('');
-        onOpenChange(false);
-    };
+        setParsedRows([])
+        setImportResults(null)
+        setFileName('')
+        onOpenChange(false)
+    }
 
     const downloadTemplate = () => {
-        const headers = CSV_HEADERS.join(';');
-        const example = 'João Silva;joao@empresa.com;11999999999;Empresa do João ME;12345678000100;Varejista;Rua das Flores 123;São Paulo;SP;01234567';
-        const blob = new Blob([`${headers}\n${example}`], { type: 'text/csv;charset=UTF-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'modelo_importacao_clientes.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-    };
+        const headers = CSV_HEADERS.join(';')
+        const example = 'Joao Silva;joao@empresa.com;11999999999;Empresa do Joao ME;12345678000100;Varejista;Rua das Flores 123;Sao Paulo;SP;01234567'
+        const blob = new Blob([`${headers}\n${example}`], { type: 'text/csv;charset=UTF-8' })
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = 'modelo_importacao_clientes.csv'
+        anchor.click()
+        URL.revokeObjectURL(url)
+    }
 
     return (
         <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -159,18 +238,16 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                         Importar Clientes via CSV
                     </DialogTitle>
                     <DialogDescription>
-                        Importe clientes em massa. Eles entrarão com status <strong>"Importado"</strong> e precisarão ser ativados manualmente.
+                        Importe clientes em massa. Eles entrarao com status <strong>&quot;Importado&quot;</strong> e precisarao ser ativados manualmente.
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-4 mt-4">
-                    {/* Template Download */}
                     <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
                         <Download className="h-4 w-4" />
                         Baixar modelo CSV
                     </Button>
 
-                    {/* File Upload */}
                     <div
                         className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:border-bronze/50 hover:bg-bronze/5 transition-colors"
                         onClick={() => fileInputRef.current?.click()}
@@ -184,20 +261,21 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                         />
                         <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
                         {fileName ? (
-                            <p className="text-sm font-medium text-navy">{fileName} — {parsedRows.length} linha(s) encontrada(s)</p>
+                            <p className="text-sm font-medium text-navy">
+                                {fileName} - {parsedRows.length} linha(s) encontrada(s)
+                            </p>
                         ) : (
                             <>
                                 <p className="text-sm font-medium">Clique para selecionar o arquivo CSV</p>
-                                <p className="text-xs text-muted-foreground mt-1">Formato aceito: .csv separado por ponto-e-vírgula ou vírgula</p>
+                                <p className="text-xs text-muted-foreground mt-1">Formato aceito: CSV separado por ponto-e-virgula ou virgula</p>
                             </>
                         )}
                     </div>
 
-                    {/* Preview Table */}
                     {parsedRows.length > 0 && !importResults && (
                         <div className="border rounded-lg overflow-hidden">
                             <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-navy border-b">
-                                Preview — {parsedRows.length} clientes
+                                Preview - {parsedRows.length} clientes
                             </div>
                             <div className="max-h-60 overflow-y-auto">
                                 <table className="w-full text-xs">
@@ -206,20 +284,20 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                                             <th className="px-3 py-2 text-left">#</th>
                                             <th className="px-3 py-2 text-left">Nome</th>
                                             <th className="px-3 py-2 text-left">Email</th>
-                                            <th className="px-3 py-2 text-left">Razão Social</th>
+                                            <th className="px-3 py-2 text-left">Razao Social</th>
                                             <th className="px-3 py-2 text-left">CNPJ</th>
                                             <th className="px-3 py-2 text-left">Tipo</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {parsedRows.slice(0, 20).map((row, i) => (
-                                            <tr key={i} className="border-t hover:bg-slate-50/50">
-                                                <td className="px-3 py-1.5 text-muted-foreground">{i + 1}</td>
+                                        {parsedRows.slice(0, 20).map((row, index) => (
+                                            <tr key={`${row.email}-${index}`} className="border-t hover:bg-slate-50/50">
+                                                <td className="px-3 py-1.5 text-muted-foreground">{index + 1}</td>
                                                 <td className="px-3 py-1.5 truncate max-w-[120px]">{row.fullName}</td>
                                                 <td className="px-3 py-1.5 truncate max-w-[150px]">{row.email}</td>
                                                 <td className="px-3 py-1.5 truncate max-w-[120px]">{row.companyName}</td>
                                                 <td className="px-3 py-1.5">{row.cnpj}</td>
-                                                <td className="px-3 py-1.5">{row.customerType || '—'}</td>
+                                                <td className="px-3 py-1.5">{row.customerType || '-'}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -233,23 +311,20 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                         </div>
                     )}
 
-                    {/* Import Results */}
                     {importResults && (
                         <div className="border rounded-lg overflow-hidden">
-                            <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-navy border-b">
-                                Resultado da Importação
-                            </div>
+                            <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-navy border-b">Resultado da Importacao</div>
                             <div className="max-h-60 overflow-y-auto p-3 space-y-1.5">
-                                {importResults.map((r, i) => (
-                                    <div key={i} className="flex items-center gap-2 text-xs">
-                                        {r.status === 'success' ? (
+                                {importResults.map((result, index) => (
+                                    <div key={`${result.row}-${index}`} className="flex items-center gap-2 text-xs">
+                                        {result.status === 'success' ? (
                                             <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
                                         ) : (
                                             <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
                                         )}
-                                        <span>Linha {r.row}:</span>
-                                        <Badge variant={r.status === 'success' ? 'default' : 'destructive'} className="text-[10px]">
-                                            {r.message}
+                                        <span>Linha {result.row}:</span>
+                                        <Badge variant={result.status === 'success' ? 'default' : 'destructive'} className="text-[10px]">
+                                            {result.message}
                                         </Badge>
                                     </div>
                                 ))}
@@ -258,7 +333,6 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                     )}
                 </div>
 
-                {/* Actions */}
                 <div className="flex justify-end gap-3 pt-4 border-t mt-4">
                     <Button variant="outline" onClick={handleClose} disabled={importing}>
                         {importResults ? 'Fechar' : 'Cancelar'}
@@ -276,5 +350,5 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                 </div>
             </DialogContent>
         </Dialog>
-    );
+    )
 }

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, Users, Building2, MapPin, Check, Tag } from 'lucide-react';
 import {
@@ -36,7 +36,7 @@ export function CustomerFormModal({
     representatives
 }: CustomerFormModalProps) {
     const form = useForm<CustomerFormData>({
-        resolver: zodResolver(customerSchema) as any,
+        resolver: zodResolver(customerSchema),
         defaultValues: {
             fullName: '',
             email: '',
@@ -55,7 +55,10 @@ export function CustomerFormModal({
         }
     });
 
-    const { register, handleSubmit, reset, formState: { errors, isDirty }, setValue, watch } = form;
+    const { register, handleSubmit, reset, formState: { errors, isDirty }, setValue } = form;
+    const selectedCustomerTypeId = useWatch({ control: form.control, name: 'customerTypeId' }) || '';
+    const selectedRepresentativeId = useWatch({ control: form.control, name: 'representativeId' }) || '';
+    const selectedTagIds = useWatch({ control: form.control, name: 'tagIds' }) || [];
 
     // Reset when opening modal fresh
     useEffect(() => {
@@ -160,8 +163,8 @@ export function CustomerFormModal({
                             <div className="space-y-2">
                                 <Label>Tipo de Cliente</Label>
                                 <Select
-                                    value={watch('customerTypeId') || 'none'}
-                                    onValueChange={(v) => setValue('customerTypeId', v === 'none' ? '' : (v as any))}
+                                    value={selectedCustomerTypeId || 'none'}
+                                    onValueChange={(v) => setValue('customerTypeId', !v || v === 'none' ? undefined : v)}
                                 >
                                     <SelectTrigger className="bg-white/60">
                                         <SelectValue placeholder="Selecione..." />
@@ -177,8 +180,8 @@ export function CustomerFormModal({
                             <div className="space-y-2">
                                 <Label>Representante Responsável</Label>
                                 <Select
-                                    value={watch('representativeId') || 'none'}
-                                    onValueChange={(v) => setValue('representativeId', v === 'none' ? '' : (v as any))}
+                                    value={selectedRepresentativeId || 'none'}
+                                    onValueChange={(v) => setValue('representativeId', !v || v === 'none' ? undefined : v)}
                                 >
                                     <SelectTrigger className="bg-white/60">
                                         <SelectValue placeholder="Selecione..." />
@@ -202,17 +205,16 @@ export function CustomerFormModal({
                         </div>
                         <div className="flex flex-wrap gap-2">
                             {customerTags.map(tag => {
-                                const selectedIds = watch('tagIds') || [];
-                                const isSelected = selectedIds.includes(tag.id);
+                                const isSelected = selectedTagIds.includes(tag.id);
                                 return (
                                     <button
                                         key={tag.id}
                                         type="button"
                                         onClick={() => {
                                             if (isSelected) {
-                                                setValue('tagIds', selectedIds.filter(id => id !== tag.id), { shouldDirty: true });
+                                                setValue('tagIds', selectedTagIds.filter(id => id !== tag.id), { shouldDirty: true });
                                             } else {
-                                                setValue('tagIds', [...selectedIds, tag.id], { shouldDirty: true });
+                                                setValue('tagIds', [...selectedTagIds, tag.id], { shouldDirty: true });
                                             }
                                         }}
                                         className={`px-3 py-1 text-xs border rounded-full transition-colors ${

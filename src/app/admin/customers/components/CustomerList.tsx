@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Users, MoreHorizontal, Check, X, Ban, Eye, CheckSquare, Square, Pencil, Key, Clock } from 'lucide-react';
+import { Users, MoreHorizontal, Check, X, Ban, Eye, CheckSquare, Square, Pencil, Key } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Card, CardContent } from '@/components/ui/card';
@@ -31,6 +31,8 @@ export type CustomerWithStore = Profile & {
     })[] 
 };
 
+type CustomerStatusAction = 'pending' | 'approved' | 'blocked' | 'imported' | 'delete'
+
 const statusConfig: Record<string, { label: string; color: string }> = {
     pending: { label: 'Pendente', color: 'bg-amber-100 text-amber-800 border-amber-200' },
     approved: { label: 'Ativo', color: 'bg-green-100 text-green-800 border-green-200' },
@@ -44,7 +46,7 @@ interface CustomerListProps {
     selectedIds: string[];
     onToggleSelect: (id: string) => void;
     onViewDetail: (customer: CustomerWithStore) => void;
-    onUpdateStatus: (id: string, status: string) => void;
+    onUpdateStatus: (id: string, status: CustomerStatusAction) => void;
     onEditCustomer: (customer: CustomerWithStore) => void;
     onManageAccess: (customer: CustomerWithStore) => void;
 }
