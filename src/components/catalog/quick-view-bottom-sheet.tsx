@@ -14,9 +14,6 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
     const [isLightboxOpen, setIsLightboxOpen] = useState(false)
     const drawerContentRef = useRef<HTMLDivElement>(null)
 
-    // Quando a lightbox abre, aplica inert no Drawer.Content para silenciar
-    // TODOS os listeners de toque do Vaul no nível do browser (funciona mesmo
-    // contra capture listeners no document/window).
     useEffect(() => {
         const el = drawerContentRef.current
         if (!el) return
@@ -31,6 +28,7 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
         const handleLightboxState = (e: any) => {
             setIsLightboxOpen(!!e.detail?.open)
         }
+
         window.addEventListener('lightbox-state-change', handleLightboxState)
         return () => window.removeEventListener('lightbox-state-change', handleLightboxState)
     }, [])
@@ -44,7 +42,7 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
         >
             <Drawer.Portal>
                 <Drawer.Overlay
-                    className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm"
+                    className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
                     onClick={onClose}
                 />
                 <Drawer.Content
@@ -53,22 +51,22 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                     style={{ height: '100dvh', maxHeight: '100dvh' }}
                 >
                     <Drawer.Title className="sr-only">Detalhes do produto</Drawer.Title>
-                    
-                    {/* Header compactado para ganhar espaço de tela */}
-                    <div className="flex items-center justify-between px-4 py-2 shrink-0 border-b border-border/50 bg-muted/10">
-                        {/* Fake drag handle alinhado à esquerda na barra pra não roubar altura extra (ou remover visual no B2B já que swipe funciona igual) */}
-                        <div className="mx-auto h-1.5 w-10 rounded text-transparent bg-muted/60 absolute left-1/2 -translate-x-1/2 top-3" />
-                        <span className="text-xs font-semibold text-muted-foreground invisible">Modal</span>
+
+                    <div
+                        className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-center px-4"
+                        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
+                    >
+                        <div className="h-1.5 w-10 rounded-full bg-white/75 shadow-sm backdrop-blur-sm" />
                         <button
                             onClick={onClose}
-                            className="h-8 w-8 rounded-md bg-white border border-border shadow-sm flex items-center justify-center hover:bg-muted transition-colors ml-auto z-10"
+                            className="pointer-events-auto absolute right-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/88 text-slate-700 shadow-lg shadow-black/10 backdrop-blur-md transition-colors hover:bg-white"
+                            style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
                             aria-label="Fechar"
                         >
-                            <X className="h-4 w-4 text-muted-foreground" />
+                            <X className="h-4.5 w-4.5" />
                         </button>
                     </div>
 
-                    {/* Content — fills remaining height, scrolls internally */}
                     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" data-vaul-no-drag>
                         <QuickViewContent
                             data={data}

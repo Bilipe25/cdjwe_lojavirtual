@@ -287,15 +287,18 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
     ) ?? []
 
     return (
-        <div className="flex flex-col md:grid md:grid-cols-[1fr_1.2fr] h-full overflow-hidden bg-white">
+        <div className="flex flex-col bg-white md:grid md:grid-cols-[1fr_1.2fr] md:h-full md:overflow-hidden">
             {/* Image Gallery */}
-            <div className="relative shrink-0 md:h-full overflow-hidden bg-muted/20 border-r border-border/50">
+            <div className="relative shrink-0 overflow-hidden bg-muted/20 md:h-full md:border-r md:border-border/50">
                 <ProductImageGallery 
                     images={images}
                     productName={product.name}
                     activeImageIndex={activeImageIndex}
                     onImageChange={setActiveImageIndex}
                 />
+
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/30 via-black/10 to-transparent md:hidden" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/12 to-transparent md:hidden" />
 
                 {/* Favorite button */}
                 <button
@@ -307,9 +310,9 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
             </div>
 
             {/* Right Column (Info & Actions) */}
-            <div className="flex flex-col h-full overflow-hidden">
+            <div className="flex flex-col md:h-full md:overflow-hidden">
                 {/* Scrollable Content */}
-                <div className="flex-1 overflow-y-auto">
+                <div className="md:min-h-0 md:flex-1 md:overflow-y-auto">
                     {/* Header info - Compact */}
                     <div className="p-4 md:p-5 pb-2">
                         <div className="flex justify-between items-start gap-4">
