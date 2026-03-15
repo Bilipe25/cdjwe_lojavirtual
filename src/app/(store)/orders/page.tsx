@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -17,8 +17,8 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { toast } from 'sonner'
-import type { CartItem } from '@/lib/types'
 import { PullToRefresh } from '@/components/ui/pull-to-refresh'
+import { getCurrentVariantPricing } from '@/app/(store)/cart/actions'
 
 const PAGE_SIZE = 15
 
@@ -156,9 +156,29 @@ function OrdersContent() {
                 `)
                 .eq('order_id', orderId)
             if (items && items.length > 0) {
+                const variantIds = items.map((item: any) => item.product_variant_id)
+                const pricingRes = await getCurrentVariantPricing(variantIds)
+                const priceMap = !pricingRes || 'error' in pricingRes ? {} : pricingRes.prices || {}
+                const missingIds = !pricingRes || 'error' in pricingRes ? [] : (pricingRes.missingVariantIds || [])
+
+                if (pricingRes && 'error' in pricingRes) {
+                    toast.warning('Não foi possível validar preços agora. Os valores serão confirmados no carrinho.')
+                }
+                if (missingIds.length > 0) {
+                    toast.error('Alguns itens não estão mais disponíveis e foram ignorados.')
+                }
+
+                let addedCount = 0
+                let priceChanged = false
+
                 items.forEach((item: any) => {
+                    if (missingIds.includes(item.product_variant_id)) return
                     const product = item.variant?.product
                     const primaryImage = product?.images?.find((img: any) => img.is_primary) || product?.images?.[0]
+                    const currentPrice = priceMap[item.product_variant_id]?.unitPrice
+                    if (currentPrice !== undefined && currentPrice !== item.unit_price) {
+                        priceChanged = true
+                    }
                     addItem({
                         variantId: item.product_variant_id,
                         productId: item.variant?.product_id || '',
@@ -168,11 +188,17 @@ function OrdersContent() {
                         size: item.size,
                         imageUrl: primaryImage?.url || null,
                         quantity: item.quantity,
-                        unitPrice: item.unit_price,
+                        unitPrice: currentPrice ?? item.unit_price,
                     })
+                    addedCount += 1
                 })
-                toast.success(`${items.length} itens adicionados ao carrinho!`)
-                openCart()
+                if (addedCount > 0) {
+                    if (priceChanged) {
+                        toast.message('Preços atualizados conforme tabela e variações.')
+                    }
+                    toast.success(`${addedCount} itens adicionados ao carrinho!`)
+                    openCart()
+                }
             }
         } catch {
             toast.error('Erro ao refazer pedido.')

@@ -1,9 +1,81 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { cookies } from 'next/headers'
 import type { CartItem, PriceTablePaymentRule, PaymentCondition } from '@/lib/types'
 import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
+
+type PriceTableContext = {
+    discountPercentage: number
+    overrides: Record<string, number>
+}
+
+async function resolveActivePriceTableId(supabase: Awaited<ReturnType<typeof createClient>>, storeId: string) {
+    const { data: pivot } = await supabase
+        .from('store_price_tables')
+        .select('price_table_id')
+        .eq('store_id', storeId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+    let tableId = pivot?.price_table_id
+
+    if (!tableId) {
+        const { data: defaultTable } = await supabase
+            .from('price_tables')
+            .select('id')
+            .eq('is_default', true)
+            .single()
+
+        tableId = defaultTable?.id
+    }
+
+    return tableId || null
+}
+
+async function getActivePriceTableContext(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    storeId: string,
+    variantIds: string[]
+): Promise<PriceTableContext> {
+    const tableId = await resolveActivePriceTableId(supabase, storeId)
+    if (!tableId) return { discountPercentage: 0, overrides: {} }
+
+    const { data: priceTable } = await supabase
+        .from('price_tables')
+        .select('id, discount_percentage, valid_from, valid_until, is_active')
+        .eq('id', tableId)
+        .single()
+
+    if (!priceTable || !priceTable.is_active) {
+        return { discountPercentage: 0, overrides: {} }
+    }
+
+    const now = new Date()
+    const validFrom = priceTable.valid_from ? new Date(priceTable.valid_from) : null
+    const validUntil = priceTable.valid_until ? new Date(priceTable.valid_until) : null
+    const isStarted = !validFrom || now >= validFrom
+    const isExpired = validUntil && now > validUntil
+
+    if (!isStarted || isExpired) {
+        return { discountPercentage: 0, overrides: {} }
+    }
+
+    const overrides: Record<string, number> = {}
+    if (variantIds.length > 0) {
+        const { data: customItems } = await supabase
+            .from('price_table_items')
+            .select('product_variant_id, custom_price')
+            .eq('price_table_id', priceTable.id)
+            .in('product_variant_id', variantIds)
+
+        customItems?.forEach(item => {
+            overrides[item.product_variant_id] = item.custom_price
+        })
+    }
+
+    return { discountPercentage: priceTable.discount_percentage || 0, overrides }
+}
 
 export async function getAvailablePaymentRules(cartTotal: number) {
     const supabase = await createClient()
@@ -18,23 +90,27 @@ export async function getAvailablePaymentRules(cartTotal: number) {
 
     if (!store) return { globalConditions: [] }
 
-    const { data: pivot } = await supabase
-        .from('store_price_tables')
-        .select('price_table_id')
-        .eq('store_id', store.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
+    let priceTableId = await resolveActivePriceTableId(supabase, store.id)
 
-    let priceTableId = pivot?.price_table_id
-
-    if (!priceTableId) {
-        const { data: defaultTable } = await supabase
+    if (priceTableId) {
+        const { data: priceTable } = await supabase
             .from('price_tables')
-            .select('id')
-            .eq('is_default', true)
+            .select('is_active, valid_from, valid_until')
+            .eq('id', priceTableId)
             .single()
-        priceTableId = defaultTable?.id
+
+        if (!priceTable || !priceTable.is_active) {
+            priceTableId = null
+        } else {
+            const now = new Date()
+            const validFrom = priceTable.valid_from ? new Date(priceTable.valid_from) : null
+            const validUntil = priceTable.valid_until ? new Date(priceTable.valid_until) : null
+            const isStarted = !validFrom || now >= validFrom
+            const isExpired = validUntil && now > validUntil
+            if (!isStarted || isExpired) {
+                priceTableId = null
+            }
+        }
     }
 
     // 1. Fetch Table Specific Rules
@@ -140,6 +216,76 @@ export async function createStoreAddress(data: {
     return { success: true, address: newAddress }
 }
 
+export async function getCurrentVariantPricing(variantIds: string[]) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: 'Usuário não autenticado.' }
+
+    const cleanVariantIds = Array.from(new Set(variantIds)).filter(Boolean)
+    if (cleanVariantIds.length === 0) return { prices: {}, missingVariantIds: [] }
+
+    const { data: store } = await supabase
+        .from('stores')
+        .select('id')
+        .eq('profile_id', user.id)
+        .single()
+
+    if (!store) return { error: 'Loja do usuário não localizada.' }
+
+    const priceTableContext = await getActivePriceTableContext(supabase, store.id, cleanVariantIds)
+
+    const { data: variantsData, error: variantsError } = await supabase
+        .from('product_variants')
+        .select(`
+            id,
+            is_active,
+            price_override,
+            product:products(base_price),
+            fabric:fabrics(price_modifier)
+        `)
+        .in('id', cleanVariantIds)
+
+    if (variantsError || !variantsData) {
+        return { error: 'Falha ao validar os preços do carrinho.' }
+    }
+
+    const prices: Record<string, { unitPrice: number; productPrice: number; variationPrice: number | null; finalPrice: number }> = {}
+    const missingVariantIds: string[] = []
+
+    const foundIds = new Set(variantsData.map(v => v.id))
+    cleanVariantIds.forEach(id => {
+        if (!foundIds.has(id)) missingVariantIds.push(id)
+    })
+
+    variantsData.forEach((variant: any) => {
+        if (!variant?.is_active) {
+            missingVariantIds.push(variant.id)
+            return
+        }
+
+        const basePrice = variant?.product?.base_price ?? 0
+        const fabricMod = variant?.fabric?.price_modifier ?? 0
+        const variationPrice = variant?.price_override ?? null
+
+        const calc = calculateProductPrice({
+            basePrice,
+            fabricModifier: fabricMod,
+            variantPriceOverride: variationPrice,
+            variantId: variant.id,
+            priceTable: priceTableContext,
+        })
+
+        prices[variant.id] = {
+            unitPrice: calc.finalPrice,
+            productPrice: basePrice,
+            variationPrice,
+            finalPrice: calc.finalPrice,
+        }
+    })
+
+    return { prices, missingVariantIds: Array.from(new Set(missingVariantIds)) }
+}
+
 export async function checkoutAction(
     items: CartItem[], 
     selectedPaymentId: string, 
@@ -180,6 +326,7 @@ export async function checkoutAction(
         .from('product_variants')
         .select(`
             id,
+            is_active,
             price_override,
             product:products(base_price),
             fabric:fabrics(price_modifier)
@@ -190,53 +337,16 @@ export async function checkoutAction(
         return { error: 'Falha ao validar os preços originais do catálogo.' }
     }
 
-    // 3.1 Verify if Store has an active Price Table
-    const { data: storeTablePivot } = await supabase
-        .from('store_price_tables')
-        .select('price_table_id')
-        .eq('store_id', store.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
+    const foundIds = new Set((variantsData || []).map(v => v.id))
+    const missingIds = variantIds.filter(id => !foundIds.has(id))
+    const inactiveIds = (variantsData || []).filter(v => v.is_active === false).map(v => v.id)
 
-    let globalDiscount = 0
-    let customPricesMap: Record<string, number> = {}
-
-    if (storeTablePivot && storeTablePivot.price_table_id) {
-        const { data: priceTable } = await supabase
-            .from('price_tables')
-            .select('discount_percentage, valid_from, valid_until')
-            .eq('id', storeTablePivot.price_table_id)
-            .eq('is_active', true)
-            .single()
-            
-        if (priceTable) {
-            // Check Temporal Campaign Validity
-            const now = new Date()
-            const validFrom = priceTable.valid_from ? new Date(priceTable.valid_from) : null
-            const validUntil = priceTable.valid_until ? new Date(priceTable.valid_until) : null
-            
-            const isStarted = !validFrom || now >= validFrom
-            const isExpired = validUntil && now > validUntil
-            
-            if (isStarted && !isExpired) {
-                globalDiscount = priceTable.discount_percentage
-                
-                // Fetch potential overriding Custom Prices for these items
-                const { data: customItems } = await supabase
-                    .from('price_table_items')
-                    .select('product_variant_id, custom_price')
-                    .eq('price_table_id', storeTablePivot.price_table_id)
-                    .in('product_variant_id', variantIds)
-                    
-                if (customItems) {
-                    customItems.forEach(item => {
-                        customPricesMap[item.product_variant_id] = item.custom_price
-                    })
-                }
-            }
-        }
+    if (missingIds.length > 0 || inactiveIds.length > 0) {
+        return { error: 'Alguns itens não estão mais disponíveis. Revise o carrinho antes de finalizar.' }
     }
+
+    // 3.1 Resolve active Price Table context (store-specific or default)
+    const priceTableContext = await getActivePriceTableContext(supabase, store.id, variantIds)
 
     let secureSubtotal = 0;
     const validatedItems = items.map(clientItem => {
@@ -253,10 +363,7 @@ export async function checkoutAction(
             fabricModifier: fabricMod,
             variantPriceOverride,
             variantId: clientItem.variantId,
-            priceTable: {
-                discountPercentage: globalDiscount,
-                overrides: customPricesMap,
-            },
+            priceTable: priceTableContext,
         }).finalPrice
 
         const realSubtotal = realUnitPrice * clientItem.quantity

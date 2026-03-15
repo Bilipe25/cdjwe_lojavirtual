@@ -1,6 +1,6 @@
-'use client'
+﻿'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
@@ -49,11 +49,11 @@ import { toast } from 'sonner'
 import { useSettings } from '@/components/providers/settings-provider'
 import type { PaymentCondition, SystemSettings, PriceTablePaymentRule, StoreAddress } from '@/lib/types'
 import Image from 'next/image'
-import { checkoutAction, getAvailablePaymentRules, getAvailableStoreAddresses } from './actions'
+import { checkoutAction, getAvailablePaymentRules, getAvailableStoreAddresses, getCurrentVariantPricing } from './actions'
 
 export default function CartPage() {
     const router = useRouter()
-    const { items, removeItem, updateQuantity, subtotal, totalItems, clearCart } = useCartStore()
+    const { items, removeItem, updateQuantity, subtotal, totalItems, clearCart, setItems } = useCartStore()
     const { settings } = useSettings()
     const [loading, setLoading] = useState(false)
     const [paymentConditions, setPaymentConditions] = useState<PaymentCondition[]>([])
@@ -68,9 +68,62 @@ export default function CartPage() {
     const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
     const [nextOrderNumber, setNextOrderNumber] = useState('')
     const [newAddressDialogOpen, setNewAddressDialogOpen] = useState(false)
+    const [priceValidationPending, setPriceValidationPending] = useState(false)
+    const [lastValidatedKey, setLastValidatedKey] = useState('')
 
     const total = subtotal()
     const count = totalItems()
+    const itemsKey = useMemo(() => items.map(i => i.variantId).sort().join('|'), [items])
+
+    useEffect(() => {
+        const validatePrices = async () => {
+            if (!itemsKey || itemsKey === lastValidatedKey) return
+
+            setPriceValidationPending(true)
+            try {
+                const result = await getCurrentVariantPricing(items.map(i => i.variantId))
+                if (!result) {
+                    return
+                }
+                if ('error' in result) {
+                    toast.warning('Não foi possível validar os preços agora. Tentaremos novamente mais tarde.')
+                    return
+                }
+
+                const missing = result.missingVariantIds || []
+                let updatedItems = items.filter(i => !missing.includes(i.variantId))
+                let priceChanged = false
+
+                updatedItems = updatedItems.map(item => {
+                    const priceInfo = result.prices?.[item.variantId]
+                    if (!priceInfo) return item
+                    if (priceInfo.unitPrice !== item.unitPrice) {
+                        priceChanged = true
+                        return { ...item, unitPrice: priceInfo.unitPrice }
+                    }
+                    return item
+                })
+
+                if (missing.length > 0) {
+                    toast.error('Alguns itens não estão mais disponíveis e foram removidos do carrinho.')
+                }
+                if (priceChanged) {
+                    toast.message('Preços atualizados conforme tabela e variações.')
+                }
+
+                if (missing.length > 0 || priceChanged) {
+                    setItems(updatedItems)
+                    setLastValidatedKey(updatedItems.map(i => i.variantId).sort().join('|'))
+                } else {
+                    setLastValidatedKey(itemsKey)
+                }
+            } finally {
+                setPriceValidationPending(false)
+            }
+        }
+
+        validatePrices()
+    }, [itemsKey, lastValidatedKey, items, setItems])
 
     useEffect(() => {
         const loadConditions = async () => {
@@ -385,6 +438,12 @@ export default function CartPage() {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
+                            {priceValidationPending && (
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-slate-50 border border-dashed rounded-lg p-2">
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    Atualizando preços e regras da sua tabela...
+                                </div>
+                            )}
                             {/* Address Selection */}
                             <div className="space-y-2 pb-2 border-b">
                                 <Label className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Image from 'next/image'
 import Link from 'next/link'
@@ -24,6 +24,7 @@ export interface QuickViewData {
     fabrics: (Fabric & { colors: FabricColor[] })[]
     variants: ProductVariant[]
     loading: boolean
+    error: string | null
 }
 
 export function useQuickViewData(productId: string | null, open: boolean): QuickViewData {
@@ -32,25 +33,45 @@ export function useQuickViewData(productId: string | null, open: boolean): Quick
     const [fabrics, setFabrics] = useState<(Fabric & { colors: FabricColor[] })[]>([])
     const [variants, setVariants] = useState<ProductVariant[]>([])
     const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
     const loadProduct = useCallback(async (id: string) => {
         setLoading(true)
+        setError(null)
         const supabase = createClient()
+        try {
+            const [productRes, imagesRes, variantsRes] = await Promise.all([
+                supabase.from('products').select('*').eq('id', id).single(),
+                supabase.from('product_images').select('*').eq('product_id', id).order('sort_order'),
+                supabase
+                    .from('product_variants')
+                    .select('*, fabric:fabrics(*), color:fabric_colors!product_variants_fabric_color_fk(*)')
+                    .eq('product_id', id)
+                    .eq('is_active', true),
+            ])
 
-        const { data: productData } = await supabase.from('products').select('*').eq('id', id).single()
-        if (productData) setProduct(productData)
+            if (productRes.error || !productRes.data) {
+                setError('Produto não encontrado ou indisponível.')
+                setProduct(null)
+                setImages([])
+                setVariants([])
+                setFabrics([])
+                return
+            }
 
-        const { data: imagesData } = await supabase
-            .from('product_images').select('*').eq('product_id', id).order('sort_order')
-        if (imagesData) setImages(imagesData)
+            setProduct(productRes.data)
+            setImages(imagesRes.data || [])
 
-        const { data: variantsData } = await supabase
-            .from('product_variants')
-            .select('*, fabric:fabrics(*), color:fabric_colors!product_variants_fabric_color_fk(*)')
-            .eq('product_id', id)
-            .eq('is_active', true)
-        if (variantsData) {
+            if (variantsRes.error) {
+                setError('Falha ao carregar variações do produto.')
+                setVariants([])
+                setFabrics([])
+                return
+            }
+
+            const variantsData = variantsRes.data || []
             setVariants(variantsData)
+
             const fabricMap = new Map<string, Fabric & { colors: FabricColor[] }>()
             variantsData.forEach((v: any) => {
                 if (v.fabric && v.color) {
@@ -60,19 +81,23 @@ export function useQuickViewData(productId: string | null, open: boolean): Quick
                 }
             })
             setFabrics(Array.from(fabricMap.values()))
+        } catch (err) {
+            console.error('[QUICK_VIEW] Load error:', err)
+            setError('Não foi possível carregar este produto. Verifique sua conexão.')
+        } finally {
+            setLoading(false)
         }
-        setLoading(false)
     }, [])
 
     useEffect(() => {
         if (open && productId) {
             loadProduct(productId)
         } else {
-            setProduct(null); setImages([]); setFabrics([]); setVariants([])
+            setProduct(null); setImages([]); setFabrics([]); setVariants([]); setError(null)
         }
     }, [open, productId, loadProduct])
 
-    return { product, images, fabrics, variants, loading }
+    return { product, images, fabrics, variants, loading, error }
 }
 
 interface QuickViewContentProps {
@@ -88,7 +113,7 @@ const statusLabels: Record<string, string> = {
 }
 
 export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewContentProps) {
-    const { product, images, fabrics, variants, loading } = data
+    const { product, images, fabrics, variants, loading, error } = data
     const { addItem, openCart } = useCartStore()
     const { isFavorite, toggle } = useFavoritesStore()
     const { calculateB2BPrice, discountPercentage, overrides } = usePriceTableStore()
@@ -128,7 +153,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
         else setSelectedFabric(null)
     }, [product?.id, fabrics])
 
-    if (loading || !product) {
+    if (loading) {
         return (
             <div className="flex flex-col md:grid md:grid-cols-[1fr_1fr] h-full p-4 gap-4 animate-pulse">
                 <div className="bg-muted w-full aspect-square rounded-lg" />
@@ -148,6 +173,28 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                             <div key={i} className="h-12 w-full bg-muted rounded" />
                         ))}
                     </div>
+                </div>
+            </div>
+        )
+    }
+
+    if (error || !product) {
+        return (
+            <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
+                <div className="h-14 w-14 rounded-full bg-red-100 flex items-center justify-center">
+                    <Package className="h-7 w-7 text-red-600" />
+                </div>
+                <div>
+                    <p className="font-semibold text-foreground">Não foi possível abrir o produto</p>
+                    <p className="text-sm text-muted-foreground">{error || 'Tente novamente em alguns instantes.'}</p>
+                </div>
+                <div className="flex gap-2">
+                    <Button variant="outline" onClick={onClose}>Fechar</Button>
+                    {product?.id && (
+                        <Link href={`/catalog/${product.id}`} className="inline-flex">
+                            <Button>Ver detalhes</Button>
+                        </Link>
+                    )}
                 </div>
             </div>
         )
@@ -227,6 +274,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
         toast.success(`${totalQuantity} itens adicionados ao carrinho!`)
         setQuantities({})
         setAddingToCart(false)
+        onClose()
     }
 
     const filteredColors = selectedFabricObj?.colors.filter(
@@ -302,6 +350,14 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                         {f.name}
                                     </button>
                                 ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {fabrics.length === 0 && (
+                        <div className="px-4 md:px-5 py-6">
+                            <div className="text-sm text-muted-foreground bg-muted/30 border border-dashed rounded-md p-3">
+                                Este produto não possui variações ativas no momento.
                             </div>
                         </div>
                     )}
@@ -443,6 +499,14 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                         Cor não encontrada
                                     </div>
                                 )}
+                            </div>
+                        </div>
+                    )}
+
+                    {selectedFabricObj && selectedFabricObj.colors.length === 0 && (
+                        <div className="px-4 md:px-5 py-4">
+                            <div className="text-sm text-muted-foreground bg-muted/30 border border-dashed rounded-md p-3">
+                                Nenhuma cor disponível para este tecido.
                             </div>
                         </div>
                     )}

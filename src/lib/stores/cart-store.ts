@@ -10,6 +10,7 @@ interface CartState {
     addItem: (item: CartItem) => void
     removeItem: (variantId: string) => void
     updateQuantity: (variantId: string, quantity: number) => void
+    setItems: (items: CartItem[]) => void
     clearCart: () => void
     toggleCart: () => void
     openCart: () => void
@@ -62,6 +63,7 @@ export const useCartStore = create<CartState>()(
                 }))
             },
 
+            setItems: (items: CartItem[]) => set({ items }),
             clearCart: () => set({ items: [] }),
             toggleCart: () => set((state) => ({ isOpen: !state.isOpen })),
             openCart: () => set({ isOpen: true }),

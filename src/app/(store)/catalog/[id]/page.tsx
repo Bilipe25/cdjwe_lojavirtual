@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
@@ -40,6 +40,7 @@ export default function ProductDetailPage() {
     const [fabrics, setFabrics] = useState<(Fabric & { colors: FabricColor[] })[]>([])
     const [variants, setVariants] = useState<ProductVariant[]>([])
     const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
 
     // Selection state
     const [selectedFabric, setSelectedFabric] = useState<string | null>(null)
@@ -54,63 +55,66 @@ export default function ProductDetailPage() {
 
     const loadProduct = async () => {
         setLoading(true)
+        setError(null)
         const supabase = createClient()
 
-        // Load product
-        const { data: prod } = await supabase
-            .from('products')
-            .select('*, category:categories(*)')
-            .eq('id', params.id)
-            .single()
+        try {
+            const [productRes, imagesRes, variantsRes] = await Promise.all([
+                supabase
+                    .from('products')
+                    .select('*, category:categories(*)')
+                    .eq('id', params.id)
+                    .single(),
+                supabase
+                    .from('product_images')
+                    .select('*')
+                    .eq('product_id', params.id)
+                    .order('sort_order'),
+                supabase
+                    .from('product_variants')
+                    .select(`
+                        *,
+                        fabric:fabrics(*),
+                        fabric_color:fabric_colors!product_variants_fabric_color_fk(*)
+                    `)
+                    .eq('product_id', params.id)
+                    .eq('is_active', true),
+            ])
 
-        if (!prod) {
-            router.push('/catalog')
-            return
-        }
-        setProduct(prod)
-
-        // Load images
-        const { data: imgs } = await supabase
-            .from('product_images')
-            .select('*')
-            .eq('product_id', params.id)
-            .order('sort_order')
-
-        if (imgs) setImages(imgs)
-
-        // Load variants with fabrics and colors
-        const { data: vars } = await supabase
-            .from('product_variants')
-            .select(`
-        *,
-        fabric:fabrics(*),
-        fabric_color:fabric_colors!product_variants_fabric_color_fk(*)
-      `)
-            .eq('product_id', params.id)
-            .eq('is_active', true)
-
-        if (vars) setVariants(vars)
-
-        // Get unique fabrics with their available colors for this product
-        const fabricMap = new Map<string, Fabric & { colors: FabricColor[] }>()
-        vars?.forEach((v: ProductVariant & { fabric: Fabric; fabric_color: FabricColor }) => {
-            if (!fabricMap.has(v.fabric_id)) {
-                fabricMap.set(v.fabric_id, { ...v.fabric, colors: [] })
+            if (productRes.error || !productRes.data) {
+                setError('Produto não encontrado ou indisponível.')
+                setProduct(null)
+                return
             }
-            const fab = fabricMap.get(v.fabric_id)!
-            if (!fab.colors.find(c => c.id === v.fabric_color_id)) {
-                fab.colors.push(v.fabric_color)
+
+            setProduct(productRes.data)
+            setImages(imagesRes.data || [])
+            setVariants(variantsRes.data || [])
+
+            const fabricMap = new Map<string, Fabric & { colors: FabricColor[] }>()
+            variantsRes.data?.forEach((v: ProductVariant & { fabric: Fabric; fabric_color: FabricColor }) => {
+                if (!fabricMap.has(v.fabric_id)) {
+                    fabricMap.set(v.fabric_id, { ...v.fabric, colors: [] })
+                }
+                const fab = fabricMap.get(v.fabric_id)!
+                if (!fab.colors.find(c => c.id === v.fabric_color_id)) {
+                    fab.colors.push(v.fabric_color)
+                }
+            })
+            const fabricList = Array.from(fabricMap.values())
+            setFabrics(fabricList)
+
+            if (fabricList.length > 0) {
+                setSelectedFabric(fabricList[0].id)
+            } else {
+                setSelectedFabric(null)
             }
-        })
-        const fabricList = Array.from(fabricMap.values())
-        setFabrics(fabricList)
-
-        // Select first fabric by default
-        if (fabricList.length > 0) {
-            setSelectedFabric(fabricList[0].id)
+        } catch (err) {
+            console.error('[PRODUCT_DETAIL] Load error:', err)
+            setError('Não foi possível carregar este produto. Verifique sua conexão.')
+        } finally {
+            setLoading(false)
         }
-
-        setLoading(false)
     }
 
     // Get available colors for selected fabric
@@ -186,12 +190,13 @@ export default function ProductDetailPage() {
             const matchedVariant = variants.find(
                 (v: any) => v.fabric_id === selectedFabric && v.fabric_color_id === colorId
             )
+            if (!matchedVariant) return
             const colorObj = availableColors.find(c => c.id === colorId)
 
-            const variantPrice = matchedVariant ? getVariantUnitPrice(matchedVariant) : price
+            const variantPrice = getVariantUnitPrice(matchedVariant)
 
             addItem({
-                variantId: matchedVariant?.id || `${product.id}-${selectedFabric}-${colorId}`,
+                variantId: matchedVariant.id,
                 productId: product.id,
                 productName: product.name,
                 fabricName: fabric?.name || '',
@@ -217,7 +222,25 @@ export default function ProductDetailPage() {
         return <ProductDetailSkeleton />
     }
 
-    if (!product) return null
+    if (error || !product) {
+        return (
+            <div className="mx-auto max-w-3xl px-4 py-12 text-center space-y-4">
+                <div className="mx-auto h-16 w-16 rounded-full bg-red-100 flex items-center justify-center">
+                    <Package className="h-7 w-7 text-red-600" />
+                </div>
+                <div>
+                    <h2 className="text-xl font-bold">Não foi possível abrir o produto</h2>
+                    <p className="text-sm text-muted-foreground">{error || 'Tente novamente em alguns instantes.'}</p>
+                </div>
+                <div className="flex justify-center gap-2">
+                    <Button variant="outline" onClick={() => router.push('/catalog')}>
+                        Voltar ao Catálogo
+                    </Button>
+                    <Button onClick={loadProduct}>Tentar novamente</Button>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
@@ -318,6 +341,12 @@ export default function ProductDetailPage() {
                                     </TooltipProvider>
                                 ))}
                             </div>
+                        </div>
+                    )}
+
+                    {fabrics.length === 0 && (
+                        <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                            Este produto não possui variações ativas no momento.
                         </div>
                     )}
 
@@ -429,6 +458,12 @@ export default function ProductDetailPage() {
                                     {totalSelectedQuantity} itens = R$ {totalSelectedPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                 </span>
                             </div>
+                        </div>
+                    )}
+
+                    {selectedFabric && availableColors.length === 0 && (
+                        <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                            Nenhuma cor disponível para este tecido.
                         </div>
                     )}
 
