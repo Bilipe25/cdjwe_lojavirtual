@@ -1,21 +1,25 @@
 ﻿'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { type ComponentType, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
+import Image from 'next/image'
 import {
-    Minus,
-    Plus,
-    Trash2,
-    ShoppingBag,
+    AlertCircle,
     ArrowLeft,
+    Check,
     CreditCard,
     Loader2,
+    MessageSquare,
+    Minus,
     Package,
-    AlertCircle,
+    Plus,
+    Receipt,
+    ShieldCheck,
+    ShoppingBag,
+    Trash2,
     Truck,
 } from 'lucide-react'
-import { Check, PlusCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AddressForm } from '@/components/store/AddressForm'
 import {
@@ -38,29 +42,431 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
-import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
+import { Textarea } from '@/components/ui/textarea'
+import { useSettings } from '@/components/providers/settings-provider'
+import { cn } from '@/lib/utils'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { createClient } from '@/lib/supabase/client'
+import type { CartItem, PaymentCondition, PriceTablePaymentRule, StoreAddress } from '@/lib/types'
 import { toast } from 'sonner'
-import { useSettings } from '@/components/providers/settings-provider'
-import type { PaymentCondition, PriceTablePaymentRule, StoreAddress } from '@/lib/types'
-import Image from 'next/image'
-import { checkoutAction, getAvailablePaymentRules, getAvailableStoreAddresses, getCurrentVariantPricing } from './actions'
+import {
+    checkoutAction,
+    getAvailablePaymentRules,
+    getAvailableStoreAddresses,
+    getCurrentVariantPricing,
+} from './actions'
+
+function formatCurrency(value: number) {
+    return value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+}
+
+function getRuleLabel(rule: PriceTablePaymentRule) {
+    return `${rule.number_of_installments}x${rule.installment_days ? ` (${rule.installment_days})` : ''}${rule.discount_percentage > 0 ? ` -${rule.discount_percentage}%` : ''}`
+}
+
+function getConditionLabel(condition: PaymentCondition) {
+    return `${condition.name}${condition.discount_percentage > 0 ? ` -${condition.discount_percentage}%` : ''}`
+}
+
+function CheckoutSection({
+    icon: Icon,
+    eyebrow,
+    title,
+    description,
+    children,
+    className,
+    headerClassName,
+    contentClassName,
+    iconWrapperClassName,
+    eyebrowClassName,
+    titleClassName,
+}: {
+    icon: ComponentType<{ className?: string }>
+    eyebrow: string
+    title: string
+    description?: string
+    children: ReactNode
+    className?: string
+    headerClassName?: string
+    contentClassName?: string
+    iconWrapperClassName?: string
+    eyebrowClassName?: string
+    titleClassName?: string
+}) {
+    return (
+        <Card
+            className={cn(
+                'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm',
+                className
+            )}
+        >
+            <CardHeader
+                className={cn('border-b border-slate-100 px-4 py-4 sm:px-5', headerClassName)}
+            >
+                <div className="flex items-start gap-3">
+                    <div
+                        className={cn(
+                            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700',
+                            iconWrapperClassName
+                        )}
+                    >
+                        <Icon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                        <p
+                            className={cn(
+                                'text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400',
+                                eyebrowClassName
+                            )}
+                        >
+                            {eyebrow}
+                        </p>
+                        <CardTitle
+                            className={cn('mt-0.5 text-base font-semibold text-slate-950', titleClassName)}
+                        >
+                            {title}
+                        </CardTitle>
+                        {description && (
+                            <p className="mt-1 text-sm leading-5 text-slate-500">{description}</p>
+                        )}
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent className={cn('px-4 py-4 sm:px-5', contentClassName)}>{children}</CardContent>
+        </Card>
+    )
+}
+
+function CheckoutHeader({
+    nextOrderNumber,
+    count,
+    total,
+    onBack,
+    onClear,
+}: {
+    nextOrderNumber: string
+    count: number
+    total: number
+    onBack: () => void
+    onClear: () => void
+}) {
+    return (
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-3">
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        className="mt-0.5 h-9 w-9 rounded-xl border-slate-200"
+                        onClick={onBack}
+                    >
+                        <ArrowLeft className="h-4 w-4" />
+                    </Button>
+                    <div className="min-w-0">
+                        <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-slate-950 sm:text-2xl">
+                            {nextOrderNumber || 'Finalizar pedido'}
+                        </h1>
+                        <p className="mt-1 text-sm text-slate-500">
+                            Revise, escolha entrega e confirme o pedido.
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                        <span className="font-semibold text-slate-950">{count}</span>{' '}
+                        {count === 1 ? 'item' : 'itens'}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                        Total parcial
+                        <span className="ml-1 font-semibold text-slate-950">
+                            R$ {formatCurrency(total)}
+                        </span>
+                    </div>
+                    <AlertDialog>
+                        <AlertDialogTrigger
+                            render={
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-9 rounded-xl px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Limpar
+                                </Button>
+                            }
+                        />
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Esvaziar carrinho</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Tem certeza que deseja remover todos os itens do seu carrinho?
+                                    Esta acao nao pode ser desfeita.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={onClear}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                    Sim, esvaziar
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function EmptyCartState({ onCatalog }: { onCatalog: () => void }) {
+    return (
+        <div className="mx-auto max-w-5xl px-4 py-16 sm:px-6 lg:px-8">
+            <motion.div
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm"
+            >
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-slate-100">
+                    <ShoppingBag className="h-8 w-8 text-slate-500" />
+                </div>
+                <h1 className="mt-5 text-2xl font-bold text-slate-950">Carrinho vazio</h1>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+                    Adicione produtos para iniciar um novo pedido.
+                </p>
+                <Button
+                    className="mt-6 h-10 rounded-xl gradient-bronze border-0 px-5 text-white"
+                    onClick={onCatalog}
+                >
+                    Ver catalogo
+                </Button>
+            </motion.div>
+        </div>
+    )
+}
+
+function CheckoutItemRow({
+    item,
+    onRemove,
+    onDecrease,
+    onIncrease,
+}: {
+    item: CartItem
+    onRemove: () => void
+    onDecrease: () => void
+    onIncrease: () => void
+}) {
+    const subtotal = item.unitPrice * item.quantity
+    const variantSummary = [item.fabricName, item.colorName, item.size].filter(Boolean).join(' / ')
+
+    return (
+        <div className="py-3 first:pt-0 last:pb-0">
+            <div className="sm:hidden">
+                <div className="flex items-start gap-3">
+                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                        {item.imageUrl ? (
+                            <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" />
+                        ) : (
+                            <div className="flex h-full w-full items-center justify-center text-slate-400">
+                                <Package className="h-4 w-4" />
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                                <h3 className="line-clamp-2 text-sm font-medium leading-5 text-slate-950">
+                                    {item.quantity}x {item.productName}
+                                </h3>
+                                <p className="mt-0.5 line-clamp-1 text-[11px] text-slate-500">
+                                    {variantSummary}
+                                </p>
+                            </div>
+
+                            <div className="shrink-0 text-right">
+                                <p className="text-sm font-semibold text-slate-950">
+                                    R$ {formatCurrency(subtotal)}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-slate-400">
+                                    Unit. R$ {formatCurrency(item.unitPrice)}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-0.5 rounded-full border border-slate-200/80 bg-slate-50/80 p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 rounded-full text-slate-500 hover:bg-white hover:text-slate-950"
+                                    onClick={onDecrease}
+                                >
+                                    <Minus className="h-3 w-3" strokeWidth={2.2} />
+                                </Button>
+                                <span className="min-w-7 px-1 text-center text-[12px] font-semibold tracking-tight text-slate-950">
+                                    {item.quantity}
+                                </span>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 rounded-full text-slate-500 hover:bg-white hover:text-slate-950"
+                                    onClick={onIncrease}
+                                >
+                                    <Plus className="h-3 w-3" strokeWidth={2.2} />
+                                </Button>
+                            </div>
+
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 rounded-full px-2.5 text-[11px] font-medium text-slate-400 hover:bg-destructive/10 hover:text-destructive"
+                                onClick={onRemove}
+                            >
+                                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                                Remover
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="hidden sm:grid sm:gap-3 sm:grid-cols-[72px_minmax(0,1fr)] xl:grid-cols-[72px_minmax(0,1fr)_160px] xl:items-center">
+                <div className="relative h-[72px] w-[72px] overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                    {item.imageUrl ? (
+                        <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" />
+                    ) : (
+                        <div className="flex h-full w-full items-center justify-center text-slate-400">
+                            <Package className="h-7 w-7" />
+                        </div>
+                    )}
+                </div>
+
+                <div className="min-w-0 space-y-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <h3 className="truncate text-sm font-semibold text-slate-950">
+                                {item.productName}
+                            </h3>
+                            <div className="mt-1 flex flex-wrap gap-1.5">
+                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                    {item.fabricName}
+                                </span>
+                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                    {item.colorName}
+                                </span>
+                                {item.size && (
+                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                        {item.size}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 rounded-lg text-slate-400 hover:bg-destructive/10 hover:text-destructive"
+                            onClick={onRemove}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 xl:hidden">
+                        <div className="text-sm text-slate-500">
+                            <span>R$ {formatCurrency(item.unitPrice)}</span>
+                            <span className="mx-2 text-slate-300">/</span>
+                            <span className="font-semibold text-slate-950">
+                                R$ {formatCurrency(subtotal)}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-0.5">
+                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onDecrease}>
+                                <Minus className="h-3.5 w-3.5" />
+                            </Button>
+                            <span className="w-7 text-center text-sm font-semibold text-slate-950">
+                                {item.quantity}
+                            </span>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onIncrease}>
+                                <Plus className="h-3.5 w-3.5" />
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="hidden xl:flex xl:items-center xl:justify-end xl:gap-3">
+                    <div className="text-right">
+                        <p className="text-xs text-slate-500">Unitario</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-950">
+                            R$ {formatCurrency(item.unitPrice)}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-0.5">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onDecrease}>
+                            <Minus className="h-3.5 w-3.5" />
+                        </Button>
+                        <span className="w-7 text-center text-sm font-semibold text-slate-950">
+                            {item.quantity}
+                        </span>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onIncrease}>
+                            <Plus className="h-3.5 w-3.5" />
+                        </Button>
+                    </div>
+                    <div className="min-w-[96px] text-right">
+                        <p className="text-xs text-slate-500">Subtotal</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-950">
+                            R$ {formatCurrency(subtotal)}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+function SummaryRow({
+    label,
+    value,
+    emphasis = 'default',
+}: {
+    label: string
+    value: string
+    emphasis?: 'default' | 'success' | 'warning' | 'strong'
+}) {
+    const colorClass =
+        emphasis === 'success'
+            ? 'text-emerald-600'
+            : emphasis === 'warning'
+              ? 'text-amber-600'
+              : emphasis === 'strong'
+                ? 'text-slate-950'
+                : 'text-slate-600'
+
+    return (
+        <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-slate-500">{label}</span>
+            <span className={cn('text-right font-medium', colorClass)}>{value}</span>
+        </div>
+    )
+}
 
 export default function CartPage() {
     const router = useRouter()
-    const { items, removeItem, updateQuantity, subtotal, totalItems, clearCart, setItems } = useCartStore()
+    const { items, removeItem, updateQuantity, subtotal, totalItems, clearCart, setItems } =
+        useCartStore()
     const { settings } = useSettings()
+
     const [loading, setLoading] = useState(false)
     const [paymentConditions, setPaymentConditions] = useState<PaymentCondition[]>([])
     const [priceTableRules, setPriceTableRules] = useState<PriceTablePaymentRule[]>([])
     const [isTableRule, setIsTableRule] = useState(false)
-    const [selectedPayment, setSelectedPayment] = useState<string>('')
+    const [selectedPayment, setSelectedPayment] = useState('')
     const [storeAddresses, setStoreAddresses] = useState<StoreAddress[]>([])
-    const [selectedAddressId, setSelectedAddressId] = useState<string>('')
+    const [selectedAddressId, setSelectedAddressId] = useState('')
     const [addressesLoading, setAddressesLoading] = useState(true)
     const [addressError, setAddressError] = useState<string | null>(null)
     const [notes, setNotes] = useState('')
@@ -72,7 +478,68 @@ export default function CartPage() {
 
     const total = subtotal()
     const count = totalItems()
-    const itemsKey = useMemo(() => items.map(i => i.variantId).sort().join('|'), [items])
+    const itemsKey = useMemo(() => items.map((item) => item.variantId).sort().join('|'), [items])
+
+    const selectedAddress = useMemo(
+        () => storeAddresses.find((address) => address.id === selectedAddressId) || null,
+        [selectedAddressId, storeAddresses]
+    )
+
+    const selectedRule = useMemo(
+        () =>
+            isTableRule
+                ? priceTableRules.find((rule) => rule.id === selectedPayment) || null
+                : null,
+        [isTableRule, priceTableRules, selectedPayment]
+    )
+
+    const selectedCondition = useMemo(
+        () =>
+            !isTableRule
+                ? paymentConditions.find((condition) => condition.id === selectedPayment) || null
+                : null,
+        [isTableRule, paymentConditions, selectedPayment]
+    )
+
+    const mobilePaymentOptions = useMemo(
+        () => [
+            ...priceTableRules.map((rule) => ({
+                id: rule.id,
+                label: getRuleLabel(rule),
+                description: 'Regra comercial exclusiva da sua tabela B2B.',
+                discountPercentage: rule.discount_percentage,
+                isTableRule: true,
+            })),
+            ...paymentConditions.map((condition) => ({
+                id: condition.id,
+                label: getConditionLabel(condition),
+                description: condition.description || null,
+                discountPercentage: condition.discount_percentage,
+                isTableRule: false,
+            })),
+        ],
+        [paymentConditions, priceTableRules]
+    )
+
+    const discountPercentage =
+        selectedRule?.discount_percentage || selectedCondition?.discount_percentage || 0
+    const surchargePercentage = selectedCondition?.surcharge_percentage || 0
+    const paymentDiscount = total * (discountPercentage / 100)
+    const discountedTotal = total - paymentDiscount
+    const paymentSurcharge = discountedTotal * (surchargePercentage / 100)
+    const finalTotal = discountedTotal + paymentSurcharge
+    const minOrderMet = !settings?.min_order_amount || total >= settings.min_order_amount
+
+    const selectedPaymentLabel = selectedRule
+        ? getRuleLabel(selectedRule)
+        : selectedCondition
+          ? getConditionLabel(selectedCondition)
+          : 'Selecione uma condicao'
+
+    const deliveryMessage =
+        settings?.default_delivery_days && settings.default_delivery_days > 0
+            ? `${settings.default_delivery_days} dias uteis estimados`
+            : null
 
     useEffect(() => {
         const validatePrices = async () => {
@@ -80,20 +547,23 @@ export default function CartPage() {
 
             setPriceValidationPending(true)
             try {
-                const result = await getCurrentVariantPricing(items.map(i => i.variantId))
-                if (!result) {
-                    return
-                }
+                const result = await getCurrentVariantPricing(items.map((item) => item.variantId))
+                if (!result) return
+
                 if ('error' in result) {
-                    toast.warning('Não foi possível validar os preços agora. Tentaremos novamente mais tarde.')
+                    toast.warning(
+                        'Nao foi possivel validar os precos agora. Tentaremos novamente em instantes.'
+                    )
                     return
                 }
 
-                const missing = result.missingVariantIds || []
-                let updatedItems = items.filter(i => !missing.includes(i.variantId))
+                const missingVariantIds = result.missingVariantIds || []
+                let updatedItems = items.filter(
+                    (item) => !missingVariantIds.includes(item.variantId)
+                )
                 let priceChanged = false
 
-                updatedItems = updatedItems.map(item => {
+                updatedItems = updatedItems.map((item) => {
                     const priceInfo = result.prices?.[item.variantId]
                     if (!priceInfo) return item
                     if (priceInfo.unitPrice !== item.unitPrice) {
@@ -103,16 +573,21 @@ export default function CartPage() {
                     return item
                 })
 
-                if (missing.length > 0) {
-                    toast.error('Alguns itens não estão mais disponíveis e foram removidos do carrinho.')
-                }
-                if (priceChanged) {
-                    toast.message('Preços atualizados conforme tabela e variações.')
+                if (missingVariantIds.length > 0) {
+                    toast.error(
+                        'Alguns itens nao estao mais disponiveis e foram removidos do carrinho.'
+                    )
                 }
 
-                if (missing.length > 0 || priceChanged) {
+                if (priceChanged) {
+                    toast.message('Precos atualizados conforme tabela comercial e variacoes.')
+                }
+
+                if (missingVariantIds.length > 0 || priceChanged) {
                     setItems(updatedItems)
-                    setLastValidatedKey(updatedItems.map(i => i.variantId).sort().join('|'))
+                    setLastValidatedKey(
+                        updatedItems.map((item) => item.variantId).sort().join('|')
+                    )
                 } else {
                     setLastValidatedKey(itemsKey)
                 }
@@ -121,108 +596,120 @@ export default function CartPage() {
             }
         }
 
-        validatePrices()
-    }, [itemsKey, lastValidatedKey, items, setItems])
+        void validatePrices()
+    }, [items, itemsKey, lastValidatedKey, setItems])
 
     useEffect(() => {
-        const loadConditions = async () => {
-            const supabase = createClient()
-            // Load addresses separately with error catching
+        const loadAddresses = async () => {
+            setAddressesLoading(true)
             try {
-                const addressesRes = await getAvailableStoreAddresses()
-                setStoreAddresses(addressesRes || [])
-                const mainAddress = addressesRes?.find(a => a.is_main)
+                const addresses = await getAvailableStoreAddresses()
+                setStoreAddresses(addresses || [])
+
+                const mainAddress = addresses?.find((address) => address.is_main)
                 if (mainAddress) {
                     setSelectedAddressId(mainAddress.id)
-                } else if (addressesRes && addressesRes.length > 0) {
-                    setSelectedAddressId(addressesRes[0].id)
+                } else if (addresses && addresses.length > 0) {
+                    setSelectedAddressId(addresses[0].id)
                 }
             } catch (err: unknown) {
-                console.error('[CART] Failed to load addresses:', err)
-                setAddressError(err instanceof Error ? err.message : 'Erro ao carregar endereços')
+                console.error('[CHECKOUT] Failed to load addresses:', err)
+                setAddressError(
+                    err instanceof Error ? err.message : 'Erro ao carregar enderecos'
+                )
             } finally {
                 setAddressesLoading(false)
             }
+        }
 
-            const [rulesRes, orderRes] = await Promise.all([
-                getAvailablePaymentRules(total),
-                supabase.from('orders').select('order_number').order('created_at', { ascending: false }).limit(1).single(),
-            ])
-            
-            const hasTableRules = rulesRes.priceTableRules && rulesRes.priceTableRules.length > 0;
-            const hasGlobals = rulesRes.globalConditions && rulesRes.globalConditions.length > 0;
+        void loadAddresses()
+    }, [])
 
-            setPriceTableRules(rulesRes.priceTableRules || [])
-            setPaymentConditions(rulesRes.globalConditions || [])
+    useEffect(() => {
+        const loadPaymentRules = async () => {
+            const rulesResponse = await getAvailablePaymentRules(total)
+            const nextTableRules = rulesResponse.priceTableRules || []
+            const nextConditions = rulesResponse.globalConditions || []
 
-            // PRIORITY LOGIC:
-            // 1. If we have Table Rules, they take precedence in the selection.
-            // 2. We only fall back to Global Conditions if NO Table Rules exist for this value range.
-            
-            if (hasTableRules) {
+            setPriceTableRules(nextTableRules)
+            setPaymentConditions(nextConditions)
+
+            if (nextTableRules.length > 0) {
                 setIsTableRule(true)
-                // Auto-select first rule if nothing valid selected
                 setSelectedPayment((previous) =>
-                    rulesRes.priceTableRules.find(r => r.id === previous)
+                    nextTableRules.some((rule) => rule.id === previous)
                         ? previous
-                        : rulesRes.priceTableRules[0].id
+                        : nextTableRules[0].id
                 )
-            } else if (hasGlobals) {
-                setIsTableRule(false)
-                // Auto-select first global if nothing valid selected
-                setSelectedPayment((previous) =>
-                    rulesRes.globalConditions.find(c => c.id === previous)
-                        ? previous
-                        : rulesRes.globalConditions[0].id
-                )
-            } else {
-                setSelectedPayment('')
+                return
             }
-            
-            // Calculate next order number
-            const lastNumStr = orderRes.data?.order_number || 'PED000000'
-            const lastNum = parseInt(lastNumStr.replace(/\D/g, '')) || 0
+
+            if (nextConditions.length > 0) {
+                setIsTableRule(false)
+                setSelectedPayment((previous) =>
+                    nextConditions.some((condition) => condition.id === previous)
+                        ? previous
+                        : nextConditions[0].id
+                )
+                return
+            }
+
+            setSelectedPayment('')
+        }
+
+        void loadPaymentRules()
+    }, [total])
+
+    useEffect(() => {
+        const loadNextOrderNumber = async () => {
+            const supabase = createClient()
+            const orderResponse = await supabase
+                .from('orders')
+                .select('order_number')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single()
+
+            const lastNumStr = orderResponse.data?.order_number || 'PED000000'
+            const lastNum = parseInt(lastNumStr.replace(/\D/g, ''), 10) || 0
             const nextNum = (lastNum + 1).toString().padStart(6, '0')
             setNextOrderNumber(`Pedido${nextNum}`)
         }
-        loadConditions()
-    }, [total])
 
-    const selectedRule = isTableRule ? priceTableRules.find(r => r.id === selectedPayment) : null
-    const selectedCondition = !isTableRule ? paymentConditions.find(p => p.id === selectedPayment) : null
+        void loadNextOrderNumber()
+    }, [])
 
-    const discountPercentage = selectedRule ? selectedRule.discount_percentage : (selectedCondition ? selectedCondition.discount_percentage : 0)
-    const surchargePercentage = selectedCondition ? (selectedCondition.surcharge_percentage || 0) : 0
-
-    const paymentDiscount = (total * discountPercentage / 100)
-    const discountedTotal = total - paymentDiscount
-    const paymentSurcharge = (discountedTotal * surchargePercentage / 100)
-    const finalTotal = discountedTotal + paymentSurcharge
-
-    const minOrderMet = !settings?.min_order_amount || total >= settings.min_order_amount
-
-    const handlePlaceOrder = async () => {
+    const handlePlaceOrder = useCallback(() => {
         if (items.length === 0) {
-            toast.error('Seu carrinho está vazio')
+            toast.error('Seu carrinho esta vazio.')
             return
         }
+
         if (!minOrderMet) {
-            toast.error(`Pedido mínimo: R$ ${settings?.min_order_amount?.toFixed(2)}`)
+            toast.error(`Pedido minimo: R$ ${settings?.min_order_amount?.toFixed(2)}`)
             return
         }
+
         if (!selectedPayment) {
-            toast.error('Selecione uma condição de pagamento')
+            toast.error('Selecione uma condicao de pagamento.')
             return
         }
 
         setConfirmCheckoutOpen(true)
-    }
+    }, [items.length, minOrderMet, selectedPayment, settings?.min_order_amount])
 
-    const processOrder = async () => {
+    const processOrder = useCallback(async () => {
         setLoading(true)
         setConfirmCheckoutOpen(false)
+
         try {
-            const result = await checkoutAction(items, selectedPayment, notes, isTableRule, selectedAddressId)
+            const result = await checkoutAction(
+                items,
+                selectedPayment,
+                notes,
+                isTableRule,
+                selectedAddressId
+            )
 
             if ('error' in result && result.error) {
                 toast.error(result.error)
@@ -231,536 +718,699 @@ export default function CartPage() {
             }
 
             if (!('orderId' in result) || !result.orderId) {
-                toast.error('Pedido criado, mas não foi possível redirecionar. Verifique seus pedidos.')
+                toast.error(
+                    'Pedido criado, mas nao foi possivel redirecionar. Verifique seus pedidos.'
+                )
                 clearCart()
                 setLoading(false)
                 router.push('/orders')
                 return
             }
 
-            // DO NOT setLoading(false) here. We leave it true so the UI stays locked
-            // while we redirect, preventing the "empty cart" flash because we won't
-            // clear the items state until immediately before unmounting.
             toast.success('Pedido realizado com sucesso!', { duration: 2500 })
             router.push(`/order-confirmation/${result.orderId}`)
-            
-            // Clear cart slightly after push so it doesn't trigger a re-render
-            // of the empty cart before the next page actually loads
+
             setTimeout(() => {
                 clearCart()
             }, 500)
-            
         } catch (err) {
             console.error('[CHECKOUT] Unexpected error:', err)
-            toast.error('Ocorreu um erro interno de conexão.')
+            toast.error('Ocorreu um erro interno de conexao.')
             setLoading(false)
         }
-    }
+    }, [clearCart, isTableRule, items, notes, router, selectedAddressId, selectedPayment])
 
     if (items.length === 0) {
-        return (
-            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-center"
-                >
-                    <div className="mx-auto h-24 w-24 rounded-full bg-muted flex items-center justify-center mb-4">
-                        <ShoppingBag className="h-10 w-10 text-muted-foreground" />
-                    </div>
-                    <h1 className="text-2xl font-bold font-[--font-heading]">
-                        Carrinho Vazio
-                    </h1>
-                    <p className="text-muted-foreground mt-2">
-                        Adicione produtos do catálogo para fazer seu pedido
-                    </p>
-                    <Button
-                        className="mt-6 gradient-bronze border-0 text-white"
-                        onClick={() => router.push('/catalog')}
-                    >
-                        Ver Catálogo
-                    </Button>
-                </motion.div>
-            </div>
-        )
+        return <EmptyCartState onCatalog={() => router.push('/catalog')} />
     }
 
     return (
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-
-
-            {/* Desktop Header */}
-            <div className="hidden md:flex items-center justify-between mb-6">
-                <div className="flex items-center gap-4">
-                    <Button variant="ghost" size="icon" onClick={() => router.back()}>
-                        <ArrowLeft className="h-5 w-5" />
-                    </Button>
-                    <div>
-                        <h1 className="text-2xl font-bold font-[--font-heading] text-gradient-navy">
-                            {nextOrderNumber || 'Carrinho'}
-                        </h1>
-                        <p className="text-sm text-muted-foreground">
-                            {count} {count === 1 ? 'item' : 'itens'}
-                        </p>
-                    </div>
-                </div>
-                <AlertDialog>
-                    <AlertDialogTrigger
-                        render={
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
-                            >
-                                <Trash2 className="h-4 w-4" />
-                                Limpar
-                            </Button>
-                        }
+        <div className="mx-auto max-w-[1280px] px-4 py-4 pb-28 sm:px-6 lg:px-8 lg:py-6 lg:pb-8">
+            <div className="space-y-4 lg:space-y-5">
+                <div className="hidden md:block">
+                    <CheckoutHeader
+                        nextOrderNumber={nextOrderNumber}
+                        count={count}
+                        total={total}
+                        onBack={() => router.back()}
+                        onClear={clearCart}
                     />
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Esvaziar carrinho</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                Tem certeza que deseja remover todos os itens do seu carrinho? Esta ação não pode ser desfeita.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                                onClick={clearCart}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                                Sim, esvaziar
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-            </div>
-
-            {/* Min order progress bar (Sticky on Mobile) */}
-            {settings && settings.min_order_amount > 0 && total < settings.min_order_amount && (
-                <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 shadow-sm">
-                    <div className="flex items-center justify-between text-sm mb-2">
-                        <span className="text-amber-800 font-bold flex items-center gap-1.5 uppercase tracking-tight text-[10px] sm:text-xs">
-                            <AlertCircle className="h-3.5 w-3.5" />
-                            Pedido mínimo: R$ {settings.min_order_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </span>
-                        <span className="text-amber-600 text-[10px] font-medium">
-                            Faltam R$ {(settings.min_order_amount - total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </span>
-                    </div>
-                    <div className="h-2 rounded-full bg-amber-200 overflow-hidden">
-                        <div
-                            className="h-full rounded-full bg-amber-500 transition-all duration-500"
-                            style={{ width: `${Math.min(100, (total / settings.min_order_amount) * 100)}%` }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
-                {/* Items */}
-                <div className="lg:col-span-2 space-y-4">
-                    {items.map((item, i) => (
-                        <motion.div
-                            key={item.variantId}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.05 }}
-                            layout
-                        >
-                            <Card className="glass-card border-0">
-                                <CardContent className="p-4">
-                                    <div className="flex gap-4">
-                                        <div className="h-24 w-24 rounded-lg bg-muted shrink-0 overflow-hidden relative">
-                                            {item.imageUrl ? (
-                                                <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" />
-                                            ) : (
-                                                <div className="h-full w-full flex items-center justify-center">
-                                                    <Package className="h-8 w-8 text-muted-foreground/30" />
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <h3 className="font-semibold truncate">{item.productName}</h3>
-                                            <p className="text-sm text-muted-foreground">
-                                                {item.fabricName} — {item.colorName}
-                                            </p>
-                                            {item.size && (
-                                                <p className="text-xs text-muted-foreground">{item.size}</p>
-                                            )}
-                                            <p className="text-sm font-medium mt-1">
-                                                R$ {item.unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / un.
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-col items-end justify-between shrink-0">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 text-destructive"
-                                                onClick={() => removeItem(item.variantId)}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                            <div className="flex items-center gap-1">
-                                                <Button
-                                                    variant="outline"
-                                                    size="icon"
-                                                    className="h-8 w-8"
-                                                    onClick={() => updateQuantity(item.variantId, item.quantity - 1)}
-                                                >
-                                                    <Minus className="h-3 w-3" />
-                                                </Button>
-                                                <span className="w-8 text-center font-medium text-sm">{item.quantity}</span>
-                                                <Button
-                                                    variant="outline"
-                                                    size="icon"
-                                                    className="h-8 w-8"
-                                                    onClick={() => updateQuantity(item.variantId, item.quantity + 1)}
-                                                >
-                                                    <Plus className="h-3 w-3" />
-                                                </Button>
-                                            </div>
-                                            <p className="text-sm font-semibold text-gradient-bronze">
-                                                R$ {(item.unitPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </motion.div>
-                    ))}
                 </div>
 
-                {/* Order Summary */}
-                <div className="space-y-4">
-                    <Card className="glass-card border-0 sticky top-24">
-                        <CardHeader>
-                            <CardTitle className="text-lg font-[--font-heading]">
-                                Resumo do Pedido
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {priceValidationPending && (
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-slate-50 border border-dashed rounded-lg p-2">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    Atualizando preços e regras da sua tabela...
-                                </div>
-                            )}
-                            <div className="rounded-lg border border-border/60 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                                Os valores do carrinho s?o revalidados no checkout para garantir consist?ncia com produto, cor e tabela B2B.
+                {settings && settings.min_order_amount > 0 && total < settings.min_order_amount && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                                    <AlertCircle className="h-4 w-4" />
+                                    Pedido minimo
+                                </p>
+                                <p className="mt-1 text-sm text-amber-900">
+                                    Faltam{' '}
+                                    <strong>
+                                        R$ {formatCurrency(settings.min_order_amount - total)}
+                                    </strong>{' '}
+                                    para atingir o minimo de R${' '}
+                                    {formatCurrency(settings.min_order_amount)}.
+                                </p>
                             </div>
-                            {/* Address Selection */}
-                            <div className="space-y-2 pb-2 border-b">
-                                <Label className="flex items-center gap-2">
-                                    <Truck className="h-4 w-4 text-bronze" />
-                                    Endereço de Entrega
-                                </Label>
+                            <div className="min-w-[160px]">
+                                <div className="h-2 overflow-hidden rounded-full bg-amber-200">
+                                    <div
+                                        className="h-full rounded-full bg-amber-500 transition-all duration-500"
+                                        style={{
+                                            width: `${Math.min(
+                                                100,
+                                                (total / settings.min_order_amount) * 100
+                                            )}%`,
+                                        }}
+                                    />
+                                </div>
+                                <p className="mt-2 text-right text-xs text-amber-700">
+                                    {Math.min(
+                                        100,
+                                        (total / settings.min_order_amount) * 100
+                                    ).toFixed(0)}
+                                    % do minimo atingido
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-start">
+                    <div className="space-y-5">
+                        <CheckoutSection
+                            icon={ShoppingBag}
+                            eyebrow="Pedido"
+                            title={`Produtos selecionados (${count})`}
+                            className="-mx-4 rounded-none border-0 bg-transparent shadow-none sm:mx-0 sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm"
+                            headerClassName="hidden sm:block sm:px-5 sm:py-4"
+                            contentClassName="px-4 py-2 sm:px-5 sm:py-4"
+                            iconWrapperClassName="h-7 w-7 rounded-lg sm:h-8 sm:w-8 sm:rounded-xl"
+                            eyebrowClassName="hidden sm:block"
+                            titleClassName="mt-0 text-[15px] sm:mt-0.5 sm:text-base"
+                        >
+                            <div className="mb-2 hidden items-center justify-between gap-3 sm:flex">
+                                <p className="text-sm text-slate-500">
+                                    Revise os itens e ajuste as quantidades.
+                                </p>
+                                <Button
+                                    variant="ghost"
+                                    className="h-8 rounded-lg px-2 text-sm text-slate-600"
+                                    onClick={() => router.push('/catalog')}
+                                >
+                                    Continuar comprando
+                                </Button>
+                            </div>
+
+                            <div className="divide-y divide-slate-100">
+                                {items.map((item, index) => (
+                                    <motion.div
+                                        key={item.variantId}
+                                        initial={{ opacity: 0, y: 8 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: index * 0.04 }}
+                                        layout
+                                    >
+                                        <CheckoutItemRow
+                                            item={item}
+                                            onRemove={() => removeItem(item.variantId)}
+                                            onDecrease={() =>
+                                                updateQuantity(item.variantId, item.quantity - 1)
+                                            }
+                                            onIncrease={() =>
+                                                updateQuantity(item.variantId, item.quantity + 1)
+                                            }
+                                        />
+                                    </motion.div>
+                                ))}
+                            </div>
+
+                            <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 sm:hidden">
+                                <div className="flex items-center justify-between text-base text-slate-700">
+                                    <span className="font-medium">Subtotal</span>
+                                    <span className="text-lg font-semibold text-slate-950">
+                                        R$ {formatCurrency(total)}
+                                    </span>
+                                </div>
+
+                                <Button
+                                    variant="outline"
+                                    className="h-11 w-full rounded-xl border-slate-300 bg-transparent text-sm font-medium text-slate-700 shadow-none"
+                                    onClick={() => router.push('/catalog')}
+                                >
+                                    Adicionar mais itens
+                                </Button>
+                            </div>
+                        </CheckoutSection>
+
+                        <section className="space-y-4 border-t border-slate-200 pt-4 sm:hidden">
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <h2 className="text-xl font-semibold text-slate-950">Entrega</h2>
+                                        <p className="mt-1 text-sm text-slate-500">
+                                            Escolha o endereco de recebimento.
+                                        </p>
+                                    </div>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-9 rounded-xl px-3 text-sm text-slate-600"
+                                        onClick={() => setNewAddressDialogOpen(true)}
+                                    >
+                                        Adicionar
+                                    </Button>
+                                </div>
+
                                 {addressesLoading ? (
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                                    <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
                                         <Loader2 className="h-4 w-4 animate-spin" />
-                                        Carregando endereços...
+                                        Carregando enderecos...
                                     </div>
                                 ) : addressError ? (
-                                    <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                                        <AlertCircle className="h-4 w-4 shrink-0" />
-                                        <span>Não foi possível carregar os endereços. Verifique com o administrador.</span>
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                                        {addressError}
                                     </div>
                                 ) : storeAddresses.length === 0 ? (
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground bg-slate-50 border border-dashed rounded-lg p-3">
-                                        <AlertCircle className="h-4 w-4 shrink-0" />
-                                        <span>Nenhum endereço cadastrado. O pedido será feito sem endereço de entrega.</span>
+                                    <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
+                                        Nenhum endereco cadastrado.
                                     </div>
-                                 ) : (
+                                ) : (
+                                    <div className="overflow-hidden rounded-2xl bg-slate-50/70 ring-1 ring-slate-200/80">
+                                        {storeAddresses.map((address, index) => {
+                                            const isSelected = address.id === selectedAddressId
+
+                                            return (
+                                                <button
+                                                    key={address.id}
+                                                    type="button"
+                                                    onClick={() => setSelectedAddressId(address.id)}
+                                                    className={cn(
+                                                        'w-full px-3 py-3 text-left transition-colors',
+                                                        isSelected
+                                                            ? 'bg-white'
+                                                            : 'bg-transparent'
+                                                    )}
+                                                >
+                                                    <div className="flex items-start gap-3">
+                                                        <span
+                                                            className={cn(
+                                                                'mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors',
+                                                                isSelected
+                                                                    ? 'border-slate-950 bg-slate-950 text-white'
+                                                                    : 'border-slate-300 bg-white'
+                                                            )}
+                                                        >
+                                                            {isSelected && <Check className="h-3 w-3" />}
+                                                        </span>
+                                                        <div className="min-w-0">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <p className="text-sm font-semibold text-slate-950">
+                                                                    {address.title}
+                                                                </p>
+                                                                {address.is_main && (
+                                                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                                                        Principal
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="mt-1 text-sm leading-5 text-slate-500">
+                                                                {address.address}, {address.number}
+                                                            </p>
+                                                            <p className="text-sm leading-5 text-slate-500">
+                                                                {address.city}/{address.state} - CEP{' '}
+                                                                {address.zip_code}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    {index < storeAddresses.length - 1 && (
+                                                        <div className="mt-3 border-t border-slate-200/80" />
+                                                    )}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+
+                                {deliveryMessage && (
+                                    <p className="text-sm text-slate-500">{deliveryMessage}</p>
+                                )}
+                            </div>
+
+                            <div className="space-y-3 border-t border-slate-200 pt-4">
+                                <div>
+                                    <h2 className="text-xl font-semibold text-slate-950">Pagamento</h2>
+                                    <p className="mt-1 text-sm text-slate-500">
+                                        Escolha a condicao comercial deste pedido.
+                                    </p>
+                                </div>
+
+                                {mobilePaymentOptions.length === 0 ? (
+                                    <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
+                                        Nenhuma condicao de pagamento disponivel.
+                                    </div>
+                                ) : (
                                     <div className="space-y-3">
-                                        <Select 
-                                            value={selectedAddressId} 
-                                            onValueChange={(val: string | null) => {
-                                                if (val === 'add_new') {
-                                                    setNewAddressDialogOpen(true)
-                                                } else if (val) {
-                                                    setSelectedAddressId(val)
-                                                }
+                                        <Select
+                                            value={selectedPayment}
+                                            onValueChange={(value: string | null) => {
+                                                if (!value) return
+                                                setSelectedPayment(value)
+                                                setIsTableRule(
+                                                    priceTableRules.some((rule) => rule.id === value)
+                                                )
                                             }}
                                         >
-                                            <SelectTrigger className="bg-white/60 min-h-11 h-auto py-2">
-                                                <SelectValue placeholder="Selecione o Endereço de Entrega">
-                                                    {selectedAddressId && storeAddresses.find(a => a.id === selectedAddressId) ? (
-                                                        <div className="flex flex-col items-start text-left">
-                                                            <span className="font-bold text-xs uppercase tracking-tight text-primary">
-                                                                {storeAddresses.find(a => a.id === selectedAddressId)?.title}
-                                                            </span>
-                                                            <span className="text-sm truncate max-w-[200px] sm:max-w-[300px]">
-                                                                {storeAddresses.find(a => a.id === selectedAddressId)?.address}, {storeAddresses.find(a => a.id === selectedAddressId)?.number}
-                                                            </span>
-                                                        </div>
-                                                    ) : (
-                                                        "Selecione o Endereço de Entrega"
-                                                    )}
+                                            <SelectTrigger className="min-h-11 rounded-2xl border-slate-200 bg-slate-50 px-3 text-left shadow-none">
+                                                <SelectValue placeholder="Selecione a condicao">
+                                                    {selectedPaymentLabel}
                                                 </SelectValue>
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase bg-slate-50/50">Meus Endereços</div>
-                                                {storeAddresses.map(addr => (
-                                                    <SelectItem key={addr.id} value={addr.id} className="py-3">
-                                                        <div className="flex flex-col gap-0.5">
-                                                            <span className="font-bold flex items-center gap-1.5">
-                                                                {addr.is_main && <Check className="h-3 w-3 text-green-600" />}
-                                                                {addr.title}
-                                                            </span>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {addr.address}, {addr.number} — {addr.city}/{addr.state}
-                                                            </span>
+                                                {priceTableRules.length > 0 && (
+                                                    <>
+                                                        <div className="px-2 py-1.5 text-[10px] font-bold uppercase text-muted-foreground">
+                                                            Tabela
                                                         </div>
+                                                        {priceTableRules.map((rule) => (
+                                                            <SelectItem key={rule.id} value={rule.id}>
+                                                                {getRuleLabel(rule)}
+                                                            </SelectItem>
+                                                        ))}
+                                                        <Separator className="my-1" />
+                                                    </>
+                                                )}
+                                                {paymentConditions.map((condition) => (
+                                                    <SelectItem key={condition.id} value={condition.id}>
+                                                        {getConditionLabel(condition)}
                                                     </SelectItem>
                                                 ))}
-                                                <Separator className="my-1" />
-                                                <SelectItem value="add_new" className="py-3 text-primary font-bold focus:bg-primary/5">
-                                                    <div className="flex items-center gap-2">
-                                                        <PlusCircle className="h-4 w-4" />
-                                                        + Adicionar novo endereço
-                                                    </div>
-                                                </SelectItem>
                                             </SelectContent>
                                         </Select>
 
-                                        {selectedAddressId && storeAddresses.find(a => a.id === selectedAddressId) && (
-                                            <div className="p-3 rounded-xl bg-primary/5 border border-primary/10 space-y-1">
-                                                <p className="text-xs font-bold text-primary uppercase tracking-wider">Endereço Selecionado</p>
-                                                <p className="text-sm font-medium">
-                                                    {storeAddresses.find(a => a.id === selectedAddressId)?.address}, {storeAddresses.find(a => a.id === selectedAddressId)?.number}
-                                                    {storeAddresses.find(a => a.id === selectedAddressId)?.complement && ` — ${storeAddresses.find(a => a.id === selectedAddressId)?.complement}`}
-                                                </p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {storeAddresses.find(a => a.id === selectedAddressId)?.neighborhood} — {storeAddresses.find(a => a.id === selectedAddressId)?.city} / {storeAddresses.find(a => a.id === selectedAddressId)?.state}
-                                                    <br />
-                                                    CEP: {storeAddresses.find(a => a.id === selectedAddressId)?.zip_code}
+                                        {(selectedCondition?.description || isTableRule) && (
+                                            <div className="rounded-2xl bg-slate-50/80 px-3 py-3 ring-1 ring-slate-200/70">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-sm font-semibold text-slate-950">
+                                                        {selectedPaymentLabel}
+                                                    </p>
+                                                    {discountPercentage > 0 && (
+                                                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                                            {discountPercentage.toFixed(0)}% off
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="mt-1 text-sm leading-5 text-slate-500">
+                                                    {selectedCondition?.description ||
+                                                        'Regra comercial exclusiva da sua tabela B2B.'}
                                                 </p>
                                             </div>
                                         )}
-
-                                        <Dialog open={newAddressDialogOpen} onOpenChange={setNewAddressDialogOpen}>
-                                            <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-                                                <DialogHeader>
-                                                    <DialogTitle className="text-xl font-bold font-heading">
-                                                        Novo Endereço de Entrega
-                                                    </DialogTitle>
-                                                    <DialogDescription>
-                                                        Adicione um novo local para entrega deste pedido.
-                                                    </DialogDescription>
-                                                </DialogHeader>
-                                                <div className="py-4">
-                                                    <AddressForm 
-                                                        onCancel={() => setNewAddressDialogOpen(false)}
-                                                        onSuccess={(newAddr) => {
-                                                            setStoreAddresses(prev => [...prev, newAddr])
-                                                            setSelectedAddressId(newAddr.id)
-                                                            setNewAddressDialogOpen(false)
-                                                        }}
-                                                    />
-                                                </div>
-                                            </DialogContent>
-                                        </Dialog>
                                     </div>
                                 )}
                             </div>
-                            {/* Payment Condition */}
-                            <div className="space-y-2">
-                                <Label>Condição de Pagamento</Label>
-                                <Select 
-                                    value={selectedPayment} 
-                                    onValueChange={(v: string | null) => {
-                                        if (!v) return;
-                                        setSelectedPayment(v);
-                                        // Update isTableRule based on which list the ID belongs to
-                                        const isInTable = priceTableRules.some(r => r.id === v);
-                                        setIsTableRule(isInTable);
-                                    }}
-                                >
-                                    <SelectTrigger className="bg-white/60">
-                                        <SelectValue placeholder="Selecione">
-                                            {isTableRule && selectedRule ? (
-                                                `${selectedRule.number_of_installments}x ${selectedRule.installment_days ? `(${selectedRule.installment_days})` : ''}${selectedRule.discount_percentage > 0 ? ` (-${selectedRule.discount_percentage}%)` : ''}`
-                                            ) : selectedCondition ? (
-                                                `${selectedCondition.name}${selectedCondition.discount_percentage > 0 ? ` (-${selectedCondition.discount_percentage}%)` : ''}`
-                                            ) : (
-                                                "Selecione"
-                                            )}
-                                        </SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {priceTableRules.length > 0 && (
-                                            <>
-                                                <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase bg-slate-50/50">Condições de Tabela</div>
-                                                {priceTableRules.map((rule) => (
-                                                    <SelectItem key={rule.id} value={rule.id}>
-                                                        {rule.number_of_installments}x {rule.installment_days && `(${rule.installment_days})`}
-                                                        {rule.discount_percentage > 0 && ` (-${rule.discount_percentage}%)`}
-                                                    </SelectItem>
-                                                ))}
-                                                <Separator className="my-1" />
-                                            </>
-                                        )}
-                                        
-                                        {paymentConditions.length > 0 && (
-                                            <>
-                                                <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase bg-slate-50/50">Condições Gerais</div>
-                                                {paymentConditions.map((pc) => (
-                                                    <SelectItem key={pc.id} value={pc.id}>
-                                                        {pc.name}
-                                                        {pc.discount_percentage > 0 && ` (-${pc.discount_percentage}%)`}
-                                                    </SelectItem>
-                                                ))}
-                                            </>
-                                        )}
-                                    </SelectContent>
-                                </Select>
-                                {selectedCondition?.description && (
-                                    <p className="text-xs text-muted-foreground">{selectedCondition.description}</p>
-                                )}
-                                {isTableRule && (
-                                    <p className="text-[10px] text-amber-600 font-medium">Condições exclusivas da sua rede aplicadas.</p>
-                                )}
-                            </div>
+                        </section>
 
-                            {/* Notes */}
-                            <div className="space-y-2">
-                                <Label>Observações</Label>
+                        <CheckoutSection
+                            icon={MessageSquare}
+                            eyebrow="Contexto"
+                            title="Observacoes"
+                            className="-mx-4 rounded-none border-0 bg-transparent shadow-none sm:mx-0 sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm"
+                            headerClassName="hidden sm:block sm:px-5 sm:py-4"
+                            contentClassName="px-4 py-0 sm:px-5 sm:py-4"
+                        >
+                            <div className="space-y-3">
+                                <div className="sm:hidden">
+                                    <h2 className="text-xl font-semibold text-slate-950">Observacoes</h2>
+                                    <p className="mt-1 text-sm text-slate-500">
+                                        Inclua detalhes importantes para este pedido.
+                                    </p>
+                                </div>
                                 <Textarea
-                                    placeholder="Alguma observação sobre o pedido?"
+                                    placeholder="Inclua aqui informacoes importantes para este pedido."
                                     value={notes}
-                                    onChange={(e) => setNotes(e.target.value)}
-                                    className="bg-white/60 resize-none"
-                                    rows={3}
+                                    onChange={(event) => setNotes(event.target.value)}
+                                    rows={4}
+                                    className="min-h-[120px] rounded-2xl border-slate-200 bg-white resize-none"
                                 />
                             </div>
+                        </CheckoutSection>
+                    </div>
 
-                            <Separator />
-
-                            {/* Totals */}
-                            <div className="space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">Subtotal</span>
-                                    <span>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                                {paymentDiscount > 0 && (
-                                    <div className="flex justify-between text-sm text-green-600">
-                                        <span>Desconto de Pagamento ({discountPercentage}%)</span>
-                                        <span>- R$ {paymentDiscount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    <div className="hidden space-y-4 xl:sticky xl:top-24 xl:block">
+                        <CheckoutSection
+                            icon={Receipt}
+                            eyebrow="Resumo"
+                            title="Resumo e envio"
+                        >
+                            <div className="space-y-3">
+                                {priceValidationPending && (
+                                    <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500">
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        Revalidando precos, variacoes e regras comerciais do pedido.
                                     </div>
                                 )}
-                                {paymentSurcharge > 0 && (
-                                    <div className="flex justify-between text-sm text-amber-600">
-                                        <span>Acréscimo de Pagamento ({surchargePercentage}%)</span>
-                                        <span>+ R$ {paymentSurcharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+
+                                <div className="space-y-3 rounded-2xl border border-slate-200/90 bg-[linear-gradient(180deg,rgba(248,250,252,0.85),rgba(255,255,255,0.96))] px-3.5 py-3.5">
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <Label className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                Endereco
+                                            </Label>
+                                            {selectedAddress?.is_main && (
+                                                <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-medium text-white">
+                                                    Principal
+                                                </span>
+                                            )}
+                                        </div>
+                                        {addressesLoading ? (
+                                            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-500">
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                Carregando enderecos...
+                                            </div>
+                                        ) : addressError ? (
+                                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                                                {addressError}
+                                            </div>
+                                        ) : storeAddresses.length === 0 ? (
+                                            <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-sm text-slate-500">
+                                                Nenhum endereco cadastrado.
+                                            </div>
+                                        ) : (
+                                            <Select
+                                                value={selectedAddressId}
+                                                onValueChange={(value: string | null) => {
+                                                    if (value === 'add_new') {
+                                                        setNewAddressDialogOpen(true)
+                                                        return
+                                                    }
+                                                    if (value) {
+                                                        setSelectedAddressId(value)
+                                                    }
+                                                }}
+                                            >
+                                                <SelectTrigger className="min-h-10 rounded-xl border-slate-200 bg-white px-3 shadow-none">
+                                                    <SelectValue placeholder="Selecione o endereco">
+                                                        {selectedAddress
+                                                            ? selectedAddress.title
+                                                            : 'Selecione o endereco'}
+                                                    </SelectValue>
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {storeAddresses.map((address) => (
+                                                        <SelectItem
+                                                            key={address.id}
+                                                            value={address.id}
+                                                        >
+                                                            {address.title}
+                                                            {address.is_main ? ' - principal' : ''}
+                                                        </SelectItem>
+                                                    ))}
+                                                    <Separator className="my-1" />
+                                                    <SelectItem value="add_new">
+                                                        Adicionar novo endereco
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                        {selectedAddress && (
+                                            <div className="rounded-xl bg-white/90 px-3 py-2 text-xs leading-5 text-slate-500 ring-1 ring-slate-200/70">
+                                                <p className="font-medium text-slate-800">
+                                                    {selectedAddress.address}, {selectedAddress.number}
+                                                </p>
+                                                <p>
+                                                    {selectedAddress.city}/{selectedAddress.state}
+                                                    {' â€¢ '}CEP {selectedAddress.zip_code}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <Label className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                Pagamento
+                                            </Label>
+                                            {discountPercentage > 0 && (
+                                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+                                                    {discountPercentage.toFixed(0)}% off
+                                                </span>
+                                            )}
+                                        </div>
+                                        <Select
+                                            value={selectedPayment}
+                                            onValueChange={(value: string | null) => {
+                                                if (!value) return
+                                                setSelectedPayment(value)
+                                                setIsTableRule(
+                                                    priceTableRules.some(
+                                                        (rule) => rule.id === value
+                                                    )
+                                                )
+                                            }}
+                                        >
+                                            <SelectTrigger className="min-h-10 rounded-xl border-slate-200 bg-white px-3 shadow-none">
+                                                <SelectValue placeholder="Selecione">
+                                                    {selectedPaymentLabel}
+                                                </SelectValue>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {priceTableRules.length > 0 && (
+                                                    <>
+                                                        <div className="px-2 py-1.5 text-[10px] font-bold uppercase text-muted-foreground">
+                                                            Tabela
+                                                        </div>
+                                                        {priceTableRules.map((rule) => (
+                                                            <SelectItem
+                                                                key={rule.id}
+                                                                value={rule.id}
+                                                            >
+                                                                {getRuleLabel(rule)}
+                                                            </SelectItem>
+                                                        ))}
+                                                        <Separator className="my-1" />
+                                                    </>
+                                                )}
+                                                {paymentConditions.map((condition) => (
+                                                    <SelectItem
+                                                        key={condition.id}
+                                                        value={condition.id}
+                                                    >
+                                                        {getConditionLabel(condition)}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    {(selectedCondition?.description || isTableRule) && (
+                                        <p className="text-xs leading-5 text-slate-500">
+                                            {selectedCondition?.description ||
+                                                'Regra comercial exclusiva da sua tabela B2B.'}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="space-y-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-[0_8px_22px_-20px_rgba(15,23,42,0.35)]">
+                                    <SummaryRow
+                                        label={`Itens (${count})`}
+                                        value={`R$ ${formatCurrency(total)}`}
+                                    />
+                                    {paymentDiscount > 0 && (
+                                        <SummaryRow
+                                            label={`Desconto de pagamento (${discountPercentage}%)`}
+                                            value={`- R$ ${formatCurrency(paymentDiscount)}`}
+                                            emphasis="success"
+                                        />
+                                    )}
+                                    {paymentSurcharge > 0 && (
+                                        <SummaryRow
+                                            label={`Acrescimo de pagamento (${surchargePercentage}%)`}
+                                            value={`+ R$ ${formatCurrency(paymentSurcharge)}`}
+                                            emphasis="warning"
+                                        />
+                                    )}
+                                    <Separator />
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="space-y-1">
+                                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                                                Total final
+                                            </p>
+                                            <p className="text-[2rem] font-bold tracking-tight text-slate-950">
+                                                R$ {formatCurrency(finalTotal)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-xl bg-slate-50 px-3 py-2 text-right ring-1 ring-slate-200/80">
+                                            <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                                                Pedido
+                                            </p>
+                                            <p className="mt-1 text-sm font-semibold text-slate-950">
+                                                {nextOrderNumber || 'Em preparacao'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {!minOrderMet && settings?.min_order_amount && (
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-3 text-sm leading-6 text-amber-800">
+                                        Pedido minimo de R$ {formatCurrency(settings.min_order_amount)}{' '}
+                                        ainda nao atingido. Faltam R${' '}
+                                        {formatCurrency(settings.min_order_amount - total)} para
+                                        liberar o envio.
                                     </div>
                                 )}
-                                <Separator />
-                                <div className="flex justify-between font-semibold text-lg">
-                                    <span>Total</span>
-                                    <span className="text-gradient-bronze">
-                                        R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    </span>
+
+                                {deliveryMessage && (
+                                    <div className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50/70 px-3 py-3 text-sm text-blue-800">
+                                        <Truck className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <div>
+                                            <p className="font-medium">Prazo estimado</p>
+                                            <p className="mt-0.5">{deliveryMessage}</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-3 text-sm text-emerald-800">
+                                    <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                                    <div>
+                                        <p className="font-medium">Validacao automatica</p>
+                                        <p className="mt-0.5">Precos revalidados antes do envio.</p>
+                                    </div>
                                 </div>
+
+                                <Button
+                                    className="hidden h-11 w-full rounded-xl bg-slate-950 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-900 md:inline-flex"
+                                    onClick={handlePlaceOrder}
+                                    disabled={loading || !minOrderMet}
+                                >
+                                    {loading ? (
+                                        <Loader2 className="h-5 w-5 animate-spin" />
+                                    ) : (
+                                        <>
+                                            <CreditCard className="mr-2 h-5 w-5" />
+                                            Finalizar pedido
+                                        </>
+                                    )}
+                                </Button>
                             </div>
-
-                            {/* Min Order Warning */}
-                            {!minOrderMet && settings?.min_order_amount && (
-                                <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
-                                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                                    <p>
-                                        Pedido mínimo: R$ {settings.min_order_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.
-                                        Faltam R$ {(settings.min_order_amount - total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.
-                                    </p>
-                                </div>
-                            )}
-
-                            {/* Delivery Estimate */}
-                            {settings?.default_delivery_days && settings.default_delivery_days > 0 && (
-                                <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-700">
-                                    <Truck className="h-4 w-4 shrink-0" />
-                                    <p>
-                                        Prazo estimado de entrega: <strong>{settings.default_delivery_days} dias úteis</strong>
-                                    </p>
-                                </div>
-                            )}
-
-                            <Button
-                                className="w-full h-12 text-base gradient-bronze border-0 text-white shadow-md hover:shadow-lg transition-all"
-                                onClick={handlePlaceOrder}
-                                disabled={loading || !minOrderMet}
-                            >
-                                {loading ? (
-                                    <Loader2 className="h-5 w-5 animate-spin" />
-                                ) : (
-                                    <>
-                                        <CreditCard className="h-5 w-5 mr-2" />
-                                        Finalizar Pedido
-                                    </>
-                                )}
-                            </Button>
-                        </CardContent>
-                    </Card>
+                        </CheckoutSection>
+                    </div>
                 </div>
             </div>
 
-            {/* Configuração do Dialog de Confirmação */}
+            <div
+                className="fixed inset-x-3 z-40 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur md:hidden"
+                style={{
+                    bottom: 'calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 12px)',
+                }}
+            >
+                <div className="mx-auto flex max-w-7xl items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            Total final
+                        </p>
+                        <p className="truncate text-lg font-bold text-slate-950">
+                            R$ {formatCurrency(finalTotal)}
+                        </p>
+                    </div>
+                    <Button
+                        className="h-11 min-w-[168px] rounded-xl bg-slate-950 px-5 text-white shadow-sm transition-colors hover:bg-slate-900"
+                        onClick={handlePlaceOrder}
+                        disabled={loading || !minOrderMet}
+                    >
+                        {loading ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                            <>
+                                <CreditCard className="mr-2 h-5 w-5" />
+                                Finalizar
+                            </>
+                        )}
+                    </Button>
+                </div>
+            </div>
+
+            <Dialog open={newAddressDialogOpen} onOpenChange={setNewAddressDialogOpen}>
+                <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold">
+                            Novo endereco de entrega
+                        </DialogTitle>
+                        <DialogDescription>
+                            Cadastre um novo local para este pedido.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <AddressForm
+                            onCancel={() => setNewAddressDialogOpen(false)}
+                            onSuccess={(newAddress) => {
+                                setStoreAddresses((previous) => [...previous, newAddress])
+                                setSelectedAddressId(newAddress.id)
+                                setNewAddressDialogOpen(false)
+                            }}
+                        />
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={confirmCheckoutOpen} onOpenChange={setConfirmCheckoutOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle className="text-xl font-bold font-heading">Confirmar Pedido</DialogTitle>
+                        <DialogTitle className="text-xl font-bold">
+                            Confirmar pedido
+                        </DialogTitle>
                         <DialogDescription>
-                            Revise o resumo do seu pedido antes de finalizar.
+                            Revise o resumo do seu pedido antes de enviar para analise.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4 py-4">
-                        <div className="rounded-lg bg-muted p-4 space-y-3">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Itens ({count})</span>
-                                <span>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                            </div>
-
-                             <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Pagamento</span>
-                                <span className="font-medium text-right max-w-[150px] truncate">
-                                    {isTableRule && selectedRule ? (
-                                        `${selectedRule.number_of_installments}x ${selectedRule.installment_days ? `(${selectedRule.installment_days})` : ''}`
-                                    ) : (
-                                        selectedCondition?.name
-                                    )}
-                                </span>
-                            </div>
-
-                            {(paymentDiscount > 0 || paymentSurcharge > 0) && (
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">Ajuste de Pagamento</span>
-                                    {paymentDiscount > 0 ? (
-                                        <span className="text-green-600">- R$ {paymentDiscount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                    ) : (
-                                        <span className="text-amber-600">+ R$ {paymentSurcharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                    )}
-                                </div>
+                        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <SummaryRow
+                                label={`Itens (${count})`}
+                                value={`R$ ${formatCurrency(total)}`}
+                            />
+                            <SummaryRow label="Pagamento" value={selectedPaymentLabel} />
+                            {selectedAddress && (
+                                <SummaryRow label="Entrega" value={selectedAddress.title} />
                             )}
-
+                            {(paymentDiscount > 0 || paymentSurcharge > 0) && (
+                                <SummaryRow
+                                    label="Ajuste de pagamento"
+                                    value={
+                                        paymentDiscount > 0
+                                            ? `- R$ ${formatCurrency(paymentDiscount)}`
+                                            : `+ R$ ${formatCurrency(paymentSurcharge)}`
+                                    }
+                                    emphasis={
+                                        paymentDiscount > 0 ? 'success' : 'warning'
+                                    }
+                                />
+                            )}
                             <Separator />
-
-                            <div className="flex justify-between items-center">
-                                <span className="font-bold">Total a Pagar</span>
-                                <span className="text-xl font-bold text-gradient-bronze">
-                                    R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                </span>
-                            </div>
+                            <SummaryRow
+                                label="Total a pagar"
+                                value={`R$ ${formatCurrency(finalTotal)}`}
+                                emphasis="strong"
+                            />
                         </div>
                     </div>
 
-                    <DialogFooter className="flex-col sm:flex-row gap-2">
-                        <Button variant="outline" onClick={() => setConfirmCheckoutOpen(false)} className="w-full sm:w-auto">
-                            Revisar Carrinho
+                    <DialogFooter className="flex-col gap-2 sm:flex-row">
+                        <Button
+                            variant="outline"
+                            onClick={() => setConfirmCheckoutOpen(false)}
+                            className="w-full sm:w-auto"
+                        >
+                            Revisar checkout
                         </Button>
-                        <Button onClick={processOrder} className="w-full sm:w-auto gradient-bronze border-0 text-white gap-2">
+                        <Button
+                            onClick={processOrder}
+                            className="w-full gap-2 gradient-bronze border-0 text-white sm:w-auto"
+                        >
                             <Check className="h-4 w-4" />
-                            Confirmar e Enviar
+                            Confirmar e enviar
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -768,3 +1418,4 @@ export default function CartPage() {
         </div>
     )
 }
+

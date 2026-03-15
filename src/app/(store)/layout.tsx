@@ -15,7 +15,7 @@ import { PWAInstallPrompt } from '@/components/pwa/PWAInstallPrompt'
 import { WifiOff } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePathname, useRouter } from 'next/navigation'
-import { MessageCircle, ArrowUp, Instagram } from 'lucide-react'
+import { ArrowUp, Instagram } from 'lucide-react'
 import { useSettings } from '@/components/providers/settings-provider'
 import { getWhatsAppLink } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -151,6 +151,7 @@ export default function StoreLayout({
 
 function GlobalFloatingActions() {
     const { settings } = useSettings()
+    const pathname = usePathname()
     const [showScrollTop, setShowScrollTop] = useState(false)
 
     useEffect(() => {
@@ -167,6 +168,7 @@ function GlobalFloatingActions() {
 
     const whatsappLink = getWhatsAppLink(settings?.whatsapp)
     const instagramUrl = settings?.instagram ? (settings.instagram.startsWith('http') ? settings.instagram : `https://instagram.com/${settings.instagram.replace('@', '')}`) : null
+    const hideSocialActionsOnMobile = pathname === '/cart'
 
     return (
         <div className="fixed bottom-24 md:bottom-6 right-4 lg:right-8 z-50 flex flex-col gap-3 pointer-events-none">
@@ -197,7 +199,7 @@ function GlobalFloatingActions() {
                         key="instagram-float"
                         initial={{ opacity: 0, y: 20, scale: 0.8 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
-                        className="pointer-events-auto"
+                        className={`pointer-events-auto ${hideSocialActionsOnMobile ? 'hidden md:block' : ''}`}
                     >
                         <a href={instagramUrl} target="_blank" rel="noopener noreferrer">
                             <Button
@@ -216,7 +218,7 @@ function GlobalFloatingActions() {
                         key="whatsapp-float"
                         initial={{ opacity: 0, y: 20, scale: 0.8 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
-                        className="pointer-events-auto"
+                        className={`pointer-events-auto ${hideSocialActionsOnMobile ? 'hidden md:block' : ''}`}
                     >
                         <a href={whatsappLink} target="_blank" rel="noopener noreferrer">
                             <Button
