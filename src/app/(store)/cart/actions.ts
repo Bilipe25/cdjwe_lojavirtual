@@ -23,6 +23,34 @@ type VariantPricingRow = {
     fabric: { price_modifier: number | null } | null
 }
 
+type VariantPricingRelation<T> = T | T[] | null
+
+type RawVariantPricingRow = {
+    id: string
+    is_active: boolean
+    price_override: number | null
+    product: VariantPricingRelation<{ base_price: number | null }>
+    fabric: VariantPricingRelation<{ price_modifier: number | null }>
+}
+
+function unwrapRelation<T>(value: VariantPricingRelation<T>): T | null {
+    if (Array.isArray(value)) {
+        return value[0] ?? null
+    }
+
+    return value ?? null
+}
+
+function normalizeVariantPricingRow(variant: RawVariantPricingRow): VariantPricingRow {
+    return {
+        id: variant.id,
+        is_active: variant.is_active,
+        price_override: variant.price_override,
+        product: unwrapRelation(variant.product),
+        fabric: unwrapRelation(variant.fabric),
+    }
+}
+
 async function resolveActivePriceTableId(supabase: Awaited<ReturnType<typeof createClient>>, storeId: string) {
     const { data: pivot } = await supabase
         .from('store_price_tables')
@@ -263,15 +291,16 @@ export async function getCurrentVariantPricing(variantIds: string[]) {
         return { error: 'Falha ao validar os preços do carrinho.' }
     }
 
+    const normalizedVariants = (variantsData as RawVariantPricingRow[]).map(normalizeVariantPricingRow)
     const prices: Record<string, { unitPrice: number; productPrice: number; variationPrice: number | null; finalPrice: number }> = {}
     const missingVariantIds: string[] = []
 
-    const foundIds = new Set(variantsData.map(v => v.id))
+    const foundIds = new Set(normalizedVariants.map(v => v.id))
     cleanVariantIds.forEach(id => {
         if (!foundIds.has(id)) missingVariantIds.push(id)
     })
 
-    ;(variantsData as VariantPricingRow[]).forEach((variant) => {
+    normalizedVariants.forEach((variant) => {
         if (!variant?.is_active) {
             missingVariantIds.push(variant.id)
             return
@@ -351,9 +380,10 @@ export async function checkoutAction(
         return { error: 'Falha ao validar os preços originais do catálogo.' }
     }
 
-    const foundIds = new Set((variantsData || []).map(v => v.id))
+    const normalizedVariants = (variantsData as RawVariantPricingRow[]).map(normalizeVariantPricingRow)
+    const foundIds = new Set(normalizedVariants.map(v => v.id))
     const missingIds = variantIds.filter(id => !foundIds.has(id))
-    const inactiveIds = (variantsData || []).filter(v => v.is_active === false).map(v => v.id)
+    const inactiveIds = normalizedVariants.filter(v => v.is_active === false).map(v => v.id)
 
     if (missingIds.length > 0 || inactiveIds.length > 0) {
         return { error: 'Alguns itens não estão mais disponíveis. Revise o carrinho antes de finalizar.' }
@@ -365,7 +395,7 @@ export async function checkoutAction(
     let secureSubtotal = 0;
     const validatedItems = items.map(clientItem => {
         // Find the database variant
-        const dbVariant = variantsData.find(v => v.id === clientItem.variantId)
+        const dbVariant = normalizedVariants.find(v => v.id === clientItem.variantId)
         if (!dbVariant) throw new Error(`Produto não encontrado no sistema: ${clientItem.productName}`)
         
         const basePrice = dbVariant.product?.base_price || 0
