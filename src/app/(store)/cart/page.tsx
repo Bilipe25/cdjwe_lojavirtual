@@ -1065,16 +1065,19 @@ export default function CartPage() {
                             icon={Receipt}
                             eyebrow="Resumo"
                             title="Resumo e envio"
+                            className="border-slate-200/90 bg-white/95 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.28)]"
+                            headerClassName="px-5 py-4"
+                            contentClassName="px-5 py-4"
                         >
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                                 {priceValidationPending && (
-                                    <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500">
+                                    <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2.5 text-xs text-slate-500">
                                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                         Revalidando precos, variacoes e regras comerciais do pedido.
                                     </div>
                                 )}
 
-                                <div className="space-y-3 rounded-2xl border border-slate-200/90 bg-[linear-gradient(180deg,rgba(248,250,252,0.85),rgba(255,255,255,0.96))] px-3.5 py-3.5">
+                                <div className="space-y-4 rounded-2xl bg-slate-50/80 px-4 py-4 ring-1 ring-slate-200/80">
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between gap-2">
                                             <Label className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
@@ -1112,11 +1115,11 @@ export default function CartPage() {
                                                     }
                                                 }}
                                             >
-                                                <SelectTrigger className="min-h-10 rounded-xl border-slate-200 bg-white px-3 shadow-none">
-                                                    <SelectValue placeholder="Selecione o endereco">
-                                                        {selectedAddress
-                                                            ? selectedAddress.title
-                                                            : 'Selecione o endereco'}
+                                            <SelectTrigger className="min-h-10 rounded-xl border-slate-200 bg-white px-3 shadow-none">
+                                                <SelectValue placeholder="Selecione o endereco">
+                                                    {selectedAddress
+                                                        ? selectedAddress.title
+                                                        : 'Selecione o endereco'}
                                                     </SelectValue>
                                                 </SelectTrigger>
                                                 <SelectContent>
@@ -1137,13 +1140,13 @@ export default function CartPage() {
                                             </Select>
                                         )}
                                         {selectedAddress && (
-                                            <div className="rounded-xl bg-white/90 px-3 py-2 text-xs leading-5 text-slate-500 ring-1 ring-slate-200/70">
+                                            <div className="rounded-xl bg-white px-3 py-2.5 text-xs leading-5 text-slate-500 ring-1 ring-slate-200/70">
                                                 <p className="font-medium text-slate-800">
                                                     {selectedAddress.address}, {selectedAddress.number}
                                                 </p>
                                                 <p>
                                                     {selectedAddress.city}/{selectedAddress.state}
-                                                    {' â€¢ '}CEP {selectedAddress.zip_code}
+                                                    {' - '}CEP {selectedAddress.zip_code}
                                                 </p>
                                             </div>
                                         )}
@@ -1206,13 +1209,14 @@ export default function CartPage() {
                                         </Select>
                                     </div>
                                     {(selectedCondition?.description || isTableRule) && (
-                                        <p className="text-xs leading-5 text-slate-500">
+                                        <p className="rounded-xl bg-white px-3 py-2.5 text-xs leading-5 text-slate-500 ring-1 ring-slate-200/70">
                                             {selectedCondition?.description ||
                                                 'Regra comercial exclusiva da sua tabela B2B.'}
                                         </p>
                                     )}
                                 </div>
-                                <div className="space-y-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-[0_8px_22px_-20px_rgba(15,23,42,0.35)]">
+
+                                <div className="space-y-3 rounded-2xl bg-slate-50/80 px-4 py-4 ring-1 ring-slate-200/80">
                                     <SummaryRow
                                         label={`Itens (${count})`}
                                         value={`R$ ${formatCurrency(total)}`}
@@ -1232,16 +1236,16 @@ export default function CartPage() {
                                         />
                                     )}
                                     <Separator />
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="space-y-1">
+                                    <div className="flex items-end justify-between gap-4">
+                                        <div className="space-y-1.5">
                                             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                                                 Total final
                                             </p>
-                                            <p className="text-[2rem] font-bold tracking-tight text-slate-950">
+                                            <p className="text-[1.9rem] font-bold tracking-tight text-slate-950">
                                                 R$ {formatCurrency(finalTotal)}
                                             </p>
                                         </div>
-                                        <div className="rounded-xl bg-slate-50 px-3 py-2 text-right ring-1 ring-slate-200/80">
+                                        <div className="rounded-xl bg-white px-3 py-2.5 text-right ring-1 ring-slate-200/80">
                                             <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
                                                 Pedido
                                             </p>
@@ -1253,7 +1257,7 @@ export default function CartPage() {
                                 </div>
 
                                 {!minOrderMet && settings?.min_order_amount && (
-                                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-3 text-sm leading-6 text-amber-800">
+                                    <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 px-3 py-3 text-sm leading-6 text-amber-800">
                                         Pedido minimo de R$ {formatCurrency(settings.min_order_amount)}{' '}
                                         ainda nao atingido. Faltam R${' '}
                                         {formatCurrency(settings.min_order_amount - total)} para
@@ -1262,7 +1266,7 @@ export default function CartPage() {
                                 )}
 
                                 {deliveryMessage && (
-                                    <div className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50/70 px-3 py-3 text-sm text-blue-800">
+                                    <div className="flex items-start gap-2.5 rounded-xl border border-blue-200/80 bg-blue-50/60 px-3 py-3 text-sm text-blue-800">
                                         <Truck className="mt-0.5 h-4 w-4 shrink-0" />
                                         <div>
                                             <p className="font-medium">Prazo estimado</p>
@@ -1271,7 +1275,7 @@ export default function CartPage() {
                                     </div>
                                 )}
 
-                                <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-3 text-sm text-emerald-800">
+                                <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200/80 bg-emerald-50/60 px-3 py-3 text-sm text-emerald-800">
                                     <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
                                     <div>
                                         <p className="font-medium">Validacao automatica</p>
@@ -1418,4 +1422,5 @@ export default function CartPage() {
         </div>
     )
 }
+
 

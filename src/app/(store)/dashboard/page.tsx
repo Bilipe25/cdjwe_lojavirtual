@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
@@ -27,7 +27,7 @@ interface DashboardCard {
 
 const dashboardCards: DashboardCard[] = [
     {
-        title: 'Catálogo de Produtos',
+        title: 'Catalogo de Produtos',
         icon: Package,
         href: '/catalog',
         color: 'bg-navy/5 hover:bg-navy/10',
@@ -51,7 +51,7 @@ const dashboardCards: DashboardCard[] = [
         enabled: true,
     },
     {
-        title: 'Catálogo de Tecidos',
+        title: 'Catalogo de Tecidos',
         icon: Scissors,
         href: '/fabrics',
         color: 'bg-primary/5 hover:bg-primary/10',
@@ -118,7 +118,7 @@ export default function DashboardPage() {
         loadUser()
     }, [])
 
-    const [greeting, setGreeting] = useState('Olá')
+    const [greeting, setGreeting] = useState('Ola')
 
     useEffect(() => {
         const hour = new Date().getHours()
@@ -137,16 +137,16 @@ export default function DashboardPage() {
             >
                 {loading ? (
                     <div className="space-y-2">
-                        <div className="h-8 w-48 bg-muted animate-pulse rounded-lg" />
-                        <div className="h-4 w-32 bg-muted/60 animate-pulse rounded-md" />
+                        <div className="h-9 w-64 rounded-md bg-navy/10 animate-pulse" />
+                        <div className="h-5 w-72 rounded-md bg-muted animate-pulse" />
                     </div>
                 ) : (
                     <>
-                        <h1 className="text-2xl font-bold font-heading text-gradient-navy">
-                            {greeting}{userName ? `, ${userName}` : ''}! 👋
+                        <h1 className="text-3xl font-bold font-heading tracking-tight text-gradient-navy">
+                            Bem-vindo(a), {userName || 'visitante'}
                         </h1>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            O que deseja fazer hoje?
+                        <p className="mt-1 text-balance text-muted-foreground">
+                            {greeting}. Escolha um atalho para continuar sua operacao.
                         </p>
                     </>
                 )}
@@ -203,3 +203,4 @@ export default function DashboardPage() {
         </div>
     )
 }
+

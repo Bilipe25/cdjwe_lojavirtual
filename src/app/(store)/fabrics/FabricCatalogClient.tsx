@@ -1,21 +1,14 @@
-'use client'
+﻿'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Scissors, Info, ChevronRight, X, Maximize2, Download } from 'lucide-react'
+import { Search, Scissors, X, Maximize2, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { generateFabricCatalogPDF } from '@/lib/utils/pdf-generator'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import type { Fabric, FabricColor } from '@/lib/types'
 import Image from 'next/image'
 
@@ -32,9 +25,35 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
     const [previewOpen, setPreviewOpen] = useState(false)
     const [isDownloading, setIsDownloading] = useState(false)
 
-    const filteredFabrics = initialFabrics.filter((fabric) =>
-        fabric.name.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    const normalizedQuery = searchQuery.trim().toLowerCase()
+
+    const filteredFabrics = useMemo(() => {
+        if (!normalizedQuery) {
+            return initialFabrics
+        }
+
+        return initialFabrics
+            .map((fabric) => {
+                const fabricMatches =
+                    fabric.name.toLowerCase().includes(normalizedQuery) ||
+                    fabric.description?.toLowerCase().includes(normalizedQuery)
+
+                const matchingColors = fabric.colors.filter(
+                    (color) =>
+                        color.name.toLowerCase().includes(normalizedQuery)
+                )
+
+                if (!fabricMatches && matchingColors.length === 0) {
+                    return null
+                }
+
+                return {
+                    ...fabric,
+                    colors: fabricMatches ? fabric.colors : matchingColors,
+                }
+            })
+            .filter((fabric): fabric is FabricWithColors => fabric !== null)
+    }, [initialFabrics, normalizedQuery])
 
     const handleColorClick = (color: FabricColor) => {
         setSelectedColor(color)
@@ -60,10 +79,10 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
                         Private Collection
                     </div>
                     <h1 className="text-4xl lg:text-5xl font-bold font-heading text-gradient-navy tracking-tight">
-                        Catálogo de Tecidos
+                        Catalogo de Tecidos
                     </h1>
                     <p className="text-muted-foreground text-sm md:text-base max-w-3xl leading-relaxed">
-                        Nossa curadoria exclusiva de tecidos e acabamentos. Clique em uma cor para uma prévia ampliada e detalhes técnicos.
+                        Nossa curadoria exclusiva de tecidos e acabamentos. Clique em uma cor para uma previa ampliada e detalhes tecnicos.
                     </p>
                 </div>
 
@@ -92,7 +111,7 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
             </div>
 
             {/* Mobile Search - Only search input, header is in topbar */}
-            <div className="md:hidden mb-8">
+            <div className="md:hidden mb-8 space-y-3">
                 <div className="relative w-full">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
                     <Input
@@ -102,6 +121,16 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
+
+                <Button
+                    variant="outline"
+                    className="h-11 w-full justify-center gap-2 rounded-xl border-navy/15 bg-white/70 text-sm font-semibold text-navy shadow-sm"
+                    onClick={handleDownloadPDF}
+                    disabled={isDownloading}
+                >
+                    <Download className={`h-4 w-4 ${isDownloading ? 'animate-pulse' : ''}`} />
+                    {isDownloading ? 'Gerando PDF...' : 'Baixar catalogo em PDF'}
+                </Button>
             </div>
 
             {/* Fabrics List */}
@@ -125,7 +154,7 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
                                                 {fabric.name}
                                             </h2>
                                             <Badge variant="outline" className="bg-bronze/5 text-bronze border-bronze/10 font-bold px-2.5 py-0.5 rounded-full text-[10px] uppercase tracking-wider">
-                                                {fabric.colors.length} {fabric.colors.length === 1 ? 'Cor Disponível' : 'Cores Disponíveis'}
+                                                {fabric.colors.length} {fabric.colors.length === 1 ? 'Cor Disponivel' : 'Cores Disponiveis'}
                                             </Badge>
                                         </div>
                                         {fabric.description && (
@@ -183,11 +212,6 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
                                                 <h3 className="text-xs font-bold text-navy group-hover:text-bronze transition-colors line-clamp-1 uppercase tracking-tighter">
                                                     {color.name}
                                                 </h3>
-                                                {color.hex_code && (
-                                                    <p className="text-[10px] font-mono text-muted-foreground/60">
-                                                        {color.hex_code}
-                                                    </p>
-                                                )}
                                             </div>
                                         </motion.div>
                                     ))}
@@ -203,7 +227,7 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
                     </div>
                     <h3 className="text-2xl font-bold text-navy font-heading">Nenhum tecido encontrado</h3>
                     <p className="text-muted-foreground mt-2 max-w-xs mx-auto">
-                        A busca por "{searchQuery}" não retornou resultados em nossa coleção atual.
+                        A busca por &quot;{searchQuery}&quot; nao retornou resultados em nossa colecao atual.
                     </p>
                 </div>
             )}
@@ -235,12 +259,6 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
                             <h2 className="text-3xl font-bold font-heading drop-shadow-lg">
                                 {selectedColor?.name}
                             </h2>
-                            {selectedColor?.hex_code && (
-                                <p className="text-sm font-medium opacity-80 font-mono mt-1.5 flex items-center gap-2">
-                                    <span className="h-3 w-3 rounded-full border border-white/30" style={{ backgroundColor: selectedColor.hex_code }} />
-                                    {selectedColor.hex_code}
-                                </p>
-                            )}
                         </div>
                         
                         <button 
@@ -255,3 +273,5 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
         </div>
     )
 }
+
+
