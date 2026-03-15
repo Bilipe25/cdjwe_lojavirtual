@@ -28,6 +28,7 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
     const { isFavorite, toggle } = useFavoritesStore()
     const { calculateB2BPrice } = usePriceTableStore()
     const favorited = isFavorite(product.id)
+    const imageBadgeBase = 'rounded-full border px-2 py-0.5 shadow-sm backdrop-blur-md'
 
     const basePriceCalc = calculateB2BPrice({ basePrice: product.base_price }) ?? product.base_price
 
@@ -62,16 +63,24 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
                 {/* Badges */}
                 <div className="absolute top-2 left-2 sm:top-3 sm:left-3 flex gap-1.5">
                     {product.is_featured && (
-                        <Badge className="gradient-bronze border-0 text-white text-[9px] sm:text-[10px] px-1.5 py-0.5">
+                        <Badge className={`${imageBadgeBase} border-white/20 bg-linear-to-r from-amber-700/90 via-amber-600/90 to-orange-500/90 text-[9px] sm:text-[10px] text-white`}>
                             Destaque
                         </Badge>
                     )}
                     {product.category && (
-                        <Badge variant="secondary" className="bg-white/80 backdrop-blur text-[9px] sm:text-[10px] px-1.5 py-0.5 hidden sm:flex">
+                        <Badge variant="secondary" className={`${imageBadgeBase} hidden border-white/45 bg-white/82 text-[9px] sm:flex sm:text-[10px] text-slate-700`}>
                             {product.category.name}
                         </Badge>
                     )}
                 </div>
+
+                {product.category && (
+                    <div className="absolute bottom-2 left-2 sm:hidden">
+                        <Badge className={`${imageBadgeBase} border-white/25 bg-slate-950/32 text-[9px] font-medium text-white`}>
+                            {product.category.name}
+                        </Badge>
+                    </div>
+                )}
 
                 {/* Favorite heart - larger touch area on mobile */}
                 <button
