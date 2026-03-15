@@ -276,6 +276,9 @@ export interface OrderItem {
   size: string | null
   quantity: number
   unit_price: number
+  product_price?: number | null
+  variation_price?: number | null
+  final_price?: number | null
   subtotal: number
   created_at: string
   // Relations

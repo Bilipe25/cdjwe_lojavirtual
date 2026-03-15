@@ -10,7 +10,7 @@ import { ProductList, type ProductWithDetails } from './components/ProductList'
 import { ProductFilters } from './components/ProductFilters'
 import { ProductFormModal } from './components/ProductFormModal'
 import { type ProductFormData } from './schema'
-import { syncAllVariants, saveProductVariantConfig } from '../actions/variants'
+import { syncAllVariants, saveProductVariantConfig, saveProductVariantPrices } from '../actions/variants'
 
 function slugify(text: string) {
     return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -110,7 +110,8 @@ export default function AdminProductsPage() {
         newImageFiles: File[], 
         imagesToDelete: string[], 
         primaryImageId: string | null,
-        activeVariantIds: string[]
+        activeVariantIds: string[],
+        variantPriceOverrides: Record<string, number | null>
     ) => {
         setSaving(true)
         const slug = slugify(data.name)
@@ -199,6 +200,15 @@ export default function AdminProductsPage() {
             // 6. Persist fabric/color configuration if the admin opened the config tab
             if (productId && activeVariantIds.length > 0) {
                 await saveProductVariantConfig(productId, activeVariantIds)
+            }
+
+            // 7. Persist optional price overrides for each variant color
+            if (productId && Object.keys(variantPriceOverrides).length > 0) {
+                const result = await saveProductVariantPrices(productId, variantPriceOverrides)
+                if (!result.success) {
+                    console.error(result.error)
+                    toast.error('Falha ao salvar preÃ§os das variaÃ§Ãµes.')
+                }
             }
 
             toast.success(editingProduct ? 'Produto atualizado!' : 'Produto criado!')

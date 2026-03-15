@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import type { CartItem, PriceTablePaymentRule, PaymentCondition } from '@/lib/types'
+import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 
 export async function getAvailablePaymentRules(cartTotal: number) {
     const supabase = await createClient()
@@ -243,24 +244,20 @@ export async function checkoutAction(
         const dbVariant = variantsData.find(v => v.id === clientItem.variantId)
         if (!dbVariant) throw new Error(`Produto não encontrado no sistema: ${clientItem.productName}`)
         
-        // 1. Is there an absolute custom price mapped for this specific variant inside the Price Table?
-        const customPriceOverride = customPricesMap[clientItem.variantId]
-        
-        let realUnitPrice = 0;
+        const basePrice = (dbVariant.product as any)?.base_price || 0
+        const fabricMod = (dbVariant.fabric as any)?.price_modifier || 0
+        const variantPriceOverride = dbVariant.price_override ?? null
 
-        if (customPriceOverride !== undefined) {
-            // Absolute winner. If custom_price rule exists, it completely bypasses standard math
-            realUnitPrice = customPriceOverride;
-        } else {
-            // Standard Math calculation
-            const basePrice = (dbVariant.product as any)?.base_price || 0
-            const fabricMod = (dbVariant.fabric as any)?.price_modifier || 0
-            
-            const systemStandardPrice = dbVariant.price_override ?? (basePrice + fabricMod)
-            
-            // Apply Global Table Discount if applicable
-            realUnitPrice = systemStandardPrice * (1 - (globalDiscount / 100))
-        }
+        const realUnitPrice = calculateProductPrice({
+            basePrice,
+            fabricModifier: fabricMod,
+            variantPriceOverride,
+            variantId: clientItem.variantId,
+            priceTable: {
+                discountPercentage: globalDiscount,
+                overrides: customPricesMap,
+            },
+        }).finalPrice
 
         const realSubtotal = realUnitPrice * clientItem.quantity
 
@@ -268,6 +265,9 @@ export async function checkoutAction(
 
         return {
             ...clientItem,
+            productPrice: basePrice,
+            variationPrice: variantPriceOverride,
+            finalPrice: realUnitPrice,
             unitPrice: realUnitPrice,
             subtotal: realSubtotal
         }
@@ -378,6 +378,9 @@ export async function checkoutAction(
         size: item.size,
         quantity: item.quantity,
         unit_price: item.unitPrice,
+        product_price: item.productPrice,
+        variation_price: item.variationPrice,
+        final_price: item.finalPrice,
         subtotal: item.subtotal,
     }))
 

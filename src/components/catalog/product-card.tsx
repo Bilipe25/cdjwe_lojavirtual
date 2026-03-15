@@ -29,7 +29,7 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
     const { calculateB2BPrice } = usePriceTableStore()
     const favorited = isFavorite(product.id)
 
-    const basePriceCalc = calculateB2BPrice(product.base_price) ?? product.base_price
+    const basePriceCalc = calculateB2BPrice({ basePrice: product.base_price }) ?? product.base_price
 
     const handleCardClick = () => {
         if (isMobile && onQuickView) {

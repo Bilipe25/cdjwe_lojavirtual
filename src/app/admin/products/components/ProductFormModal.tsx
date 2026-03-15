@@ -32,7 +32,8 @@ interface ProductFormModalProps {
         newImageFiles: File[],
         imagesToDelete: string[],
         primaryImageId: string | null,
-        activeVariantIds: string[]
+        activeVariantIds: string[],
+        variantPriceOverrides: Record<string, number | null>
     ) => Promise<void>;
 }
 
@@ -70,16 +71,20 @@ export function ProductFormModal({
 
     // Fabric/Color config state
     const [activeVariantIds, setActiveVariantIds] = useState<string[]>([]);
+    const [variantPriceOverrides, setVariantPriceOverrides] = useState<Record<string, number | null>>({});
     const [activeTab, setActiveTab] = useState<ActiveTab>('info');
     // Track if the fabric config was touched (to avoid unnecessary saves)
     const fabricConfigTouched = useRef(false);
+    const variantPricingTouched = useRef(false);
 
     // Initialize form when opening/editing
     useEffect(() => {
         if (isOpen) {
             setActiveTab('info');
             fabricConfigTouched.current = false;
+            variantPricingTouched.current = false;
             setActiveVariantIds([]);
+            setVariantPriceOverrides({});
 
             if (editingProduct) {
                 reset({
@@ -123,9 +128,11 @@ export function ProductFormModal({
         onOpenChange(open);
     };
 
-    const handleVariantChange = (ids: string[]) => {
-        setActiveVariantIds(ids);
+    const handleVariantChange = (payload: { activeVariantIds: string[]; priceOverrides: Record<string, number | null> }) => {
+        setActiveVariantIds(payload.activeVariantIds);
+        setVariantPriceOverrides(payload.priceOverrides);
         fabricConfigTouched.current = true;
+        variantPricingTouched.current = true;
     };
 
     const onSubmit = async (data: ProductFormData) => {
@@ -134,7 +141,8 @@ export function ProductFormModal({
             newImageFiles,
             imagesToDelete,
             primaryImageId,
-            fabricConfigTouched.current ? activeVariantIds : []
+            fabricConfigTouched.current ? activeVariantIds : [],
+            variantPricingTouched.current ? variantPriceOverrides : {}
         );
     };
 

@@ -24,6 +24,7 @@ import { ProductDetailSkeleton } from '@/components/ui/skeletons'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { createClient } from '@/lib/supabase/client'
 import { useCartStore } from '@/lib/stores/cart-store'
+import { usePriceTableStore } from '@/lib/stores/price-table-store'
 import { toast } from 'sonner'
 import type { Product, ProductImage, Fabric, FabricColor, ProductVariant } from '@/lib/types'
 import { ProductImageGallery } from '@/components/products/ProductImageGallery'
@@ -32,6 +33,7 @@ export default function ProductDetailPage() {
     const params = useParams()
     const router = useRouter()
     const { addItem, openCart } = useCartStore()
+    const { calculateB2BPrice, discountPercentage, overrides } = usePriceTableStore()
 
     const [product, setProduct] = useState<Product | null>(null)
     const [images, setImages] = useState<ProductImage[]>([])
@@ -41,6 +43,7 @@ export default function ProductDetailPage() {
 
     // Selection state
     const [selectedFabric, setSelectedFabric] = useState<string | null>(null)
+    const [activeVariantId, setActiveVariantId] = useState<string | null>(null)
     const [quantities, setQuantities] = useState<Record<string, number>>({})
     const [addingToCart, setAddingToCart] = useState(false)
     const [activeImageIndex, setActiveImageIndex] = useState(0)
@@ -81,7 +84,7 @@ export default function ProductDetailPage() {
             .select(`
         *,
         fabric:fabrics(*),
-        fabric_color:fabric_colors(*)
+        fabric_color:fabric_colors!product_variants_fabric_color_fk(*)
       `)
             .eq('product_id', params.id)
             .eq('is_active', true)
@@ -113,30 +116,60 @@ export default function ProductDetailPage() {
     // Get available colors for selected fabric
     const availableColors = fabrics.find(f => f.id === selectedFabric)?.colors || []
 
-    // Get selected variant (if applicable, used for getting price overrides if color is not a factor)
-    // For specific colors we should map them, but we'll use first color as base for now just for default image
-    const selectedVariant = variants.find(
-        v => v.fabric_id === selectedFabric
-    )
+    // Keep an active variant for accurate price display
+    useEffect(() => {
+        if (!selectedFabric) {
+            setActiveVariantId(null)
+            return
+        }
+        const firstVariant = variants.find(v => v.fabric_id === selectedFabric)
+        setActiveVariantId(firstVariant?.id || null)
+    }, [selectedFabric, variants])
 
-    // Calculate price
-    const getPrice = () => {
-        if (selectedVariant?.price_override) return selectedVariant.price_override
-        const fabric = fabrics.find(f => f.id === selectedFabric)
-        return (product?.base_price || 0) + (fabric?.price_modifier || 0)
-    }
+    const activeVariant =
+        variants.find(v => v.id === activeVariantId) ||
+        variants.find(v => v.fabric_id === selectedFabric)
 
-    const price = getPrice()
+    const price = calculateB2BPrice({
+        basePrice: product?.base_price ?? 0,
+        fabricModifier: fabrics.find(f => f.id === selectedFabric)?.price_modifier ?? 0,
+        variantId: activeVariant?.id,
+        variantPriceOverride: activeVariant?.price_override ?? null,
+    }) ?? ((product?.base_price ?? 0) + (fabrics.find(f => f.id === selectedFabric)?.price_modifier ?? 0))
 
     // Get variant image or fall back to product images
-    const displayImages = selectedVariant?.image_url
-        ? [{ url: selectedVariant.image_url, id: 'variant' }, ...images.map(img => ({ url: img.url, id: img.id }))]
+    const displayImages = activeVariant?.image_url
+        ? [{ url: activeVariant.image_url, id: 'variant' }, ...images.map(img => ({ url: img.url, id: img.id }))]
         : images.map(img => ({ url: img.url, id: img.id }))
+
+    const getVariantUnitPrice = (variant: ProductVariant) => {
+        const fabricMod = fabrics.find(f => f.id === variant.fabric_id)?.price_modifier ?? 0
+        return (
+            calculateB2BPrice({
+                basePrice: product?.base_price ?? 0,
+                fabricModifier: fabricMod,
+                variantId: variant.id,
+                variantPriceOverride: variant.price_override ?? null,
+            }) ?? ((product?.base_price ?? 0) + fabricMod)
+        )
+    }
+
+    const totalSelectedQuantity = Object.values(quantities).reduce((a, b) => a + b, 0)
+    const totalSelectedPrice = Object.entries(quantities).reduce((acc, [colorId, qty]) => {
+        if (qty <= 0) return acc
+        const matchedVariant = variants.find(
+            (v: any) => v.fabric_id === selectedFabric && v.fabric_color_id === colorId
+        )
+        if (!matchedVariant) return acc
+        return acc + (getVariantUnitPrice(matchedVariant) * qty)
+    }, 0)
 
     const handleSelectFabric = (fabricId: string) => {
         setSelectedFabric(fabricId)
         setQuantities({})
         setActiveImageIndex(0)
+        const firstVariant = variants.find(v => v.fabric_id === fabricId)
+        setActiveVariantId(firstVariant?.id || null)
     }
 
     const handleAddToCart = () => {
@@ -155,7 +188,7 @@ export default function ProductDetailPage() {
             )
             const colorObj = availableColors.find(c => c.id === colorId)
 
-            const variantPrice = (matchedVariant as any)?.price_override ?? price
+            const variantPrice = matchedVariant ? getVariantUnitPrice(matchedVariant) : price
 
             addItem({
                 variantId: matchedVariant?.id || `${product.id}-${selectedFabric}-${colorId}`,
@@ -295,7 +328,7 @@ export default function ProductDetailPage() {
                                 <h3 className="text-sm font-semibold">
                                     Cores e Quantidades
                                 </h3>
-                                {Object.values(quantities).reduce((a, b) => a + b, 0) > 0 && (
+                                {totalSelectedQuantity > 0 && (
                                     <button
                                         onClick={() => setQuantities({})}
                                         className="text-xs text-muted-foreground hover:text-destructive underline"
@@ -307,6 +340,16 @@ export default function ProductDetailPage() {
                             <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto pr-2">
                                 {availableColors.map((color) => {
                                     const qty = quantities[color.id] || 0;
+                                    const matchedVariant = variants.find(
+                                        (v: any) => v.fabric_id === selectedFabric && v.fabric_color_id === color.id
+                                    )
+                                    if (!matchedVariant) return null
+
+                                    const unitPrice = getVariantUnitPrice(matchedVariant)
+                                    const hasVariantOverride = matchedVariant.price_override !== null && matchedVariant.price_override !== undefined
+                                    const hasTableOverride = !hasVariantOverride && overrides[matchedVariant.id] !== undefined
+                                    const hasDiscount = !hasVariantOverride && !hasTableOverride && discountPercentage > 0
+
                                     return (
                                         <div key={color.id} className={`flex items-center justify-between p-3 rounded-xl border transition-colors shrink-0 ${qty > 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
                                             <div className="flex items-center gap-4">
@@ -321,15 +364,32 @@ export default function ProductDetailPage() {
                                                         if (imgIndex !== -1) {
                                                             setActiveImageIndex(imgIndex)
                                                         }
+                                                        setActiveVariantId(matchedVariant.id)
                                                     }}
                                                 >
                                                     {qty > 0 && (
                                                         <Check className="h-5 w-5 text-white drop-shadow-md mix-blend-difference" />
                                                     )}
                                                 </div>
-                                                <span className={`text-base ${qty > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
-                                                    {color.name}
-                                                </span>
+                                                <div className="flex flex-col">
+                                                    <span className={`text-base ${qty > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
+                                                        {color.name}
+                                                    </span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs text-muted-foreground font-medium">
+                                                            R$ {unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                        </span>
+                                                        {hasVariantOverride && (
+                                                            <span className="text-[9px] bg-indigo-100 text-indigo-800 px-1 rounded font-medium">Cor</span>
+                                                        )}
+                                                        {hasTableOverride && (
+                                                            <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-medium">Tabela</span>
+                                                        )}
+                                                        {hasDiscount && (
+                                                            <span className="text-[9px] bg-green-100 text-green-800 px-1 rounded font-medium">-{discountPercentage}%</span>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
 
                                             <div className="flex items-center gap-2 border rounded-lg p-1 bg-white">
@@ -337,7 +397,10 @@ export default function ProductDetailPage() {
                                                     variant="ghost"
                                                     size="icon"
                                                     className="h-8 w-8"
-                                                    onClick={() => setQuantities(prev => ({ ...prev, [color.id]: Math.max(0, qty - 1) }))}
+                                                    onClick={() => {
+                                                        setActiveVariantId(matchedVariant.id)
+                                                        setQuantities(prev => ({ ...prev, [color.id]: Math.max(0, qty - 1) }))
+                                                    }}
                                                 >
                                                     <Minus className="h-4 w-4" />
                                                 </Button>
@@ -346,7 +409,10 @@ export default function ProductDetailPage() {
                                                     variant="ghost"
                                                     size="icon"
                                                     className="h-8 w-8"
-                                                    onClick={() => setQuantities(prev => ({ ...prev, [color.id]: qty + 1 }))}
+                                                    onClick={() => {
+                                                        setActiveVariantId(matchedVariant.id)
+                                                        setQuantities(prev => ({ ...prev, [color.id]: qty + 1 }))
+                                                    }}
                                                 >
                                                     <Plus className="h-4 w-4" />
                                                 </Button>
@@ -360,7 +426,7 @@ export default function ProductDetailPage() {
                             <div className="mt-4 flex justify-between items-center text-sm">
                                 <span className="text-muted-foreground">Total selecionado:</span>
                                 <span className="font-semibold text-lg">
-                                    {Object.values(quantities).reduce((a, b) => a + b, 0)} itens = R$ {(price * Object.values(quantities).reduce((a, b) => a + b, 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    {totalSelectedQuantity} itens = R$ {totalSelectedPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                 </span>
                             </div>
                         </div>
@@ -373,14 +439,14 @@ export default function ProductDetailPage() {
                         size="lg"
                         className="w-full h-14 text-base gradient-navy border-0 text-white shadow-md disabled:opacity-50"
                         onClick={handleAddToCart}
-                        disabled={!selectedFabric || Object.values(quantities).reduce((a, b) => a + b, 0) === 0 || addingToCart}
+                        disabled={!selectedFabric || totalSelectedQuantity === 0 || addingToCart}
                     >
                         <ShoppingCart className="h-5 w-5 mr-2" />
                         {!selectedFabric
                             ? 'Selecione um tecido' :
-                            Object.values(quantities).reduce((a, b) => a + b, 0) === 0
+                            totalSelectedQuantity === 0
                                 ? 'Selecione as quantidades' :
-                                `Adicionar ${Object.values(quantities).reduce((a, b) => a + b, 0)} itens ao Carrinho`}
+                                `Adicionar ${totalSelectedQuantity} itens ao Carrinho`}
                     </Button>
 
                     {/* Benefits */}

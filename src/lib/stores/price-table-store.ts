@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 
 export interface PriceTableState {
     tableId: string | null
@@ -10,7 +11,12 @@ export interface PriceTableState {
     clearTableData: () => void
 
     // Computed
-    calculateB2BPrice: (basePrice: number | null, variantId?: string) => number | null
+    calculateB2BPrice: (input: {
+        basePrice: number | null
+        fabricModifier?: number | null
+        variantId?: string
+        variantPriceOverride?: number | null
+    }) => number | null
 }
 
 export const usePriceTableStore = create<PriceTableState>((set, get) => ({
@@ -26,21 +32,20 @@ export const usePriceTableStore = create<PriceTableState>((set, get) => ({
         set({ tableId: null, discountPercentage: 0, overrides: {} })
     },
 
-    calculateB2BPrice: (basePrice: number | null, variantId?: string) => {
+    calculateB2BPrice: ({ basePrice, fabricModifier, variantId, variantPriceOverride }) => {
         if (basePrice === null || basePrice === undefined) return null
 
         const { discountPercentage, overrides } = get()
 
-        // Absolute winner: Specific variant override
-        if (variantId && overrides[variantId] !== undefined) {
-            return overrides[variantId]
-        }
-
-        // Apply global table discount
-        if (discountPercentage > 0) {
-            return basePrice * (1 - discountPercentage / 100)
-        }
-
-        return basePrice
-    }
+        return calculateProductPrice({
+            basePrice,
+            fabricModifier,
+            variantId,
+            variantPriceOverride,
+            priceTable: {
+                discountPercentage,
+                overrides,
+            },
+        }).finalPrice
+    },
 }))

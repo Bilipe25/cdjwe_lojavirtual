@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import type { PriceTable, PriceTableItem, ProductVariant } from '@/lib/types'
+import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 
 interface PriceTableItemsDrawerProps {
     table: PriceTable | null
@@ -69,7 +70,7 @@ export function PriceTableItemsDrawer({ table, isOpen, onClose }: PriceTableItem
                     *,
                     product:products(name, base_price),
                     fabric:fabrics(name, price_modifier),
-                    fabric_color:fabric_colors(name)
+                    fabric_color:fabric_colors!product_variants_fabric_color_fk(name)
                 `)
                 .eq('is_active', true)
                 .order('created_at', { ascending: false })
@@ -151,9 +152,12 @@ export function PriceTableItemsDrawer({ table, isOpen, onClose }: PriceTableItem
         let csvContent = headers.join(";") + "\n"
 
         variants.forEach(v => {
-            const baseCalc = v.product.base_price + (v.price_override ?? v.fabric.price_modifier)
-            const globalDiscount = table ? table.discount_percentage : 0
-            const standardTablePrice = baseCalc * (1 - (globalDiscount / 100))
+            const standardTablePrice = calculateProductPrice({
+                basePrice: v.product.base_price,
+                fabricModifier: v.fabric.price_modifier,
+                variantPriceOverride: v.price_override,
+                priceTable: { discountPercentage: table ? table.discount_percentage : 0, overrides: {} },
+            }).finalPrice
             const rawPrice = priceInputs[v.id] || ''
 
             const row = [
@@ -374,9 +378,12 @@ export function PriceTableItemsDrawer({ table, isOpen, onClose }: PriceTableItem
 
     // --- Helpers ---
     const calcStdPrice = (variant: VariantWithRelations) => {
-        const baseCalc = variant.product.base_price + (variant.price_override ?? variant.fabric.price_modifier)
-        const globalDiscount = table ? table.discount_percentage : 0
-        return baseCalc * (1 - (globalDiscount / 100))
+        return calculateProductPrice({
+            basePrice: variant.product.base_price,
+            fabricModifier: variant.fabric.price_modifier,
+            variantPriceOverride: variant.price_override,
+            priceTable: { discountPercentage: table ? table.discount_percentage : 0, overrides: {} },
+        }).finalPrice
     }
 
     return (

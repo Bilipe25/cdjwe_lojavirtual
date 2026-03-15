@@ -4,11 +4,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { ChevronDown, ChevronRight, CheckSquare, Square, Minus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { getProductVariantConfig, type FabricConfigGroup } from '@/app/admin/actions/variants'
 
 interface ProductFabricConfigProps {
     productId: string | undefined
-    onChange: (activeVariantIds: string[]) => void
+    onChange: (payload: { activeVariantIds: string[]; priceOverrides: Record<string, number | null> }) => void
 }
 
 export function ProductFabricConfig({ productId, onChange }: ProductFabricConfigProps) {
@@ -16,18 +17,33 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
     const [activeIds, setActiveIds] = useState<Set<string>>(new Set())
     const [expandedFabrics, setExpandedFabrics] = useState<Set<string>>(new Set())
     const [loading, setLoading] = useState(false)
+    const [priceInputs, setPriceInputs] = useState<Record<string, string>>({})
 
     // Keep onChange in a ref so it never triggers unnecessary re-runs
     const onChangeRef = useRef(onChange)
     useEffect(() => { onChangeRef.current = onChange }, [onChange])
 
-    // Sync activeIds to parent onChange safely AFTER rendering
+    const parsePrice = (val: string) => {
+        if (!val || val.trim() === '') return null
+        const parsed = parseFloat(val.replace(',', '.'))
+        return Number.isNaN(parsed) ? null : parsed
+    }
+
+    // Sync activeIds and prices to parent onChange safely AFTER rendering
     useEffect(() => {
         // Only notify if we have data (avoid initial empty set call)
         if (groups.length > 0) {
-            onChangeRef.current(Array.from(activeIds))
+            const priceOverrides: Record<string, number | null> = {}
+            Object.entries(priceInputs).forEach(([variantId, value]) => {
+                priceOverrides[variantId] = parsePrice(value)
+            })
+
+            onChangeRef.current({
+                activeVariantIds: Array.from(activeIds),
+                priceOverrides,
+            })
         }
-    }, [activeIds, groups.length])
+    }, [activeIds, priceInputs, groups.length])
 
     const loadConfig = useCallback(async (id: string) => {
         setLoading(true)
@@ -35,9 +51,16 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
         if (data) {
             setGroups(data)
             const initial = new Set<string>()
+            const initialPrices: Record<string, string> = {}
             data.forEach(g => g.colors.forEach(c => { if (c.isActive) initial.add(c.variantId) }))
+            data.forEach(g => g.colors.forEach(c => {
+                initialPrices[c.variantId] = c.price_override !== null && c.price_override !== undefined
+                    ? c.price_override.toString()
+                    : ''
+            }))
             setActiveIds(initial)
             setExpandedFabrics(new Set(data.map(g => g.fabric.id)))
+            setPriceInputs(initialPrices)
         }
         setLoading(false)
     }, [])
@@ -221,42 +244,60 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                                 </div>
                             </div>
 
-                            {/* Color Chips */}
+                            {/* Color + Price */}
                             {isExpanded && (
-                                <div className="px-3 pb-3 pt-1 flex flex-wrap gap-2 border-t bg-muted/10">
+                                <div className="px-3 pb-3 pt-3 flex flex-col gap-2 border-t bg-muted/10">
                                     {group.colors.map(color => {
                                         const active = activeIds.has(color.variantId)
                                         return (
-                                            <button
+                                            <div
                                                 key={color.variantId}
-                                                type="button"
-                                                onClick={() => toggleVariant(color.variantId)}
-                                                title={active ? `Desativar: ${color.name}` : `Ativar: ${color.name}`}
-                                                className={`
-                                                    flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium
-                                                    transition-all duration-150 select-none
-                                                    ${active
-                                                        ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                                                        : 'border-border bg-white text-muted-foreground opacity-50 hover:opacity-80'
-                                                    }
-                                                `}
+                                                className={`flex items-center gap-3 rounded-lg border p-2 transition-colors ${
+                                                    active
+                                                        ? 'border-primary/40 bg-primary/5'
+                                                        : 'border-border bg-white/70'
+                                                }`}
                                             >
-                                                {/* Color swatch dot */}
-                                                <span
-                                                    className="h-3.5 w-3.5 rounded-full border border-black/10 shrink-0"
-                                                    style={{
-                                                        backgroundColor: color.hex_code || '#e5e7eb',
-                                                        ...(color.image_url ? {
-                                                            backgroundImage: `url(${color.image_url})`,
-                                                            backgroundSize: 'cover',
-                                                        } : {})
-                                                    }}
-                                                />
-                                                {color.name}
-                                                {active && (
-                                                    <span className="ml-0.5 text-primary">✓</span>
-                                                )}
-                                            </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleVariant(color.variantId)}
+                                                    title={active ? `Desativar: ${color.name}` : `Ativar: ${color.name}`}
+                                                    className="flex items-center gap-2 min-w-0"
+                                                >
+                                                    <span
+                                                        className="h-6 w-6 rounded-full border border-black/10 shrink-0"
+                                                        style={{
+                                                            backgroundColor: color.hex_code || '#e5e7eb',
+                                                            ...(color.image_url ? {
+                                                                backgroundImage: `url(${color.image_url})`,
+                                                                backgroundSize: 'cover',
+                                                            } : {})
+                                                        }}
+                                                    />
+                                                    <span className={`text-xs font-medium truncate ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                                        {color.name}
+                                                    </span>
+                                                    {active && (
+                                                        <span className="text-primary text-xs">âœ“</span>
+                                                    )}
+                                                </button>
+
+                                                <div className="ml-auto flex items-center gap-2">
+                                                    <span className="text-[11px] text-muted-foreground">R$</span>
+                                                    <Input
+                                                        value={priceInputs[color.variantId] || ''}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value
+                                                            setPriceInputs(prev => ({ ...prev, [color.variantId]: val }))
+                                                        }}
+                                                        placeholder="Padrão"
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        className="h-7 w-28 text-xs tabular-nums"
+                                                    />
+                                                </div>
+                                            </div>
                                         )
                                     })}
                                 </div>

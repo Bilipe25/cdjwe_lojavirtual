@@ -46,7 +46,7 @@ export function useQuickViewData(productId: string | null, open: boolean): Quick
 
         const { data: variantsData } = await supabase
             .from('product_variants')
-            .select('*, fabric:fabrics(*), color:fabric_colors(*)')
+            .select('*, fabric:fabrics(*), color:fabric_colors!product_variants_fabric_color_fk(*)')
             .eq('product_id', id)
             .eq('is_active', true)
         if (variantsData) {
@@ -94,6 +94,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
     const { calculateB2BPrice, discountPercentage, overrides } = usePriceTableStore()
 
     const [selectedFabric, setSelectedFabric] = useState<string | null>(null)
+    const [activeVariantId, setActiveVariantId] = useState<string | null>(null)
     const [quantities, setQuantities] = useState<Record<string, number>>({})
     const [colorSearch, setColorSearch] = useState('')
     const [activeImageIndex, setActiveImageIndex] = useState(0)
@@ -106,11 +107,22 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
         }
     }, [fabrics, selectedFabric])
 
+    // Keep an active variant for price display (defaults to first color of selected fabric)
+    useEffect(() => {
+        if (!selectedFabric) {
+            setActiveVariantId(null)
+            return
+        }
+        const firstVariant = variants.find((v: any) => v.fabric_id === selectedFabric)
+        setActiveVariantId(firstVariant?.id || null)
+    }, [selectedFabric, variants])
+
     // Reset state on product change
     useEffect(() => {
         setQuantities({})
         setColorSearch('')
         setActiveImageIndex(0)
+        setActiveVariantId(null)
         // Fabric selection reset relies on the effect above
         if (product?.id && fabrics.length > 0) setSelectedFabric(fabrics[0].id)
         else setSelectedFabric(null)
@@ -143,8 +155,16 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
 
     const totalQuantity = Object.values(quantities).reduce((a, b) => a + b, 0)
     const selectedFabricObj = fabrics.find(f => f.id === selectedFabric)
-    const baseDisplayPrice = (product?.base_price ?? 0) + (selectedFabricObj?.price_modifier ?? 0)
-    const displayPrice = calculateB2BPrice(baseDisplayPrice) ?? baseDisplayPrice
+    const activeVariant =
+        variants.find((v: any) => v.id === activeVariantId) ||
+        variants.find((v: any) => v.fabric_id === selectedFabric)
+    const displayPrice =
+        calculateB2BPrice({
+            basePrice: product?.base_price ?? 0,
+            fabricModifier: selectedFabricObj?.price_modifier ?? 0,
+            variantId: activeVariant?.id,
+            variantPriceOverride: activeVariant?.price_override ?? null,
+        }) ?? ((product?.base_price ?? 0) + (selectedFabricObj?.price_modifier ?? 0))
     const favorited = product ? isFavorite(product.id) : false
     
     // Calculate accurate total summing each variant due to individual price overrides
@@ -156,9 +176,14 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
         const fabricObjForTotal = fabrics.find(f => f.id === matchedVariant.fabric_id);
         const calcBase = product?.base_price ?? 0;
         const calcMod = matchedVariant?.fabric?.price_modifier ?? fabricObjForTotal?.price_modifier ?? 0;
-        
-        const sysBase = (matchedVariant as any)?.price_override ?? (calcBase + calcMod);
-        const variantFinalPrice = calculateB2BPrice(sysBase, matchedVariant?.id) ?? sysBase;
+
+        const variantFinalPrice =
+            calculateB2BPrice({
+                basePrice: calcBase,
+                fabricModifier: calcMod,
+                variantId: matchedVariant?.id,
+                variantPriceOverride: (matchedVariant as any)?.price_override ?? null,
+            }) ?? (calcBase + calcMod);
         
         accTotalPrice += variantFinalPrice * qty;
     })
@@ -178,8 +203,13 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
             const fabricObj = fabrics.find(f => f.id === matchedVariant.fabric_id)
             const colorObj = fabricObj?.colors.find(c => c.id === matchedVariant.fabric_color_id)
             
-            const variantBase = (matchedVariant as any)?.price_override ?? ((product.base_price ?? 0) + (fabricObj?.price_modifier ?? 0));
-            const variantPrice = calculateB2BPrice(variantBase, matchedVariant.id) ?? variantBase;
+            const variantPrice =
+                calculateB2BPrice({
+                    basePrice: product.base_price ?? 0,
+                    fabricModifier: fabricObj?.price_modifier ?? 0,
+                    variantId: matchedVariant.id,
+                    variantPriceOverride: (matchedVariant as any)?.price_override ?? null,
+                }) ?? ((product.base_price ?? 0) + (fabricObj?.price_modifier ?? 0));
 
             addItem({
                 variantId: matchedVariant.id,
@@ -316,9 +346,17 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                     const qty = quantities[variant.id] || 0
                                     const isSelected = qty > 0
 
-                                    const variantBase = (variant as any)?.price_override ?? ((product?.base_price ?? 0) + (selectedFabricObj.price_modifier ?? 0))
-                                    const unitPrice = calculateB2BPrice(variantBase, variant.id) ?? variantBase
-                                    const isOverridden = overrides[variant.id] !== undefined
+                                    const baseCalc = (product?.base_price ?? 0) + (selectedFabricObj.price_modifier ?? 0)
+                                    const unitPrice =
+                                        calculateB2BPrice({
+                                            basePrice: product?.base_price ?? 0,
+                                            fabricModifier: selectedFabricObj.price_modifier ?? 0,
+                                            variantId: variant.id,
+                                            variantPriceOverride: (variant as any)?.price_override ?? null,
+                                        }) ?? baseCalc
+                                    const hasVariantOverride = (variant as any)?.price_override !== null && (variant as any)?.price_override !== undefined
+                                    const hasTableOverride = !hasVariantOverride && overrides[variant.id] !== undefined
+                                    const hasDiscount = !hasVariantOverride && !hasTableOverride && discountPercentage > 0
                                     const lineTotal = unitPrice * qty
 
                                     return (
@@ -332,6 +370,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                                 onClick={() => {
                                                     const imgIndex = images.findIndex(img => img.url === color.image_url)
                                                     if (imgIndex !== -1) setActiveImageIndex(imgIndex)
+                                                    setActiveVariantId(variant.id)
                                                 }}
                                             >
                                                 <div
@@ -349,10 +388,13 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                                         <span className="text-[10px] text-muted-foreground font-medium">
                                                             R$ {unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / un
                                                         </span>
-                                                        {isOverridden && (
-                                                            <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-medium">Fixo</span>
+                                                        {hasVariantOverride && (
+                                                            <span className="text-[9px] bg-indigo-100 text-indigo-800 px-1 rounded font-medium">Cor</span>
                                                         )}
-                                                        {!isOverridden && discountPercentage > 0 && (
+                                                        {hasTableOverride && (
+                                                            <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-medium">Tabela</span>
+                                                        )}
+                                                        {hasDiscount && (
                                                             <span className="text-[9px] bg-green-100 text-green-800 px-1 rounded font-medium">-{discountPercentage}%</span>
                                                         )}
                                                     </div>
@@ -371,7 +413,10 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                                     <button
                                                         className="h-6 w-6 md:h-7 md:w-8 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
                                                         disabled={qty === 0}
-                                                        onClick={() => setQuantities(prev => ({ ...prev, [variant.id]: Math.max(0, qty - 1) }))}
+                                                        onClick={() => {
+                                                            setActiveVariantId(variant.id)
+                                                            setQuantities(prev => ({ ...prev, [variant.id]: Math.max(0, qty - 1) }))
+                                                        }}
                                                     >
                                                         <Minus className="h-3 w-3" />
                                                     </button>
@@ -381,7 +426,10 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                                     </span>
                                                     <button
                                                         className="h-6 w-6 md:h-7 md:w-8 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95 transition-all"
-                                                        onClick={() => setQuantities(prev => ({ ...prev, [variant.id]: qty + 1 }))}
+                                                        onClick={() => {
+                                                            setActiveVariantId(variant.id)
+                                                            setQuantities(prev => ({ ...prev, [variant.id]: qty + 1 }))
+                                                        }}
                                                     >
                                                         <Plus className="h-3 w-3" />
                                                     </button>
@@ -428,4 +476,3 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
         </div>
     )
 }
-
