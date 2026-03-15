@@ -124,6 +124,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
     const [colorSearch, setColorSearch] = useState('')
     const [activeImageIndex, setActiveImageIndex] = useState(0)
     const [addingToCart, setAddingToCart] = useState(false)
+    const [showFullDescription, setShowFullDescription] = useState(false)
 
     // Select first fabric automatically if none is selected and fabrics load
     useEffect(() => {
@@ -148,6 +149,7 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
         setColorSearch('')
         setActiveImageIndex(0)
         setActiveVariantId(null)
+        setShowFullDescription(false)
         // Fabric selection reset relies on the effect above
         if (product?.id && fabrics.length > 0) setSelectedFabric(fabrics[0].id)
         else setSelectedFabric(null)
@@ -213,6 +215,9 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
             variantPriceOverride: activeVariant?.price_override ?? null,
         }) ?? ((product?.base_price ?? 0) + (selectedFabricObj?.price_modifier ?? 0))
     const favorited = product ? isFavorite(product.id) : false
+    const description = product.description?.trim() || ''
+    const hasLongDescription = description.length > 180
+    const descriptionPreview = hasLongDescription ? `${description.slice(0, 180).trimEnd()}...` : description
     
     // Calculate accurate total summing each variant due to individual price overrides
     let accTotalPrice = 0;
@@ -331,6 +336,30 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                     </div>
 
                     <Separator className="mx-4 md:mx-5 w-auto my-1" />
+
+                    {description && (
+                        <div className="px-4 md:px-5 py-3">
+                            <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-3">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                        Descrição
+                                    </span>
+                                    {hasLongDescription && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowFullDescription((prev) => !prev)}
+                                            className="text-xs font-semibold text-primary transition-colors hover:text-primary/80"
+                                        >
+                                            {showFullDescription ? 'Ver menos' : 'Ver mais'}
+                                        </button>
+                                    )}
+                                </div>
+                                <p className={`text-sm leading-relaxed text-muted-foreground ${showFullDescription ? '' : 'line-clamp-2'}`}>
+                                    {showFullDescription ? description : descriptionPreview}
+                                </p>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Fabric Selection - Pills */}
                     {fabrics.length > 0 && (

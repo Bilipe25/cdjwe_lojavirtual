@@ -49,8 +49,8 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                 />
                 <Drawer.Content
                     ref={drawerContentRef}
-                    className="fixed bottom-0 left-0 right-0 z-50 flex flex-col bg-white rounded-t-2xl focus:outline-none"
-                    style={{ maxHeight: '92dvh' }}
+                    className="fixed inset-0 z-50 flex flex-col bg-white focus:outline-none"
+                    style={{ height: '100dvh', maxHeight: '100dvh' }}
                 >
                     <Drawer.Title className="sr-only">Detalhes do produto</Drawer.Title>
                     
@@ -69,7 +69,7 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                     </div>
 
                     {/* Content — fills remaining height, scrolls internally */}
-                    <div className="flex-1 overflow-y-auto overscroll-contain" data-vaul-no-drag>
+                    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" data-vaul-no-drag>
                         <QuickViewContent
                             data={data}
                             onClose={onClose}
