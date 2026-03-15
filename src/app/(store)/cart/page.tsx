@@ -370,7 +370,7 @@ function CheckoutItemRow({
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 shrink-0 rounded-lg text-slate-400 hover:bg-destructive/10 hover:text-destructive"
+                            className="h-7 w-7 shrink-0 rounded-lg text-slate-400 hover:bg-destructive/10 hover:text-destructive xl:hidden"
                             onClick={onRemove}
                         >
                             <Trash2 className="h-4 w-4" />
@@ -423,6 +423,15 @@ function CheckoutItemRow({
                             R$ {formatCurrency(subtotal)}
                         </p>
                     </div>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 shrink-0 rounded-xl px-2.5 text-xs font-medium text-slate-400 hover:bg-destructive/10 hover:text-destructive"
+                        onClick={onRemove}
+                    >
+                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                        Excluir
+                    </Button>
                 </div>
             </div>
         </div>
@@ -727,12 +736,21 @@ export default function CartPage() {
                 return
             }
 
-            toast.success('Pedido realizado com sucesso!', { duration: 2500 })
-            router.push(`/order-confirmation/${result.orderId}`)
+            const confirmationPath = `/order-confirmation/${result.orderId}`
 
-            setTimeout(() => {
-                clearCart()
-            }, 500)
+            toast.success('Pedido realizado com sucesso!', { duration: 2500 })
+            clearCart()
+            router.replace(confirmationPath)
+
+            // Fallback defensivo: garante abertura da confirmacao mesmo se a transicao
+            // do App Router atrasar ou falhar em alguns dispositivos/mobile browsers.
+            if (typeof window !== 'undefined') {
+                window.setTimeout(() => {
+                    if (window.location.pathname === '/cart') {
+                        window.location.assign(confirmationPath)
+                    }
+                }, 250)
+            }
         } catch (err) {
             console.error('[CHECKOUT] Unexpected error:', err)
             toast.error('Ocorreu um erro interno de conexao.')

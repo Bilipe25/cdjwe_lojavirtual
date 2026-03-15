@@ -30,6 +30,7 @@ import { useCartStore } from '@/lib/stores/cart-store'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { useProductDetailData } from '@/lib/hooks/use-product-detail-data'
 import { useProductSelectionState } from '@/lib/hooks/use-product-selection-state'
+import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import type { ProductDetailVariant } from '@/lib/products/product-detail'
 import { usePriceTableStore } from '@/lib/stores/price-table-store'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
@@ -44,6 +45,7 @@ export default function ProductDetailPage() {
     const productId =
         typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : ''
     const { addItem, openCart } = useCartStore()
+    const isMobile = useIsMobile()
     const { isFavorite, toggle } = useFavoritesStore()
     const { discountPercentage, overrides } = usePriceTableStore()
     const { product, images, fabrics, variants, loading, error, reload } = useProductDetailData({
@@ -206,6 +208,9 @@ export default function ProductDetailPage() {
                     onClick: openCart,
                 },
             })
+            if (!isMobile) {
+                openCart()
+            }
         } finally {
             setAddingToCart(false)
         }

@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { usePriceTableStore } from '@/lib/stores/price-table-store'
+import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useProductDetailData, type ProductDetailData } from '@/lib/hooks/use-product-detail-data'
 import { useProductSelectionState } from '@/lib/hooks/use-product-selection-state'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
@@ -37,9 +38,10 @@ export function QuickViewContent({
     showTitle = true,
 }: QuickViewContentProps) {
     const { product, images, fabrics, variants, loading, error } = data
-    const { addItem } = useCartStore()
+    const { addItem, openCart } = useCartStore()
     const { isFavorite, toggle } = useFavoritesStore()
     const { discountPercentage, overrides } = usePriceTableStore()
+    const isMobile = useIsMobile()
     const [addingToCart, setAddingToCart] = useState(false)
 
     const selection = useProductSelectionState({
@@ -211,6 +213,9 @@ export function QuickViewContent({
             toast.success(`${totalQuantity} itens adicionados ao carrinho!`)
             resetSelection()
             onClose()
+            if (!isMobile) {
+                openCart()
+            }
         } finally {
             setAddingToCart(false)
         }
