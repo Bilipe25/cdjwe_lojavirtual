@@ -12,7 +12,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 // Components
 import { OrderFilters, statusConfig } from './components/OrderFilters'
 import { OrderList, OrderWithDetails } from './components/OrderList'
-import { OrderDetailModal } from './components/OrderDetailModal'
+import { OrderDetailModal, type AdminOrderDetailRecord } from './components/OrderDetailModal'
 
 // Actions
 import { deleteOrderAction } from './actions'
@@ -33,7 +33,7 @@ export default function AdminOrdersPage() {
 
     // Interactivity
     const [selectedOrders, setSelectedOrders] = useState<string[]>([])
-    const [selectedOrderDetail, setSelectedOrderDetail] = useState<OrderWithDetails | null>(null)
+    const [selectedOrderDetail, setSelectedOrderDetail] = useState<AdminOrderDetailRecord | null>(null)
 
     const loadOrders = useCallback(async () => {
         setLoading(true)

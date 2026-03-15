@@ -26,19 +26,28 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import type { Order, OrderItem, SystemSettings } from '@/lib/types'
+import type { OrderStatus, OrderItem, SystemSettings } from '@/lib/types'
 
 type AdminOrderHistoryRecord = {
     id: string
     status: string
     created_at: string
     changed_by: string
+    notes?: string | null
     profile?: {
         full_name?: string | null
     } | null
 }
 
-type AdminOrderDetailRecord = Order & {
+export interface AdminOrderDetailRecord {
+    id: string
+    order_number: string
+    status: OrderStatus
+    total: number
+    subtotal: number
+    discount_amount: number
+    created_at: string
+    notes: string | null
     store?: {
         company_name?: string | null
         cnpj?: string | null

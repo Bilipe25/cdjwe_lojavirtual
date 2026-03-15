@@ -1,7 +1,7 @@
 import pdfMake from 'pdfmake/build/pdfmake'
 import pdfFonts from 'pdfmake/build/vfs_fonts'
 import { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces'
-import type { Order, OrderItem, SystemSettings } from '@/lib/types'
+import type { OrderItem, OrderStatus, SystemSettings } from '@/lib/types'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getBase64ImageFromURL } from '@/lib/utils'
@@ -11,13 +11,35 @@ import {
     getOrderItemCommunicationPricing,
 } from '@/lib/orders/order-communication'
 
-if (pdfFonts && (pdfFonts as { pdfMake?: { vfs?: unknown } }).pdfMake) {
-    ;(pdfMake as { vfs?: unknown }).vfs = (pdfFonts as { pdfMake: { vfs?: unknown } }).pdfMake.vfs
-} else if (pdfFonts) {
-    ;(pdfMake as { vfs?: unknown }).vfs = (pdfFonts as { vfs?: unknown }).vfs || pdfFonts
+const pdfFontsConfig = pdfFonts as unknown as { pdfMake?: { vfs?: unknown }; vfs?: unknown }
+const pdfMakeConfig = pdfMake as unknown as {
+    vfs?: unknown
+    fonts?: Record<
+        string,
+        {
+            normal: string
+            bold: string
+            italics: string
+            bolditalics: string
+        }
+    >
 }
 
-type ReceiptOrder = Order & {
+if (pdfFonts && pdfFontsConfig.pdfMake) {
+    pdfMakeConfig.vfs = pdfFontsConfig.pdfMake.vfs
+} else if (pdfFonts) {
+    pdfMakeConfig.vfs = pdfFontsConfig.vfs || pdfFonts
+}
+
+type ReceiptOrder = {
+    id: string
+    order_number: string
+    status: OrderStatus
+    created_at: string
+    subtotal: number
+    discount_amount: number
+    total: number
+    notes?: string | null
     store?: {
         company_name?: string | null
         cnpj?: string | null
@@ -316,7 +338,7 @@ export async function generateOrderReceiptPDF(
         defaultStyle: { font: 'Roboto' },
     }
 
-    const vfs = (pdfMake as { vfs?: Record<string, string> }).vfs || {}
+    const vfs = (pdfMakeConfig.vfs as Record<string, string> | undefined) || {}
     const keys = Object.keys(vfs)
     const findFont = (patterns: string[], fallback: string) => {
         const match = keys.find((key) => patterns.some((pattern) => key.toLowerCase().includes(pattern.toLowerCase())))
@@ -328,16 +350,7 @@ export async function generateOrderReceiptPDF(
     const italic = findFont(['roboto-italic.ttf'], regular)
     const boldItalic = findFont(['roboto-mediumitalic.ttf', 'roboto-bolditalic.ttf'], bold)
 
-    ;(pdfMake as {
-        fonts?: {
-            Roboto: {
-                normal: string
-                bold: string
-                italics: string
-                bolditalics: string
-            }
-        }
-    }).fonts = {
+    pdfMakeConfig.fonts = {
         Roboto: {
             normal: regular,
             bold,
