@@ -10,11 +10,12 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Building, User, CreditCard, Calendar, Clock, History, Printer, Loader2, Trash2, AlertCircle } from 'lucide-react'
+import { Building, User, CreditCard, Clock, History, Printer, Loader2, Trash2, AlertCircle } from 'lucide-react'
 import { statusConfig } from './OrderFilters'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
+import { OrderItemPriceDetails } from '@/components/orders/order-item-price-details'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -25,12 +26,37 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import type { Order, OrderItem, SystemSettings } from '@/lib/types'
+
+type AdminOrderHistoryRecord = {
+    id: string
+    status: string
+    created_at: string
+    changed_by: string
+    profile?: {
+        full_name?: string | null
+    } | null
+}
+
+type AdminOrderDetailRecord = Order & {
+    store?: {
+        company_name?: string | null
+        cnpj?: string | null
+    } | null
+    profile?: {
+        full_name?: string | null
+    } | null
+    payment_condition?: {
+        name?: string | null
+    } | null
+    items?: OrderItem[]
+}
 
 interface OrderDetailModalProps {
-    order: any | null;
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    onDelete?: (id: string) => void;
+    order: AdminOrderDetailRecord | null
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    onDelete?: (id: string) => Promise<boolean> | boolean
 }
 
 export function OrderDetailModal({
@@ -39,10 +65,10 @@ export function OrderDetailModal({
     onOpenChange,
     onDelete
 }: OrderDetailModalProps) {
-    const [history, setHistory] = useState<any[]>([])
+    const [history, setHistory] = useState<AdminOrderHistoryRecord[]>([])
     const [loadingHistory, setLoadingHistory] = useState(false)
     const [isPrinting, setIsPrinting] = useState(false)
-    const [settings, setSettings] = useState<any>(null)
+    const [settings, setSettings] = useState<SystemSettings | null>(null)
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
     useEffect(() => {
@@ -76,7 +102,7 @@ export function OrderDetailModal({
             .order('created_at', { ascending: false })
 
         if (!error && data) {
-            setHistory(data)
+            setHistory(data as AdminOrderHistoryRecord[])
         }
         setLoadingHistory(false)
     }
@@ -169,7 +195,7 @@ export function OrderDetailModal({
                     <div>
                         <h4 className="font-bold text-lg mb-4 text-navy">Itens Solicitados ({order.items?.length || 0})</h4>
                         <div className="space-y-3">
-                            {order.items?.map((item: any) => (
+                            {order.items?.map((item) => (
                                 <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-border/50 hover:border-bronze/30 transition-colors bg-white">
                                     <div className="min-w-0 pr-4 mb-2 sm:mb-0">
                                         <p className="font-semibold text-base text-navy">{item.product_name}</p>
@@ -184,13 +210,21 @@ export function OrderDetailModal({
                                                 </>
                                             )}
                                         </div>
+                                        <OrderItemPriceDetails item={item} className="mt-2" />
                                     </div>
                                     <div className="text-left sm:text-right shrink-0 bg-muted/20 sm:bg-transparent p-2 sm:p-0 rounded-md">
-                                        <p className="text-sm text-muted-foreground mb-0.5">{item.quantity}x de R$ {item.unit_price.toFixed(2)}</p>
-                                        <p className="font-bold text-lg text-gradient-bronze">R$ {item.subtotal.toFixed(2)}</p>
+                                        <p className="text-sm text-muted-foreground mb-0.5">
+                                            {item.quantity}x de R$ {item.unit_price.toFixed(2)}
+                                        </p>
+                                        <p className="font-bold text-lg text-gradient-bronze">
+                                            R$ {item.subtotal.toFixed(2)}
+                                        </p>
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                        <div className="mt-4 rounded-xl border border-border/60 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                            O admin e o cliente agora consultam o mesmo snapshot financeiro do pedido para auditoria e atendimento.
                         </div>
                     </div>
 
@@ -213,6 +247,9 @@ export function OrderDetailModal({
                                 <span className="font-bold text-base text-navy">Total do Pedido</span>
                                 <span className="font-black text-2xl text-gradient-bronze">R$ {order.total?.toFixed(2) || '0.00'}</span>
                             </div>
+                            <div className="rounded-xl border border-border/60 bg-white/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                                Valores unitários e totais permanecem congelados mesmo após alterações futuras em produto, cor ou tabela comercial.
+                            </div>
                         </div>
                     </div>
 
@@ -233,7 +270,7 @@ export function OrderDetailModal({
                             <p className="text-sm text-muted-foreground bg-muted/30 p-4 rounded-lg">Não há transições de status registradas ainda.</p>
                         ) : (
                             <div className="relative border-l-2 border-muted ml-4 pl-6 space-y-6">
-                                {history.map((record, index) => {
+                                {history.map((record) => {
                                     const cnf = statusConfig[record.status as keyof typeof statusConfig];
                                     return (
                                         <div key={record.id} className="relative">
@@ -256,6 +293,11 @@ export function OrderDetailModal({
                                                     {format(new Date(record.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
                                                 </p>
                                             </div>
+                                            {record.notes && (
+                                                <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                                                    {record.notes}
+                                                </p>
+                                            )}
                                         </div>
                                     )
                                 })}
@@ -283,7 +325,7 @@ export function OrderDetailModal({
                         <AlertDialogAction 
                             onClick={async () => {
                                 if (onDelete && order) {
-                                    const success = await (onDelete as any)(order.id)
+                                    const success = await onDelete(order.id)
                                     if (success) {
                                         onOpenChange(false)
                                     }

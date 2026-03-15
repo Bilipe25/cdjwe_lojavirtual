@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
@@ -20,130 +20,42 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ProductDetailSkeleton } from '@/components/ui/skeletons'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { createClient } from '@/lib/supabase/client'
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
+import { useProductDetailData } from '@/lib/hooks/use-product-detail-data'
+import { useProductSelectionState } from '@/lib/hooks/use-product-selection-state'
+import type { ProductDetailVariant } from '@/lib/products/product-detail'
 import { usePriceTableStore } from '@/lib/stores/price-table-store'
-import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
+import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
 import { toast } from 'sonner'
-import type { Product, ProductImage, Fabric, FabricColor, ProductVariant } from '@/lib/types'
+import type { FabricColor } from '@/lib/types'
 import { ProductImageGallery } from '@/components/products/ProductImageGallery'
-
-type ProductDetailVariant = ProductVariant & {
-    fabric: Fabric
-    fabric_color: FabricColor
-}
+import { PricePresentation, getVariantPriceBadges } from '@/components/catalog/price-presentation'
 
 export default function ProductDetailPage() {
     const params = useParams()
     const router = useRouter()
-    const productId = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : ''
+    const productId =
+        typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : ''
     const { addItem, openCart } = useCartStore()
     const { isFavorite, toggle } = useFavoritesStore()
-    const { calculateB2BPrice, discountPercentage, overrides } = usePriceTableStore()
-
-    const [product, setProduct] = useState<Product | null>(null)
-    const [images, setImages] = useState<ProductImage[]>([])
-    const [fabrics, setFabrics] = useState<(Fabric & { colors: FabricColor[] })[]>([])
-    const [variants, setVariants] = useState<ProductDetailVariant[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
-
-    const [selectedFabric, setSelectedFabric] = useState<string | null>(null)
-    const [activeVariantId, setActiveVariantId] = useState<string | null>(null)
-    const [quantities, setQuantities] = useState<Record<string, number>>({})
+    const { discountPercentage, overrides } = usePriceTableStore()
+    const { product, images, fabrics, variants, loading, error, reload } = useProductDetailData({
+        productId,
+        enabled: !!productId,
+    })
     const [addingToCart, setAddingToCart] = useState(false)
-    const [activeImageIndex, setActiveImageIndex] = useState(0)
-    const [showFullDescription, setShowFullDescription] = useState(false)
-    const [colorSearch, setColorSearch] = useState('')
-
-    useEffect(() => {
-        if (!productId) return
-        void loadProduct(productId)
-    }, [productId])
-
-    const loadProduct = async (id: string) => {
-        setLoading(true)
-        setError(null)
-        const supabase = createClient()
-
-        try {
-            const [productRes, imagesRes, variantsRes] = await Promise.all([
-                supabase
-                    .from('products')
-                    .select('*, category:categories(*)')
-                    .eq('id', id)
-                    .single(),
-                supabase
-                    .from('product_images')
-                    .select('*')
-                    .eq('product_id', id)
-                    .order('sort_order'),
-                supabase
-                    .from('product_variants')
-                    .select(`
-                        *,
-                        fabric:fabrics(*),
-                        fabric_color:fabric_colors!product_variants_fabric_color_fk(*)
-                    `)
-                    .eq('product_id', id)
-                    .eq('is_active', true),
-            ])
-
-            if (productRes.error || !productRes.data) {
-                setProduct(null)
-                setError('Produto não encontrado ou indisponível.')
-                return
-            }
-
-            const nextVariants = (variantsRes.data || []) as ProductDetailVariant[]
-            const fabricMap = new Map<string, Fabric & { colors: FabricColor[] }>()
-
-            nextVariants.forEach((variant) => {
-                if (!fabricMap.has(variant.fabric_id)) {
-                    fabricMap.set(variant.fabric_id, { ...variant.fabric, colors: [] })
-                }
-
-                const fabric = fabricMap.get(variant.fabric_id)
-                if (fabric && !fabric.colors.find((color) => color.id === variant.fabric_color_id)) {
-                    fabric.colors.push(variant.fabric_color)
-                }
-            })
-
-            const fabricList = Array.from(fabricMap.values())
-
-            setProduct(productRes.data as Product)
-            setImages(imagesRes.data || [])
-            setVariants(nextVariants)
-            setFabrics(fabricList)
-            setSelectedFabric(fabricList[0]?.id || null)
-            setActiveVariantId(
-                fabricList[0]
-                    ? nextVariants.find((variant) => variant.fabric_id === fabricList[0].id)?.id || null
-                    : null
-            )
-            setQuantities({})
-            setActiveImageIndex(0)
-            setShowFullDescription(false)
-            setColorSearch('')
-        } catch (err) {
-            console.error('[PRODUCT_DETAIL] Load error:', err)
-            setError('Não foi possível carregar este produto. Verifique sua conexão.')
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        if (!selectedFabric) {
-            setActiveVariantId(null)
-            return
-        }
-
-        const firstVariant = variants.find((variant) => variant.fabric_id === selectedFabric)
-        setActiveVariantId(firstVariant?.id || null)
-    }, [selectedFabric, variants])
+    const selection = useProductSelectionState({
+        scopeKey: productId || null,
+        fabrics,
+        variants,
+    })
 
     if (loading) {
         return <ProductDetailSkeleton />
@@ -157,98 +69,93 @@ export default function ProductDetailPage() {
                 </div>
                 <div>
                     <h2 className="text-xl font-bold">Não foi possível abrir o produto</h2>
-                    <p className="text-sm text-muted-foreground">{error || 'Tente novamente em alguns instantes.'}</p>
+                    <p className="text-sm text-muted-foreground">
+                        {error || 'Tente novamente em alguns instantes.'}
+                    </p>
                 </div>
                 <div className="flex justify-center gap-2">
                     <Button variant="outline" onClick={() => router.push('/catalog')}>
                         Voltar ao Catálogo
                     </Button>
-                    <Button onClick={() => void loadProduct(productId)}>Tentar novamente</Button>
+                    <Button onClick={() => void reload()}>Tentar novamente</Button>
                 </div>
             </div>
         )
     }
 
+    const {
+        selectedFabric,
+        selectedFabricGroup: activeFabric,
+        activeVariant,
+        quantities,
+        totalQuantity: totalSelectedQuantity,
+        activeImageIndex,
+        colorSearch,
+        showFullDescription,
+        setSelectedFabric,
+        setActiveVariantId,
+        setActiveImageIndex,
+        setColorSearch,
+        setShowFullDescription,
+        setVariantQuantity,
+        clearQuantities,
+        resetSelection,
+    } = selection
+
     const favorited = isFavorite(product.id)
-    const activeFabric = fabrics.find((fabric) => fabric.id === selectedFabric)
     const availableColors = activeFabric?.colors || []
     const filteredColors = availableColors.filter((color) =>
         color.name.toLowerCase().includes(colorSearch.toLowerCase())
     )
-    const activeVariant =
-        variants.find((variant) => variant.id === activeVariantId) ||
-        variants.find((variant) => variant.fabric_id === selectedFabric)
+    const priceTable = {
+        discountPercentage,
+        overrides,
+    }
 
-    const priceBreakdown = calculateProductPrice({
+    const priceBreakdown = resolveVariantPricing({
         basePrice: product.base_price ?? 0,
         fabricModifier: activeFabric?.price_modifier ?? 0,
         variantId: activeVariant?.id,
         variantPriceOverride: activeVariant?.price_override ?? null,
-        priceTable: {
-            discountPercentage,
-            overrides,
-        },
+        priceTable,
     })
 
-    const price =
-        calculateB2BPrice({
-            basePrice: product.base_price ?? 0,
-            fabricModifier: activeFabric?.price_modifier ?? 0,
-            variantId: activeVariant?.id,
-            variantPriceOverride: activeVariant?.price_override ?? null,
-        }) ?? priceBreakdown.finalPrice
-
     const displayImages = activeVariant?.image_url
-        ? [{ url: activeVariant.image_url, id: `variant-${activeVariant.id}` }, ...images.map((img) => ({ url: img.url, id: img.id }))]
-        : images.map((img) => ({ url: img.url, id: img.id }))
+        ? [
+              { url: activeVariant.image_url, id: `variant-${activeVariant.id}` },
+              ...images.map((image) => ({ url: image.url, id: image.id })),
+          ]
+        : images.map((image) => ({ url: image.url, id: image.id }))
 
     const description = product.description?.trim() || ''
     const hasLongDescription = description.length > 220
-    const descriptionPreview = hasLongDescription ? `${description.slice(0, 220).trimEnd()}...` : description
-    const totalSelectedQuantity = Object.values(quantities).reduce((acc, qty) => acc + qty, 0)
+    const descriptionPreview = hasLongDescription
+        ? `${description.slice(0, 220).trimEnd()}...`
+        : description
 
-    const getVariantUnitPrice = (variant: ProductDetailVariant) => {
-        const fabricModifier = fabrics.find((fabric) => fabric.id === variant.fabric_id)?.price_modifier ?? 0
-        return (
-            calculateB2BPrice({
-                basePrice: product.base_price ?? 0,
-                fabricModifier,
-                variantId: variant.id,
-                variantPriceOverride: variant.price_override ?? null,
-            }) ?? ((product.base_price ?? 0) + fabricModifier)
-        )
+    const getVariantPricing = (variant: ProductDetailVariant) => {
+        const fabricModifier =
+            variant.fabric?.price_modifier ??
+            fabrics.find((fabric) => fabric.id === variant.fabric_id)?.price_modifier ??
+            0
+
+        return resolveVariantPricing({
+            basePrice: product.base_price ?? 0,
+            fabricModifier,
+            variantId: variant.id,
+            variantPriceOverride: variant.price_override ?? null,
+            priceTable,
+        })
     }
 
-    const totalSelectedPrice = Object.entries(quantities).reduce((acc, [colorId, qty]) => {
-        if (qty <= 0 || !selectedFabric) return acc
+    const totalSelectedPrice = Object.entries(quantities).reduce((acc, [variantId, quantity]) => {
+        if (quantity <= 0) return acc
 
-        const variant = variants.find(
-            (currentVariant) =>
-                currentVariant.fabric_id === selectedFabric &&
-                currentVariant.fabric_color_id === colorId
-        )
-
+        const variant = variants.find((currentVariant) => currentVariant.id === variantId)
         if (!variant) return acc
-        return acc + getVariantUnitPrice(variant) * qty
+
+        return acc + getVariantPricing(variant).unitPrice * quantity
     }, 0)
-
-    const priceLayerLabel =
-        priceBreakdown.layer === 'variant'
-            ? 'Preço da cor aplicada'
-            : priceBreakdown.layer === 'price_table_override'
-                ? 'Preço da sua tabela aplicado'
-                : priceBreakdown.layer === 'price_table_discount'
-                    ? `Desconto de tabela (${discountPercentage}%)`
-                    : 'Preço base do produto'
-
-    const handleSelectFabric = (fabricId: string) => {
-        setSelectedFabric(fabricId)
-        setQuantities({})
-        setColorSearch('')
-        setActiveImageIndex(0)
-        const firstVariant = variants.find((variant) => variant.fabric_id === fabricId)
-        setActiveVariantId(firstVariant?.id || null)
-    }
 
     const handleActivateVariant = (variant: ProductDetailVariant, color: FabricColor) => {
         if (variant.image_url) {
@@ -266,53 +173,47 @@ export default function ProductDetailPage() {
     const handleAddToCart = () => {
         if (!selectedFabric) return
 
-        const colorsToAdd = Object.entries(quantities).filter(([, qty]) => qty > 0)
-        if (colorsToAdd.length === 0) return
+        const variantsToAdd = Object.entries(quantities).filter(([, quantity]) => quantity > 0)
+        if (variantsToAdd.length === 0) return
 
         setAddingToCart(true)
-        const fabric = fabrics.find((item) => item.id === selectedFabric)
 
-        colorsToAdd.forEach(([colorId, qty]) => {
-            const variant = variants.find(
-                (currentVariant) =>
-                    currentVariant.fabric_id === selectedFabric &&
-                    currentVariant.fabric_color_id === colorId
-            )
+        try {
+            variantsToAdd.forEach(([variantId, quantity]) => {
+                const variant = variants.find((currentVariant) => currentVariant.id === variantId)
+                if (!variant) return
 
-            if (!variant) return
+                const fabric = fabrics.find((item) => item.id === variant.fabric_id)
+                const color = fabric?.colors.find((item) => item.id === variant.fabric_color_id)
 
-            const color = availableColors.find((item) => item.id === colorId)
-            addItem({
-                variantId: variant.id,
-                productId: product.id,
-                productName: product.name,
-                fabricName: fabric?.name || '',
-                colorName: color?.name || '',
-                size: product.size || null,
-                imageUrl: variant.image_url || color?.image_url || images[0]?.url || null,
-                quantity: qty,
-                unitPrice: getVariantUnitPrice(variant),
+                addItem({
+                    variantId: variant.id,
+                    productId: product.id,
+                    productName: product.name,
+                    fabricName: fabric?.name || '',
+                    colorName: color?.name || '',
+                    size: product.size || null,
+                    imageUrl: variant.image_url || color?.image_url || images[0]?.url || null,
+                    quantity,
+                    unitPrice: getVariantPricing(variant).unitPrice,
+                })
             })
-        })
 
-        setAddingToCart(false)
-        setQuantities({})
-
-        toast.success(`${totalSelectedQuantity} itens adicionados ao carrinho!`, {
-            action: {
-                label: 'Ver Carrinho',
-                onClick: openCart,
-            },
-        })
+            resetSelection()
+            toast.success(`${totalSelectedQuantity} itens adicionados ao carrinho!`, {
+                action: {
+                    label: 'Ver Carrinho',
+                    onClick: openCart,
+                },
+            })
+        } finally {
+            setAddingToCart(false)
+        }
     }
 
     return (
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-            <Button
-                variant="ghost"
-                className="mb-4 gap-2"
-                onClick={() => router.push('/catalog')}
-            >
+            <Button variant="ghost" className="mb-4 gap-2" onClick={() => router.push('/catalog')}>
                 <ArrowLeft className="h-4 w-4" />
                 Voltar ao Catálogo
             </Button>
@@ -337,7 +238,10 @@ export default function ProductDetailPage() {
                         <div className="mb-3 flex items-start justify-between gap-4">
                             <div className="flex flex-wrap items-center gap-2">
                                 {product.category && (
-                                    <Badge variant="secondary" className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-700">
+                                    <Badge
+                                        variant="secondary"
+                                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-700"
+                                    >
                                         {(product.category as { name: string }).name}
                                     </Badge>
                                 )}
@@ -351,40 +255,37 @@ export default function ProductDetailPage() {
                             <button
                                 onClick={() => toggle(product.id)}
                                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border/70 bg-white text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
-                                aria-label={favorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+                                aria-label={
+                                    favorited
+                                        ? 'Remover dos favoritos'
+                                        : 'Adicionar aos favoritos'
+                                }
                             >
-                                <Heart className={`h-5 w-5 ${favorited ? 'fill-red-500 text-red-500' : ''}`} />
+                                <Heart
+                                    className={`h-5 w-5 ${
+                                        favorited ? 'fill-red-500 text-red-500' : ''
+                                    }`}
+                                />
                             </button>
                         </div>
 
-                        <h1 className="text-3xl font-bold font-[family-name:var(--font-heading)] text-slate-950 lg:text-4xl">
+                        <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-slate-950 lg:text-4xl">
                             {product.name}
                         </h1>
                         {product.size && (
-                            <p className="mt-1 text-sm text-muted-foreground">Ref/Tamanho: {product.size}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                                Ref/Tamanho: {product.size}
+                            </p>
                         )}
                     </div>
 
-                    <div className="rounded-2xl border border-border/70 bg-white p-5 shadow-sm">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                            <div>
-                                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                    Preço Atual
-                                </span>
-                                <div className="mt-1 flex items-baseline gap-2">
-                                    <span className="text-3xl font-bold text-gradient-bronze">
-                                        R$ {price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    </span>
-                                </div>
-                            </div>
-                            <Badge variant="secondary" className="w-fit rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-700">
-                                {priceLayerLabel}
-                            </Badge>
-                        </div>
-                        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                            O valor final do pedido acompanha a cor selecionada e a política comercial da sua tabela B2B.
-                        </p>
-                    </div>
+                    <PricePresentation
+                        title="Preço Atual"
+                        price={priceBreakdown.finalPrice}
+                        layer={priceBreakdown.layer}
+                        discountPercentage={discountPercentage}
+                        description="O valor final do pedido acompanha a cor selecionada e a política comercial da sua tabela B2B."
+                    />
 
                     {description && (
                         <div className="rounded-2xl border border-border/70 bg-muted/10 p-5">
@@ -395,14 +296,20 @@ export default function ProductDetailPage() {
                                 {hasLongDescription && (
                                     <button
                                         type="button"
-                                        onClick={() => setShowFullDescription((prev) => !prev)}
+                                        onClick={() =>
+                                            setShowFullDescription((previous) => !previous)
+                                        }
                                         className="text-sm font-semibold text-primary transition-colors hover:text-primary/80"
                                     >
                                         {showFullDescription ? 'Ver menos' : 'Ver mais'}
                                     </button>
                                 )}
                             </div>
-                            <p className={`text-sm leading-7 text-muted-foreground ${showFullDescription ? '' : 'line-clamp-3'}`}>
+                            <p
+                                className={`text-sm leading-7 text-muted-foreground ${
+                                    showFullDescription ? '' : 'line-clamp-3'
+                                }`}
+                            >
                                 {showFullDescription ? description : descriptionPreview}
                             </p>
                         </div>
@@ -415,7 +322,8 @@ export default function ProductDetailPage() {
                             <h3 className="mb-3 text-sm font-semibold">
                                 Tecido
                                 <span className="font-normal text-muted-foreground">
-                                    {' '}— {activeFabric?.name || 'Selecione'}
+                                    {' '}
+                                    - {activeFabric?.name || 'Selecione'}
                                 </span>
                             </h3>
                             <div className="flex flex-wrap gap-2">
@@ -425,7 +333,7 @@ export default function ProductDetailPage() {
                                             <TooltipTrigger
                                                 render={
                                                     <button
-                                                        onClick={() => handleSelectFabric(fabric.id)}
+                                                        onClick={() => setSelectedFabric(fabric.id)}
                                                         className={`rounded-lg border px-4 py-2 text-sm transition-all ${
                                                             selectedFabric === fabric.id
                                                                 ? 'border-primary bg-primary/10 font-medium text-primary shadow-sm'
@@ -464,11 +372,13 @@ export default function ProductDetailPage() {
                             <div className="mb-3 flex items-center justify-between">
                                 <h3 className="text-sm font-semibold">
                                     Cores e Quantidades
-                                    <span className="ml-1 font-normal text-muted-foreground">({filteredColors.length})</span>
+                                    <span className="ml-1 font-normal text-muted-foreground">
+                                        ({filteredColors.length})
+                                    </span>
                                 </h3>
                                 {totalSelectedQuantity > 0 && (
                                     <button
-                                        onClick={() => setQuantities({})}
+                                        onClick={clearQuantities}
                                         className="text-xs text-muted-foreground underline hover:text-destructive"
                                     >
                                         Zerar
@@ -482,7 +392,7 @@ export default function ProductDetailPage() {
                                     <input
                                         type="text"
                                         value={colorSearch}
-                                        onChange={(e) => setColorSearch(e.target.value)}
+                                        onChange={(event) => setColorSearch(event.target.value)}
                                         placeholder="Buscar cor..."
                                         className="h-11 w-full rounded-xl border border-border bg-white pl-10 pr-3 text-sm outline-none transition-colors focus:border-primary"
                                     />
@@ -491,7 +401,6 @@ export default function ProductDetailPage() {
 
                             <div className="flex max-h-[380px] flex-col gap-2 overflow-y-auto pr-2">
                                 {filteredColors.map((color) => {
-                                    const qty = quantities[color.id] || 0
                                     const variant = variants.find(
                                         (currentVariant) =>
                                             currentVariant.fabric_id === selectedFabric &&
@@ -500,17 +409,22 @@ export default function ProductDetailPage() {
 
                                     if (!variant) return null
 
-                                    const unitPrice = getVariantUnitPrice(variant)
-                                    const lineTotal = unitPrice * qty
-                                    const hasVariantOverride = variant.price_override !== null && variant.price_override !== undefined
-                                    const hasTableOverride = !hasVariantOverride && overrides[variant.id] !== undefined
-                                    const hasDiscount = !hasVariantOverride && !hasTableOverride && discountPercentage > 0
+                                    const quantity = quantities[variant.id] || 0
+                                    const pricing = getVariantPricing(variant)
+                                    const unitPrice = pricing.unitPrice
+                                    const lineTotal = unitPrice * quantity
+                                    const badges = getVariantPriceBadges({
+                                        layer: pricing.layer,
+                                        discountPercentage,
+                                    })
 
                                     return (
                                         <div
                                             key={color.id}
                                             className={`flex shrink-0 items-center justify-between rounded-xl border p-3 transition-colors ${
-                                                qty > 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'
+                                                quantity > 0
+                                                    ? 'border-primary bg-primary/5'
+                                                    : 'border-border hover:border-primary/30'
                                             }`}
                                         >
                                             <div className="flex items-center gap-4">
@@ -528,34 +442,39 @@ export default function ProductDetailPage() {
                                                     }}
                                                     onClick={() => handleActivateVariant(variant, color)}
                                                 >
-                                                    {qty > 0 && (
+                                                    {quantity > 0 && (
                                                         <Check className="h-5 w-5 text-white drop-shadow-md mix-blend-difference" />
                                                     )}
                                                 </div>
 
                                                 <div className="flex flex-col">
-                                                    <span className={`text-base ${qty > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
+                                                    <span
+                                                        className={`text-base ${
+                                                            quantity > 0
+                                                                ? 'font-medium text-foreground'
+                                                                : 'text-muted-foreground'
+                                                        }`}
+                                                    >
                                                         {color.name}
                                                     </span>
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <span className="text-xs font-medium text-muted-foreground">
                                                             R$ {unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                         </span>
-                                                        {hasVariantOverride && (
-                                                            <span className="rounded bg-indigo-100 px-1 text-[9px] font-medium text-indigo-800">Cor</span>
-                                                        )}
-                                                        {hasTableOverride && (
-                                                            <span className="rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-800">Tabela</span>
-                                                        )}
-                                                        {hasDiscount && (
-                                                            <span className="rounded bg-green-100 px-1 text-[9px] font-medium text-green-800">-{discountPercentage}%</span>
-                                                        )}
+                                                        {badges.map((badge) => (
+                                                            <span
+                                                                key={badge.label}
+                                                                className={`rounded px-1 text-[9px] font-medium ${badge.className}`}
+                                                            >
+                                                                {badge.label}
+                                                            </span>
+                                                        ))}
                                                     </div>
                                                 </div>
                                             </div>
 
                                             <div className="flex items-center gap-3">
-                                                {qty > 0 && (
+                                                {quantity > 0 && (
                                                     <span className="hidden min-w-[92px] text-right text-sm font-semibold text-slate-900 lg:block">
                                                         R$ {lineTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                     </span>
@@ -565,22 +484,28 @@ export default function ProductDetailPage() {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-8 w-8"
-                                                        onClick={() => {
-                                                            setActiveVariantId(variant.id)
-                                                            setQuantities((prev) => ({ ...prev, [color.id]: Math.max(0, qty - 1) }))
-                                                        }}
+                                                        onClick={() =>
+                                                            setVariantQuantity(
+                                                                variant.id,
+                                                                quantity - 1
+                                                            )
+                                                        }
                                                     >
                                                         <Minus className="h-4 w-4" />
                                                     </Button>
-                                                    <span className="w-8 text-center font-medium">{qty === 0 ? '-' : qty}</span>
+                                                    <span className="w-8 text-center font-medium">
+                                                        {quantity === 0 ? '-' : quantity}
+                                                    </span>
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-8 w-8"
-                                                        onClick={() => {
-                                                            setActiveVariantId(variant.id)
-                                                            setQuantities((prev) => ({ ...prev, [color.id]: qty + 1 }))
-                                                        }}
+                                                        onClick={() =>
+                                                            setVariantQuantity(
+                                                                variant.id,
+                                                                quantity + 1
+                                                            )
+                                                        }
                                                     >
                                                         <Plus className="h-4 w-4" />
                                                     </Button>
@@ -600,7 +525,11 @@ export default function ProductDetailPage() {
                             <div className="mt-4 flex flex-col gap-1 rounded-xl bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                                 <span className="text-muted-foreground">Total selecionado</span>
                                 <span className="text-lg font-semibold text-slate-950">
-                                    {totalSelectedQuantity} iten{totalSelectedQuantity !== 1 ? 's' : ''} = R$ {totalSelectedPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    {totalSelectedQuantity} iten
+                                    {totalSelectedQuantity !== 1 ? 's' : ''} = R${' '}
+                                    {totalSelectedPrice.toLocaleString('pt-BR', {
+                                        minimumFractionDigits: 2,
+                                    })}
                                 </span>
                             </div>
                         </div>
@@ -621,11 +550,16 @@ export default function ProductDetailPage() {
                                     Resumo da Seleção
                                 </p>
                                 <p className="mt-1 text-2xl font-bold">
-                                    R$ {totalSelectedPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    R${' '}
+                                    {totalSelectedPrice.toLocaleString('pt-BR', {
+                                        minimumFractionDigits: 2,
+                                    })}
                                 </p>
                             </div>
                             <p className="text-sm text-white/72">
-                                {totalSelectedQuantity} iten{totalSelectedQuantity !== 1 ? 's' : ''} selecionado{totalSelectedQuantity !== 1 ? 's' : ''}
+                                {totalSelectedQuantity} iten
+                                {totalSelectedQuantity !== 1 ? 's' : ''} selecionado
+                                {totalSelectedQuantity !== 1 ? 's' : ''}
                             </p>
                         </div>
 
@@ -639,8 +573,8 @@ export default function ProductDetailPage() {
                             {!selectedFabric
                                 ? 'Selecione um tecido'
                                 : totalSelectedQuantity === 0
-                                    ? 'Selecione as quantidades'
-                                    : `Adicionar ${totalSelectedQuantity} itens ao carrinho`}
+                                  ? 'Selecione as quantidades'
+                                  : `Adicionar ${totalSelectedQuantity} itens ao carrinho`}
                         </Button>
                     </div>
 

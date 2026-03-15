@@ -1,31 +1,45 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Minus, Plus, Trash2, ShoppingBag, X, Package } from 'lucide-react'
+import { Minus, Plus, Trash2, ShoppingBag, Package } from 'lucide-react'
 import { useCartStore } from '@/lib/stores/cart-store'
+import type { CartItem } from '@/lib/types'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import Image from 'next/image'
 import { toast } from 'sonner'
-import { ProductDetailSkeleton } from '@/components/ui/skeletons'
 
 export function CartDrawer() {
     const router = useRouter()
     const { items, isOpen, closeCart, removeItem, addItem, updateQuantity, subtotal, totalItems } = useCartStore()
-    const [isMounted, setIsMounted] = useState(false)
+    const persistApi = 'persist' in useCartStore ? useCartStore.persist : undefined
+    const [isMounted, setIsMounted] = useState(() => persistApi?.hasHydrated?.() ?? false)
 
     useEffect(() => {
-        setIsMounted(true)
-    }, [])
+        if (!persistApi) {
+            setIsMounted(true)
+            return
+        }
+
+        setIsMounted(persistApi.hasHydrated?.() ?? false)
+
+        const unsubscribeHydrate = persistApi.onHydrate?.(() => setIsMounted(false))
+        const unsubscribeFinishHydration = persistApi.onFinishHydration?.(() => setIsMounted(true))
+
+        return () => {
+            unsubscribeHydrate?.()
+            unsubscribeFinishHydration?.()
+        }
+    }, [persistApi])
 
     const total = subtotal()
     const count = totalItems()
 
-    const handleRemove = (item: any) => {
+    const handleRemove = (item: CartItem) => {
         removeItem(item.variantId)
         toast.success(`Item removido!`, {
             action: {
@@ -175,6 +189,9 @@ export function CartDrawer() {
 
                         {/* Footer - Fixed at bottom */}
                         <div className="shrink-0 border-t p-4 sm:p-6 bg-white z-10 shadow-[0_-4px_10px_-5px_rgba(0,0,0,0.05)]">
+                            <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
+                                Os pre?os do carrinho s?o confirmados automaticamente antes do envio do pedido.
+                            </p>
                             <div className="mb-4">
                                 <div className="flex items-center justify-between">
                                     <span className="font-semibold text-foreground text-sm uppercase tracking-tight">Total</span>

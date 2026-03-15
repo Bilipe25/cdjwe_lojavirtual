@@ -92,6 +92,7 @@ export async function POST(req: NextRequest) {
                         companyName: payload.companyName,
                         itemCount: payload.itemCount,
                         total: payload.total,
+                        pricingSummary: payload.pricingSummary,
                         ...commonProps,
                     }),
                 })
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest) {
                         subtotal: payload.subtotal,
                         discount: payload.discount,
                         total: payload.total,
+                        snapshotSummary: payload.snapshotSummary,
                         ...commonProps,
                     }),
                 })
@@ -144,8 +146,9 @@ export async function POST(req: NextRequest) {
         }
 
         return NextResponse.json({ success: true })
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[API Email] Erro:', error)
-        return NextResponse.json({ error: error.message || 'Erro interno.' }, { status: 500 })
+        const message = error instanceof Error ? error.message : 'Erro interno.'
+        return NextResponse.json({ error: message }, { status: 500 })
     }
 }

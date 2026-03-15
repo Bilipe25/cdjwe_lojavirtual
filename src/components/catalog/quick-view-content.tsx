@@ -1,178 +1,90 @@
-﻿'use client'
+'use client'
 
-import Image from 'next/image'
 import Link from 'next/link'
-import {
-    X, Package, ShoppingCart, Check, Search,
-    ChevronLeft, ChevronRight, Minus, Plus, Heart
-} from 'lucide-react'
+import { Package, ShoppingCart, Search, Minus, Plus, Heart } from 'lucide-react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { DialogTitle } from '@/components/ui/dialog'
-import { useState, useEffect, useCallback } from 'react'
 import { Separator } from '@/components/ui/separator'
-import { createClient } from '@/lib/supabase/client'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { usePriceTableStore } from '@/lib/stores/price-table-store'
+import { useProductDetailData, type ProductDetailData } from '@/lib/hooks/use-product-detail-data'
+import { useProductSelectionState } from '@/lib/hooks/use-product-selection-state'
+import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
 import { toast } from 'sonner'
-import type { Product, ProductImage, ProductVariant, Fabric, FabricColor } from '@/lib/types'
 import { ProductImageGallery } from '../products/ProductImageGallery'
+import { PricePresentation, getVariantPriceBadges } from './price-presentation'
 
-export interface QuickViewData {
-    product: Product | null
-    images: ProductImage[]
-    fabrics: (Fabric & { colors: FabricColor[] })[]
-    variants: ProductVariant[]
-    loading: boolean
-    error: string | null
-}
+export type QuickViewData = ProductDetailData
 
 export function useQuickViewData(productId: string | null, open: boolean): QuickViewData {
-    const [product, setProduct] = useState<Product | null>(null)
-    const [images, setImages] = useState<ProductImage[]>([])
-    const [fabrics, setFabrics] = useState<(Fabric & { colors: FabricColor[] })[]>([])
-    const [variants, setVariants] = useState<ProductVariant[]>([])
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-
-    const loadProduct = useCallback(async (id: string) => {
-        setLoading(true)
-        setError(null)
-        const supabase = createClient()
-        try {
-            const [productRes, imagesRes, variantsRes] = await Promise.all([
-                supabase.from('products').select('*').eq('id', id).single(),
-                supabase.from('product_images').select('*').eq('product_id', id).order('sort_order'),
-                supabase
-                    .from('product_variants')
-                    .select('*, fabric:fabrics(*), color:fabric_colors!product_variants_fabric_color_fk(*)')
-                    .eq('product_id', id)
-                    .eq('is_active', true),
-            ])
-
-            if (productRes.error || !productRes.data) {
-                setError('Produto não encontrado ou indisponível.')
-                setProduct(null)
-                setImages([])
-                setVariants([])
-                setFabrics([])
-                return
-            }
-
-            setProduct(productRes.data)
-            setImages(imagesRes.data || [])
-
-            if (variantsRes.error) {
-                setError('Falha ao carregar variações do produto.')
-                setVariants([])
-                setFabrics([])
-                return
-            }
-
-            const variantsData = variantsRes.data || []
-            setVariants(variantsData)
-
-            const fabricMap = new Map<string, Fabric & { colors: FabricColor[] }>()
-            variantsData.forEach((v: any) => {
-                if (v.fabric && v.color) {
-                    if (!fabricMap.has(v.fabric.id)) fabricMap.set(v.fabric.id, { ...v.fabric, colors: [] })
-                    const f = fabricMap.get(v.fabric.id)!
-                    if (!f.colors.find((c: FabricColor) => c.id === v.color.id)) f.colors.push(v.color)
-                }
-            })
-            setFabrics(Array.from(fabricMap.values()))
-        } catch (err) {
-            console.error('[QUICK_VIEW] Load error:', err)
-            setError('Não foi possível carregar este produto. Verifique sua conexão.')
-        } finally {
-            setLoading(false)
-        }
-    }, [])
-
-    useEffect(() => {
-        if (open && productId) {
-            loadProduct(productId)
-        } else {
-            setProduct(null); setImages([]); setFabrics([]); setVariants([]); setError(null)
-        }
-    }, [open, productId, loadProduct])
-
-    return { product, images, fabrics, variants, loading, error }
+    return useProductDetailData({
+        productId,
+        enabled: open,
+    })
 }
 
 interface QuickViewContentProps {
     data: QuickViewData
     onClose: () => void
-    /** Show the dialog title (needed for accessibility when inside a Dialog) */
     showTitle?: boolean
 }
 
-const statusLabels: Record<string, string> = {
-    pending: 'Em Análise', approved: 'Aprovado', in_production: 'Em Produção',
-    shipped: 'Enviado', delivered: 'Entregue', cancelled: 'Cancelado',
-}
-
-export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewContentProps) {
+export function QuickViewContent({
+    data,
+    onClose,
+    showTitle = true,
+}: QuickViewContentProps) {
     const { product, images, fabrics, variants, loading, error } = data
-    const { addItem, openCart } = useCartStore()
+    const { addItem } = useCartStore()
     const { isFavorite, toggle } = useFavoritesStore()
-    const { calculateB2BPrice, discountPercentage, overrides } = usePriceTableStore()
-
-    const [selectedFabric, setSelectedFabric] = useState<string | null>(null)
-    const [activeVariantId, setActiveVariantId] = useState<string | null>(null)
-    const [quantities, setQuantities] = useState<Record<string, number>>({})
-    const [colorSearch, setColorSearch] = useState('')
-    const [activeImageIndex, setActiveImageIndex] = useState(0)
+    const { discountPercentage, overrides } = usePriceTableStore()
     const [addingToCart, setAddingToCart] = useState(false)
-    const [showFullDescription, setShowFullDescription] = useState(false)
 
-    // Select first fabric automatically if none is selected and fabrics load
-    useEffect(() => {
-        if (fabrics.length > 0 && !selectedFabric) {
-            setSelectedFabric(fabrics[0].id)
-        }
-    }, [fabrics, selectedFabric])
+    const selection = useProductSelectionState({
+        scopeKey: product?.id ?? null,
+        fabrics,
+        variants,
+    })
 
-    // Keep an active variant for price display (defaults to first color of selected fabric)
-    useEffect(() => {
-        if (!selectedFabric) {
-            setActiveVariantId(null)
-            return
-        }
-        const firstVariant = variants.find((v: any) => v.fabric_id === selectedFabric)
-        setActiveVariantId(firstVariant?.id || null)
-    }, [selectedFabric, variants])
-
-    // Reset state on product change
-    useEffect(() => {
-        setQuantities({})
-        setColorSearch('')
-        setActiveImageIndex(0)
-        setActiveVariantId(null)
-        setShowFullDescription(false)
-        // Fabric selection reset relies on the effect above
-        if (product?.id && fabrics.length > 0) setSelectedFabric(fabrics[0].id)
-        else setSelectedFabric(null)
-    }, [product?.id, fabrics])
+    const {
+        selectedFabric,
+        selectedFabricGroup,
+        activeVariant,
+        quantities,
+        totalQuantity,
+        activeImageIndex,
+        colorSearch,
+        showFullDescription,
+        setSelectedFabric,
+        setActiveVariantId,
+        setActiveImageIndex,
+        setColorSearch,
+        setShowFullDescription,
+        setVariantQuantity,
+        clearQuantities,
+        resetSelection,
+    } = selection
 
     if (loading) {
         return (
-            <div className="flex flex-col md:grid md:grid-cols-[1fr_1fr] h-full p-4 gap-4 animate-pulse">
-                <div className="bg-muted w-full aspect-square rounded-lg" />
+            <div className="flex h-full flex-col gap-4 p-4 animate-pulse md:grid md:grid-cols-[1fr_1fr]">
+                <div className="aspect-square w-full rounded-lg bg-muted" />
                 <div className="flex flex-col gap-3">
-                    <div className="h-6 w-3/4 bg-muted rounded" />
-                    <div className="h-4 w-1/4 bg-muted rounded" />
-                    <div className="h-8 w-1/3 bg-muted rounded mt-2" />
-                    <div className="h-px w-full bg-muted my-2" />
-                    <div className="h-4 w-1/4 bg-muted rounded" />
+                    <div className="h-6 w-3/4 rounded bg-muted" />
+                    <div className="h-4 w-1/4 rounded bg-muted" />
+                    <div className="mt-2 h-8 w-1/3 rounded bg-muted" />
+                    <div className="my-2 h-px w-full bg-muted" />
+                    <div className="h-4 w-1/4 rounded bg-muted" />
                     <div className="flex gap-2">
-                        <div className="h-8 w-20 bg-muted rounded" />
-                        <div className="h-8 w-24 bg-muted rounded" />
+                        <div className="h-8 w-20 rounded bg-muted" />
+                        <div className="h-8 w-24 rounded bg-muted" />
                     </div>
-                    <div className="h-4 w-1/3 bg-muted rounded mt-4" />
+                    <div className="mt-4 h-4 w-1/3 rounded bg-muted" />
                     <div className="flex flex-col gap-2">
-                        {[1, 2, 3].map((i) => (
-                            <div key={i} className="h-12 w-full bg-muted rounded" />
+                        {[1, 2, 3].map((item) => (
+                            <div key={item} className="h-12 w-full rounded bg-muted" />
                         ))}
                     </div>
                 </div>
@@ -183,15 +95,19 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
     if (error || !product) {
         return (
             <div className="flex flex-col items-center justify-center gap-4 p-6 text-center">
-                <div className="h-14 w-14 rounded-full bg-red-100 flex items-center justify-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-100">
                     <Package className="h-7 w-7 text-red-600" />
                 </div>
                 <div>
                     <p className="font-semibold text-foreground">Não foi possível abrir o produto</p>
-                    <p className="text-sm text-muted-foreground">{error || 'Tente novamente em alguns instantes.'}</p>
+                    <p className="text-sm text-muted-foreground">
+                        {error || 'Tente novamente em alguns instantes.'}
+                    </p>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" onClick={onClose}>Fechar</Button>
+                    <Button variant="outline" onClick={onClose}>
+                        Fechar
+                    </Button>
                     {product?.id && (
                         <Link href={`/catalog/${product.id}`} className="inline-flex">
                             <Button>Ver detalhes</Button>
@@ -202,95 +118,113 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
         )
     }
 
-    const totalQuantity = Object.values(quantities).reduce((a, b) => a + b, 0)
-    const selectedFabricObj = fabrics.find(f => f.id === selectedFabric)
-    const activeVariant =
-        variants.find((v: any) => v.id === activeVariantId) ||
-        variants.find((v: any) => v.fabric_id === selectedFabric)
-    const displayPrice =
-        calculateB2BPrice({
-            basePrice: product?.base_price ?? 0,
-            fabricModifier: selectedFabricObj?.price_modifier ?? 0,
-            variantId: activeVariant?.id,
-            variantPriceOverride: activeVariant?.price_override ?? null,
-        }) ?? ((product?.base_price ?? 0) + (selectedFabricObj?.price_modifier ?? 0))
-    const favorited = product ? isFavorite(product.id) : false
+    const priceTable = {
+        discountPercentage,
+        overrides,
+    }
+    const favorited = isFavorite(product.id)
     const description = product.description?.trim() || ''
     const hasLongDescription = description.length > 180
     const descriptionPreview = hasLongDescription ? `${description.slice(0, 180).trimEnd()}...` : description
-    
-    // Calculate accurate total summing each variant due to individual price overrides
-    let accTotalPrice = 0;
-    Object.entries(quantities).filter(([_, qty]) => qty > 0).forEach(([variantId, qty]) => {
-        const matchedVariant = variants.find((v: any) => v.id === variantId);
-        if (!matchedVariant) return;
-        
-        const fabricObjForTotal = fabrics.find(f => f.id === matchedVariant.fabric_id);
-        const calcBase = product?.base_price ?? 0;
-        const calcMod = matchedVariant?.fabric?.price_modifier ?? fabricObjForTotal?.price_modifier ?? 0;
 
-        const variantFinalPrice =
-            calculateB2BPrice({
-                basePrice: calcBase,
-                fabricModifier: calcMod,
-                variantId: matchedVariant?.id,
-                variantPriceOverride: (matchedVariant as any)?.price_override ?? null,
-            }) ?? (calcBase + calcMod);
-        
-        accTotalPrice += variantFinalPrice * qty;
+    const displayPriceBreakdown = resolveVariantPricing({
+        basePrice: product.base_price ?? 0,
+        fabricModifier: selectedFabricGroup?.price_modifier ?? 0,
+        variantId: activeVariant?.id,
+        variantPriceOverride: activeVariant?.price_override ?? null,
+        priceTable,
     })
-    
-    const totalPrice = accTotalPrice
+
+    const getVariantPricing = (variantId: string) => {
+        const variant = variants.find((item) => item.id === variantId)
+        if (!variant) {
+            return resolveVariantPricing({
+                basePrice: product.base_price ?? 0,
+                priceTable,
+            })
+        }
+
+        const fabricModifier =
+            variant.fabric?.price_modifier ??
+            fabrics.find((fabric) => fabric.id === variant.fabric_id)?.price_modifier ??
+            0
+
+        return resolveVariantPricing({
+            basePrice: product.base_price ?? 0,
+            fabricModifier,
+            variantId: variant.id,
+            variantPriceOverride: variant.price_override ?? null,
+            priceTable,
+        })
+    }
+
+    const totalPrice = Object.entries(quantities).reduce((sum, [variantId, quantity]) => {
+        if (quantity <= 0) return sum
+        return sum + getVariantPricing(variantId).unitPrice * quantity
+    }, 0)
+
+    const handleActivateVariant = (variantId: string, colorImageUrl: string | null) => {
+        const variant = variants.find((item) => item.id === variantId)
+        if (!variant) return
+
+        const imageUrl = variant.image_url || colorImageUrl
+        if (imageUrl) {
+            const imageIndex = images.findIndex((image) => image.url === imageUrl)
+            if (imageIndex !== -1) {
+                setActiveImageIndex(imageIndex)
+            }
+        }
+
+        setActiveVariantId(variant.id)
+    }
 
     const handleAddToCart = () => {
         if (!product) return
-        const variantsToAdd = Object.entries(quantities).filter(([_, qty]) => qty > 0)
+
+        const variantsToAdd = Object.entries(quantities).filter(([, quantity]) => quantity > 0)
         if (variantsToAdd.length === 0) return
 
         setAddingToCart(true)
-        variantsToAdd.forEach(([variantId, qty]) => {
-            const matchedVariant = variants.find((v: any) => v.id === variantId)
-            if (!matchedVariant) return
 
-            const fabricObj = fabrics.find(f => f.id === matchedVariant.fabric_id)
-            const colorObj = fabricObj?.colors.find(c => c.id === matchedVariant.fabric_color_id)
-            
-            const variantPrice =
-                calculateB2BPrice({
-                    basePrice: product.base_price ?? 0,
-                    fabricModifier: fabricObj?.price_modifier ?? 0,
+        try {
+            variantsToAdd.forEach(([variantId, quantity]) => {
+                const matchedVariant = variants.find((variant) => variant.id === variantId)
+                if (!matchedVariant) return
+
+                const fabric = fabrics.find((item) => item.id === matchedVariant.fabric_id)
+                const color = fabric?.colors.find((item) => item.id === matchedVariant.fabric_color_id)
+                const priceBreakdown = getVariantPricing(matchedVariant.id)
+
+                addItem({
                     variantId: matchedVariant.id,
-                    variantPriceOverride: (matchedVariant as any)?.price_override ?? null,
-                }) ?? ((product.base_price ?? 0) + (fabricObj?.price_modifier ?? 0));
-
-            addItem({
-                variantId: matchedVariant.id,
-                productId: product.id,
-                productName: product.name,
-                fabricName: fabricObj?.name || '',
-                colorName: colorObj?.name || '',
-                size: product.size,
-                imageUrl: colorObj?.image_url || images[0]?.url || null,
-                quantity: qty,
-                unitPrice: variantPrice,
+                    productId: product.id,
+                    productName: product.name,
+                    fabricName: fabric?.name || '',
+                    colorName: color?.name || '',
+                    size: product.size,
+                    imageUrl: matchedVariant.image_url || color?.image_url || images[0]?.url || null,
+                    quantity,
+                    unitPrice: priceBreakdown.unitPrice,
+                })
             })
-        })
 
-        toast.success(`${totalQuantity} itens adicionados ao carrinho!`)
-        setQuantities({})
-        setAddingToCart(false)
-        onClose()
+            toast.success(`${totalQuantity} itens adicionados ao carrinho!`)
+            resetSelection()
+            onClose()
+        } finally {
+            setAddingToCart(false)
+        }
     }
 
-    const filteredColors = selectedFabricObj?.colors.filter(
-        color => color.name.toLowerCase().includes(colorSearch.toLowerCase())
-    ) ?? []
+    const filteredColors =
+        selectedFabricGroup?.colors.filter((color) =>
+            color.name.toLowerCase().includes(colorSearch.toLowerCase())
+        ) ?? []
 
     return (
-        <div className="flex flex-col bg-white md:grid md:grid-cols-[1fr_1.2fr] md:h-full md:overflow-hidden">
-            {/* Image Gallery */}
+        <div className="flex flex-col bg-white md:grid md:h-full md:grid-cols-[1fr_1.2fr] md:overflow-hidden">
             <div className="relative shrink-0 overflow-hidden bg-muted/20 md:h-full md:border-r md:border-border/50">
-                <ProductImageGallery 
+                <ProductImageGallery
                     images={images}
                     productName={product.name}
                     activeImageIndex={activeImageIndex}
@@ -300,48 +234,57 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/30 via-black/10 to-transparent md:hidden" />
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/12 to-transparent md:hidden" />
 
-                {/* Favorite button */}
                 <button
                     onClick={() => toggle(product.id)}
-                    className="absolute top-3 left-3 h-8 w-8 rounded bg-white shadow-sm border border-border flex items-center justify-center z-20 hover:bg-muted transition-colors"
+                    className="absolute left-3 top-3 z-20 flex h-8 w-8 items-center justify-center rounded border border-border bg-white shadow-sm transition-colors hover:bg-muted"
                 >
-                    <Heart className={`h-4 w-4 ${favorited ? 'fill-red-500 text-red-500' : 'text-muted-foreground'}`} />
+                    <Heart
+                        className={`h-4 w-4 ${
+                            favorited ? 'fill-red-500 text-red-500' : 'text-muted-foreground'
+                        }`}
+                    />
                 </button>
             </div>
 
-            {/* Right Column (Info & Actions) */}
             <div className="flex flex-col md:h-full md:overflow-hidden">
-                {/* Scrollable Content */}
                 <div className="md:min-h-0 md:flex-1 md:overflow-y-auto">
-                    {/* Header info - Compact */}
-                    <div className="p-4 md:p-5 pb-2">
-                        <div className="flex justify-between items-start gap-4">
+                    <div className="px-4 pb-2 pt-4 md:px-5 md:pt-5">
+                        <div className="flex items-start justify-between gap-4">
                             <div>
                                 {showTitle ? (
-                                    <DialogTitle className="text-xl md:text-2xl font-bold text-foreground leading-tight">
+                                    <DialogTitle className="text-xl font-bold leading-tight text-foreground md:text-2xl">
                                         {product.name}
                                     </DialogTitle>
                                 ) : (
-                                    <h2 className="text-xl md:text-2xl font-bold text-foreground leading-tight">
+                                    <h2 className="text-xl font-bold leading-tight text-foreground md:text-2xl">
                                         {product.name}
                                     </h2>
                                 )}
                                 {product.size && (
-                                    <p className="text-xs text-muted-foreground mt-0.5">Ref/Tamanho: {product.size}</p>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
+                                        Ref/Tamanho: {product.size}
+                                    </p>
                                 )}
-                            </div>
-                            <div className="text-right shrink-0">
-                                <p className="text-xl font-bold text-primary">
-                                    R$ {displayPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                </p>
                             </div>
                         </div>
                     </div>
 
-                    <Separator className="mx-4 md:mx-5 w-auto my-1" />
+                    <Separator className="mx-4 my-1 w-auto md:mx-5" />
+
+                    <div className="px-4 py-3 md:px-5">
+                        <PricePresentation
+                            className="rounded-xl border-border/60 bg-muted/10 p-4 shadow-none"
+                            title="Preço Atual"
+                            price={displayPriceBreakdown.finalPrice}
+                            layer={displayPriceBreakdown.layer}
+                            discountPercentage={discountPercentage}
+                            description="O valor final acompanha a cor selecionada e a política comercial da sua tabela B2B."
+                            priceClassName="text-2xl text-primary"
+                        />
+                    </div>
 
                     {description && (
-                        <div className="px-4 md:px-5 py-3">
+                        <div className="px-4 py-1 md:px-5">
                             <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-3">
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                     <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -350,36 +293,41 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                     {hasLongDescription && (
                                         <button
                                             type="button"
-                                            onClick={() => setShowFullDescription((prev) => !prev)}
+                                            onClick={() => setShowFullDescription((previous) => !previous)}
                                             className="text-xs font-semibold text-primary transition-colors hover:text-primary/80"
                                         >
                                             {showFullDescription ? 'Ver menos' : 'Ver mais'}
                                         </button>
                                     )}
                                 </div>
-                                <p className={`text-sm leading-relaxed text-muted-foreground ${showFullDescription ? '' : 'line-clamp-2'}`}>
+                                <p
+                                    className={`text-sm leading-relaxed text-muted-foreground ${
+                                        showFullDescription ? '' : 'line-clamp-2'
+                                    }`}
+                                >
                                     {showFullDescription ? description : descriptionPreview}
                                 </p>
                             </div>
                         </div>
                     )}
 
-                    {/* Fabric Selection - Pills */}
                     {fabrics.length > 0 && (
-                        <div className="px-4 md:px-5 py-3">
-                            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Modelos/Tecidos ({fabrics.length})</label>
+                        <div className="px-4 py-3 md:px-5">
+                            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Modelos/Tecidos ({fabrics.length})
+                            </label>
                             <div className="flex flex-wrap gap-1.5">
-                                {fabrics.map(f => (
+                                {fabrics.map((fabric) => (
                                     <button
-                                        key={f.id}
-                                        onClick={() => { setSelectedFabric(f.id); }}
-                                        className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
-                                            selectedFabric === f.id
-                                                ? 'bg-primary text-primary-foreground border-primary'
-                                                : 'bg-white border-border text-foreground hover:bg-muted'
+                                        key={fabric.id}
+                                        onClick={() => setSelectedFabric(fabric.id)}
+                                        className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                            selectedFabric === fabric.id
+                                                ? 'border-primary bg-primary text-primary-foreground'
+                                                : 'border-border bg-white text-foreground hover:bg-muted'
                                         }`}
                                     >
-                                        {f.name}
+                                        {fabric.name}
                                     </button>
                                 ))}
                             </div>
@@ -387,137 +335,138 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                     )}
 
                     {fabrics.length === 0 && (
-                        <div className="px-4 md:px-5 py-6">
-                            <div className="text-sm text-muted-foreground bg-muted/30 border border-dashed rounded-md p-3">
+                        <div className="px-4 py-6 md:px-5">
+                            <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
                                 Este produto não possui variações ativas no momento.
                             </div>
                         </div>
                     )}
 
-                    {/* Color/Quantity Selection - Dense Table */}
-                    {selectedFabricObj && selectedFabricObj.colors.length > 0 && (
-                        <div className="px-4 md:px-5 py-2 pb-20 md:pb-6">
-                            <div className="flex items-center justify-between mb-2">
-                                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                                    Cores Dispo. ({filteredColors.length})
+                    {selectedFabricGroup && selectedFabricGroup.colors.length > 0 && (
+                        <div className="px-4 py-2 pb-20 md:px-5 md:pb-6">
+                            <div className="mb-2 flex items-center justify-between">
+                                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Cores Disponíveis ({filteredColors.length})
                                 </label>
                                 {totalQuantity > 0 && (
-                                    <button onClick={() => setQuantities({})} className="text-[11px] font-medium text-destructive hover:underline">
+                                    <button
+                                        onClick={clearQuantities}
+                                        className="text-[11px] font-medium text-destructive hover:underline"
+                                    >
                                         Zerar ({totalQuantity})
                                     </button>
                                 )}
                             </div>
-                            
-                            {/* Color search - Compact */}
-                            {selectedFabricObj.colors.length > 5 && (
+
+                            {selectedFabricGroup.colors.length > 5 && (
                                 <div className="relative mb-3">
-                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                                     <input
                                         type="text"
                                         placeholder="Buscar cor..."
                                         value={colorSearch}
-                                        onChange={e => setColorSearch(e.target.value)}
-                                        className="w-full h-8 pl-8 pr-3 rounded-md border border-border bg-white text-sm focus:outline-none focus:border-primary transition-colors"
+                                        onChange={(event) => setColorSearch(event.target.value)}
+                                        className="h-8 w-full rounded-md border border-border bg-white pl-8 pr-3 text-sm transition-colors focus:border-primary focus:outline-none"
                                     />
                                 </div>
                             )}
 
-                            {/* Color List Dense */}
                             <div className="flex flex-col gap-1.5">
-                                {filteredColors.map(color => {
-                                    // Identificar a variante correspondente a esta cor no tecido selecionado
+                                {filteredColors.map((color) => {
                                     const variant = variants.find(
-                                        (v: any) => v.fabric_id === selectedFabric && v.fabric_color_id === color.id
+                                        (item) =>
+                                            item.fabric_id === selectedFabric &&
+                                            item.fabric_color_id === color.id
                                     )
-                                    if (!variant) return null;
 
-                                    const qty = quantities[variant.id] || 0
-                                    const isSelected = qty > 0
+                                    if (!variant) return null
 
-                                    const baseCalc = (product?.base_price ?? 0) + (selectedFabricObj.price_modifier ?? 0)
-                                    const unitPrice =
-                                        calculateB2BPrice({
-                                            basePrice: product?.base_price ?? 0,
-                                            fabricModifier: selectedFabricObj.price_modifier ?? 0,
-                                            variantId: variant.id,
-                                            variantPriceOverride: (variant as any)?.price_override ?? null,
-                                        }) ?? baseCalc
-                                    const hasVariantOverride = (variant as any)?.price_override !== null && (variant as any)?.price_override !== undefined
-                                    const hasTableOverride = !hasVariantOverride && overrides[variant.id] !== undefined
-                                    const hasDiscount = !hasVariantOverride && !hasTableOverride && discountPercentage > 0
-                                    const lineTotal = unitPrice * qty
+                                    const quantity = quantities[variant.id] || 0
+                                    const isSelected = quantity > 0
+                                    const priceBreakdown = getVariantPricing(variant.id)
+                                    const lineTotal = priceBreakdown.unitPrice * quantity
+                                    const badges = getVariantPriceBadges({
+                                        layer: priceBreakdown.layer,
+                                        discountPercentage,
+                                    })
 
                                     return (
                                         <div
                                             key={color.id}
-                                            className={`flex items-center justify-between p-1.5 pr-2 rounded-md border transition-colors ${
-                                                isSelected ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-white hover:border-border'
+                                            className={`flex items-center justify-between rounded-md border p-1.5 pr-2 transition-colors ${
+                                                isSelected
+                                                    ? 'border-primary/40 bg-primary/5'
+                                                    : 'border-border/60 bg-white hover:border-border'
                                             }`}
                                         >
-                                            <div className="flex items-center gap-2.5 flex-1 min-w-0"
-                                                onClick={() => {
-                                                    const imgIndex = images.findIndex(img => img.url === color.image_url)
-                                                    if (imgIndex !== -1) setActiveImageIndex(imgIndex)
-                                                    setActiveVariantId(variant.id)
-                                                }}
+                                            <button
+                                                type="button"
+                                                onClick={() => handleActivateVariant(variant.id, color.image_url)}
+                                                className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
                                             >
                                                 <div
-                                                    className="h-7 w-7 md:h-8 md:w-8 rounded-sm border shadow-sm shrink-0 cursor-pointer relative"
+                                                    className="relative h-7 w-7 shrink-0 rounded-sm border shadow-sm md:h-8 md:w-8"
                                                     style={{
                                                         backgroundColor: color.hex_code || '#f3f4f6',
-                                                        ...(color.image_url ? { backgroundImage: `url(${color.image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
+                                                        ...(color.image_url
+                                                            ? {
+                                                                  backgroundImage: `url(${color.image_url})`,
+                                                                  backgroundSize: 'cover',
+                                                                  backgroundPosition: 'center',
+                                                              }
+                                                            : {}),
                                                     }}
                                                 />
-                                                <div className="flex flex-col min-w-0">
-                                                    <span className={`text-sm truncate select-none ${isSelected ? 'font-semibold text-foreground' : 'text-muted-foreground font-medium'}`}>
+                                                <div className="flex min-w-0 flex-col">
+                                                    <span
+                                                        className={`truncate text-sm ${
+                                                            isSelected
+                                                                ? 'font-semibold text-foreground'
+                                                                : 'font-medium text-muted-foreground'
+                                                        }`}
+                                                    >
                                                         {color.name}
                                                     </span>
-                                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                                        <span className="text-[10px] text-muted-foreground font-medium">
-                                                            R$ {unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / un
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        <span className="text-[10px] font-medium text-muted-foreground">
+                                                            R$ {priceBreakdown.unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / un
                                                         </span>
-                                                        {hasVariantOverride && (
-                                                            <span className="text-[9px] bg-indigo-100 text-indigo-800 px-1 rounded font-medium">Cor</span>
-                                                        )}
-                                                        {hasTableOverride && (
-                                                            <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-medium">Tabela</span>
-                                                        )}
-                                                        {hasDiscount && (
-                                                            <span className="text-[9px] bg-green-100 text-green-800 px-1 rounded font-medium">-{discountPercentage}%</span>
-                                                        )}
+                                                        {badges.map((badge) => (
+                                                            <span
+                                                                key={badge.label}
+                                                                className={`rounded px-1 text-[9px] font-medium ${badge.className}`}
+                                                            >
+                                                                {badge.label}
+                                                            </span>
+                                                        ))}
                                                     </div>
                                                 </div>
-                                            </div>
+                                            </button>
 
-                                            {/* Quantity Controls & Subtotal - Aligned right */}
-                                            <div className="flex flex-col md:flex-row items-end md:items-center gap-1.5 md:gap-3 shrink-0">
-                                                {/* Subtotal da Linha (só aparece se selecionado) */}
+                                            <div className="flex shrink-0 flex-col items-end gap-1.5 md:flex-row md:items-center md:gap-3">
                                                 {isSelected && (
-                                                    <span className="text-xs font-bold text-primary whitespace-nowrap hidden md:block">
+                                                    <span className="hidden whitespace-nowrap text-xs font-bold text-primary md:block">
                                                         R$ {lineTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                     </span>
                                                 )}
-                                                <div className="flex items-center gap-1 bg-white border border-border/80 rounded shrink-0 p-0.5">
+                                                <div className="flex shrink-0 items-center gap-1 rounded border border-border/80 bg-white p-0.5">
                                                     <button
-                                                        className="h-6 w-6 md:h-7 md:w-8 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
-                                                        disabled={qty === 0}
-                                                        onClick={() => {
-                                                            setActiveVariantId(variant.id)
-                                                            setQuantities(prev => ({ ...prev, [variant.id]: Math.max(0, qty - 1) }))
-                                                        }}
+                                                        className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-all hover:bg-muted hover:text-foreground active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent md:h-7 md:w-8"
+                                                        disabled={quantity === 0}
+                                                        onClick={() =>
+                                                            setVariantQuantity(variant.id, quantity - 1)
+                                                        }
                                                     >
                                                         <Minus className="h-3 w-3" />
                                                     </button>
-                                                    {/* Hidden input could replace span later for keyboard typing */}
-                                                    <span className="w-6 md:w-8 text-center text-sm font-semibold select-none">
-                                                        {qty === 0 ? '-' : qty}
+                                                    <span className="w-6 select-none text-center text-sm font-semibold md:w-8">
+                                                        {quantity === 0 ? '-' : quantity}
                                                     </span>
                                                     <button
-                                                        className="h-6 w-6 md:h-7 md:w-8 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95 transition-all"
-                                                        onClick={() => {
-                                                            setActiveVariantId(variant.id)
-                                                            setQuantities(prev => ({ ...prev, [variant.id]: qty + 1 }))
-                                                        }}
+                                                        className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-all hover:bg-muted hover:text-foreground active:scale-95 md:h-7 md:w-8"
+                                                        onClick={() =>
+                                                            setVariantQuantity(variant.id, quantity + 1)
+                                                        }
                                                     >
                                                         <Plus className="h-3 w-3" />
                                                     </button>
@@ -526,8 +475,9 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                         </div>
                                     )
                                 })}
+
                                 {filteredColors.length === 0 && colorSearch && (
-                                    <div className="py-4 text-center text-sm text-muted-foreground bg-muted/20 border border-dashed rounded-md">
+                                    <div className="rounded-md border border-dashed bg-muted/20 py-4 text-center text-sm text-muted-foreground">
                                         Cor não encontrada
                                     </div>
                                 )}
@@ -535,20 +485,18 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                         </div>
                     )}
 
-                    {selectedFabricObj && selectedFabricObj.colors.length === 0 && (
-                        <div className="px-4 md:px-5 py-4">
-                            <div className="text-sm text-muted-foreground bg-muted/30 border border-dashed rounded-md p-3">
+                    {selectedFabricGroup && selectedFabricGroup.colors.length === 0 && (
+                        <div className="px-4 py-4 md:px-5">
+                            <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
                                 Nenhuma cor disponível para este tecido.
                             </div>
                         </div>
                     )}
                 </div>
 
-                {/* Sticky Footer B2B - High Density */}
-                <div className="border-t border-border bg-white p-3 md:p-4 shrink-0 transition-transform">
-                    <div className="flex flex-col sm:flex-row gap-3 items-center">
-                        {/* Status/Totals Left */}
-                        <div className="flex-1 flex justify-between w-full sm:w-auto items-center sm:block">
+                <div className="shrink-0 border-t border-border bg-white p-3 md:p-4">
+                    <div className="flex flex-col items-center gap-3 sm:flex-row">
+                        <div className="flex w-full flex-1 items-center justify-between sm:w-auto sm:block">
                             <span className="text-sm font-medium text-muted-foreground">
                                 Total ({totalQuantity} iten{totalQuantity !== 1 ? 's' : ''})
                             </span>
@@ -556,10 +504,9 @@ export function QuickViewContent({ data, onClose, showTitle = true }: QuickViewC
                                 R$ {totalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </span>
                         </div>
-                        
-                        {/* Action Right */}
+
                         <Button
-                            className="w-full sm:w-auto min-w-[180px] h-11 px-6 font-semibold rounded-md gap-2"
+                            className="h-11 w-full min-w-[180px] gap-2 rounded-md px-6 font-semibold sm:w-auto"
                             disabled={!selectedFabric || totalQuantity === 0 || addingToCart}
                             onClick={handleAddToCart}
                         >

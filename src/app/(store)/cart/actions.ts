@@ -2,11 +2,25 @@
 
 import { createClient } from '@/lib/supabase/server'
 import type { CartItem, PriceTablePaymentRule, PaymentCondition } from '@/lib/types'
-import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
+import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
+import {
+    buildOrderCreatedAuditNote,
+    buildOrderEmailItems,
+    buildOrderSnapshotSummary,
+} from '@/lib/orders/order-communication'
 
 type PriceTableContext = {
     discountPercentage: number
     overrides: Record<string, number>
+}
+
+
+type VariantPricingRow = {
+    id: string
+    is_active: boolean
+    price_override: number | null
+    product: { base_price: number | null } | null
+    fabric: { price_modifier: number | null } | null
 }
 
 async function resolveActivePriceTableId(supabase: Awaited<ReturnType<typeof createClient>>, storeId: string) {
@@ -257,7 +271,7 @@ export async function getCurrentVariantPricing(variantIds: string[]) {
         if (!foundIds.has(id)) missingVariantIds.push(id)
     })
 
-    variantsData.forEach((variant: any) => {
+    ;(variantsData as VariantPricingRow[]).forEach((variant) => {
         if (!variant?.is_active) {
             missingVariantIds.push(variant.id)
             return
@@ -267,7 +281,7 @@ export async function getCurrentVariantPricing(variantIds: string[]) {
         const fabricMod = variant?.fabric?.price_modifier ?? 0
         const variationPrice = variant?.price_override ?? null
 
-        const calc = calculateProductPrice({
+        const pricing = resolveVariantPricing({
             basePrice,
             fabricModifier: fabricMod,
             variantPriceOverride: variationPrice,
@@ -276,10 +290,10 @@ export async function getCurrentVariantPricing(variantIds: string[]) {
         })
 
         prices[variant.id] = {
-            unitPrice: calc.finalPrice,
-            productPrice: basePrice,
-            variationPrice,
-            finalPrice: calc.finalPrice,
+            unitPrice: pricing.unitPrice,
+            productPrice: pricing.productPrice,
+            variationPrice: pricing.variationPrice,
+            finalPrice: pricing.finalPrice,
         }
     })
 
@@ -354,28 +368,28 @@ export async function checkoutAction(
         const dbVariant = variantsData.find(v => v.id === clientItem.variantId)
         if (!dbVariant) throw new Error(`Produto não encontrado no sistema: ${clientItem.productName}`)
         
-        const basePrice = (dbVariant.product as any)?.base_price || 0
-        const fabricMod = (dbVariant.fabric as any)?.price_modifier || 0
+        const basePrice = dbVariant.product?.base_price || 0
+        const fabricMod = dbVariant.fabric?.price_modifier || 0
         const variantPriceOverride = dbVariant.price_override ?? null
 
-        const realUnitPrice = calculateProductPrice({
+        const pricing = resolveVariantPricing({
             basePrice,
             fabricModifier: fabricMod,
             variantPriceOverride,
             variantId: clientItem.variantId,
             priceTable: priceTableContext,
-        }).finalPrice
+        })
 
-        const realSubtotal = realUnitPrice * clientItem.quantity
+        const realSubtotal = pricing.unitPrice * clientItem.quantity
 
         secureSubtotal += realSubtotal
 
         return {
             ...clientItem,
-            productPrice: basePrice,
-            variationPrice: variantPriceOverride,
-            finalPrice: realUnitPrice,
-            unitPrice: realUnitPrice,
+            productPrice: pricing.productPrice,
+            variationPrice: pricing.variationPrice,
+            finalPrice: pricing.finalPrice,
+            unitPrice: pricing.unitPrice,
             subtotal: realSubtotal
         }
     })
@@ -500,7 +514,7 @@ export async function checkoutAction(
     await supabase.from('order_status_history').insert({
         order_id: newOrder.id,
         status: 'pending',
-        notes: 'Pedido eletrônico submetido via carrinho.',
+        notes: buildOrderCreatedAuditNote(validatedItems.length, finalTotal),
         changed_by: user.id,
     })
 
@@ -532,6 +546,8 @@ export async function checkoutAction(
 
         const orderNumber = orderDetail?.order_number || newOrder.id
         const commonProps = { systemName, appUrl }
+        const emailItems = buildOrderEmailItems(validatedItems)
+        const snapshotSummary = buildOrderSnapshotSummary(emailItems)
 
         // Email to Admin: New Order
         if (adminEmail) {
@@ -547,6 +563,7 @@ export async function checkoutAction(
                     companyName,
                     itemCount: validatedItems.length,
                     total: finalTotal,
+                    pricingSummary: snapshotSummary,
                     ...commonProps,
                 }),
             }).catch(() => {})
@@ -563,17 +580,11 @@ export async function checkoutAction(
                     orderId: newOrder.id,
                     orderNumber,
                     clientName,
-                    items: validatedItems.map(item => ({
-                        productName: item.productName,
-                        fabricName: item.fabricName,
-                        colorName: item.colorName,
-                        quantity: item.quantity,
-                        unitPrice: item.unitPrice,
-                        subtotal: item.subtotal,
-                    })),
+                    items: emailItems,
                     subtotal: secureSubtotal,
                     discount: paymentDiscount,
                     total: finalTotal,
+                    snapshotSummary,
                     ...commonProps,
                 }),
             }).catch(() => {})

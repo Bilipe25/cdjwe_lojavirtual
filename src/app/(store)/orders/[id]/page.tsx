@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
     ArrowLeft, Package, Clock, CheckCircle2, Truck,
-    MapPin, CreditCard, FileText, Loader2,
+    CreditCard, FileText, Loader2,
     XCircle, Printer
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,8 +30,27 @@ import type { Order, OrderItem, OrderStatusHistory, OrderStatus, SystemSettings 
 import { cancelOrderAction } from './actions'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import Image from 'next/image'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
+import { OrderItemPriceDetails } from '@/components/orders/order-item-price-details'
+
+type OrderDetailRecord = Order & {
+    store?: Record<string, unknown> | null
+    profile?: Record<string, unknown> | null
+    payment_condition?: {
+        name: string
+        description?: string | null
+        installments?: number | null
+        discount_percentage?: number | null
+        surcharge_percentage?: number | null
+    } | null
+}
+
+type OrderHistoryEntry = OrderStatusHistory & {
+    changed_by_profile?: {
+        role?: string | null
+        full_name?: string | null
+    } | null
+}
 
 const statusConfig: Record<OrderStatus, { label: string; color: string; icon: React.ElementType }> = {
     pending: { label: 'Em Análise', color: 'bg-amber-100 text-amber-800 border-amber-200', icon: Clock },
@@ -47,20 +66,16 @@ const statusOrder: OrderStatus[] = ['pending', 'approved', 'in_production', 'shi
 export default function OrderDetailPage() {
     const params = useParams()
     const router = useRouter()
-    const [order, setOrder] = useState<Order | null>(null)
+    const [order, setOrder] = useState<OrderDetailRecord | null>(null)
     const [items, setItems] = useState<OrderItem[]>([])
-    const [history, setHistory] = useState<OrderStatusHistory[]>([])
+    const [history, setHistory] = useState<OrderHistoryEntry[]>([])
     const [loading, setLoading] = useState(true)
     const [cancelling, setCancelling] = useState(false)
     const [isPrinting, setIsPrinting] = useState(false)
     const [settings, setSettings] = useState<SystemSettings | null>(null)
-    const [currentUser, setCurrentUser] = useState<any>(null)
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
-    useEffect(() => {
-        loadOrder()
-    }, [params.id])
-
-    const loadOrder = async () => {
+    const loadOrder = useCallback(async () => {
         setLoading(true)
         const supabase = createClient()
 
@@ -71,7 +86,7 @@ export default function OrderDetailPage() {
             router.push('/login')
             return
         }
-        setCurrentUser(user)
+        setCurrentUserId(user.id)
 
         const { data: orderData } = await supabase
             .from('orders')
@@ -89,7 +104,7 @@ export default function OrderDetailPage() {
             router.push('/orders')
             return
         }
-        setOrder(orderData as any)
+        setOrder(orderData as OrderDetailRecord)
 
         // Load settings for branding
         const { data: settingsData } = await supabase
@@ -113,10 +128,14 @@ export default function OrderDetailPage() {
             .select('*, changed_by_profile:profiles(role, full_name)')
             .eq('order_id', params.id)
             .order('created_at', { ascending: true })
-        if (historyData) setHistory(historyData)
+        if (historyData) setHistory(historyData as OrderHistoryEntry[])
 
         setLoading(false)
-    }
+    }, [params.id, router])
+
+    useEffect(() => {
+        void loadOrder()
+    }, [loadOrder])
 
     const handleCancelOrder = async () => {
         if (!order) return
@@ -135,7 +154,7 @@ export default function OrderDetailPage() {
         if (!order || items.length === 0) return
         setIsPrinting(true)
         try {
-            await generateOrderReceiptPDF(order as any, items, settings)
+            await generateOrderReceiptPDF(order, items, settings)
         } catch (err) {
             console.error('PDF generation error:', err)
             toast.error('Erro ao gerar comprovante.')
@@ -346,6 +365,7 @@ export default function OrderDetailPage() {
                                         {item.size && (
                                             <p className="text-xs text-muted-foreground">{item.size}</p>
                                         )}
+                                        <OrderItemPriceDetails item={item} compact className="mt-1" />
                                     </div>
                                     <div className="text-right shrink-0">
                                         <p className="text-xs text-muted-foreground">{item.quantity}x</p>
@@ -358,6 +378,9 @@ export default function OrderDetailPage() {
                                     </div>
                                 </motion.div>
                             ))}
+                            <div className="rounded-xl border border-border/60 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                                Este hist?rico usa o pre?o congelado no momento da compra, garantindo rastreabilidade financeira do pedido.
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -388,9 +411,9 @@ export default function OrderDetailPage() {
                                                         <span>{format(new Date(entry.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
                                                         <span>•</span>
                                                         <span className="font-medium text-foreground">
-                                                            {(entry as any).changed_by_profile?.role === 'admin' 
+                                                            {entry.changed_by_profile?.role === 'admin' 
                                                                 ? 'CDJWE (Sistema)' 
-                                                                : ((entry as any).changed_by_profile?.role === 'client' && currentUser?.id === entry.changed_by) 
+                                                                : (entry.changed_by_profile?.role === 'client' && currentUserId === entry.changed_by) 
                                                                     ? 'Você' 
                                                                     : 'Cliente'}
                                                         </span>
@@ -435,6 +458,9 @@ export default function OrderDetailPage() {
                                     R$ {order.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                 </span>
                             </div>
+                            <div className="rounded-xl border border-border/60 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                                O total deste pedido n?o muda com reajustes futuros de cor, produto ou tabela comercial.
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -449,11 +475,11 @@ export default function OrderDetailPage() {
                             </CardHeader>
                             <CardContent>
                                 <p className="font-medium text-sm">
-                                    {(order.payment_condition as any).name}
+                                    {order.payment_condition.name}
                                 </p>
-                                {(order.payment_condition as any).description && (
+                                {order.payment_condition.description && (
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        {(order.payment_condition as any).description}
+                                        {order.payment_condition.description}
                                     </p>
                                 )}
                             </CardContent>
@@ -476,3 +502,5 @@ export default function OrderDetailPage() {
         </div>
     )
 }
+
+

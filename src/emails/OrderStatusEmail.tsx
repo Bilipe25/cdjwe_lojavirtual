@@ -14,6 +14,7 @@ import {
     main, container, headerSection, logo, contentSection,
     heading, paragraph, ctaSection, buttonPrimary, hr, footer,
 } from './styles'
+import { getCustomerOrderDetailsUrl } from '@/lib/orders/order-communication'
 
 const statusConfig: Record<string, { label: string; emoji: string; color: string; bgColor: string; message: string }> = {
     pending: { label: 'Em Análise', emoji: '⏳', color: '#d97706', bgColor: '#fffbeb', message: 'Seu pedido está sendo analisado pela nossa equipe.' },
@@ -42,6 +43,7 @@ export default function OrderStatusEmail({
     appUrl = 'https://cdjwe-lojavirtual.vercel.app',
 }: OrderStatusEmailProps) {
     const config = statusConfig[newStatus] || statusConfig.pending
+    const orderUrl = getCustomerOrderDetailsUrl(appUrl, orderId)
 
     // Template-specific styles
     const statusBadge = { borderRadius: '12px', padding: '24px', textAlign: 'center' as const, margin: '0 0 20px', border: '2px solid' }
@@ -79,7 +81,7 @@ export default function OrderStatusEmail({
                         </Text>
 
                         <Section style={ctaSection}>
-                            <Button style={buttonPrimary} href={`${appUrl}/order/${orderId}`}>
+                            <Button style={buttonPrimary} href={orderUrl}>
                                 Ver Detalhes do Pedido
                             </Button>
                         </Section>

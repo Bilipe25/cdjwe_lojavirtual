@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import type { OrderStatus } from '@/lib/types'
+import { buildOrderStatusAuditNote } from '@/lib/orders/order-communication'
 import { Button } from '@/components/ui/button'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
@@ -34,12 +35,7 @@ export default function AdminOrdersPage() {
     const [selectedOrders, setSelectedOrders] = useState<string[]>([])
     const [selectedOrderDetail, setSelectedOrderDetail] = useState<OrderWithDetails | null>(null)
 
-    // Re-fetch when dependencies change
-    useEffect(() => {
-        loadOrders()
-    }, [currentPage, search, statusFilter])
-
-    const loadOrders = async () => {
+    const loadOrders = useCallback(async () => {
         setLoading(true)
         const supabase = createClient()
         
@@ -93,7 +89,16 @@ export default function AdminOrdersPage() {
         
         setLoading(false)
         setSelectedOrders([]) // Reset selection on page change
-    }
+    }, [currentPage, search, statusFilter])
+
+    // Re-fetch when dependencies change
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            void loadOrders()
+        }, 0)
+
+        return () => window.clearTimeout(timer)
+    }, [loadOrders])
 
     const updateOrderStatus = async (orderId: string, newStatus: OrderStatus, skipRefresh = false) => {
         const supabase = createClient()
@@ -114,6 +119,7 @@ export default function AdminOrdersPage() {
             await supabase.from('order_status_history').insert({
                 order_id: orderId,
                 status: newStatus,
+                notes: buildOrderStatusAuditNote(newStatus),
                 changed_by: user.id,
             })
         }
@@ -128,7 +134,7 @@ export default function AdminOrdersPage() {
                 .eq('id', orderId)
                 .single()
 
-            const clientProfile = (orderData as any)?.profiles
+            const clientProfile = (orderData as { profiles?: { email?: string | null; full_name?: string | null } | null } | null)?.profiles
             if (clientProfile?.email) {
                 fetch('/api/email/send', {
                     method: 'POST',
@@ -136,6 +142,7 @@ export default function AdminOrdersPage() {
                     body: JSON.stringify({
                         type: 'order_status',
                         payload: {
+                            orderId,
                             orderNumber: order.order_number,
                             clientName: clientProfile.full_name,
                             clientEmail: clientProfile.email,

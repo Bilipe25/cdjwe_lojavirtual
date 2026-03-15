@@ -1,20 +1,33 @@
 import {
     Body,
+    Button,
     Container,
     Head,
     Heading,
+    Hr,
     Html,
     Preview,
     Section,
     Text,
-    Button,
-    Hr,
 } from '@react-email/components'
 import {
-    main, container, headerSection, logo, contentSection,
-    heading, paragraph, infoCard, infoLabel, infoValue,
-    ctaSection, buttonPrimary, hr, footer, formatCurrency,
+    main,
+    container,
+    headerSection,
+    logo,
+    contentSection,
+    heading,
+    paragraph,
+    infoCard,
+    infoLabel,
+    infoValue,
+    ctaSection,
+    buttonPrimary,
+    hr,
+    footer,
+    formatCurrency,
 } from './styles'
+import { getAdminOrdersUrl } from '@/lib/orders/order-communication'
 
 interface NewOrderEmailProps {
     orderId: string
@@ -23,6 +36,7 @@ interface NewOrderEmailProps {
     companyName: string
     itemCount: number
     total: number
+    pricingSummary?: string
     systemName?: string
     appUrl?: string
 }
@@ -34,6 +48,7 @@ export default function NewOrderEmail({
     companyName,
     itemCount,
     total,
+    pricingSummary,
     systemName = 'CDJWE',
     appUrl = 'https://cdjwe-lojavirtual.vercel.app',
 }: NewOrderEmailProps) {
@@ -44,11 +59,15 @@ export default function NewOrderEmail({
     const statLabel = { color: '#94a3b8', fontSize: '11px', fontWeight: '600' as const, textTransform: 'uppercase' as const }
     const statValue = { color: '#1e293b', fontSize: '18px', fontWeight: '700' as const }
     const statValueHighlight = { color: '#b8860b', fontSize: '18px', fontWeight: '700' as const }
+    const snapshotBox = { marginTop: '16px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '12px' }
+    const snapshotTitle = { color: '#1e293b', fontSize: '12px', fontWeight: '700' as const, textTransform: 'uppercase' as const, margin: '0 0 6px' }
+    const snapshotText = { color: '#475569', fontSize: '13px', lineHeight: '20px', margin: '0' }
+    const adminUrl = getAdminOrdersUrl(appUrl)
 
     return (
         <Html>
             <Head />
-            <Preview>Novo pedido #{orderNumber} — {companyName}</Preview>
+            <Preview>Novo pedido #{orderNumber} - {companyName}</Preview>
             <Body style={main}>
                 <Container style={container}>
                     <Section style={headerSection}>
@@ -56,9 +75,9 @@ export default function NewOrderEmail({
                     </Section>
 
                     <Section style={contentSection}>
-                        <Heading style={heading}>🛒 Novo Pedido Recebido</Heading>
+                        <Heading style={heading}>Novo pedido recebido</Heading>
                         <Text style={paragraph}>
-                            Um novo pedido foi submetido e aguarda análise.
+                            Um novo pedido foi submetido e aguarda analise comercial.
                         </Text>
 
                         <Section style={infoCard}>
@@ -71,6 +90,9 @@ export default function NewOrderEmail({
                             <Text style={infoLabel}>Empresa</Text>
                             <Text style={infoValue}>{companyName}</Text>
 
+                            <Text style={infoLabel}>Referencia interna</Text>
+                            <Text style={infoValue}>{orderId}</Text>
+
                             <Hr style={hrInner} />
 
                             <Section style={statsRow}>
@@ -82,23 +104,28 @@ export default function NewOrderEmail({
                                 <Text style={statItem}>
                                     <span style={statLabel}>Total</span>
                                     <br />
-                                    <span style={statValueHighlight}>
-                                        R$ {formatCurrency(total)}
-                                    </span>
+                                    <span style={statValueHighlight}>R$ {formatCurrency(total)}</span>
                                 </Text>
                             </Section>
+
+                            {pricingSummary && (
+                                <Section style={snapshotBox}>
+                                    <Text style={snapshotTitle}>Snapshot financeiro</Text>
+                                    <Text style={snapshotText}>{pricingSummary}</Text>
+                                </Section>
+                            )}
                         </Section>
 
                         <Section style={ctaSection}>
-                            <Button style={buttonPrimary} href={`${appUrl}/order/${orderId}`}>
-                                Ver Detalhes do Pedido
+                            <Button style={buttonPrimary} href={adminUrl}>
+                                Abrir painel de pedidos
                             </Button>
                         </Section>
                     </Section>
 
                     <Hr style={hr} />
                     <Text style={footer}>
-                        Este é um email automático do sistema {systemName}.
+                        Este e um email automatico do sistema {systemName}.
                     </Text>
                 </Container>
             </Body>

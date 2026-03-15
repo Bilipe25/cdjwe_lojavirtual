@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/email'
+import {
+    buildOrderEmailItems,
+    buildOrderSnapshotSummary,
+} from '@/lib/orders/order-communication'
 
 export async function POST(req: NextRequest) {
     try {
@@ -61,6 +65,20 @@ export async function POST(req: NextRequest) {
 
         const systemName = settings?.system_name || 'CDJWE'
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
+        const emailItems = buildOrderEmailItems(
+            (items || []).map((item) => ({
+                productName: item.product_name,
+                fabricName: item.fabric_name,
+                colorName: item.color_name,
+                quantity: item.quantity,
+                unitPrice: item.unit_price,
+                subtotal: item.subtotal,
+                productPrice: item.product_price,
+                variationPrice: item.variation_price,
+                finalPrice: item.final_price,
+            }))
+        )
+        const snapshotSummary = buildOrderSnapshotSummary(emailItems)
 
         const React = (await import('react')).default
         const { default: OrderConfirmationEmail } = await import('@/emails/OrderConfirmationEmail')
@@ -73,25 +91,20 @@ export async function POST(req: NextRequest) {
                 orderId: order.id,
                 orderNumber: order.order_number,
                 clientName: profile?.full_name || 'Cliente',
-                items: (items || []).map((item: any) => ({
-                    productName: item.product_name,
-                    fabricName: item.fabric_name,
-                    colorName: item.color_name,
-                    quantity: item.quantity,
-                    unitPrice: item.unit_price,
-                    subtotal: item.subtotal,
-                })),
+                items: emailItems,
                 subtotal: order.subtotal,
                 discount: order.discount_amount,
                 total: order.total,
+                snapshotSummary,
                 systemName,
                 appUrl,
             }),
         })
 
         return NextResponse.json({ success: true })
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('[RESEND CONFIRMATION] Error:', err)
-        return NextResponse.json({ error: err.message || 'Erro interno.' }, { status: 500 })
+        const message = err instanceof Error ? err.message : 'Erro interno.'
+        return NextResponse.json({ error: message }, { status: 500 })
     }
 }

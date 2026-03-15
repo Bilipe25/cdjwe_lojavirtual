@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import { buildOrderCancelledAuditNote } from '@/lib/orders/order-communication'
 import { revalidatePath } from 'next/cache'
 
 export async function cancelOrderAction(orderId: string) {
@@ -38,14 +39,15 @@ export async function cancelOrderAction(orderId: string) {
             .insert({
                 order_id: orderId,
                 status: 'cancelled',
-                notes: 'Cancelado pelo cliente',
+                notes: buildOrderCancelledAuditNote(),
                 changed_by: user.id
             })
 
         revalidatePath(`/orders/${orderId}`)
         revalidatePath('/orders')
         return { success: true }
-    } catch (err: any) {
-        return { error: err.message || 'Erro ao cancelar pedido.' }
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Erro ao cancelar pedido.'
+        return { error: message }
     }
 }

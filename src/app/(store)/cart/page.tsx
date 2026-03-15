@@ -36,7 +36,6 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from '@/components/ui/dialog'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
@@ -47,7 +46,7 @@ import { useCartStore } from '@/lib/stores/cart-store'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { useSettings } from '@/components/providers/settings-provider'
-import type { PaymentCondition, SystemSettings, PriceTablePaymentRule, StoreAddress } from '@/lib/types'
+import type { PaymentCondition, PriceTablePaymentRule, StoreAddress } from '@/lib/types'
 import Image from 'next/image'
 import { checkoutAction, getAvailablePaymentRules, getAvailableStoreAddresses, getCurrentVariantPricing } from './actions'
 
@@ -138,9 +137,9 @@ export default function CartPage() {
                 } else if (addressesRes && addressesRes.length > 0) {
                     setSelectedAddressId(addressesRes[0].id)
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error('[CART] Failed to load addresses:', err)
-                setAddressError(err?.message || 'Erro ao carregar endereços')
+                setAddressError(err instanceof Error ? err.message : 'Erro ao carregar endereços')
             } finally {
                 setAddressesLoading(false)
             }
@@ -163,15 +162,19 @@ export default function CartPage() {
             if (hasTableRules) {
                 setIsTableRule(true)
                 // Auto-select first rule if nothing valid selected
-                if (!rulesRes.priceTableRules.find(r => r.id === selectedPayment)) {
-                    setSelectedPayment(rulesRes.priceTableRules[0].id)
-                }
+                setSelectedPayment((previous) =>
+                    rulesRes.priceTableRules.find(r => r.id === previous)
+                        ? previous
+                        : rulesRes.priceTableRules[0].id
+                )
             } else if (hasGlobals) {
                 setIsTableRule(false)
                 // Auto-select first global if nothing valid selected
-                if (!rulesRes.globalConditions.find(c => c.id === selectedPayment)) {
-                    setSelectedPayment(rulesRes.globalConditions[0].id)
-                }
+                setSelectedPayment((previous) =>
+                    rulesRes.globalConditions.find(c => c.id === previous)
+                        ? previous
+                        : rulesRes.globalConditions[0].id
+                )
             } else {
                 setSelectedPayment('')
             }
@@ -444,6 +447,9 @@ export default function CartPage() {
                                     Atualizando preços e regras da sua tabela...
                                 </div>
                             )}
+                            <div className="rounded-lg border border-border/60 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                                Os valores do carrinho s?o revalidados no checkout para garantir consist?ncia com produto, cor e tabela B2B.
+                            </div>
                             {/* Address Selection */}
                             <div className="space-y-2 pb-2 border-b">
                                 <Label className="flex items-center gap-2">

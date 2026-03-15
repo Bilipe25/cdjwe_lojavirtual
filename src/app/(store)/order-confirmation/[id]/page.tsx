@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -31,6 +31,18 @@ import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getWhatsAppLink } from '@/lib/utils'
+import { OrderItemPriceDetails } from '@/components/orders/order-item-price-details'
+
+type OrderConfirmationRecord = Order & {
+    store?: Record<string, unknown> | null
+    profile?: Record<string, unknown> | null
+    payment_condition?: {
+        name: string
+        description?: string | null
+        installments?: number | null
+        discount_percentage?: number | null
+    } | null
+}
 
 // ─── Status config ────────────────────────────────────────────────────────────
 const statusConfig: Record<OrderStatus, { label: string; color: string }> = {
@@ -91,7 +103,7 @@ export default function OrderConfirmationPage() {
     const router = useRouter()
     const orderId = params.id as string
 
-    const [order, setOrder] = useState<(Order & { store?: any; profile?: any; payment_condition?: any }) | null>(null)
+    const [order, setOrder] = useState<OrderConfirmationRecord | null>(null)
     const [items, setItems] = useState<OrderItem[]>([])
     const [settings, setSettings] = useState<SystemSettings | null>(null)
     const [loading, setLoading] = useState(true)
@@ -99,11 +111,7 @@ export default function OrderConfirmationPage() {
     const [isPrinting, setIsPrinting] = useState(false)
     const [isSendingEmail, setIsSendingEmail] = useState(false)
 
-    useEffect(() => {
-        loadOrder()
-    }, [orderId])
-
-    const loadOrder = async () => {
+    const loadOrder = useCallback(async () => {
         setLoading(true)
         setError(null)
         try {
@@ -141,7 +149,7 @@ export default function OrderConfirmationPage() {
                 return
             }
 
-            setOrder(orderData as any)
+            setOrder(orderData as OrderConfirmationRecord)
 
             // 4. Load items
             const { data: itemsData, error: itemsError } = await supabase
@@ -161,20 +169,24 @@ export default function OrderConfirmationPage() {
                 .single()
             if (settingsData) setSettings(settingsData)
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('[ORDER CONFIRMATION] Load error:', err)
             setError('Não foi possível carregar os detalhes do pedido. Verifique sua conexão.')
         } finally {
             setLoading(false)
         }
-    }
+    }, [orderId, router])
+
+    useEffect(() => {
+        void loadOrder()
+    }, [loadOrder])
 
     const handleDownloadPDF = async () => {
         if (!order || items.length === 0) return
         setIsPrinting(true)
         try {
-            await generateOrderReceiptPDF(order as any, items, settings)
-        } catch (err) {
+            await generateOrderReceiptPDF(order, items, settings)
+        } catch {
             toast.error('Erro ao gerar comprovante PDF.')
         } finally {
             setIsPrinting(false)
@@ -233,7 +245,7 @@ export default function OrderConfirmationPage() {
                 const body = await res.json()
                 toast.error(body.error || 'Erro ao enviar e-mail.')
             }
-        } catch (err) {
+        } catch {
             toast.error('Não foi possível enviar o e-mail.')
         } finally {
             setIsSendingEmail(false)
@@ -347,9 +359,7 @@ export default function OrderConfirmationPage() {
                                                     {item.fabric_name} — {item.color_name}
                                                     {item.size && ` — Tam: ${item.size}`}
                                                 </p>
-                                                <p className="text-xs text-muted-foreground mt-0.5">
-                                                    {item.quantity} unidade{item.quantity > 1 ? 's' : ''} × R$ {item.unit_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                </p>
+                                                <OrderItemPriceDetails item={item} className="mt-1" />
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <p className="text-sm font-bold text-gradient-bronze">
@@ -359,6 +369,9 @@ export default function OrderConfirmationPage() {
                                         </motion.div>
                                     ))}
                                 </AnimatePresence>
+                                <div className="rounded-xl border border-border/60 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                                    Os valores deste pedido foram congelados no momento da compra para preservar seu hist?rico financeiro.
+                                </div>
                             </CardContent>
                         </Card>
                     </motion.div>
@@ -498,6 +511,9 @@ export default function OrderConfirmationPage() {
                                         R$ {order.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                     </span>
                                 </div>
+                                <div className="rounded-xl border border-border/60 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                                    Valores unit?rios e totais permanecem congelados mesmo que a tabela de pre?os mude depois.
+                                </div>
                             </CardContent>
                         </Card>
                     </motion.div>
@@ -517,10 +533,10 @@ export default function OrderConfirmationPage() {
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <p className="font-semibold text-sm">{(order.payment_condition as any).name}</p>
-                                    {(order.payment_condition as any).description && (
+                                    <p className="font-semibold text-sm">{order.payment_condition.name}</p>
+                                    {order.payment_condition.description && (
                                         <p className="text-xs text-muted-foreground mt-1">
-                                            {(order.payment_condition as any).description}
+                                            {order.payment_condition.description}
                                         </p>
                                     )}
                                 </CardContent>
