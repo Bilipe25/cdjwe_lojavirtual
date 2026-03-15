@@ -101,7 +101,6 @@ export function useProductSelectionState({
                 selectedFabricId: fabricId,
                 activeVariantId:
                     variants.find((variant) => variant.fabric_id === fabricId)?.id ?? null,
-                quantities: {},
                 colorSearch: '',
                 activeImageIndex: 0,
             }))
