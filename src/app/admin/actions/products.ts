@@ -52,11 +52,21 @@ interface SignedUploadDescriptor {
 }
 
 const MAX_PRODUCT_IMAGES = 5
+const PUBLIC_PRODUCTS_URL_MARKER = '/storage/v1/object/public/products/'
 type ProductAuditAction =
     | 'product_domain_upsert'
     | 'product_images_metadata_save'
     | 'product_images_signed_url_batch_create'
     | 'product_images_signed_upload_cleanup'
+
+function getErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof Error && error.message) return error.message
+    if (typeof error === 'object' && error && 'message' in error) {
+        const maybeMessage = (error as { message?: unknown }).message
+        if (typeof maybeMessage === 'string' && maybeMessage.trim()) return maybeMessage
+    }
+    return fallback
+}
 
 function normalizeVariantPrices(input?: Record<string, number | null> | null): Record<string, number | null> | null {
     if (!input) return null
@@ -128,7 +138,7 @@ function extractStoragePathFromPublicUrl(url: string): string | null {
 
     try {
         const parsed = new URL(url)
-        const marker = '/storage/v1/object/public/products/'
+        const marker = PUBLIC_PRODUCTS_URL_MARKER
         const index = parsed.pathname.indexOf(marker)
         if (index < 0) return null
         return decodeURIComponent(parsed.pathname.substring(index + marker.length))
@@ -138,6 +148,17 @@ function extractStoragePathFromPublicUrl(url: string): string | null {
         if (index < 0) return null
         return decodeURIComponent(url.substring(index + fallbackMarker.length))
     }
+}
+
+function isMissingRpcFunctionError(error: unknown, functionName: string): boolean {
+    const message = getErrorMessage(error, '').toLowerCase()
+    if (!message) return false
+
+    return (
+        (message.includes('could not find the function') && message.includes(functionName.toLowerCase())) ||
+        (message.includes('does not exist') && message.includes(functionName.toLowerCase())) ||
+        (message.includes('function') && message.includes(functionName.toLowerCase()) && message.includes('not found'))
+    )
 }
 
 function sanitizeExtension(fileName: string): string {
@@ -156,6 +177,125 @@ function validateSignedUploadFileInput(file: SignedUploadFileInput): { ok: boole
     }
 
     return { ok: true }
+}
+
+async function saveProductImagesMetadataFallback(
+    productId: string,
+    imageIdsToDelete: string[],
+    newImageUrls: string[],
+    primaryImageRef: string | null
+): Promise<ProductImagesRpcRow> {
+    const adminSupabase = createServiceRoleClient()
+
+    const { data: existingRows, error: existingError } = await adminSupabase
+        .from('product_images')
+        .select('id, url, sort_order, created_at')
+        .eq('product_id', productId)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true })
+    if (existingError) throw existingError
+
+    const existing = existingRows ?? []
+    const existingUrlSet = new Set(existing.map((row) => row.url))
+
+    const cleanedIncomingUrls = Array.from(
+        new Set(
+            newImageUrls
+                .map((url) => url.trim())
+                .filter((url) => url.length > 0 && url.includes(PUBLIC_PRODUCTS_URL_MARKER))
+        )
+    ).filter((url) => !existingUrlSet.has(url))
+
+    const toDeleteIds = Array.from(new Set(imageIdsToDelete.filter(Boolean)))
+    const deletedRows = existing.filter((row) => toDeleteIds.includes(row.id))
+    const deletedUrls = deletedRows.map((row) => row.url)
+
+    if (toDeleteIds.length > 0) {
+        const { error: deleteError } = await adminSupabase
+            .from('product_images')
+            .delete()
+            .eq('product_id', productId)
+            .in('id', toDeleteIds)
+        if (deleteError) throw deleteError
+    }
+
+    const remainingCount = existing.length - deletedRows.length
+    if (remainingCount + cleanedIncomingUrls.length > MAX_PRODUCT_IMAGES) {
+        throw new Error(`Product images limit exceeded. Max allowed: ${MAX_PRODUCT_IMAGES}`)
+    }
+
+    const { data: maxSortRows, error: maxSortError } = await adminSupabase
+        .from('product_images')
+        .select('sort_order')
+        .eq('product_id', productId)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+    if (maxSortError) throw maxSortError
+
+    const maxSort = maxSortRows?.[0]?.sort_order ?? -1
+    const insertedImageIds: string[] = []
+    for (let index = 0; index < cleanedIncomingUrls.length; index += 1) {
+        const url = cleanedIncomingUrls[index]
+        const { data: insertedRow, error: insertError } = await adminSupabase
+            .from('product_images')
+            .insert({
+                product_id: productId,
+                url,
+                is_primary: false,
+                sort_order: maxSort + index + 1,
+            })
+            .select('id')
+            .single()
+        if (insertError) throw insertError
+        insertedImageIds.push(insertedRow.id)
+    }
+
+    let primaryImageId: string | null = null
+    const ref = primaryImageRef?.trim() || ''
+    if (ref.startsWith('new_')) {
+        const maybeIndex = Number(ref.replace('new_', ''))
+        if (Number.isFinite(maybeIndex) && maybeIndex >= 0) {
+            primaryImageId = insertedImageIds[maybeIndex] ?? null
+        }
+    } else if (ref) {
+        primaryImageId = ref
+    }
+
+    const { data: finalImages, error: finalImagesError } = await adminSupabase
+        .from('product_images')
+        .select('id')
+        .eq('product_id', productId)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true })
+    if (finalImagesError) throw finalImagesError
+
+    const validPrimary = finalImages?.some((row) => row.id === primaryImageId) ?? false
+    if (!validPrimary) {
+        primaryImageId = finalImages?.[0]?.id ?? null
+    }
+
+    const { error: resetPrimaryError } = await adminSupabase
+        .from('product_images')
+        .update({ is_primary: false })
+        .eq('product_id', productId)
+    if (resetPrimaryError) throw resetPrimaryError
+
+    if (primaryImageId) {
+        const { error: setPrimaryError } = await adminSupabase
+            .from('product_images')
+            .update({ is_primary: true })
+            .eq('id', primaryImageId)
+            .eq('product_id', productId)
+        if (setPrimaryError) throw setPrimaryError
+    }
+
+    return {
+        product_id: productId,
+        primary_image_id: primaryImageId,
+        deleted_urls: deletedUrls,
+        inserted_image_ids: insertedImageIds,
+        total_images: finalImages?.length ?? 0,
+    }
 }
 
 export async function upsertProductDomainAction(
@@ -226,7 +366,7 @@ export async function upsertProductDomainAction(
             variantsInserted: Number(row.variants_inserted || 0),
         }
     } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Erro ao salvar produto.'
+        const message = getErrorMessage(error, 'Erro ao salvar produto.')
         await logProductAuditEvent({
             operationId,
             actorProfileId,
@@ -265,9 +405,22 @@ export async function saveProductImagesMetadataAction(
         }
 
         const { data, error } = await adminSupabase.rpc('admin_save_product_images_metadata', payload)
-        if (error) throw error
+        let row = Array.isArray(data) ? (data[0] as ProductImagesRpcRow | undefined) : undefined
+        let usedFallback = false
+        if (error) {
+            if (isMissingRpcFunctionError(error, 'admin_save_product_images_metadata')) {
+                row = await saveProductImagesMetadataFallback(
+                    input.productId,
+                    input.imageIdsToDelete ?? [],
+                    input.newImageUrls ?? [],
+                    input.primaryImageRef ?? null
+                )
+                usedFallback = true
+            } else {
+                throw error
+            }
+        }
 
-        const row = Array.isArray(data) ? (data[0] as ProductImagesRpcRow | undefined) : undefined
         if (!row?.product_id) {
             throw new Error('Falha ao persistir metadados das imagens do produto.')
         }
@@ -289,11 +442,13 @@ export async function saveProductImagesMetadataAction(
             productId: input.productId,
             action: 'product_images_metadata_save',
             success: true,
+            stage: usedFallback ? 'fallback' : 'application',
             payload: {
                 deletedCount: (row.deleted_urls ?? []).length,
                 insertedCount: (row.inserted_image_ids ?? []).length,
                 totalImages: row.total_images,
                 primaryImageId: row.primary_image_id,
+                usedFallback,
             },
         })
 
@@ -303,7 +458,7 @@ export async function saveProductImagesMetadataAction(
             totalImages: row.total_images,
         }
     } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Erro ao salvar imagens do produto.'
+        const message = getErrorMessage(error, 'Erro ao salvar imagens do produto.')
         await logProductAuditEvent({
             operationId,
             actorProfileId,
@@ -383,7 +538,7 @@ export async function createProductImageSignedUploadUrlsAction(params: {
 
         return { success: true, uploads }
     } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Erro ao gerar upload assinado.'
+        const message = getErrorMessage(error, 'Erro ao gerar upload assinado.')
         await logProductAuditEvent({
             operationId,
             actorProfileId,
@@ -434,7 +589,7 @@ export async function cleanupProductImageUploadsAction(params: {
 
         return { success: true }
     } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Erro ao limpar uploads temporarios.'
+        const message = getErrorMessage(error, 'Erro ao limpar uploads temporarios.')
         await logProductAuditEvent({
             operationId,
             actorProfileId,
