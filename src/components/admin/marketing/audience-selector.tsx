@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { createClient } from '@/lib/supabase/client'
 import { Check, ChevronsUpDown, X } from 'lucide-react'
@@ -32,18 +32,29 @@ interface AudienceSelectorProps {
     onChangeSegment: (segment: TargetSegment) => void
 }
 
+type AudienceClient = {
+    id: string
+    name: string
+    email: string
+}
+
 export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSegment }: AudienceSelectorProps) {
     const [availableStates, setAvailableStates] = useState<string[]>([])
     const [availableCities, setAvailableCities] = useState<string[]>([])
-    const [availableClients, setAvailableClients] = useState<{ id: string; name: string; email: string }[]>([])
-    
+    const [availableClients, setAvailableClients] = useState<AudienceClient[]>([])
+
+    const [clientSearch, setClientSearch] = useState('')
+    const [clientPage, setClientPage] = useState(1)
+    const [clientHasMore, setClientHasMore] = useState(false)
+    const [clientLoading, setClientLoading] = useState(false)
+    const [clientError, setClientError] = useState<string | null>(null)
+
     const [openState, setOpenState] = useState(false)
     const [openCity, setOpenCity] = useState(false)
     const [openClient, setOpenClient] = useState(false)
 
     useEffect(() => {
         loadLocations()
-        loadClients()
     }, [])
 
     useEffect(() => {
@@ -73,21 +84,64 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
         }
     }
 
-    const loadClients = async () => {
-        const supabase = createClient()
-        const { data } = await supabase
-            .from('profiles')
-            .select('id, full_name, email')
-            .eq('role', 'client')
-            .eq('status', 'approved')
-        if (data) {
-            setAvailableClients(data.map(d => ({
-                id: d.id,
-                name: d.full_name || 'Sem nome',
-                email: d.email || ''
-            })))
+    const loadClients = useCallback(async (page: number, query: string, reset = false) => {
+        try {
+            setClientLoading(true)
+            setClientError(null)
+
+            const params = new URLSearchParams({
+                page: String(page),
+                pageSize: '20',
+            })
+
+            if (query.trim()) {
+                params.set('q', query.trim())
+            }
+
+            const response = await fetch(`/api/marketing/audience/clients?${params.toString()}`)
+            const payload = await response.json()
+
+            if (!response.ok) {
+                throw new Error(payload.error || 'Falha ao carregar clientes.')
+            }
+
+            const clients = (payload.clients || []) as AudienceClient[]
+            setAvailableClients((prev) => {
+                if (reset) return clients
+                const merged = [...prev, ...clients]
+                const dedup = new Map(merged.map((client) => [client.id, client]))
+                return Array.from(dedup.values())
+            })
+            setClientHasMore(Boolean(payload.pagination?.hasMore))
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Falha ao carregar clientes.'
+            setClientError(message)
+            if (reset) {
+                setAvailableClients([])
+                setClientHasMore(false)
+            }
+        } finally {
+            setClientLoading(false)
         }
-    }
+    }, [])
+
+    useEffect(() => {
+        if (value !== 'specific') return
+        const timer = setTimeout(() => {
+            setClientPage(1)
+            void loadClients(1, clientSearch, true)
+        }, 250)
+
+        return () => clearTimeout(timer)
+    }, [clientSearch, value, loadClients])
+
+    useEffect(() => {
+        if (value !== 'specific') return
+        if (openClient && availableClients.length === 0 && !clientLoading) {
+            setClientPage(1)
+            void loadClients(1, clientSearch, true)
+        }
+    }, [openClient, value, availableClients.length, clientLoading, clientSearch, loadClients])
 
     const toggleState = (state: string) => {
         const current = new Set(segmentData.states)
@@ -135,6 +189,17 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
     const removeState = (state: string) => toggleState(state)
     const removeCity = (city: string) => toggleCity(city)
     const removeClient = (clientId: string) => toggleClient(clientId)
+    const selectedClientsById = useMemo(
+        () => new Map(availableClients.map((client) => [client.id, client])),
+        [availableClients],
+    )
+
+    const handleLoadMoreClients = async () => {
+        if (!clientHasMore || clientLoading) return
+        const nextPage = clientPage + 1
+        setClientPage(nextPage)
+        await loadClients(nextPage, clientSearch, false)
+    }
 
     return (
         <div className="space-y-4">
@@ -319,7 +384,11 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
                             </PopoverTrigger>
                             <PopoverContent className="w-full p-0">
                                 <Command>
-                                    <CommandInput placeholder="Buscar por nome ou email..." />
+                                    <CommandInput
+                                        placeholder="Buscar por nome ou email..."
+                                        value={clientSearch}
+                                        onValueChange={setClientSearch}
+                                    />
                                     <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
                                     <CommandGroup className="max-h-60 overflow-y-auto">
                                         {availableClients.map((client) => {
@@ -344,6 +413,29 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
                                             )
                                         })}
                                     </CommandGroup>
+                                    {clientError && (
+                                        <div className="px-3 py-2 text-xs text-destructive border-t">
+                                            {clientError}
+                                        </div>
+                                    )}
+                                    {clientLoading && (
+                                        <div className="px-3 py-2 text-xs text-muted-foreground border-t">
+                                            Carregando clientes...
+                                        </div>
+                                    )}
+                                    {!clientLoading && clientHasMore && (
+                                        <div className="p-2 border-t">
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => void handleLoadMoreClients()}
+                                                className="w-full"
+                                            >
+                                                Carregar mais clientes
+                                            </Button>
+                                        </div>
+                                    )}
                                 </Command>
                             </PopoverContent>
                         </Popover>
@@ -352,11 +444,10 @@ export function AudienceSelector({ value, segmentData, onChangeValue, onChangeSe
                         {(segmentData.clientIds || []).length > 0 && (
                             <div className="flex flex-wrap gap-2 mt-3">
                                 {(segmentData.clientIds || []).map(clientId => {
-                                    const client = availableClients.find(c => c.id === clientId)
-                                    if (!client) return null
+                                    const client = selectedClientsById.get(clientId)
                                     return (
                                         <Badge key={clientId} variant="secondary" className="pl-2 pr-1 py-1 gap-1">
-                                            <span className="truncate max-w-[150px]">{client.name}</span>
+                                            <span className="truncate max-w-[150px]">{client?.name || 'Cliente selecionado'}</span>
                                             <button onClick={() => removeClient(clientId)} className="rounded-full hover:bg-muted p-0.5">
                                                 <X className="h-3 w-3" />
                                             </button>

@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
     Megaphone, Plus, Search, Calendar, Mail, Bell, Send, Image as ImageIcon,
-    MoreHorizontal, Eye, Pencil, Trash2, Clock, CheckCircle2, XCircle, Filter,
+    MoreHorizontal, Pencil, Trash2, Clock, CheckCircle2, XCircle, RotateCcw, type LucideIcon,
 } from 'lucide-react'
 import {
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -39,7 +39,12 @@ interface Campaign {
     updated_at: string
 }
 
-const statusConfig: Record<string, { label: string; color: string; icon: any }> = {
+type CampaignMetric = {
+    sent: number
+    failed: number
+}
+
+const statusConfig: Record<string, { label: string; color: string; icon: LucideIcon }> = {
     draft: { label: 'Rascunho', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Clock },
     scheduled: { label: 'Agendada', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Calendar },
     processing: { label: 'Processando', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Clock },
@@ -47,7 +52,7 @@ const statusConfig: Record<string, { label: string; color: string; icon: any }> 
     cancelled: { label: 'Cancelada', color: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
 }
 
-const channelIcons: Record<string, any> = {
+const channelIcons: Record<string, LucideIcon> = {
     email: Mail,
     notification: Bell,
     push: Send,
@@ -63,6 +68,7 @@ const channelLabels: Record<string, string> = {
 
 export default function CampaignsPage() {
     const [campaigns, setCampaigns] = useState<Campaign[]>([])
+    const [campaignMetrics, setCampaignMetrics] = useState<Record<string, CampaignMetric>>({})
     const [loading, setLoading] = useState(true)
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('all')
@@ -85,11 +91,7 @@ export default function CampaignsPage() {
     const [saving, setSaving] = useState(false)
     const [imageFile, setImageFile] = useState<File | null>(null)
 
-    useEffect(() => {
-        fetchCampaigns()
-    }, [])
-
-    const fetchCampaigns = async () => {
+    const fetchCampaigns = useCallback(async () => {
         setLoading(true)
         try {
             const supabase = createClient()
@@ -98,11 +100,55 @@ export default function CampaignsPage() {
                 .select('*')
                 .order('created_at', { ascending: false })
             if (error) throw error
-            setCampaigns(data || [])
-        } catch (err: any) {
-            toast.error('Erro ao carregar campanhas: ' + err.message)
+            const loadedCampaigns = data || []
+            setCampaigns(loadedCampaigns)
+            void fetchCampaignMetrics(loadedCampaigns.map((campaign) => campaign.id))
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Falha ao carregar campanhas.'
+            toast.error('Erro ao carregar campanhas: ' + message)
         } finally {
             setLoading(false)
+        }
+    }, [])
+
+    useEffect(() => {
+        void fetchCampaigns()
+    }, [fetchCampaigns])
+
+    const fetchCampaignMetrics = async (campaignIds: string[]) => {
+        if (campaignIds.length === 0) {
+            setCampaignMetrics({})
+            return
+        }
+
+        try {
+            const supabase = createClient()
+            const { data, error } = await supabase
+                .from('campaign_send_history')
+                .select('campaign_id, status')
+                .in('campaign_id', campaignIds)
+
+            if (error) throw error
+
+            const metricsMap: Record<string, CampaignMetric> = {}
+
+            for (const campaignId of campaignIds) {
+                metricsMap[campaignId] = { sent: 0, failed: 0 }
+            }
+
+            for (const row of data || []) {
+                const bucket = metricsMap[row.campaign_id] || { sent: 0, failed: 0 }
+                if (row.status === 'failed') {
+                    bucket.failed += 1
+                } else {
+                    bucket.sent += 1
+                }
+                metricsMap[row.campaign_id] = bucket
+            }
+
+            setCampaignMetrics(metricsMap)
+        } catch {
+            setCampaignMetrics({})
         }
     }
 
@@ -157,8 +203,9 @@ export default function CampaignsPage() {
             if (error) throw error
             const { data: { publicUrl } } = supabase.storage.from('campaign-images').getPublicUrl(path)
             return publicUrl
-        } catch (err: any) {
-            toast.error('Erro no upload: ' + err.message)
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Falha ao enviar imagem.'
+            toast.error('Erro no upload: ' + message)
             return imageUrl || null
         }
     }
@@ -175,7 +222,7 @@ export default function CampaignsPage() {
             if (!user) throw new Error('Não autenticado')
 
             const uploadedUrl = await uploadImage()
-            const status = asDraft ? 'draft' : (sendType === 'scheduled' ? 'scheduled' : 'sent')
+            const status = asDraft ? 'draft' : (sendType === 'scheduled' ? 'scheduled' : 'draft')
             let campaignId = editingCampaign?.id || null
 
             const payload = {
@@ -212,7 +259,7 @@ export default function CampaignsPage() {
             }
 
             // If sending immediately (not draft), dispatch to channels
-            if (!asDraft && status === 'sent') {
+            if (!asDraft && sendType === 'immediate') {
                 try {
                     const response = await fetch('/api/marketing/send', {
                         method: 'POST',
@@ -223,14 +270,18 @@ export default function CampaignsPage() {
                         const data = await response.json()
                         throw new Error(data.error || 'Falha ao enviar campanha.')
                     }
-                } catch { /* send errors are non-blocking */ }
+                } catch (sendError: unknown) {
+                    const message = sendError instanceof Error ? sendError.message : 'Falha ao enviar campanha.'
+                    toast.error(message)
+                }
             }
 
             setShowForm(false)
             resetForm()
             fetchCampaigns()
-        } catch (err: any) {
-            toast.error('Erro ao salvar: ' + err.message)
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Falha ao salvar campanha.'
+            toast.error('Erro ao salvar: ' + message)
         } finally {
             setSaving(false)
         }
@@ -245,8 +296,31 @@ export default function CampaignsPage() {
             toast.success('Campanha excluída!')
             setDeleteId(null)
             fetchCampaigns()
-        } catch (err: any) {
-            toast.error('Erro ao excluir: ' + err.message)
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Falha ao excluir campanha.'
+            toast.error('Erro ao excluir: ' + message)
+        }
+    }
+
+    const handleRetryFailed = async (campaignId: string, channel?: string) => {
+        try {
+            const response = await fetch(`/api/marketing/campaigns/${campaignId}/retry`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(channel ? { channel } : {}),
+            })
+            const payload = await response.json()
+
+            if (!response.ok) {
+                throw new Error(payload.error || 'Falha ao reprocessar campanha.')
+            }
+
+            const retriedChannels = (payload?.retriedChannels || []).join(', ') || 'canais selecionados'
+            toast.success(`Reprocessamento concluido (${retriedChannels}).`)
+            fetchCampaigns()
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Falha ao reprocessar campanha.'
+            toast.error(message)
         }
     }
 
@@ -255,6 +329,28 @@ export default function CampaignsPage() {
         if (search && !c.title.toLowerCase().includes(search.toLowerCase())) return false
         return true
     })
+
+    const summaryMetrics = useMemo(() => {
+        let totalSent = 0
+        let totalFailed = 0
+
+        for (const campaign of filteredCampaigns) {
+            const metric = campaignMetrics[campaign.id]
+            if (!metric) continue
+            totalSent += metric.sent
+            totalFailed += metric.failed
+        }
+
+        const totalAttempts = totalSent + totalFailed
+        const deliveryRate = totalAttempts > 0 ? Math.round((totalSent / totalAttempts) * 100) : 0
+
+        return {
+            totalSent,
+            totalFailed,
+            totalAttempts,
+            deliveryRate,
+        }
+    }, [filteredCampaigns, campaignMetrics])
 
     return (
         <div className="space-y-6">
@@ -299,6 +395,25 @@ export default function CampaignsPage() {
                 </div>
             </div>
 
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-card rounded-xl border p-4">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Tentativas</p>
+                    <p className="text-2xl font-bold mt-1">{summaryMetrics.totalAttempts}</p>
+                </div>
+                <div className="bg-card rounded-xl border p-4">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Entregues</p>
+                    <p className="text-2xl font-bold mt-1 text-emerald-600">{summaryMetrics.totalSent}</p>
+                </div>
+                <div className="bg-card rounded-xl border p-4">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Falhas</p>
+                    <p className="text-2xl font-bold mt-1 text-red-600">{summaryMetrics.totalFailed}</p>
+                </div>
+                <div className="bg-card rounded-xl border p-4">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Taxa de Entrega</p>
+                    <p className="text-2xl font-bold mt-1">{summaryMetrics.deliveryRate}%</p>
+                </div>
+            </div>
+
             {/* Campaign List */}
             {loading ? (
                 <div className="grid gap-4">
@@ -326,6 +441,7 @@ export default function CampaignsPage() {
                     {filteredCampaigns.map(c => {
                         const config = statusConfig[c.status] || statusConfig.draft
                         const StatusIcon = config.icon
+                        const metric = campaignMetrics[c.id] || { sent: 0, failed: 0 }
                         return (
                             <div key={c.id} className="bg-card rounded-xl border hover:shadow-md transition-shadow p-5">
                                 <div className="flex items-start justify-between gap-4">
@@ -353,6 +469,14 @@ export default function CampaignsPage() {
                                                     </span>
                                                 )
                                             })}
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
+                                                Enviados {metric.sent}
+                                            </span>
+                                            {metric.failed > 0 && (
+                                                <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-50 text-red-700 px-2 py-0.5 rounded-full">
+                                                    Falhas {metric.failed}
+                                                </span>
+                                            )}
                                             <span className="text-[10px] text-muted-foreground">
                                                 {new Date(c.created_at).toLocaleDateString('pt-BR')}
                                             </span>
@@ -365,6 +489,20 @@ export default function CampaignsPage() {
                                             <MoreHorizontal className="h-4 w-4" />
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => handleRetryFailed(c.id)} className="cursor-pointer">
+                                                <RotateCcw className="h-4 w-4 mr-2" />
+                                                Reprocessar Falhas
+                                            </DropdownMenuItem>
+                                            {c.channels.map((channel) => (
+                                                <DropdownMenuItem
+                                                    key={`${c.id}-retry-${channel}`}
+                                                    onClick={() => handleRetryFailed(c.id, channel)}
+                                                    className="cursor-pointer"
+                                                >
+                                                    <RotateCcw className="h-4 w-4 mr-2" />
+                                                    Reprocessar {channelLabels[channel] || channel}
+                                                </DropdownMenuItem>
+                                            ))}
                                             <DropdownMenuItem onClick={() => openEditForm(c)} className="cursor-pointer">
                                                 <Pencil className="h-4 w-4 mr-2" />
                                                 Editar

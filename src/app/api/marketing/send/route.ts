@@ -16,6 +16,9 @@ function normalizeChannels(value: unknown): MarketingChannel[] {
 }
 
 export async function POST(req: NextRequest) {
+    let claimedCampaignId: string | null = null
+    let previousCampaignStatus: string | null = null
+
     try {
         const authResult = await requireAdminSession()
         if (!authResult.ok) return authResult.response
@@ -38,6 +41,45 @@ export async function POST(req: NextRequest) {
         }
 
         const supabase = createServiceRoleClient()
+
+        if (campaignId) {
+            const { data: campaign, error: campaignError } = await supabase
+                .from('campaigns')
+                .select('id, status')
+                .eq('id', campaignId)
+                .maybeSingle()
+
+            if (campaignError) throw campaignError
+            if (!campaign) {
+                return NextResponse.json({ error: 'Campanha nao encontrada.' }, { status: 404 })
+            }
+
+            if (campaign.status === 'sent') {
+                return NextResponse.json({ error: 'Campanha ja enviada.' }, { status: 409 })
+            }
+
+            if (campaign.status === 'processing') {
+                return NextResponse.json({ error: 'Campanha em processamento.' }, { status: 409 })
+            }
+
+            previousCampaignStatus = campaign.status
+
+            const { data: claimData, error: claimError } = await supabase
+                .from('campaigns')
+                .update({ status: 'processing' })
+                .eq('id', campaignId)
+                .eq('status', campaign.status)
+                .select('id')
+                .maybeSingle()
+
+            if (claimError) throw claimError
+            if (!claimData) {
+                return NextResponse.json({ error: 'Campanha bloqueada para envio concorrente.' }, { status: 409 })
+            }
+
+            claimedCampaignId = campaignId
+        }
+
         const results = await dispatchCampaign({
             supabase,
             title,
@@ -50,6 +92,13 @@ export async function POST(req: NextRequest) {
         })
 
         if (results.recipients === 0) {
+            if (claimedCampaignId && previousCampaignStatus) {
+                await supabase
+                    .from('campaigns')
+                    .update({ status: previousCampaignStatus })
+                    .eq('id', claimedCampaignId)
+            }
+
             return NextResponse.json(
                 { error: 'Nenhum cliente encontrado para o segmento especificado.' },
                 { status: 404 },
@@ -65,6 +114,14 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ success: true, results })
     } catch (err: unknown) {
+        if (claimedCampaignId && previousCampaignStatus) {
+            const supabase = createServiceRoleClient()
+            await supabase
+                .from('campaigns')
+                .update({ status: previousCampaignStatus })
+                .eq('id', claimedCampaignId)
+        }
+
         const message = err instanceof Error ? err.message : 'Erro interno.'
         return NextResponse.json({ error: message }, { status: 500 })
     }

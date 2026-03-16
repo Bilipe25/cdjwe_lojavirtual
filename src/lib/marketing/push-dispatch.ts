@@ -4,6 +4,7 @@ import type { MarketingTargetAudience, MarketingTargetSegment } from '@/lib/mark
 
 type PushSubscriptionRow = {
     id: string
+    profile_id: string
     endpoint: string
     p256dh: string
     auth: string
@@ -23,6 +24,9 @@ export type SendPushResult = {
     total: number
     cleaned: number
     message?: string
+    attemptedProfileIds: string[]
+    deliveredProfileIds: string[]
+    failedProfileIds: string[]
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -43,7 +47,7 @@ async function loadSubscriptionsByProfileIds(
     for (const chunk of chunks) {
         const { data, error } = await supabase
             .from('push_subscriptions')
-            .select('id, endpoint, p256dh, auth')
+            .select('id, profile_id, endpoint, p256dh, auth')
             .in('profile_id', chunk)
 
         if (error) throw error
@@ -74,12 +78,28 @@ export async function sendMarketingPush({
 }: SendPushParams): Promise<SendPushResult> {
     const audienceProfileIds = await resolveAudienceClientIds(supabase, targetAudience, targetSegment)
     if (audienceProfileIds.length === 0) {
-        return { sent: 0, total: 0, cleaned: 0, message: 'Nenhum cliente encontrado para o publico selecionado.' }
+        return {
+            sent: 0,
+            total: 0,
+            cleaned: 0,
+            message: 'Nenhum cliente encontrado para o publico selecionado.',
+            attemptedProfileIds: [],
+            deliveredProfileIds: [],
+            failedProfileIds: [],
+        }
     }
 
     const subscriptions = await loadSubscriptionsByProfileIds(supabase, audienceProfileIds)
     if (subscriptions.length === 0) {
-        return { sent: 0, total: 0, cleaned: 0, message: 'Nenhuma inscricao push encontrada para o publico selecionado.' }
+        return {
+            sent: 0,
+            total: 0,
+            cleaned: 0,
+            message: 'Nenhuma inscricao push encontrada para o publico selecionado.',
+            attemptedProfileIds: [],
+            deliveredProfileIds: [],
+            failedProfileIds: [],
+        }
     }
 
     let webPush: typeof import('web-push')
@@ -108,6 +128,13 @@ export async function sendMarketingPush({
 
     let sent = 0
     const failedIds: string[] = []
+    const profileStats = new Map<string, { attempted: number; delivered: number }>()
+
+    for (const subscription of subscriptions) {
+        const stats = profileStats.get(subscription.profile_id) ?? { attempted: 0, delivered: 0 }
+        stats.attempted += 1
+        profileStats.set(subscription.profile_id, stats)
+    }
 
     await processInChunks(subscriptions, 50, async (subscription) => {
         try {
@@ -122,6 +149,11 @@ export async function sendMarketingPush({
                 payload,
             )
             sent++
+            const stats = profileStats.get(subscription.profile_id)
+            if (stats) {
+                stats.delivered += 1
+                profileStats.set(subscription.profile_id, stats)
+            }
         } catch (error: unknown) {
             const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
                 ? (error as { statusCode?: number }).statusCode
@@ -140,9 +172,20 @@ export async function sendMarketingPush({
         }
     }
 
+    const attemptedProfileIds = Array.from(profileStats.keys())
+    const deliveredProfileIds = attemptedProfileIds.filter(
+        (profileId) => (profileStats.get(profileId)?.delivered ?? 0) > 0,
+    )
+    const failedProfileIds = attemptedProfileIds.filter(
+        (profileId) => (profileStats.get(profileId)?.delivered ?? 0) === 0,
+    )
+
     return {
         sent,
         total: subscriptions.length,
         cleaned: failedIds.length,
+        attemptedProfileIds,
+        deliveredProfileIds,
+        failedProfileIds,
     }
 }

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Bell, Users, CheckCircle2, Clock, Send, XCircle } from 'lucide-react'
+import { Bell, CheckCircle2, Clock, Send, XCircle } from 'lucide-react'
 import { AudienceSelector, TargetSegment } from '@/components/admin/marketing/audience-selector'
 import { toast } from 'sonner'
 
@@ -45,8 +45,9 @@ export default function NotificationsPage() {
                 .limit(100)
             if (error) throw error
             setNotifications(data || [])
-        } catch (err: any) {
-            toast.error('Erro ao carregar: ' + err.message)
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Falha ao carregar notificacoes.'
+            toast.error('Erro ao carregar: ' + message)
         } finally {
             setLoading(false)
         }
@@ -54,76 +55,40 @@ export default function NotificationsPage() {
 
     const handleSendNotification = async () => {
         if (!title.trim()) {
-            toast.error('Título é obrigatório.')
+            toast.error('Titulo obrigatorio.')
             return
         }
+
         setSending(true)
         try {
-            const supabase = createClient()
-            let clientQuery = supabase
-                .from('profiles')
-                .select('id')
-                .eq('role', 'client')
-                .eq('status', 'approved')
+            const response = await fetch('/api/marketing/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: title.trim(),
+                    message: message.trim() || null,
+                    channels: ['notification'],
+                    target_audience: targetAudience,
+                    target_segment: targetAudience === 'all' ? null : targetSegment,
+                }),
+            })
 
-            if (targetAudience === 'segment') {
-                if (targetSegment.states.length > 0) {
-                    let storeQuery = supabase
-                        .from('stores')
-                        .select('profile_id')
-                        .in('state', targetSegment.states)
-                        
-                    // If cities are specified, filter by them inside the selected states
-                    if (targetSegment.cities.length > 0) {
-                        storeQuery = storeQuery.in('city', targetSegment.cities)
-                    }
-                    
-                    const { data: storeData } = await storeQuery
-                    
-                    if (storeData && storeData.length > 0) {
-                        clientQuery = clientQuery.in('id', storeData.map((s: any) => s.profile_id))
-                    } else {
-                        // Force empty result if segment has no clients
-                        clientQuery = clientQuery.in('id', ['00000000-0000-0000-0000-000000000000'])
-                    }
-                }
-            } else if (targetAudience === 'specific') {
-                if (targetSegment.clientIds && targetSegment.clientIds.length > 0) {
-                    clientQuery = clientQuery.in('id', targetSegment.clientIds)
-                } else {
-                    // Force empty result if no specific client selected
-                    clientQuery = clientQuery.in('id', ['00000000-0000-0000-0000-000000000000'])
-                }
+            const payload = await response.json()
+            if (!response.ok) {
+                throw new Error(payload.error || 'Falha ao enviar notificacao.')
             }
 
-            const { data: clients, error: clientError } = await clientQuery
-
-            if (clientError) throw clientError
-            if (!clients?.length) {
-                toast.error('Nenhum cliente aprovado encontrado.')
-                return
-            }
-
-            // Create notifications for all clients
-            const inserts = clients.map(c => ({
-                profile_id: c.id,
-                type: 'system',
-                title: title.trim(),
-                message: message.trim() || null,
-            }))
-
-            const { error } = await supabase.from('client_notifications').insert(inserts)
-            if (error) throw error
-
-            toast.success(`Notificação enviada para ${clients.length} clientes!`)
+            const sentCount = payload?.results?.notification ?? 0
+            toast.success(`Notificacao enviada para ${sentCount} clientes!`)
             setShowForm(false)
             setTitle('')
             setMessage('')
             setTargetAudience('all')
             setTargetSegment({ states: [], cities: [], clientIds: [] })
             fetchNotifications()
-        } catch (err: any) {
-            toast.error('Erro ao enviar: ' + err.message)
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Erro ao enviar notificacao.'
+            toast.error('Erro ao enviar: ' + message)
         } finally {
             setSending(false)
         }

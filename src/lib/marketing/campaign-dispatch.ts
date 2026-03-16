@@ -190,6 +190,33 @@ export async function dispatchCampaign({
             })
 
             results.push = pushResult.sent
+
+            if (campaignId && pushResult.attemptedProfileIds.length > 0) {
+                const clientEmailById = new Map(clients.map((client) => [client.id, client.email]))
+
+                const sentRows = pushResult.deliveredProfileIds.map((profileId) => ({
+                    campaign_id: campaignId,
+                    channel: 'push',
+                    recipient_id: profileId,
+                    recipient_email: clientEmailById.get(profileId) || null,
+                    status: 'sent',
+                }))
+
+                const failedRows = pushResult.failedProfileIds.map((profileId) => ({
+                    campaign_id: campaignId,
+                    channel: 'push',
+                    recipient_id: profileId,
+                    recipient_email: clientEmailById.get(profileId) || null,
+                    status: 'failed',
+                    error_message: 'Falha ao entregar push para os dispositivos do cliente.',
+                }))
+
+                const historyRows = [...sentRows, ...failedRows]
+                for (let i = 0; i < historyRows.length; i += 500) {
+                    const chunk = historyRows.slice(i, i + 500)
+                    await supabase.from('campaign_send_history').insert(chunk)
+                }
+            }
         } catch {
             results.errors++
         }
