@@ -72,6 +72,13 @@ type CreateOrderAtomicResult = {
     order_number: string
 }
 
+type RpcErrorLike = {
+    message?: string
+    details?: string
+    hint?: string
+    code?: string
+}
+
 function unwrapRelation<T>(value: VariantPricingRelation<T>): T | null {
     if (Array.isArray(value)) return value[0] ?? null
     return value ?? null
@@ -89,6 +96,43 @@ function normalizeVariantPricingRow(variant: RawVariantPricingRow): VariantPrici
 
 function buildCartKey(variantId: string, sizeOptionId: string | null) {
     return `${variantId}::${sizeOptionId || 'legacy'}`
+}
+
+function getRpcErrorMessage(error: RpcErrorLike | null) {
+    const parts = [error?.message, error?.details, error?.hint]
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter(Boolean)
+    return parts.join(' | ')
+}
+
+function isMissingExtendedAtomicSignature(errorMessage: string) {
+    const normalized = errorMessage.toLowerCase()
+    return (
+        normalized.includes('function public.client_create_order_atomic') &&
+        normalized.includes('does not exist')
+    )
+}
+
+function isDuplicateOrderNumber(errorMessage: string) {
+    const normalized = errorMessage.toLowerCase()
+    return (
+        normalized.includes('orders_order_number_key') ||
+        normalized.includes('duplicate key value violates unique constraint')
+    )
+}
+
+function mapAtomicOrderErrorToUserMessage(errorMessage: string) {
+    const normalized = errorMessage.toLowerCase()
+    if (!normalized) return 'Erro ao criar pedido de forma atomica.'
+    if (normalized.includes('nao autenticado')) return 'Sua sessao expirou. Entre novamente para finalizar.'
+    if (normalized.includes('loja nao encontrada')) return 'Sua loja nao foi localizada. Atualize a pagina e tente novamente.'
+    if (normalized.includes('loja nao pertence ao perfil')) return 'Nao foi possivel validar sua loja. Atualize a pagina e tente novamente.'
+    if (normalized.includes('itens do pedido sao obrigatorios')) return 'Seu carrinho ficou vazio durante a validacao. Revise e tente novamente.'
+    if (isDuplicateOrderNumber(errorMessage)) return 'Conflito temporario na numeracao do pedido. Tente novamente em instantes.'
+    if (isMissingExtendedAtomicSignature(errorMessage)) {
+        return 'Banco desatualizado para o checkout atomico. Aplique as migrations pendentes (013 e 023).'
+    }
+    return `Erro ao criar pedido de forma atomica: ${errorMessage}`
 }
 
 function normalizePricingLines(input: Array<PricingLineInput> | string[]): PricingLineInput[] {
@@ -692,30 +736,65 @@ export async function checkoutAction(
         subtotal: item.subtotal,
     }))
 
-    const { data: orderCreateResult, error: createOrderError } = await supabase.rpc(
-        'client_create_order_atomic',
-        {
-            p_store_id: store.id,
-            p_profile_id: user.id,
-            p_payment_condition_id: paymentConditionId,
-            p_payment_rule_id: paymentRuleId,
-            p_subtotal: secureSubtotal,
-            p_discount_amount: paymentDiscount,
-            p_total: finalTotal,
-            p_shipping_address: shippingAddressStr,
-            p_notes: notes || null,
-            p_items: orderItemsPayload,
-            p_created_note: buildOrderCreatedAuditNote(validatedItems.length, finalTotal),
-        }
-    )
+    const atomicPayloadBase = {
+        p_store_id: store.id,
+        p_profile_id: user.id,
+        p_payment_condition_id: paymentConditionId,
+        p_payment_rule_id: paymentRuleId,
+        p_subtotal: secureSubtotal,
+        p_discount_amount: paymentDiscount,
+        p_total: finalTotal,
+        p_shipping_address: shippingAddressStr,
+        p_notes: notes || null,
+        p_items: orderItemsPayload,
+    }
+
+    const executeAtomicOrderRpc = async (withCreatedNote: boolean) =>
+        supabase.rpc('client_create_order_atomic', {
+            ...atomicPayloadBase,
+            ...(withCreatedNote
+                ? { p_created_note: buildOrderCreatedAuditNote(validatedItems.length, finalTotal) }
+                : {}),
+        })
+
+    let usedLegacySignature = false
+    let { data: orderCreateResult, error: createOrderError } = await executeAtomicOrderRpc(true)
+    let createOrderErrorMessage = getRpcErrorMessage(createOrderError)
+
+    // Backward compatibility when DB has old function signature without p_created_note.
+    if (createOrderError && isMissingExtendedAtomicSignature(createOrderErrorMessage)) {
+        usedLegacySignature = true
+        const legacyCall = await executeAtomicOrderRpc(false)
+        orderCreateResult = legacyCall.data
+        createOrderError = legacyCall.error
+        createOrderErrorMessage = getRpcErrorMessage(createOrderError)
+    }
+
+    // Retry once for eventual order_number race condition.
+    if (createOrderError && isDuplicateOrderNumber(createOrderErrorMessage)) {
+        const retryCall = await executeAtomicOrderRpc(!usedLegacySignature)
+        orderCreateResult = retryCall.data
+        createOrderError = retryCall.error
+        createOrderErrorMessage = getRpcErrorMessage(createOrderError)
+    }
 
     const createdOrder = Array.isArray(orderCreateResult)
         ? (orderCreateResult[0] as CreateOrderAtomicResult | undefined)
         : (orderCreateResult as CreateOrderAtomicResult | null)
 
     if (createOrderError || !createdOrder?.order_id) {
-        console.error('[CHECKOUT] Atomic order creation error:', createOrderError)
-        return { error: 'Erro ao criar pedido de forma atomica.' }
+        console.error('[CHECKOUT] Atomic order creation error:', {
+            error: createOrderError,
+            payload: {
+                ...atomicPayloadBase,
+                p_items_count: orderItemsPayload.length,
+            },
+        })
+        return {
+            error: mapAtomicOrderErrorToUserMessage(
+                createOrderErrorMessage || 'Erro desconhecido no RPC de checkout.'
+            ),
+        }
     }
 
     const createdOrderId = createdOrder.order_id
