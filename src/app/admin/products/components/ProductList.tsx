@@ -131,6 +131,11 @@ export function ProductList({
                                                 <span className="text-[11px] font-medium bg-muted px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[150px]">
                                                     {product.category?.name || 'Sem Categoria'}
                                                 </span>
+                                                {product.has_size_variants && (
+                                                    <span className="text-[11px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
+                                                        Tamanhos
+                                                    </span>
+                                                )}
                                                 {product.size && (
                                                     <span className="text-[11px] text-muted-foreground truncate max-w-[150px]">
                                                         Tam: {product.size}
@@ -211,6 +216,11 @@ export function ProductList({
                                             <span className="text-[10px] sm:text-xs font-medium bg-muted px-1 sm:px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[80px] sm:max-w-[120px]">
                                                 {product.category?.name || 'Sem Categoria'}
                                             </span>
+                                            {product.has_size_variants && (
+                                                <span className="text-[9px] sm:text-[10px] font-medium bg-blue-50 text-blue-700 px-1 py-0.5 rounded">
+                                                    Tamanhos
+                                                </span>
+                                            )}
                                             {product.size && (
                                                 <span className="text-[9px] sm:text-[10px] text-muted-foreground truncate">
                                                     {product.size}

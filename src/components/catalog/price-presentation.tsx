@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { Badge } from '@/components/ui/badge'
 import type { PriceLayer } from '@/lib/pricing/calculate-product-price'
@@ -21,10 +21,11 @@ export interface PriceBadgeDescriptor {
 }
 
 export function getPriceLayerLabel(layer: PriceLayer, discountPercentage = 0) {
-    if (layer === 'variant') return 'Preço da cor aplicada'
-    if (layer === 'price_table_override') return 'Preço da sua tabela aplicado'
+    if (layer === 'variant') return 'Preco da cor aplicada'
+    if (layer === 'size_absolute') return 'Preco do tamanho aplicado'
+    if (layer === 'price_table_override') return 'Preco da sua tabela aplicado'
     if (layer === 'price_table_discount') return `Desconto de tabela (${discountPercentage}%)`
-    return 'Preço base do produto'
+    return 'Preco base do produto'
 }
 
 export function getVariantPriceBadges({
@@ -42,6 +43,10 @@ export function getVariantPriceBadges({
         return [{ label: 'Tabela', className: 'bg-amber-100 text-amber-800' }]
     }
 
+    if (layer === 'size_absolute') {
+        return [{ label: 'Tamanho', className: 'bg-sky-100 text-sky-800' }]
+    }
+
     if (layer === 'price_table_discount' && discountPercentage > 0) {
         return [
             {
@@ -55,7 +60,7 @@ export function getVariantPriceBadges({
 }
 
 export function PricePresentation({
-    title = 'Preço Atual',
+    title = 'Preco Atual',
     price,
     layer,
     discountPercentage = 0,
@@ -96,3 +101,4 @@ export function PricePresentation({
         </div>
     )
 }
+

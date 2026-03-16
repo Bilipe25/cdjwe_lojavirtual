@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Plus, Tag, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,15 @@ import { PriceTableAssignDrawer } from './components/PriceTableAssignDrawer'
 import { PriceTablePaymentRulesDrawer } from './components/PriceTablePaymentRulesDrawer'
 
 const PAGE_SIZE = 15
+
+function getErrorMessage(error: unknown, fallback: string) {
+    if (error instanceof Error && error.message) return error.message
+    if (typeof error === 'object' && error && 'message' in error) {
+        const message = (error as { message?: unknown }).message
+        if (typeof message === 'string' && message.trim()) return message
+    }
+    return fallback
+}
 
 export default function PriceTablesPage() {
     // Pagination & Data states
@@ -70,11 +79,7 @@ export default function PriceTablesPage() {
         loadTypes()
     }, [])
 
-    useEffect(() => {
-        loadPriceTables()
-    }, [debouncedSearch, currentPage])
-
-    const loadPriceTables = async () => {
+    const loadPriceTables = useCallback(async () => {
         setLoading(true)
         const supabase = createClient()
         
@@ -101,7 +106,11 @@ export default function PriceTablesPage() {
             setTotalCount(count || 0)
         }
         setLoading(false)
-    }
+    }, [currentPage, debouncedSearch])
+
+    useEffect(() => {
+        void loadPriceTables()
+    }, [loadPriceTables])
 
     const handleSave = async (data: Omit<PriceTableData, 'id'>) => {
         const supabase = createClient()
@@ -132,11 +141,11 @@ export default function PriceTablesPage() {
                 toast.success('Nova tabela criada!')
             }
 
-            loadPriceTables()
-        } catch (err: any) {
+            void loadPriceTables()
+        } catch (err: unknown) {
             console.error(err)
-            toast.error(err.message || 'Houve um erro interno ao salvar a Tabela de Preços')
-            throw err 
+            toast.error(getErrorMessage(err, 'Houve um erro interno ao salvar a tabela de precos.'))
+            throw err
         }
     }
 
@@ -158,7 +167,7 @@ export default function PriceTablesPage() {
             if (priceTables.length === 1 && currentPage > 1) {
                 setCurrentPage(p => p - 1)
             } else {
-                loadPriceTables()
+                void loadPriceTables()
             }
         }
     }
@@ -222,8 +231,8 @@ export default function PriceTablesPage() {
             }
             
             toast.success('Clonagem concluída! Todos os preços isolados foram preservados em rascunho.')
-            loadPriceTables()
-        } catch (err: any) {
+            void loadPriceTables()
+        } catch (err: unknown) {
             console.error(err)
             toast.error('Ocorreu uma falha no procedimento de clone massivo.')
         } finally {
@@ -279,6 +288,11 @@ export default function PriceTablesPage() {
                     onChange={(e) => setSearch(e.target.value)}
                     className="pl-9 h-11 bg-white/60"
                 />
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white/70 px-4 py-3 text-xs text-slate-600">
+                Arquitetura de preco ativa: Cor - Tamanho - Tabela - Base.
+                Use o menu Gerenciar Produtos para configurar excecoes por variacao e revisar produtos com tamanhos ativos.
             </div>
 
             <div className="flex-1 flex flex-col">

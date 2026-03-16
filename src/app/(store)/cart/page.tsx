@@ -63,6 +63,10 @@ function formatCurrency(value: number) {
     return value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
 }
 
+function getCartItemKey(item: CartItem) {
+    return item.cartKey || `${item.variantId}::${item.sizeOptionId || 'legacy'}`
+}
+
 function getRuleLabel(rule: PriceTablePaymentRule) {
     return `${rule.number_of_installments}x${rule.installment_days ? ` (${rule.installment_days})` : ''}${rule.discount_percentage > 0 ? ` -${rule.discount_percentage}%` : ''}`
 }
@@ -487,7 +491,10 @@ export default function CartPage() {
 
     const total = subtotal()
     const count = totalItems()
-    const itemsKey = useMemo(() => items.map((item) => item.variantId).sort().join('|'), [items])
+    const itemsKey = useMemo(
+        () => items.map((item) => getCartItemKey(item)).sort().join('|'),
+        [items]
+    )
 
     const selectedAddress = useMemo(
         () => storeAddresses.find((address) => address.id === selectedAddressId) || null,
@@ -556,7 +563,13 @@ export default function CartPage() {
 
             setPriceValidationPending(true)
             try {
-                const result = await getCurrentVariantPricing(items.map((item) => item.variantId))
+                const result = await getCurrentVariantPricing(
+                    items.map((item) => ({
+                        cartKey: getCartItemKey(item),
+                        variantId: item.variantId,
+                        sizeOptionId: item.sizeOptionId ?? null,
+                    }))
+                )
                 if (!result) return
 
                 if ('error' in result) {
@@ -566,23 +579,34 @@ export default function CartPage() {
                     return
                 }
 
-                const missingVariantIds = result.missingVariantIds || []
-                let updatedItems = items.filter(
-                    (item) => !missingVariantIds.includes(item.variantId)
-                )
+                const missingKeys = result.missingKeys || []
+                let updatedItems = items.filter((item) => !missingKeys.includes(getCartItemKey(item)))
                 let priceChanged = false
 
                 updatedItems = updatedItems.map((item) => {
-                    const priceInfo = result.prices?.[item.variantId]
+                    const priceInfo = result.prices?.[getCartItemKey(item)]
                     if (!priceInfo) return item
-                    if (priceInfo.unitPrice !== item.unitPrice) {
+                    if (
+                        priceInfo.unitPrice !== item.unitPrice ||
+                        (priceInfo.sizeOptionId ?? null) !== (item.sizeOptionId ?? null)
+                    ) {
                         priceChanged = true
-                        return { ...item, unitPrice: priceInfo.unitPrice }
+                        return {
+                            ...item,
+                            unitPrice: priceInfo.unitPrice,
+                            sizeOptionId: priceInfo.sizeOptionId,
+                            size: priceInfo.sizeName || item.size,
+                            sizePrice: priceInfo.sizePrice,
+                            cartKey: getCartItemKey({
+                                ...item,
+                                sizeOptionId: priceInfo.sizeOptionId,
+                            }),
+                        }
                     }
                     return item
                 })
 
-                if (missingVariantIds.length > 0) {
+                if (missingKeys.length > 0) {
                     toast.error(
                         'Alguns itens nao estao mais disponiveis e foram removidos do carrinho.'
                     )
@@ -592,10 +616,10 @@ export default function CartPage() {
                     toast.message('Precos atualizados conforme tabela comercial e variacoes.')
                 }
 
-                if (missingVariantIds.length > 0 || priceChanged) {
+                if (missingKeys.length > 0 || priceChanged) {
                     setItems(updatedItems)
                     setLastValidatedKey(
-                        updatedItems.map((item) => item.variantId).sort().join('|')
+                        updatedItems.map((item) => getCartItemKey(item)).sort().join('|')
                     )
                 } else {
                     setLastValidatedKey(itemsKey)
@@ -845,7 +869,7 @@ export default function CartPage() {
                             <div className="divide-y divide-slate-100">
                                 {items.map((item, index) => (
                                     <motion.div
-                                        key={item.variantId}
+                                        key={getCartItemKey(item)}
                                         initial={{ opacity: 0, y: 8 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ delay: index * 0.04 }}
@@ -853,12 +877,18 @@ export default function CartPage() {
                                     >
                                         <CheckoutItemRow
                                             item={item}
-                                            onRemove={() => removeItem(item.variantId)}
+                                            onRemove={() => removeItem(getCartItemKey(item))}
                                             onDecrease={() =>
-                                                updateQuantity(item.variantId, item.quantity - 1)
+                                                updateQuantity(
+                                                    getCartItemKey(item),
+                                                    item.quantity - 1
+                                                )
                                             }
                                             onIncrease={() =>
-                                                updateQuantity(item.variantId, item.quantity + 1)
+                                                updateQuantity(
+                                                    getCartItemKey(item),
+                                                    item.quantity + 1
+                                                )
                                             }
                                         />
                                     </motion.div>

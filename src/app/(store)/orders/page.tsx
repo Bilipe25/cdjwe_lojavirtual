@@ -22,6 +22,10 @@ import { getCurrentVariantPricing } from '@/app/(store)/cart/actions'
 
 const PAGE_SIZE = 15
 
+function buildCartKey(variantId: string, sizeOptionId: string | null) {
+    return `${variantId}::${sizeOptionId || 'legacy'}`
+}
+
 const statusConfig: Record<OrderStatus, { label: string; color: string }> = {
     pending: { label: 'Em Análise', color: 'bg-amber-100 text-amber-800 border-amber-200' },
     approved: { label: 'Aprovado', color: 'bg-blue-100 text-blue-800 border-blue-200' },
@@ -156,15 +160,22 @@ function OrdersContent() {
                 `)
                 .eq('order_id', orderId)
             if (items && items.length > 0) {
-                const variantIds = items.map((item: any) => item.product_variant_id)
-                const pricingRes = await getCurrentVariantPricing(variantIds)
+                const pricingLines = items.map((item: any) => ({
+                    variantId: item.product_variant_id as string,
+                    sizeOptionId: (item.size_option_id as string | null) ?? null,
+                    cartKey: buildCartKey(
+                        item.product_variant_id as string,
+                        (item.size_option_id as string | null) ?? null
+                    ),
+                }))
+                const pricingRes = await getCurrentVariantPricing(pricingLines)
                 const priceMap = !pricingRes || 'error' in pricingRes ? {} : pricingRes.prices || {}
-                const missingIds = !pricingRes || 'error' in pricingRes ? [] : (pricingRes.missingVariantIds || [])
+                const missingKeys = !pricingRes || 'error' in pricingRes ? [] : (pricingRes.missingKeys || [])
 
                 if (pricingRes && 'error' in pricingRes) {
                     toast.warning('Não foi possível validar preços agora. Os valores serão confirmados no carrinho.')
                 }
-                if (missingIds.length > 0) {
+                if (missingKeys.length > 0) {
                     toast.error('Alguns itens não estão mais disponíveis e foram ignorados.')
                 }
 
@@ -172,20 +183,27 @@ function OrdersContent() {
                 let priceChanged = false
 
                 items.forEach((item: any) => {
-                    if (missingIds.includes(item.product_variant_id)) return
+                    const cartKey = buildCartKey(
+                        item.product_variant_id as string,
+                        (item.size_option_id as string | null) ?? null
+                    )
+                    if (missingKeys.includes(cartKey)) return
                     const product = item.variant?.product
                     const primaryImage = product?.images?.find((img: any) => img.is_primary) || product?.images?.[0]
-                    const currentPrice = priceMap[item.product_variant_id]?.unitPrice
+                    const currentPrice = priceMap[cartKey]?.unitPrice
                     if (currentPrice !== undefined && currentPrice !== item.unit_price) {
                         priceChanged = true
                     }
                     addItem({
+                        cartKey,
                         variantId: item.product_variant_id,
                         productId: item.variant?.product_id || '',
                         productName: item.product_name,
                         fabricName: item.fabric_name,
                         colorName: item.color_name,
-                        size: item.size,
+                        size: item.size_name || item.size,
+                        sizeOptionId: item.size_option_id ?? null,
+                        sizePrice: priceMap[cartKey]?.sizePrice ?? null,
                         imageUrl: primaryImage?.url || null,
                         quantity: item.quantity,
                         unitPrice: currentPrice ?? item.unit_price,

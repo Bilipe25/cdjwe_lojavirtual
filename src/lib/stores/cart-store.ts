@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CartItem } from '@/lib/types'
 
@@ -8,8 +8,8 @@ interface CartState {
 
     // Actions
     addItem: (item: CartItem) => void
-    removeItem: (variantId: string) => void
-    updateQuantity: (variantId: string, quantity: number) => void
+    removeItem: (cartKey: string) => void
+    updateQuantity: (cartKey: string, quantity: number) => void
     setItems: (items: CartItem[]) => void
     clearCart: () => void
     toggleCart: () => void
@@ -21,6 +21,19 @@ interface CartState {
     subtotal: () => number
 }
 
+function getCartItemKey(item: Pick<CartItem, 'cartKey' | 'variantId' | 'sizeOptionId'>) {
+    return item.cartKey || `${item.variantId}::${item.sizeOptionId || 'legacy'}`
+}
+
+function normalizeCartItem(item: CartItem): CartItem {
+    return {
+        ...item,
+        cartKey: getCartItemKey(item),
+        sizeOptionId: item.sizeOptionId ?? null,
+        sizePrice: item.sizePrice ?? null,
+    }
+}
+
 export const useCartStore = create<CartState>()(
     persist(
         (set, get) => ({
@@ -28,42 +41,52 @@ export const useCartStore = create<CartState>()(
             isOpen: false,
 
             addItem: (item: CartItem) => {
+                const normalizedIncoming = normalizeCartItem(item)
+                const incomingKey = getCartItemKey(normalizedIncoming)
+
                 set((state) => {
                     const existingItem = state.items.find(
-                        (i) => i.variantId === item.variantId
+                        (currentItem) => getCartItemKey(currentItem) === incomingKey
                     )
+
                     if (existingItem) {
                         return {
-                            items: state.items.map((i) =>
-                                i.variantId === item.variantId
-                                    ? { ...i, quantity: i.quantity + item.quantity }
-                                    : i
+                            items: state.items.map((currentItem) =>
+                                getCartItemKey(currentItem) === incomingKey
+                                    ? {
+                                          ...currentItem,
+                                          quantity: currentItem.quantity + normalizedIncoming.quantity,
+                                          unitPrice: normalizedIncoming.unitPrice,
+                                          sizePrice: normalizedIncoming.sizePrice ?? currentItem.sizePrice ?? null,
+                                      }
+                                    : currentItem
                             ),
                         }
                     }
-                    return { items: [...state.items, item] }
+
+                    return { items: [...state.items, normalizedIncoming] }
                 })
             },
 
-            removeItem: (variantId: string) => {
+            removeItem: (cartKey: string) => {
                 set((state) => ({
-                    items: state.items.filter((i) => i.variantId !== variantId),
+                    items: state.items.filter((item) => getCartItemKey(item) !== cartKey),
                 }))
             },
 
-            updateQuantity: (variantId: string, quantity: number) => {
+            updateQuantity: (cartKey: string, quantity: number) => {
                 if (quantity <= 0) {
-                    get().removeItem(variantId)
+                    get().removeItem(cartKey)
                     return
                 }
                 set((state) => ({
-                    items: state.items.map((i) =>
-                        i.variantId === variantId ? { ...i, quantity } : i
+                    items: state.items.map((item) =>
+                        getCartItemKey(item) === cartKey ? { ...item, quantity } : item
                     ),
                 }))
             },
 
-            setItems: (items: CartItem[]) => set({ items }),
+            setItems: (items: CartItem[]) => set({ items: items.map(normalizeCartItem) }),
             clearCart: () => set({ items: [] }),
             toggleCart: () => set((state) => ({ isOpen: !state.isOpen })),
             openCart: () => set({ isOpen: true }),

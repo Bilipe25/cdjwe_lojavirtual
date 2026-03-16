@@ -1,7 +1,16 @@
 import { useEffect, useState, useRef } from 'react';
-import { useForm, useWatch, type Resolver } from 'react-hook-form';
+import { useFieldArray, useForm, useWatch, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Info, Palette } from 'lucide-react';
+import {
+    ArrowDown,
+    ArrowUp,
+    Loader2,
+    Info,
+    Palette,
+    Plus,
+    Ruler,
+    Trash2,
+} from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -20,6 +29,8 @@ import { productSchema, type ProductFormData } from '../schema';
 import type { Category, ProductImage as DBProductImage } from '@/lib/types';
 import type { ProductWithDetails } from './ProductList';
 import { ProductFabricConfig } from './ProductFabricConfig';
+import { createClient } from '@/lib/supabase/client';
+import { toast } from 'sonner';
 
 interface ProductFormModalProps {
     isOpen: boolean;
@@ -55,13 +66,24 @@ export function ProductFormModal({
             description: '',
             category_id: '',
             size: '',
+            has_size_variants: false,
+            size_options: [],
             base_price: 0,
             is_active: true,
             is_featured: false,
         }
     });
 
-    const { register, handleSubmit, setValue, reset, formState: { errors, isDirty } } = form;
+    const { register, handleSubmit, setValue, reset, getValues, formState: { errors, isDirty } } = form;
+    const {
+        fields: sizeOptionFields,
+        append: appendSizeOption,
+        remove: removeSizeOption,
+        move: moveSizeOption,
+    } = useFieldArray({
+        control: form.control,
+        name: 'size_options',
+    });
 
     // Image state
     const [existingImages, setExistingImages] = useState<DBProductImage[]>([]);
@@ -95,6 +117,8 @@ export function ProductFormModal({
                     description: editingProduct.description || '',
                     category_id: editingProduct.category_id || '',
                     size: editingProduct.size || '',
+                    has_size_variants: Boolean(editingProduct.has_size_variants),
+                    size_options: [],
                     base_price: editingProduct.base_price,
                     is_active: editingProduct.is_active,
                     is_featured: editingProduct.is_featured,
@@ -103,12 +127,54 @@ export function ProductFormModal({
                 setExistingImages(editingProduct.images || []);
                 const primary = editingProduct.images?.find((i: DBProductImage) => i.is_primary);
                 setPrimaryImageId(primary ? primary.id : editingProduct.images?.[0]?.id || null);
+
+                const loadSizeOptions = async () => {
+                    const supabase = createClient();
+                    const { data, error } = await supabase
+                        .from('product_size_options')
+                        .select('id, name, price_mode, price_value, is_active, sort_order, is_default')
+                        .eq('product_id', editingProduct.id)
+                        .order('sort_order', { ascending: true })
+                        .order('created_at', { ascending: true });
+
+                    if (error) {
+                        const message = (error.message || '').toLowerCase();
+                        if (!message.includes('product_size_options')) {
+                            toast.error('Falha ao carregar os tamanhos do produto.');
+                        }
+                        setValue('size_options', [], { shouldDirty: false });
+                        return;
+                    }
+
+                    if (!data) {
+                        setValue('size_options', [], { shouldDirty: false });
+                        return;
+                    }
+
+                    setValue(
+                        'size_options',
+                        data.map((option) => ({
+                            id: option.id,
+                            name: option.name,
+                            price_mode: option.price_mode,
+                            price_value: option.price_value,
+                            is_active: option.is_active,
+                            sort_order: option.sort_order || 0,
+                            is_default: option.is_default,
+                        })),
+                        { shouldDirty: false }
+                    );
+                };
+
+                void loadSizeOptions();
             } else {
                 reset({
                     name: '',
                     description: '',
                     category_id: categories[0]?.id || '',
                     size: '',
+                    has_size_variants: false,
+                    size_options: [],
                     base_price: 0,
                     is_active: true,
                     is_featured: false,
@@ -120,7 +186,7 @@ export function ProductFormModal({
             setPreviewUrls([]);
             setImagesToDelete([]);
         }
-    }, [isOpen, editingProduct, reset, categories]);
+    }, [isOpen, editingProduct, reset, categories, setValue]);
     /* eslint-enable react-hooks/set-state-in-effect */
 
     const handleOpenChange = (open: boolean) => {
@@ -140,8 +206,41 @@ export function ProductFormModal({
     };
 
     const onSubmit = async (data: ProductFormData) => {
+        const normalizedSizeOptions = (data.size_options || []).map((option, index) => ({
+            ...option,
+            sort_order: index,
+        }));
+
+        if (data.has_size_variants) {
+            if (normalizedSizeOptions.length === 0) {
+                toast.error('Adicione ao menos 1 opcao de tamanho ativa.');
+                return;
+            }
+            if (!normalizedSizeOptions.some((option) => option.is_active)) {
+                toast.error('Ative ao menos 1 tamanho para continuar.');
+                return;
+            }
+        }
+
+        const requestedDefaultIndex = normalizedSizeOptions.findIndex(
+            (option) => option.is_default && option.is_active
+        );
+        const fallbackDefaultIndex = normalizedSizeOptions.findIndex((option) => option.is_active);
+        const resolvedDefaultIndex =
+            requestedDefaultIndex >= 0 ? requestedDefaultIndex : fallbackDefaultIndex;
+        const normalizedWithDefault = normalizedSizeOptions.map((option, index) => ({
+            ...option,
+            is_default:
+                normalizedSizeOptions.length > 0
+                    ? index === (resolvedDefaultIndex >= 0 ? resolvedDefaultIndex : 0)
+                    : false,
+        }));
+
         await onSave(
-            data,
+            {
+                ...data,
+                size_options: data.has_size_variants ? normalizedWithDefault : [],
+            },
             newImageFiles,
             imagesToDelete,
             primaryImageId,
@@ -203,6 +302,11 @@ export function ProductFormModal({
     const categoryIdValue = useWatch({ control: form.control, name: 'category_id' }) || undefined;
     const isActiveValue = useWatch({ control: form.control, name: 'is_active' }) ?? false;
     const isFeaturedValue = useWatch({ control: form.control, name: 'is_featured' }) ?? false;
+    const hasSizeVariantsValue = useWatch({ control: form.control, name: 'has_size_variants' }) ?? false;
+    const sizeOptionsValue = useWatch({ control: form.control, name: 'size_options' }) ?? [];
+    const activeSizeOptionsCount = sizeOptionsValue.filter((option) => option?.is_active).length;
+    const defaultSizeOptionName =
+        sizeOptionsValue.find((option) => option?.is_default)?.name || sizeOptionsValue[0]?.name || null;
 
     const tabs: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
         { id: 'info', label: 'Informacoes', icon: <Info className="h-3.5 w-3.5" /> },
@@ -284,6 +388,197 @@ export function ProductFormModal({
                                     <p className="text-[11px] text-muted-foreground">Informe as medidas descritivas para facilitar a escolha do lojista.</p>
                                 </div>
 
+                                <div className="space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3.5">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <Label className="text-sm font-semibold text-navy">Variacoes por tamanho</Label>
+                                            <p className="text-[11px] leading-relaxed text-muted-foreground">
+                                                Quando ativo, o cliente precisa escolher o tamanho antes de tecido/cor.
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={hasSizeVariantsValue}
+                                            onCheckedChange={(value) =>
+                                                setValue('has_size_variants', value, { shouldDirty: true })
+                                            }
+                                        />
+                                    </div>
+
+                                    {hasSizeVariantsValue && (
+                                        <div className="space-y-2.5">
+                                            <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-2.5">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <Label className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
+                                                        Opcoes de tamanho
+                                                    </Label>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 gap-1 px-2.5 text-[11px]"
+                                                        onClick={() =>
+                                                            appendSizeOption({
+                                                                name: '',
+                                                                price_mode: 'delta',
+                                                                price_value: 0,
+                                                                is_active: true,
+                                                                sort_order: sizeOptionFields.length,
+                                                                is_default: sizeOptionFields.length === 0,
+                                                            })
+                                                        }
+                                                    >
+                                                        <Plus className="h-3.5 w-3.5" />
+                                                        Adicionar
+                                                    </Button>
+                                                </div>
+
+                                                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+                                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
+                                                        {sizeOptionFields.length} cadastrados
+                                                    </span>
+                                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
+                                                        {activeSizeOptionsCount} ativos
+                                                    </span>
+                                                    {defaultSizeOptionName && (
+                                                        <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-800">
+                                                            Padrao: {defaultSizeOptionName}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {sizeOptionFields.length === 0 && (
+                                                <div className="rounded-lg border border-dashed border-slate-300 bg-white/70 px-3 py-2 text-xs text-muted-foreground">
+                                                    Nenhum tamanho configurado ainda.
+                                                </div>
+                                            )}
+
+                                            <div className="space-y-1.5">
+                                                {sizeOptionFields.map((field, index) => {
+                                                    const option = sizeOptionsValue[index];
+                                                    return (
+                                                        <div
+                                                            key={field.id}
+                                                            className="rounded-lg border border-slate-200/80 bg-white px-2.5 py-2"
+                                                        >
+                                                            <div className="grid grid-cols-1 gap-1.5 md:grid-cols-[1.5fr_130px_120px_auto]">
+                                                                <Input
+                                                                    {...register(
+                                                                        `size_options.${index}.name` as const
+                                                                    )}
+                                                                    placeholder="Ex: Solteiro, Casal, Queen"
+                                                                    className="h-8 border-slate-200 bg-white text-sm"
+                                                                />
+                                                                <Select
+                                                                    value={option?.price_mode || 'delta'}
+                                                                    onValueChange={(value) =>
+                                                                        setValue(
+                                                                            `size_options.${index}.price_mode`,
+                                                                            value as 'absolute' | 'delta',
+                                                                            { shouldDirty: true }
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    <SelectTrigger className="h-8 border-slate-200 bg-white text-sm">
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="delta">Delta (+)</SelectItem>
+                                                                        <SelectItem value="absolute">Absoluto</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                                <Input
+                                                                    {...register(
+                                                                        `size_options.${index}.price_value` as const
+                                                                    )}
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    placeholder="0,00"
+                                                                    className="h-8 border-slate-200 bg-white text-sm"
+                                                                />
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-8 w-8 text-muted-foreground hover:bg-red-50 hover:text-destructive"
+                                                                    onClick={() => removeSizeOption(index)}
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </Button>
+                                                            </div>
+
+                                                            <div className="mt-1.5 flex items-center justify-between">
+                                                                <div className="flex items-center gap-1">
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-7 w-7 text-muted-foreground disabled:opacity-40"
+                                                                        disabled={index === 0}
+                                                                        onClick={() => moveSizeOption(index, index - 1)}
+                                                                    >
+                                                                        <ArrowUp className="h-3.5 w-3.5" />
+                                                                    </Button>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-7 w-7 text-muted-foreground disabled:opacity-40"
+                                                                        disabled={index === sizeOptionFields.length - 1}
+                                                                        onClick={() => moveSizeOption(index, index + 1)}
+                                                                    >
+                                                                        <ArrowDown className="h-3.5 w-3.5" />
+                                                                    </Button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] transition-colors ${
+                                                                            option?.is_default
+                                                                                ? 'bg-amber-100 text-amber-800'
+                                                                                : 'bg-slate-100 text-muted-foreground hover:bg-slate-200'
+                                                                        }`}
+                                                                        onClick={() => {
+                                                                            const current = getValues('size_options') || [];
+                                                                            const next = current.map((item, itemIndex) => ({
+                                                                                ...item,
+                                                                                is_default: itemIndex === index,
+                                                                            }));
+                                                                            setValue('size_options', next, {
+                                                                                shouldDirty: true,
+                                                                            });
+                                                                        }}
+                                                                    >
+                                                                        <Ruler className="h-3.5 w-3.5" />
+                                                                        {option?.is_default ? 'Padrao' : 'Definir padrao'}
+                                                                    </button>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-[11px] text-muted-foreground">
+                                                                            Ativo
+                                                                        </span>
+                                                                        <Switch
+                                                                            checked={option?.is_active ?? true}
+                                                                            onCheckedChange={(value) =>
+                                                                                setValue(
+                                                                                    `size_options.${index}.is_active`,
+                                                                                    value,
+                                                                                    { shouldDirty: true }
+                                                                                )
+                                                                            }
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="space-y-2">
                                     <Label className="text-navy font-medium">Descricao Detalhada</Label>
                                     <Textarea {...register('description')} placeholder="Descreva os diferenciais, espumas utilizadas, etc..." className="bg-white/60 resize-none" rows={4} />
@@ -330,6 +625,11 @@ export function ProductFormModal({
                                     Selecione quais combinacoes de tecido e cor estarao disponiveis para este produto.
                                     Por padrao, todas as combinacoes estao ativas.
                                 </p>
+                                {hasSizeVariantsValue && (
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        Fluxo no cliente: Tamanho - Tecido - Cor. Garanta que os tamanhos estejam corretos na aba Informacoes.
+                                    </p>
+                                )}
                             </div>
                             <ProductFabricConfig
                                 productId={editingProduct?.id}

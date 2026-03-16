@@ -1,3 +1,4 @@
+﻿
 'use client'
 
 import { useMemo, useState } from 'react'
@@ -39,6 +40,10 @@ import { toast } from 'sonner'
 import { ProductImageGallery } from '@/components/products/ProductImageGallery'
 import { PricePresentation, getVariantPriceBadges } from '@/components/catalog/price-presentation'
 
+function buildCartKey(variantId: string, sizeOptionId: string | null) {
+    return `${variantId}::${sizeOptionId || 'legacy'}`
+}
+
 export default function ProductDetailPage() {
     const params = useParams()
     const router = useRouter()
@@ -48,7 +53,7 @@ export default function ProductDetailPage() {
     const isMobile = useIsMobile()
     const { isFavorite, toggle } = useFavoritesStore()
     const { discountPercentage, overrides } = usePriceTableStore()
-    const { product, images, fabrics, variants, loading, error, reload } = useProductDetailData({
+    const { product, images, fabrics, variants, sizeOptions, loading, error, reload } = useProductDetailData({
         productId,
         enabled: !!productId,
     })
@@ -57,8 +62,11 @@ export default function ProductDetailPage() {
         scopeKey: productId || null,
         fabrics,
         variants,
+        sizeOptions,
+        hasSizeVariants: Boolean(product?.has_size_variants),
     })
     const {
+        selectedSizeOption,
         selectedFabric,
         selectedFabricGroup: activeFabric,
         activeVariant,
@@ -67,6 +75,7 @@ export default function ProductDetailPage() {
         activeImageIndex,
         colorSearch,
         showFullDescription,
+        setSelectedSizeOptionId,
         setSelectedFabric,
         setActiveVariantId,
         setActiveImageIndex,
@@ -97,14 +106,14 @@ export default function ProductDetailPage() {
                     <Package className="h-7 w-7 text-red-600" />
                 </div>
                 <div>
-                    <h2 className="text-xl font-bold">Não foi possível abrir o produto</h2>
+                    <h2 className="text-xl font-bold">Nao foi possivel abrir o produto</h2>
                     <p className="text-sm text-muted-foreground">
                         {error || 'Tente novamente em alguns instantes.'}
                     </p>
                 </div>
                 <div className="flex justify-center gap-2">
                     <Button variant="outline" onClick={() => router.push('/catalog')}>
-                        Voltar ao Catálogo
+                        Voltar ao catalogo
                     </Button>
                     <Button onClick={() => void reload()}>Tentar novamente</Button>
                 </div>
@@ -121,12 +130,16 @@ export default function ProductDetailPage() {
         discountPercentage,
         overrides,
     }
+    const requiresSizeSelection = Boolean(product.has_size_variants) && sizeOptions.length > 0
+    const canSelectVariants = !requiresSizeSelection || Boolean(selectedSizeOption)
 
     const priceBreakdown = resolveVariantPricing({
         basePrice: product.base_price ?? 0,
         fabricModifier: activeFabric?.price_modifier ?? 0,
         variantId: activeVariant?.id,
         variantPriceOverride: activeVariant?.price_override ?? null,
+        sizePriceMode: selectedSizeOption?.price_mode ?? null,
+        sizePriceValue: selectedSizeOption?.price_value ?? null,
         priceTable,
     })
 
@@ -147,6 +160,8 @@ export default function ProductDetailPage() {
             fabricModifier,
             variantId: variant.id,
             variantPriceOverride: variant.price_override ?? null,
+            sizePriceMode: selectedSizeOption?.price_mode ?? null,
+            sizePriceValue: selectedSizeOption?.price_value ?? null,
             priceTable,
         })
     }
@@ -170,6 +185,10 @@ export default function ProductDetailPage() {
 
     const handleAddToCart = () => {
         if (!selectedFabric) return
+        if (requiresSizeSelection && !selectedSizeOption) {
+            toast.error('Selecione um tamanho antes de continuar.')
+            return
+        }
 
         const variantsToAdd = Object.entries(quantities).filter(([, quantity]) => quantity > 0)
         if (variantsToAdd.length === 0) return
@@ -183,24 +202,30 @@ export default function ProductDetailPage() {
 
                 const fabric = fabrics.find((item) => item.id === variant.fabric_id)
                 const color = fabric?.colors.find((item) => item.id === variant.fabric_color_id)
+                const pricing = getVariantPricing(variant)
+                const resolvedSizeName = selectedSizeOption?.name || product.size || null
+                const resolvedSizeOptionId = selectedSizeOption?.id || null
 
                 addItem({
+                    cartKey: buildCartKey(variant.id, resolvedSizeOptionId),
                     variantId: variant.id,
                     productId: product.id,
                     productName: product.name,
                     fabricName: fabric?.name || '',
                     colorName: color?.name || '',
-                    size: product.size || null,
+                    size: resolvedSizeName,
+                    sizeOptionId: resolvedSizeOptionId,
+                    sizePrice: pricing.sizePrice,
                     imageUrl: variant.image_url || baseImages[0]?.url || null,
                     quantity,
-                    unitPrice: getVariantPricing(variant).unitPrice,
+                    unitPrice: pricing.unitPrice,
                 })
             })
 
             resetSelection()
             toast.success(`${totalSelectedQuantity} itens adicionados ao carrinho!`, {
                 action: {
-                    label: 'Ver Carrinho',
+                    label: 'Ver carrinho',
                     onClick: openCart,
                 },
             })
@@ -216,7 +241,7 @@ export default function ProductDetailPage() {
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             <Button variant="ghost" className="mb-4 gap-2" onClick={() => router.push('/catalog')}>
                 <ArrowLeft className="h-4 w-4" />
-                Voltar ao Catálogo
+                Voltar ao catalogo
             </Button>
 
             <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] lg:gap-12">
@@ -233,7 +258,7 @@ export default function ProductDetailPage() {
                         <div className="rounded-2xl border border-border/70 bg-muted/10 p-5">
                             <div className="mb-2 flex items-center justify-between gap-3">
                                 <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                    Descrição
+                                    Descricao
                                 </span>
                                 {hasLongDescription && (
                                     <button
@@ -302,7 +327,7 @@ export default function ProductDetailPage() {
                         <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-slate-950 lg:text-4xl">
                             {product.name}
                         </h1>
-                        {product.size && (
+                        {product.size && !product.has_size_variants && (
                             <p className="mt-1 text-sm text-muted-foreground">
                                 Ref/Tamanho: {product.size}
                             </p>
@@ -310,14 +335,45 @@ export default function ProductDetailPage() {
                     </div>
 
                     <PricePresentation
-                        title="Preço Atual"
+                        title="Preco atual"
                         price={priceBreakdown.finalPrice}
                         layer={priceBreakdown.layer}
                         discountPercentage={discountPercentage}
                     />
 
-
                     <Separator />
+
+                    {requiresSizeSelection && (
+                        <div>
+                            <h3 className="mb-3 text-sm font-semibold">
+                                Tamanho
+                                <span className="font-normal text-muted-foreground">
+                                    {' '}
+                                    - {selectedSizeOption?.name || 'Selecione'}
+                                </span>
+                            </h3>
+                            <div className="flex flex-wrap gap-2">
+                                {sizeOptions.map((sizeOption) => (
+                                    <button
+                                        key={sizeOption.id}
+                                        onClick={() => setSelectedSizeOptionId(sizeOption.id)}
+                                        className={`rounded-lg border px-4 py-2 text-sm transition-all ${
+                                            selectedSizeOption?.id === sizeOption.id
+                                                ? 'border-primary bg-primary/10 font-medium text-primary shadow-sm'
+                                                : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                                        }`}
+                                    >
+                                        {sizeOption.name}
+                                    </button>
+                                ))}
+                            </div>
+                            {!selectedSizeOption && (
+                                <p className="mt-2 text-xs text-amber-700">
+                                    Selecione o tamanho para liberar tecido e cor.
+                                </p>
+                            )}
+                        </div>
+                    )}
 
                     {fabrics.length > 0 && (
                         <div>
@@ -336,7 +392,8 @@ export default function ProductDetailPage() {
                                                 render={
                                                     <button
                                                         onClick={() => setSelectedFabric(fabric.id)}
-                                                        className={`rounded-lg border px-4 py-2 text-sm transition-all ${
+                                                        disabled={!canSelectVariants}
+                                                        className={`rounded-lg border px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                                                             selectedFabric === fabric.id
                                                                 ? 'border-primary bg-primary/10 font-medium text-primary shadow-sm'
                                                                 : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
@@ -365,7 +422,7 @@ export default function ProductDetailPage() {
 
                     {fabrics.length === 0 && (
                         <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
-                            Este produto não possui variações ativas no momento.
+                            Este produto nao possui variacoes ativas no momento.
                         </div>
                     )}
 
@@ -373,7 +430,7 @@ export default function ProductDetailPage() {
                         <div className="rounded-2xl border border-border/70 bg-white p-5 shadow-sm">
                             <div className="mb-3 flex items-center justify-between">
                                 <h3 className="text-sm font-semibold">
-                                    Cores e Quantidades
+                                    Cores e quantidades
                                     <span className="ml-1 font-normal text-muted-foreground">
                                         ({filteredColors.length})
                                     </span>
@@ -440,7 +497,7 @@ export default function ProductDetailPage() {
                                                                   backgroundSize: 'cover',
                                                                   backgroundPosition: 'center',
                                                               }
-                                                                : {}),
+                                                            : {}),
                                                     }}
                                                     onClick={() => handleActivateVariant(variant)}
                                                 >
@@ -492,6 +549,7 @@ export default function ProductDetailPage() {
                                                                 quantity - 1
                                                             )
                                                         }
+                                                        disabled={!canSelectVariants}
                                                     >
                                                         <Minus className="h-4 w-4" />
                                                     </Button>
@@ -508,6 +566,7 @@ export default function ProductDetailPage() {
                                                                 quantity + 1
                                                             )
                                                         }
+                                                        disabled={!canSelectVariants}
                                                     >
                                                         <Plus className="h-4 w-4" />
                                                     </Button>
@@ -539,7 +598,7 @@ export default function ProductDetailPage() {
 
                     {selectedFabric && availableColors.length === 0 && (
                         <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
-                            Nenhuma cor disponível para este tecido.
+                            Nenhuma cor disponivel para este tecido.
                         </div>
                     )}
 
@@ -549,7 +608,7 @@ export default function ProductDetailPage() {
                         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                             <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
-                                    Resumo da Seleção
+                                    Resumo da selecao
                                 </p>
                                 <p className="mt-1 text-2xl font-bold">
                                     R${' '}
@@ -569,11 +628,11 @@ export default function ProductDetailPage() {
                             size="lg"
                             className="h-14 w-full border-0 bg-white text-slate-950 shadow-md hover:bg-white/92 disabled:bg-white/70"
                             onClick={handleAddToCart}
-                            disabled={!selectedFabric || totalSelectedQuantity === 0 || addingToCart}
+                            disabled={!selectedFabric || totalSelectedQuantity === 0 || addingToCart || !canSelectVariants}
                         >
                             <ShoppingCart className="mr-2 h-5 w-5" />
-                            {!selectedFabric
-                                ? 'Selecione um tecido'
+                            {!canSelectVariants
+                                ? 'Selecione o tamanho'
                                 : totalSelectedQuantity === 0
                                   ? 'Selecione as quantidades'
                                   : `Adicionar ${totalSelectedQuantity} itens ao carrinho`}
@@ -587,7 +646,7 @@ export default function ProductDetailPage() {
                         </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Shield className="h-4 w-4 shrink-0 text-bronze" />
-                            <span>Garantia de fábrica</span>
+                            <span>Garantia de fabrica</span>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Star className="h-4 w-4 shrink-0 text-bronze" />

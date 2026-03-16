@@ -10,12 +10,25 @@ export interface UpsertProductDomainInput {
     description?: string | null
     categoryId: string
     size?: string | null
+    hasSizeVariants?: boolean
+    sizeOptions?: ProductSizeOptionInput[] | null
     basePrice: number
     isActive: boolean
     isFeatured: boolean
     activeVariantIds?: string[] | null
     variantPriceOverrides?: Record<string, number | null> | null
     operationId?: string
+}
+
+export interface ProductSizeOptionInput {
+    id?: string
+    name: string
+    slug?: string
+    priceMode: 'absolute' | 'delta'
+    priceValue: number
+    isActive: boolean
+    sortOrder: number
+    isDefault: boolean
 }
 
 interface ProductRpcRow {
@@ -81,6 +94,64 @@ function normalizeVariantPrices(input?: Record<string, number | null> | null): R
         output[variantId] = Number(price)
     })
     return output
+}
+
+function normalizeSizeOptions(
+    input?: ProductSizeOptionInput[] | null
+): Array<{
+    id: string | null
+    name: string
+    slug: string
+    price_mode: 'absolute' | 'delta'
+    price_value: number
+    is_active: boolean
+    sort_order: number
+    is_default: boolean
+}> | null {
+    if (!input) return null
+
+    const seenSlugs = new Set<string>()
+    const normalized = input
+        .map((option, index) => {
+            const name = option.name?.trim() || ''
+            if (!name) throw new Error('Cada tamanho deve ter um nome valido.')
+            const slug = (option.slug?.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, '-'))
+                .replace(/^-+|-+$/g, '')
+                .slice(0, 80)
+            if (!slug) throw new Error(`Slug invalido para o tamanho "${name}".`)
+
+            const priceValue = Number(option.priceValue)
+            if (!Number.isFinite(priceValue) || priceValue < 0) {
+                throw new Error(`Preco invalido para o tamanho "${name}".`)
+            }
+
+            const slugKey = slug.toLowerCase()
+            if (seenSlugs.has(slugKey)) {
+                throw new Error(`Tamanho duplicado: "${name}".`)
+            }
+            seenSlugs.add(slugKey)
+
+            return {
+                id: option.id && isValidUuid(option.id) ? option.id : null,
+                name,
+                slug,
+                price_mode:
+                    option.priceMode === 'absolute'
+                        ? ('absolute' as const)
+                        : ('delta' as const),
+                price_value: priceValue,
+                is_active: option.isActive !== false,
+                sort_order: Number.isFinite(option.sortOrder) ? option.sortOrder : index,
+                is_default: option.isDefault === true,
+            }
+        })
+        .sort((a, b) => a.sort_order - b.sort_order)
+
+    if (normalized.length > 0 && !normalized.some((option) => option.is_default)) {
+        normalized[0].is_default = true
+    }
+
+    return normalized
 }
 
 async function ensureAdminAccess(): Promise<string> {
@@ -167,6 +238,11 @@ function isAmbiguousProductIdReferenceError(error: unknown): boolean {
     return message.includes('column reference "product_id" is ambiguous')
 }
 
+function isMissingRelationError(error: unknown, relationName: string): boolean {
+    const message = getErrorMessage(error, '').toLowerCase()
+    return message.includes('relation') && message.includes(relationName.toLowerCase())
+}
+
 function sanitizeExtension(fileName: string): string {
     const extension = fileName.split('.').pop()?.trim().toLowerCase() ?? ''
     const sanitized = extension.replace(/[^a-z0-9]/g, '')
@@ -200,6 +276,7 @@ async function upsertProductDomainFallback(input: UpsertProductDomainInput): Pro
         description: input.description?.trim() ? input.description.trim() : null,
         category_id: input.categoryId,
         size: input.size?.trim() ? input.size.trim() : null,
+        has_size_variants: input.hasSizeVariants === true,
         base_price: input.basePrice,
         is_active: input.isActive,
         is_featured: input.isFeatured,
@@ -282,6 +359,79 @@ async function upsertProductDomainFallback(input: UpsertProductDomainInput): Pro
                 .eq('product_id', productId)
                 .eq('id', variantId)
             if (priceError) throw priceError
+        }
+    }
+
+    if (input.sizeOptions !== undefined && input.sizeOptions !== null) {
+        const normalizedSizeOptions = normalizeSizeOptions(input.sizeOptions) || []
+        let existingSizeOptionIds: string[] = []
+
+        const { data: existingSizeOptions, error: existingSizeOptionsError } = await adminSupabase
+            .from('product_size_options')
+            .select('id')
+            .eq('product_id', productId)
+
+        if (existingSizeOptionsError) {
+            if (isMissingRelationError(existingSizeOptionsError, 'product_size_options')) {
+                if (input.hasSizeVariants || normalizedSizeOptions.length > 0) {
+                    throw new Error(
+                        'A tabela de tamanhos ainda nao existe no banco. Execute a migration de tamanhos antes de salvar.'
+                    )
+                }
+            } else {
+                throw existingSizeOptionsError
+            }
+        } else {
+            existingSizeOptionIds = (existingSizeOptions || []).map((row) => row.id)
+        }
+
+        if (existingSizeOptionIds.length > 0) {
+            const incomingIds = new Set(
+                normalizedSizeOptions
+                    .map((option) => option.id)
+                    .filter((value): value is string => Boolean(value))
+            )
+            const idsToDelete = existingSizeOptionIds.filter((id) => !incomingIds.has(id))
+            if (idsToDelete.length > 0) {
+                const { error: deleteError } = await adminSupabase
+                    .from('product_size_options')
+                    .delete()
+                    .eq('product_id', productId)
+                    .in('id', idsToDelete)
+                if (deleteError) throw deleteError
+            }
+        }
+
+        for (const option of normalizedSizeOptions) {
+            if (option.id) {
+                const { error: updateSizeError } = await adminSupabase
+                    .from('product_size_options')
+                    .update({
+                        name: option.name,
+                        slug: option.slug,
+                        price_mode: option.price_mode,
+                        price_value: option.price_value,
+                        is_active: option.is_active,
+                        sort_order: option.sort_order,
+                        is_default: option.is_default,
+                    })
+                    .eq('id', option.id)
+                    .eq('product_id', productId)
+                if (updateSizeError) throw updateSizeError
+                continue
+            }
+
+            const { error: insertSizeError } = await adminSupabase.from('product_size_options').insert({
+                product_id: productId,
+                name: option.name,
+                slug: option.slug,
+                price_mode: option.price_mode,
+                price_value: option.price_value,
+                is_active: option.is_active,
+                sort_order: option.sort_order,
+                is_default: option.is_default,
+            })
+            if (insertSizeError) throw insertSizeError
         }
     }
 
@@ -446,6 +596,8 @@ export async function upsertProductDomainAction(
             p_description: input.description?.trim() ? input.description.trim() : null,
             p_category_id: input.categoryId,
             p_size: input.size?.trim() ? input.size.trim() : null,
+            p_has_size_variants: input.hasSizeVariants === true,
+            p_size_options: normalizeSizeOptions(input.sizeOptions),
             p_base_price: input.basePrice,
             p_is_active: input.isActive,
             p_is_featured: input.isFeatured,
@@ -485,6 +637,8 @@ export async function upsertProductDomainAction(
                 variantsInserted: Number(row.variants_inserted || 0),
                 variantConfigTouched: input.activeVariantIds !== undefined && input.activeVariantIds !== null,
                 variantPricingTouched: input.variantPriceOverrides !== undefined && input.variantPriceOverrides !== null,
+                sizeConfigTouched: input.sizeOptions !== undefined && input.sizeOptions !== null,
+                hasSizeVariants: input.hasSizeVariants === true,
                 usedFallback,
             },
         })
@@ -507,6 +661,7 @@ export async function upsertProductDomainAction(
             payload: {
                 hasVariantConfig: input.activeVariantIds !== undefined && input.activeVariantIds !== null,
                 hasVariantPricing: input.variantPriceOverrides !== undefined && input.variantPriceOverrides !== null,
+                hasSizeConfig: input.sizeOptions !== undefined && input.sizeOptions !== null,
             },
         })
         return { success: false, error: message }

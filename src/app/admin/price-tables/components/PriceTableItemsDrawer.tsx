@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Search, Loader2, Save, Tag, Download, Upload, CheckCheck, Filter, X, ChevronDown } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CheckCheck, Download, Loader2, Save, Search, Tag, Upload, X } from 'lucide-react'
 import {
     Sheet,
     SheetContent,
-    SheetHeader,
-    SheetTitle,
     SheetDescription,
     SheetFooter,
+    SheetHeader,
+    SheetTitle,
 } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -23,202 +23,272 @@ interface PriceTableItemsDrawerProps {
 }
 
 type VariantWithRelations = ProductVariant & {
-    product: { name: string, base_price: number }
-    fabric: { name: string, price_modifier: number }
+    product: {
+        id: string
+        name: string
+        base_price: number
+        has_size_variants?: boolean
+        size?: string | null
+    }
+    fabric: { name: string; price_modifier: number }
     fabric_color: { name: string }
 }
 
-type FilterMode = 'all' | 'overrides' | 'no-override'
+type FilterMode = 'all' | 'overrides' | 'no-override' | 'size-aware'
+
+const FILTER_OPTIONS: Array<{ key: FilterMode; label: string }> = [
+    { key: 'all', label: 'Todos' },
+    { key: 'overrides', label: 'Com excecao' },
+    { key: 'no-override', label: 'Sem excecao' },
+    { key: 'size-aware', label: 'Com tamanhos' },
+]
+
+type ProductSizeMeta = {
+    hasSizeVariants: boolean
+    activeSizeOptions: number
+    hasAbsoluteSizePrice: boolean
+    legacySizeLabel: string | null
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+    if (error instanceof Error && error.message) return error.message
+    if (typeof error === 'object' && error && 'message' in error) {
+        const message = (error as { message?: unknown }).message
+        if (typeof message === 'string' && message.trim()) return message
+    }
+    return fallback
+}
+
+function isMissingSizeTableError(error: unknown) {
+    const message = getErrorMessage(error, '').toLowerCase()
+    return message.includes('product_size_options') && message.includes('does not exist')
+}
 
 export function PriceTableItemsDrawer({ table, isOpen, onClose }: PriceTableItemsDrawerProps) {
     const [variants, setVariants] = useState<VariantWithRelations[]>([])
     const [tableItems, setTableItems] = useState<Record<string, PriceTableItem>>({})
-
-    // UI State
+    const [productSizeMetaMap, setProductSizeMetaMap] = useState<Record<string, ProductSizeMeta>>({})
     const [search, setSearch] = useState('')
     const [loading, setLoading] = useState(false)
     const [savingId, setSavingId] = useState<string | null>(null)
     const [savingAll, setSavingAll] = useState(false)
     const [filterMode, setFilterMode] = useState<FilterMode>('all')
-
-    // Local price inputs keyed by variant_id
     const [priceInputs, setPriceInputs] = useState<Record<string, string>>({})
-
     const fileInputRef = useRef<HTMLInputElement>(null)
 
-    useEffect(() => {
-        if (isOpen && table) {
-            loadData()
-        } else {
-            setSearch('')
-            setVariants([])
-            setTableItems({})
-            setPriceInputs({})
-            setFilterMode('all')
-        }
-    }, [isOpen, table])
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         if (!table) return
         setLoading(true)
         const supabase = createClient()
 
         try {
-            const { data: vData, error: vError } = await supabase
+            const { data: variantsData, error: variantsError } = await supabase
                 .from('product_variants')
                 .select(`
                     *,
-                    product:products(name, base_price),
+                    product:products(id, name, base_price, has_size_variants, size),
                     fabric:fabrics(name, price_modifier),
                     fabric_color:fabric_colors!product_variants_fabric_color_fk(name)
                 `)
                 .eq('is_active', true)
                 .order('created_at', { ascending: false })
 
-            if (vError) throw vError
+            if (variantsError) throw variantsError
 
-            const { data: tData, error: tError } = await supabase
+            const { data: tableItemsData, error: tableItemsError } = await supabase
                 .from('price_table_items')
                 .select('*')
                 .eq('price_table_id', table.id)
+            if (tableItemsError) throw tableItemsError
 
-            if (tError) throw tError
-
+            const castVariants = (variantsData as VariantWithRelations[]) || []
             const itemsMap: Record<string, PriceTableItem> = {}
             const inputsMap: Record<string, string> = {}
-
-            tData?.forEach(item => {
+            tableItemsData?.forEach((item) => {
                 itemsMap[item.product_variant_id] = item
                 inputsMap[item.product_variant_id] = item.custom_price.toString()
             })
 
-            setVariants(vData as unknown as VariantWithRelations[])
+            const sizeMetaMap: Record<string, ProductSizeMeta> = {}
+            castVariants.forEach((variant) => {
+                sizeMetaMap[variant.product.id] = {
+                    hasSizeVariants: Boolean(variant.product.has_size_variants),
+                    activeSizeOptions: 0,
+                    hasAbsoluteSizePrice: false,
+                    legacySizeLabel: variant.product.size || null,
+                }
+            })
+
+            const productIds = Array.from(new Set(castVariants.map((variant) => variant.product.id)))
+            if (productIds.length > 0) {
+                const { data: sizeRows, error: sizeError } = await supabase
+                    .from('product_size_options')
+                    .select('product_id, is_active, price_mode')
+                    .in('product_id', productIds)
+
+                if (sizeError && !isMissingSizeTableError(sizeError)) throw sizeError
+                sizeRows?.forEach((row) => {
+                    const previous = sizeMetaMap[row.product_id]
+                    if (!previous) return
+                    sizeMetaMap[row.product_id] = {
+                        ...previous,
+                        activeSizeOptions: previous.activeSizeOptions + (row.is_active ? 1 : 0),
+                        hasAbsoluteSizePrice: previous.hasAbsoluteSizePrice || row.price_mode === 'absolute',
+                    }
+                })
+            }
+
+            setVariants(castVariants)
             setTableItems(itemsMap)
             setPriceInputs(inputsMap)
-        } catch (err: any) {
-            console.error(err)
-            toast.error('Erro ao carregar os itens desta tabela.')
+            setProductSizeMetaMap(sizeMetaMap)
+        } catch (error: unknown) {
+            console.error(error)
+            toast.error(getErrorMessage(error, 'Erro ao carregar os itens desta tabela.'))
         } finally {
             setLoading(false)
         }
-    }
+    }, [table])
 
-    // --- Computed Data ---
+    useEffect(() => {
+        if (isOpen && table) {
+            void loadData()
+            return
+        }
+
+        setSearch('')
+        setVariants([])
+        setTableItems({})
+        setProductSizeMetaMap({})
+        setPriceInputs({})
+        setFilterMode('all')
+    }, [isOpen, table, loadData])
+
     const filteredVariants = useMemo(() => {
         let list = variants
-
-        // Search filter
         if (search) {
-            const q = search.toLowerCase()
-            list = list.filter(v =>
-                v.product.name.toLowerCase().includes(q) ||
-                v.fabric.name.toLowerCase().includes(q) ||
-                v.fabric_color.name.toLowerCase().includes(q)
-            )
+            const query = search.toLowerCase()
+            list = list.filter((variant) => {
+                const sizeMeta = productSizeMetaMap[variant.product.id]
+                return (
+                    variant.product.name.toLowerCase().includes(query) ||
+                    variant.fabric.name.toLowerCase().includes(query) ||
+                    variant.fabric_color.name.toLowerCase().includes(query) ||
+                    (sizeMeta?.legacySizeLabel || '').toLowerCase().includes(query)
+                )
+            })
         }
 
-        // Override filter
-        if (filterMode === 'overrides') {
-            list = list.filter(v => !!tableItems[v.id])
-        } else if (filterMode === 'no-override') {
-            list = list.filter(v => !tableItems[v.id])
+        if (filterMode === 'overrides') list = list.filter((variant) => Boolean(tableItems[variant.id]))
+        if (filterMode === 'no-override') list = list.filter((variant) => !tableItems[variant.id])
+        if (filterMode === 'size-aware') {
+            list = list.filter((variant) => Boolean(productSizeMetaMap[variant.product.id]?.hasSizeVariants))
         }
-
         return list
-    }, [variants, search, filterMode, tableItems])
+    }, [filterMode, productSizeMetaMap, search, tableItems, variants])
 
     const stats = useMemo(() => {
-        const total = variants.length
-        const withOverride = variants.filter(v => !!tableItems[v.id]).length
-        const dirtyCount = variants.filter(v => {
-            const existing = tableItems[v.id]
-            const input = priceInputs[v.id]
+        const withOverride = variants.filter((variant) => Boolean(tableItems[variant.id])).length
+        const sizeAware = variants.filter((variant) => productSizeMetaMap[variant.product.id]?.hasSizeVariants).length
+        const dirtyCount = variants.filter((variant) => {
+            const existing = tableItems[variant.id]
+            const input = priceInputs[variant.id]
             if (!existing && input) return true
             if (existing && input !== existing.custom_price.toString()) return true
             if (existing && (!input || input.trim() === '')) return true
             return false
         }).length
-        return { total, withOverride, dirtyCount }
-    }, [variants, tableItems, priceInputs])
+        return { total: variants.length, withOverride, sizeAware, dirtyCount }
+    }, [priceInputs, productSizeMetaMap, tableItems, variants])
 
-    // --- CSV Export/Import ---
     const handleExportCSV = () => {
         if (!variants.length) {
             toast.error('Nenhum produto encontrado na base de dados.')
             return
         }
 
-        const headers = ["ID Variante", "Produto", "Tecido/Cor", "Preço Fixo Customizado (Deixe vazio para herdar % global)", "Ref: Preço Visível da Tabela"]
-        let csvContent = headers.join(";") + "\n"
+        const headers = [
+            'ID Variante',
+            'Produto',
+            'Tecido/Cor',
+            'Contexto de tamanho',
+            'Preco fixo customizado',
+            'Preco de referencia',
+        ]
+        let csvContent = `${headers.join(';')}\n`
 
-        variants.forEach(v => {
+        variants.forEach((variant) => {
+            const sizeMeta = productSizeMetaMap[variant.product.id]
+            const sizeContext = sizeMeta?.hasSizeVariants
+                ? `${sizeMeta.activeSizeOptions} tamanhos`
+                : sizeMeta?.legacySizeLabel || 'Sem tamanho'
             const standardTablePrice = calculateProductPrice({
-                basePrice: v.product.base_price,
-                fabricModifier: v.fabric.price_modifier,
-                variantPriceOverride: v.price_override,
+                basePrice: variant.product.base_price,
+                fabricModifier: variant.fabric.price_modifier,
+                variantPriceOverride: variant.price_override,
                 priceTable: { discountPercentage: table ? table.discount_percentage : 0, overrides: {} },
             }).finalPrice
-            const rawPrice = priceInputs[v.id] || ''
+            const rawPrice = priceInputs[variant.id] || ''
 
             const row = [
-                v.id,
-                `"${v.product.name}"`,
-                `"${v.fabric.name} / ${v.fabric_color.name}"`,
+                variant.id,
+                `"${variant.product.name}"`,
+                `"${variant.fabric.name} / ${variant.fabric_color.name}"`,
+                `"${sizeContext}"`,
                 rawPrice.toString().replace('.', ','),
-                standardTablePrice.toFixed(2).replace('.', ',')
+                standardTablePrice.toFixed(2).replace('.', ','),
             ]
-            csvContent += row.join(";") + "\n"
+
+            csvContent += `${row.join(';')}\n`
         })
 
-        const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' })
+        const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' })
         const url = URL.createObjectURL(blob)
-        const link = document.createElement("a")
-        link.setAttribute("href", url)
-        link.setAttribute("download", `tabela_precos_${table?.name}_${new Date().toISOString().split('T')[0]}.csv`)
+        const link = document.createElement('a')
+        link.setAttribute('href', url)
+        link.setAttribute('download', `tabela_precos_${table?.name}_${new Date().toISOString().split('T')[0]}.csv`)
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
-        toast.success('Planilha Baixada! Mantenha a coluna ID Variante inalterada.')
+        toast.success('Planilha exportada com sucesso.')
     }
 
-    const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
+    const handleImportCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
         if (!file) return
 
         const reader = new FileReader()
-        reader.onload = async (event) => {
+        reader.onload = (loadEvent) => {
             try {
-                const text = event.target?.result as string
+                const text = (loadEvent.target?.result as string) || ''
                 const lines = text.split('\n')
                 if (lines.length < 2) throw new Error('Planilha vazia ou em formato incorreto')
 
                 const newPrices: Record<string, string> = {}
                 let countChanges = 0
 
-                for (let i = 1; i < lines.length; i++) {
-                    const row = lines[i].split(';')
-                    if (row.length < 4) continue
+                for (let index = 1; index < lines.length; index += 1) {
+                    const row = lines[index].split(';')
+                    if (row.length < 5) continue
 
                     const variantId = row[0].replace(/"/g, '').trim()
-                    const customPriceStr = row[3].replace(/"/g, '').trim()
+                    const customPriceStr = row[4].replace(/"/g, '').trim()
 
                     if (variantId.length >= 32) {
                         if (customPriceStr !== '') {
-                            const normalizedNumber = customPriceStr.replace(',', '.')
-                            newPrices[variantId] = normalizedNumber
-                            countChanges++
+                            newPrices[variantId] = customPriceStr.replace(',', '.')
+                            countChanges += 1
                         } else {
                             newPrices[variantId] = ''
                         }
                     }
                 }
 
-                setPriceInputs(prev => ({ ...prev, ...newPrices }))
-                toast.success(`Planilha Lida! ${countChanges} preço(s) modificado(s). Clique em "Salvar Tudo" para persistir.`)
-
-            } catch (err) {
-                console.error(err)
-                toast.error('O Excel importado está incorreto. Use a Planilha baixada pelo sistema como modelo.')
+                setPriceInputs((previous) => ({ ...previous, ...newPrices }))
+                toast.success(`Planilha lida. ${countChanges} preco(s) preparado(s) para salvar.`)
+            } catch (error) {
+                console.error(error)
+                toast.error('Arquivo CSV invalido. Use o modelo exportado pelo sistema.')
             } finally {
                 if (fileInputRef.current) fileInputRef.current.value = ''
             }
@@ -226,15 +296,11 @@ export function PriceTableItemsDrawer({ table, isOpen, onClose }: PriceTableItem
         reader.readAsText(file)
     }
 
-    // --- Save Logic ---
-    const handlePriceChange = (variantId: string, val: string) => {
-        setPriceInputs(prev => ({ ...prev, [variantId]: val }))
-    }
-
-    const handleSaveItem = async (variantId: string) => {
+    const saveItem = async (variantId: string, options?: { silent?: boolean }) => {
         if (!table) return
-        setSavingId(variantId)
-
+        if (!options?.silent) {
+            setSavingId(variantId)
+        }
         const supabase = createClient()
         const rawValue = priceInputs[variantId]
 
@@ -242,323 +308,274 @@ export function PriceTableItemsDrawer({ table, isOpen, onClose }: PriceTableItem
             if (!rawValue || rawValue.trim() === '') {
                 const existingItem = tableItems[variantId]
                 if (existingItem) {
-                    const { error } = await supabase
-                        .from('price_table_items')
-                        .delete()
-                        .eq('id', existingItem.id)
-
+                    const { error } = await supabase.from('price_table_items').delete().eq('id', existingItem.id)
                     if (error) throw error
-
-                    setTableItems(prev => {
-                        const copy = { ...prev }
-                        delete copy[variantId]
-                        return copy
+                    setTableItems((previous) => {
+                        const next = { ...previous }
+                        delete next[variantId]
+                        return next
                     })
-                    toast.success('Exceção removida!')
                 }
-                setSavingId(null)
+                if (!options?.silent) {
+                    toast.success('Excecao atualizada.')
+                }
                 return
             }
 
-            const customPrice = parseFloat(rawValue.replace(',', '.'))
-            if (isNaN(customPrice) || customPrice < 0) {
-                toast.error('Preço inválido')
-                setSavingId(null)
+            const customPrice = Number.parseFloat(rawValue.replace(',', '.'))
+            if (Number.isNaN(customPrice) || customPrice < 0) {
+                toast.error('Preco invalido.')
                 return
             }
 
             const existingItem = tableItems[variantId]
-
-            if (existingItem) {
-                const { error, data } = await supabase
-                    .from('price_table_items')
-                    .update({ custom_price: customPrice })
-                    .eq('id', existingItem.id)
-                    .select()
-                    .single()
-
-                if (error) throw error
-                setTableItems(prev => ({ ...prev, [variantId]: data }))
-            } else {
-                const { error, data } = await supabase
-                    .from('price_table_items')
-                    .insert({
-                        price_table_id: table.id,
-                        product_variant_id: variantId,
-                        custom_price: customPrice
-                    })
-                    .select()
-                    .single()
-
-                if (error) throw error
-                setTableItems(prev => ({ ...prev, [variantId]: data }))
+            const payload = { price_table_id: table.id, product_variant_id: variantId, custom_price: customPrice }
+            const query = existingItem
+                ? supabase.from('price_table_items').update({ custom_price: customPrice }).eq('id', existingItem.id)
+                : supabase.from('price_table_items').insert(payload)
+            const { data, error } = await query.select().single()
+            if (error) throw error
+            setTableItems((previous) => ({ ...previous, [variantId]: data }))
+            if (!options?.silent) {
+                toast.success('Preco salvo.')
             }
-
-            toast.success('Preço salvo!')
-        } catch (err: any) {
-            console.error(err)
-            toast.error('Erro ao salvar o item.')
+        } catch (error: unknown) {
+            if (!options?.silent) {
+                toast.error(getErrorMessage(error, 'Erro ao salvar o item.'))
+            }
+            throw error
         } finally {
-            setSavingId(null)
-        }
-    }
-
-    const handleSaveAll = async () => {
-        if (!table) return
-        setSavingAll(true)
-
-        const supabase = createClient()
-        let saved = 0
-        let errors = 0
-
-        for (const variant of variants) {
-            const rawValue = priceInputs[variant.id]
-            const existingItem = tableItems[variant.id]
-
-            // Check if dirty
-            if (!existingItem && (!rawValue || rawValue.trim() === '')) continue
-            if (existingItem && rawValue === existingItem.custom_price.toString()) continue
-
-            try {
-                if (!rawValue || rawValue.trim() === '') {
-                    if (existingItem) {
-                        const { error } = await supabase
-                            .from('price_table_items')
-                            .delete()
-                            .eq('id', existingItem.id)
-                        if (error) throw error
-                        setTableItems(prev => {
-                            const copy = { ...prev }
-                            delete copy[variant.id]
-                            return copy
-                        })
-                        saved++
-                    }
-                    continue
-                }
-
-                const customPrice = parseFloat(rawValue.replace(',', '.'))
-                if (isNaN(customPrice) || customPrice < 0) continue
-
-                if (existingItem) {
-                    const { error, data } = await supabase
-                        .from('price_table_items')
-                        .update({ custom_price: customPrice })
-                        .eq('id', existingItem.id)
-                        .select()
-                        .single()
-                    if (error) throw error
-                    setTableItems(prev => ({ ...prev, [variant.id]: data }))
-                } else {
-                    const { error, data } = await supabase
-                        .from('price_table_items')
-                        .insert({
-                            price_table_id: table.id,
-                            product_variant_id: variant.id,
-                            custom_price: customPrice
-                        })
-                        .select()
-                        .single()
-                    if (error) throw error
-                    setTableItems(prev => ({ ...prev, [variant.id]: data }))
-                }
-                saved++
-            } catch {
-                errors++
+            if (!options?.silent) {
+                setSavingId(null)
             }
         }
-
-        setSavingAll(false)
-        if (errors > 0) {
-            toast.error(`${errors} item(ns) falharam ao salvar.`)
-        } else {
-            toast.success(`${saved} exceção(ões) salva(s) com sucesso!`)
-        }
     }
 
-    // --- Helpers ---
-    const calcStdPrice = (variant: VariantWithRelations) => {
-        return calculateProductPrice({
+    const saveAll = async () => {
+        setSavingAll(true)
+        let savedCount = 0
+        let errorCount = 0
+        for (const variant of variants) {
+            const existingItem = tableItems[variant.id]
+            const input = priceInputs[variant.id]
+            if (!existingItem && (!input || input.trim() === '')) continue
+            if (existingItem && input === existingItem.custom_price.toString()) continue
+            try {
+                await saveItem(variant.id, { silent: true })
+                savedCount += 1
+            } catch {
+                errorCount += 1
+            }
+        }
+        setSavingAll(false)
+        if (errorCount > 0) {
+            toast.error(`${errorCount} item(ns) falharam ao salvar.`)
+            return
+        }
+        toast.success(`${savedCount} alteracao(oes) salvas com sucesso.`)
+    }
+
+    const calcReferencePrice = (variant: VariantWithRelations) =>
+        calculateProductPrice({
             basePrice: variant.product.base_price,
             fabricModifier: variant.fabric.price_modifier,
             variantPriceOverride: variant.price_override,
             priceTable: { discountPercentage: table ? table.discount_percentage : 0, overrides: {} },
         }).finalPrice
-    }
 
     return (
         <Sheet open={isOpen} onOpenChange={onClose}>
-            <SheetContent side="right" className="w-full sm:max-w-2xl! md:max-w-4xl! lg:max-w-[70vw]! xl:max-w-[75vw]! flex flex-col p-0 gap-0">
-                {/* Header */}
-                <div className="px-5 pt-5 pb-4 border-b bg-white">
-                    <SheetHeader className="p-0">
-                        <SheetTitle className="text-lg font-heading text-navy flex items-center gap-2">
-                            <Tag className="h-5 w-5 text-bronze" />
-                            Exceções de Preço: {table?.name}
+            <SheetContent
+                side="right"
+                className="flex h-full w-full flex-col gap-0 bg-slate-50/40 p-0 sm:max-w-2xl md:max-w-4xl lg:max-w-[72vw]"
+            >
+                <div className="border-b border-slate-200/80 bg-white/95 px-5 pb-4 pt-5 backdrop-blur">
+                    <SheetHeader className="space-y-1 p-0">
+                        <SheetTitle className="flex items-center gap-2 text-base font-heading text-navy md:text-lg">
+                            <Tag className="h-4 w-4 text-bronze" />
+                            Excecoes de preco: {table?.name}
                         </SheetTitle>
-                        <SheetDescription className="text-xs">
-                            Defina um preço fixo (R$) para sobrepor o desconto global de {table?.discount_percentage}%.
-                            Campos vazios herdam o desconto automaticamente.
+                        <SheetDescription className="text-[11px] leading-relaxed text-muted-foreground md:text-xs">
+                            Camadas ativas: Cor - Tamanho - Tabela - Base. Produtos com tamanhos resolvem preco
+                            final no checkout.
                         </SheetDescription>
                     </SheetHeader>
 
-                    {/* Toolbar */}
-                    <div className="flex flex-wrap items-center gap-2 mt-3">
-                        <div className="relative flex-1 min-w-[200px]">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <div className="relative min-w-[220px] flex-1">
+                            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                             <Input
-                                placeholder="Buscar produto, tecido ou cor..."
+                                placeholder="Buscar produto, tecido, cor ou tamanho..."
                                 value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                className="pl-9 h-9 text-sm bg-slate-50"
+                                onChange={(event) => setSearch(event.target.value)}
+                                className="h-8 bg-white pl-8 pr-8 text-xs md:text-sm"
                             />
                             {search && (
-                                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                                <button
+                                    type="button"
+                                    onClick={() => setSearch('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                >
                                     <X className="h-3.5 w-3.5" />
                                 </button>
                             )}
                         </div>
 
-                        {/* Filter pills */}
-                        <div className="flex items-center gap-1">
-                            {([
-                                { key: 'all', label: 'Todos' },
-                                { key: 'overrides', label: 'Com Exceção' },
-                                { key: 'no-override', label: 'Sem Exceção' },
-                            ] as { key: FilterMode, label: string }[]).map(f => (
-                                <button
-                                    key={f.key}
-                                    onClick={() => setFilterMode(f.key)}
-                                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${filterMode === f.key
-                                        ? 'bg-navy text-white border-navy'
-                                        : 'bg-white text-muted-foreground border-slate-200 hover:border-slate-300'
-                                        }`}
-                                >
-                                    {f.label}
-                                    {f.key === 'overrides' && stats.withOverride > 0 && (
-                                        <span className="ml-1 opacity-80">({stats.withOverride})</span>
-                                    )}
-                                </button>
-                            ))}
-                        </div>
+                        {FILTER_OPTIONS.map((filter) => (
+                            <button
+                                key={filter.key}
+                                type="button"
+                                onClick={() => setFilterMode(filter.key)}
+                                className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors md:text-xs ${
+                                    filterMode === filter.key
+                                        ? 'border-navy bg-navy text-white'
+                                        : 'border-slate-200 bg-white text-muted-foreground hover:border-slate-300'
+                                }`}
+                            >
+                                {filter.label}
+                            </button>
+                        ))}
 
-                        <div className="flex items-center gap-1 ml-auto">
-                            <input
-                                type="file"
-                                accept=".csv"
-                                className="hidden"
-                                ref={fileInputRef}
-                                onChange={handleImportCSV}
-                            />
-                            <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={() => fileInputRef.current?.click()}>
-                                <Upload className="h-3.5 w-3.5" /> Importar
-                            </Button>
-                            <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={handleExportCSV}>
-                                <Download className="h-3.5 w-3.5" /> Exportar
-                            </Button>
-                        </div>
+                        <input
+                            type="file"
+                            accept=".csv"
+                            className="hidden"
+                            ref={fileInputRef}
+                            onChange={handleImportCSV}
+                        />
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1.5 bg-white px-3 text-[11px] md:text-xs"
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            <Upload className="h-3.5 w-3.5" />
+                            Importar
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1.5 bg-white px-3 text-[11px] md:text-xs"
+                            onClick={handleExportCSV}
+                        >
+                            <Download className="h-3.5 w-3.5" />
+                            Exportar
+                        </Button>
                     </div>
                 </div>
 
-                {/* Table Content */}
                 <div className="flex-1 overflow-y-auto">
                     {loading ? (
                         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-                            <Loader2 className="h-8 w-8 animate-spin mb-4" />
-                            <p className="text-sm">Carregando variações do catálogo...</p>
+                            <Loader2 className="mb-3 h-7 w-7 animate-spin" />
+                            <p className="text-sm">Carregando variacoes do catalogo...</p>
                         </div>
                     ) : filteredVariants.length === 0 ? (
-                        <div className="text-center py-20">
-                            <p className="text-muted-foreground text-sm">Nenhuma variação encontrada.</p>
-                            {(search || filterMode !== 'all') && (
-                                <Button variant="link" size="sm" className="mt-2" onClick={() => { setSearch(''); setFilterMode('all') }}>
-                                    Limpar filtros
-                                </Button>
-                            )}
+                        <div className="px-5 py-14 text-center text-sm text-muted-foreground">
+                            Nenhuma variacao encontrada para os filtros aplicados.
                         </div>
                     ) : (
                         <table className="w-full text-sm">
-                            <thead className="sticky top-0 z-10 bg-slate-100 border-b">
-                                <tr className="text-xs text-muted-foreground uppercase tracking-wider">
-                                    <th className="text-left py-2.5 px-4 font-medium">Produto</th>
-                                    <th className="text-left py-2.5 px-3 font-medium hidden md:table-cell">Tecido</th>
-                                    <th className="text-left py-2.5 px-3 font-medium hidden lg:table-cell">Cor</th>
-                                    <th className="text-right py-2.5 px-3 font-medium whitespace-nowrap">Preço Padrão</th>
-                                    <th className="text-center py-2.5 px-3 font-medium whitespace-nowrap min-w-[160px]">Preço Fixo (R$)</th>
-                                    <th className="text-center py-2.5 px-3 font-medium w-[52px]"></th>
+                            <thead className="sticky top-0 z-10 border-b bg-slate-100/95 backdrop-blur">
+                                <tr className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                                    <th className="px-4 py-2.5 text-left font-medium">Produto</th>
+                                    <th className="hidden px-3 py-2.5 text-left font-medium md:table-cell">
+                                        Tecido
+                                    </th>
+                                    <th className="hidden px-3 py-2.5 text-left font-medium lg:table-cell">Cor</th>
+                                    <th className="whitespace-nowrap px-3 py-2.5 text-right font-medium">
+                                        Preco referencia
+                                    </th>
+                                    <th className="min-w-[170px] whitespace-nowrap px-3 py-2.5 text-center font-medium">
+                                        Preco fixo (R$)
+                                    </th>
+                                    <th className="w-[52px] px-3 py-2.5 text-center font-medium" />
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {filteredVariants.map(variant => {
-                                    const hasOverride = !!tableItems[variant.id]
+                            <tbody className="divide-y divide-slate-100 bg-white/70">
+                                {filteredVariants.map((variant) => {
+                                    const hasOverride = Boolean(tableItems[variant.id])
                                     const isSavingThis = savingId === variant.id
-                                    const standardTablePrice = calcStdPrice(variant)
+                                    const sizeMeta = productSizeMetaMap[variant.product.id]
 
                                     return (
                                         <tr
                                             key={variant.id}
-                                            className={`group transition-colors hover:bg-slate-50/80 ${hasOverride ? 'bg-amber-50/40' : ''}`}
+                                            className={`group transition-colors hover:bg-slate-50 ${
+                                                hasOverride ? 'bg-amber-50/35' : ''
+                                            }`}
                                         >
-                                            {/* Product Name */}
-                                            <td className="py-2.5 px-4">
+                                            <td className="px-4 py-2.5">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="font-medium text-navy truncate max-w-[200px] lg:max-w-[280px]">
+                                                    <span className="max-w-[220px] truncate font-medium text-navy lg:max-w-[290px]">
                                                         {variant.product.name}
                                                     </span>
                                                     {hasOverride && (
-                                                        <Badge className="bg-bronze/15 text-bronze text-[10px] px-1.5 py-0 border-0 shrink-0">
+                                                        <Badge className="shrink-0 border-0 bg-bronze/15 px-1.5 py-0 text-[10px] text-bronze">
                                                             Fixo
                                                         </Badge>
                                                     )}
+                                                    {sizeMeta?.hasSizeVariants && (
+                                                        <Badge className="shrink-0 border border-blue-200 bg-blue-50 px-1.5 py-0 text-[10px] text-blue-700">
+                                                            {sizeMeta.activeSizeOptions} tamanhos
+                                                        </Badge>
+                                                    )}
                                                 </div>
-                                                {/* Mobile: show fabric/color inline */}
-                                                <div className="md:hidden text-xs text-muted-foreground mt-0.5">
-                                                    {variant.fabric.name} · {variant.fabric_color.name}
+                                                <div className="mt-0.5 text-xs text-muted-foreground md:hidden">
+                                                    {variant.fabric.name} - {variant.fabric_color.name}
+                                                    {sizeMeta?.legacySizeLabel
+                                                        ? ` - ${sizeMeta.legacySizeLabel}`
+                                                        : ''}
                                                 </div>
                                             </td>
-
-                                            {/* Fabric */}
-                                            <td className="py-2.5 px-3 text-muted-foreground hidden md:table-cell">
+                                            <td className="hidden px-3 py-2.5 text-muted-foreground md:table-cell">
                                                 {variant.fabric.name}
                                             </td>
-
-                                            {/* Color */}
-                                            <td className="py-2.5 px-3 text-muted-foreground hidden lg:table-cell">
+                                            <td className="hidden px-3 py-2.5 text-muted-foreground lg:table-cell">
                                                 {variant.fabric_color.name}
                                             </td>
-
-                                            {/* Standard Price */}
-                                            <td className="py-2.5 px-3 text-right text-muted-foreground tabular-nums">
-                                                <span className={hasOverride ? 'line-through opacity-50' : ''}>
-                                                    R$ {standardTablePrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                </span>
+                                            <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                                                R${' '}
+                                                {calcReferencePrice(variant).toLocaleString('pt-BR', {
+                                                    minimumFractionDigits: 2,
+                                                })}
                                             </td>
-
-                                            {/* Custom Price Input */}
-                                            <td className="py-1.5 px-3">
-                                                <div className="relative">
-                                                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-xs font-medium">R$</span>
-                                                    <Input
-                                                        value={priceInputs[variant.id] || ''}
-                                                        onChange={(e) => handlePriceChange(variant.id, e.target.value)}
-                                                        placeholder="—"
-                                                        type="number"
-                                                        step="0.01"
-                                                        className={`pl-8 h-8 text-sm tabular-nums ${hasOverride ? 'font-semibold text-bronze border-bronze/30 focus-visible:ring-bronze' : 'border-slate-200'}`}
-                                                    />
-                                                </div>
+                                            <td className="px-3 py-1.5">
+                                                <Input
+                                                    value={priceInputs[variant.id] || ''}
+                                                    onChange={(event) =>
+                                                        setPriceInputs((previous) => ({
+                                                            ...previous,
+                                                            [variant.id]: event.target.value,
+                                                        }))
+                                                    }
+                                                    placeholder="--"
+                                                    type="number"
+                                                    step="0.01"
+                                                    className={`h-8 border-slate-200 text-sm tabular-nums ${
+                                                        hasOverride
+                                                            ? 'border-bronze/30 font-semibold text-bronze focus-visible:ring-bronze'
+                                                            : ''
+                                                    }`}
+                                                />
                                             </td>
-
-                                            {/* Save Button */}
-                                            <td className="py-1.5 px-3 text-center">
+                                            <td className="px-3 py-1.5 text-center">
                                                 <Button
                                                     size="icon"
                                                     variant="ghost"
-                                                    onClick={() => handleSaveItem(variant.id)}
+                                                    onClick={() => void saveItem(variant.id)}
                                                     disabled={isSavingThis}
-                                                    className={`h-8 w-8 ${hasOverride ? 'text-bronze hover:text-bronze hover:bg-bronze/10' : 'text-muted-foreground hover:text-foreground'}`}
+                                                    className={`h-8 w-8 ${
+                                                        hasOverride
+                                                            ? 'text-bronze hover:bg-bronze/10 hover:text-bronze'
+                                                            : 'text-muted-foreground hover:text-foreground'
+                                                    }`}
                                                 >
-                                                    {isSavingThis ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                                                    {isSavingThis ? (
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : (
+                                                        <Save className="h-3.5 w-3.5" />
+                                                    )}
                                                 </Button>
                                             </td>
                                         </tr>
@@ -569,26 +586,31 @@ export function PriceTableItemsDrawer({ table, isOpen, onClose }: PriceTableItem
                     )}
                 </div>
 
-                {/* Footer */}
-                <SheetFooter className="flex-row items-center justify-between gap-4 px-5 py-3 border-t bg-white shrink-0 mt-0">
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                        <span><strong className="text-foreground">{stats.total}</strong> variações</span>
+                <SheetFooter className="flex-row items-center justify-between gap-4 border-t border-slate-200/80 bg-white/95 px-5 py-3">
+                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground md:text-xs">
+                        <span>
+                            <strong className="text-foreground">{stats.total}</strong> variacoes
+                        </span>
                         <span className="h-3 w-px bg-slate-200" />
-                        <span><strong className="text-bronze">{stats.withOverride}</strong> com exceção</span>
-                        {stats.dirtyCount > 0 && (
-                            <>
-                                <span className="h-3 w-px bg-slate-200" />
-                                <span className="text-amber-600"><strong>{stats.dirtyCount}</strong> não salvas</span>
-                            </>
-                        )}
+                        <span>
+                            <strong className="text-bronze">{stats.withOverride}</strong> com excecao
+                        </span>
+                        <span className="h-3 w-px bg-slate-200" />
+                        <span>
+                            <strong className="text-blue-700">{stats.sizeAware}</strong> com tamanhos
+                        </span>
                     </div>
                     <Button
-                        onClick={handleSaveAll}
+                        onClick={() => void saveAll()}
                         disabled={savingAll || stats.dirtyCount === 0}
-                        className="gradient-navy border-0 text-white gap-2 h-9 px-5"
+                        className="gradient-navy h-9 gap-2 border-0 px-4 text-xs text-white md:px-5 md:text-sm"
                     >
-                        {savingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCheck className="h-4 w-4" />}
-                        Salvar Tudo {stats.dirtyCount > 0 && `(${stats.dirtyCount})`}
+                        {savingAll ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <CheckCheck className="h-4 w-4" />
+                        )}
+                        Salvar tudo {stats.dirtyCount > 0 && `(${stats.dirtyCount})`}
                     </Button>
                 </SheetFooter>
             </SheetContent>

@@ -1,4 +1,4 @@
-import type { Fabric, FabricColor, ProductVariant } from '@/lib/types'
+﻿import type { Fabric, FabricColor, ProductVariant, ProductSizeOption } from '@/lib/types'
 
 export const PRODUCT_VARIANT_DETAIL_SELECT = `
     *,
@@ -14,6 +14,8 @@ export type ProductDetailVariant = ProductVariant & {
 export type ProductFabricGroup = Fabric & {
     colors: FabricColor[]
 }
+
+export type ProductDetailSizeOption = ProductSizeOption
 
 export function buildProductFabricGroups(variants: ProductDetailVariant[]): ProductFabricGroup[] {
     const fabricMap = new Map<string, ProductFabricGroup>()

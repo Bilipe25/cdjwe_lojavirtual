@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -12,6 +12,10 @@ import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import Image from 'next/image'
 import { toast } from 'sonner'
+
+function getCartKey(item: CartItem) {
+    return item.cartKey || `${item.variantId}::${item.sizeOptionId || 'legacy'}`
+}
 
 export function CartDrawer() {
     const router = useRouter()
@@ -40,11 +44,11 @@ export function CartDrawer() {
     const count = totalItems()
 
     const handleRemove = (item: CartItem) => {
-        removeItem(item.variantId)
-        toast.success(`Item removido!`, {
+        removeItem(getCartKey(item))
+        toast.success('Item removido!', {
             action: {
                 label: 'Desfazer',
-                onClick: () => addItem(item)
+                onClick: () => addItem(item),
             },
             duration: 4000,
         })
@@ -53,7 +57,6 @@ export function CartDrawer() {
     return (
         <Sheet open={isOpen} onOpenChange={(open) => !open && closeCart()}>
             <SheetContent className="data-[side=right]:w-[90vw] sm:max-w-md p-0 flex flex-col gap-0 border-l border-border/30 shadow-2xl">
-                {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
                     <div className="flex items-center gap-2">
                         <ShoppingBag className="h-5 w-5 text-primary" />
@@ -61,12 +64,13 @@ export function CartDrawer() {
                             Carrinho
                         </SheetTitle>
                         {count > 0 && (
-                            <span className="text-sm text-muted-foreground">({count} {count === 1 ? 'item' : 'itens'})</span>
+                            <span className="text-sm text-muted-foreground">
+                                ({count} {count === 1 ? 'item' : 'itens'})
+                            </span>
                         )}
                     </div>
                 </div>
 
-                {/* Items Container */}
                 {!isMounted ? (
                     <div className="flex-1 p-6 space-y-6 opacity-60 pointer-events-none">
                         {[1, 2, 3].map((n) => (
@@ -84,113 +88,109 @@ export function CartDrawer() {
                         <div className="h-24 w-24 rounded-full bg-muted flex items-center justify-center">
                             <ShoppingBag className="h-10 w-10 text-muted-foreground" />
                         </div>
-                        <p className="text-muted-foreground text-center">
-                            Seu carrinho está vazio
-                        </p>
+                        <p className="text-muted-foreground text-center">Seu carrinho esta vazio</p>
                         <Button onClick={() => { closeCart(); router.push('/catalog') }} className="gradient-bronze border-0 text-white">
-                            Ver Catálogo
+                            Ver catalogo
                         </Button>
                     </div>
                 ) : (
                     <>
-                        {/* Scrollable Area */}
                         <div className="flex-1 min-h-0 overflow-hidden">
                             <ScrollArea className="h-full px-4 sm:px-6">
                                 <AnimatePresence>
-                                    {items.map((item) => (
-                                        <motion.div
-                                            key={item.variantId}
-                                            layout
-                                            initial={{ opacity: 0, height: 0 }}
-                                            animate={{ opacity: 1, height: 'auto' }}
-                                            exit={{ opacity: 0, height: 0 }}
-                                            className="py-3"
-                                        >
-                                            <div className="flex gap-3 relative">
-                                                {/* Image */}
-                                                <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-md bg-muted shrink-0 overflow-hidden relative">
-                                                    {item.imageUrl ? (
-                                                        <Image
-                                                            src={item.imageUrl}
-                                                            alt={item.productName}
-                                                            fill
-                                                            className="object-cover"
-                                                        />
-                                                    ) : (
-                                                        <div className="h-full w-full flex items-center justify-center">
-                                                            <Package className="h-6 w-6 text-muted-foreground/30" />
-                                                        </div>
-                                                    )}
-                                                </div>
+                                    {items.map((item) => {
+                                        const cartKey = getCartKey(item)
 
-                                                {/* Details */}
-                                                <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                                                    <div className="pr-6">
-                                                        <h4 className="font-medium text-sm text-foreground leading-tight line-clamp-1">{item.productName}</h4>
-                                                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                                                            {item.fabricName} — {item.colorName}
-                                                        </p>
-                                                        {item.size && (
-                                                            <p className="text-[10px] text-muted-foreground mt-0.5">{item.size}</p>
+                                        return (
+                                            <motion.div
+                                                key={cartKey}
+                                                layout
+                                                initial={{ opacity: 0, height: 0 }}
+                                                animate={{ opacity: 1, height: 'auto' }}
+                                                exit={{ opacity: 0, height: 0 }}
+                                                className="py-3"
+                                            >
+                                                <div className="flex gap-3 relative">
+                                                    <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-md bg-muted shrink-0 overflow-hidden relative">
+                                                        {item.imageUrl ? (
+                                                            <Image
+                                                                src={item.imageUrl}
+                                                                alt={item.productName}
+                                                                fill
+                                                                className="object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div className="h-full w-full flex items-center justify-center">
+                                                                <Package className="h-6 w-6 text-muted-foreground/30" />
+                                                            </div>
                                                         )}
                                                     </div>
 
-                                                    <div className="flex items-center justify-between mt-2">
-                                                        <div className="flex flex-col">
-                                                            <span className="text-[10px] text-muted-foreground leading-none mb-1">
-                                                                {item.quantity}x R$ {item.unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                            </span>
-                                                            <span className="text-sm font-semibold text-gradient-bronze">
-                                                                R$ {(item.unitPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                            </span>
+                                                    <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                                                        <div className="pr-6">
+                                                            <h4 className="font-medium text-sm text-foreground leading-tight line-clamp-1">{item.productName}</h4>
+                                                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                                                                {item.fabricName} - {item.colorName}
+                                                            </p>
+                                                            {item.size && (
+                                                                <p className="text-[10px] text-muted-foreground mt-0.5">{item.size}</p>
+                                                            )}
                                                         </div>
 
-                                                        {/* Quantity Controls */}
-                                                        <div className="flex items-center gap-1 bg-muted/30 rounded-md border border-border/50 p-0.5">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-6 w-6 rounded-sm text-muted-foreground hover:text-foreground"
-                                                                onClick={() => updateQuantity(item.variantId, item.quantity - 1)}
-                                                            >
-                                                                <Minus className="h-3 w-3" />
-                                                            </Button>
-                                                            <span className="text-xs font-medium w-6 text-center tabular-nums">
-                                                                {item.quantity}
-                                                            </span>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-6 w-6 rounded-sm text-muted-foreground hover:text-foreground"
-                                                                onClick={() => updateQuantity(item.variantId, item.quantity + 1)}
-                                                            >
-                                                                <Plus className="h-3 w-3" />
-                                                            </Button>
+                                                        <div className="flex items-center justify-between mt-2">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-[10px] text-muted-foreground leading-none mb-1">
+                                                                    {item.quantity}x R$ {item.unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                                </span>
+                                                                <span className="text-sm font-semibold text-gradient-bronze">
+                                                                    R$ {(item.unitPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                                </span>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-1 bg-muted/30 rounded-md border border-border/50 p-0.5">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-6 w-6 rounded-sm text-muted-foreground hover:text-foreground"
+                                                                    onClick={() => updateQuantity(cartKey, item.quantity - 1)}
+                                                                >
+                                                                    <Minus className="h-3 w-3" />
+                                                                </Button>
+                                                                <span className="text-xs font-medium w-6 text-center tabular-nums">
+                                                                    {item.quantity}
+                                                                </span>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-6 w-6 rounded-sm text-muted-foreground hover:text-foreground"
+                                                                    onClick={() => updateQuantity(cartKey, item.quantity + 1)}
+                                                                >
+                                                                    <Plus className="h-3 w-3" />
+                                                                </Button>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
 
-                                                {/* Remove Button */}
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="absolute top-0 right-0 h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-sm"
-                                                    onClick={() => handleRemove(item)}
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </Button>
-                                            </div>
-                                            <Separator className="mt-3" />
-                                        </motion.div>
-                                    ))}
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="absolute top-0 right-0 h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-sm"
+                                                        onClick={() => handleRemove(item)}
+                                                    >
+                                                        <Trash2 className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                </div>
+                                                <Separator className="mt-3" />
+                                            </motion.div>
+                                        )
+                                    })}
                                 </AnimatePresence>
                             </ScrollArea>
                         </div>
 
-                        {/* Footer - Fixed at bottom */}
                         <div className="shrink-0 border-t p-4 sm:p-6 bg-white z-10 shadow-[0_-4px_10px_-5px_rgba(0,0,0,0.05)]">
                             <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
-                                Os pre?os do carrinho s?o confirmados automaticamente antes do envio do pedido.
+                                Os precos do carrinho sao confirmados automaticamente antes do envio do pedido.
                             </p>
                             <div className="mb-4">
                                 <div className="flex items-center justify-between">
@@ -207,7 +207,7 @@ export function CartDrawer() {
                                     router.push('/cart')
                                 }}
                             >
-                                Finalizar Pedido
+                                Finalizar pedido
                             </Button>
                         </div>
                     </>

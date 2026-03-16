@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Link from 'next/link'
 import { Package, ShoppingCart, Search, Minus, Plus, Heart } from 'lucide-react'
@@ -33,12 +33,16 @@ interface QuickViewContentProps {
     showTitle?: boolean
 }
 
+function buildCartKey(variantId: string, sizeOptionId: string | null) {
+    return `${variantId}::${sizeOptionId || 'legacy'}`
+}
+
 export function QuickViewContent({
     data,
     onClose,
     showTitle = true,
 }: QuickViewContentProps) {
-    const { product, images, fabrics, variants, loading, error } = data
+    const { product, images, fabrics, variants, sizeOptions, loading, error } = data
     const { addItem, openCart } = useCartStore()
     const { isFavorite, toggle } = useFavoritesStore()
     const { discountPercentage, overrides } = usePriceTableStore()
@@ -49,9 +53,12 @@ export function QuickViewContent({
         scopeKey: product?.id ?? null,
         fabrics,
         variants,
+        sizeOptions,
+        hasSizeVariants: Boolean(product?.has_size_variants),
     })
 
     const {
+        selectedSizeOption,
         selectedFabric,
         selectedFabricGroup,
         activeVariant,
@@ -60,6 +67,7 @@ export function QuickViewContent({
         activeImageIndex,
         colorSearch,
         showFullDescription,
+        setSelectedSizeOptionId,
         setSelectedFabric,
         setActiveVariantId,
         setActiveImageIndex,
@@ -69,6 +77,10 @@ export function QuickViewContent({
         clearQuantities,
         resetSelection,
     } = selection
+
+    const requiresSizeSelection = Boolean(product?.has_size_variants) && sizeOptions.length > 0
+    const canSelectVariants = !requiresSizeSelection || Boolean(selectedSizeOption)
+
     const baseImages = useMemo(() => buildBaseGalleryImages(images), [images])
     const displayImages = useMemo(
         () =>
@@ -111,7 +123,7 @@ export function QuickViewContent({
                     <Package className="h-7 w-7 text-red-600" />
                 </div>
                 <div>
-                    <p className="font-semibold text-foreground">Não foi possível abrir o produto</p>
+                    <p className="font-semibold text-foreground">Nao foi possivel abrir o produto</p>
                     <p className="text-sm text-muted-foreground">
                         {error || 'Tente novamente em alguns instantes.'}
                     </p>
@@ -144,6 +156,8 @@ export function QuickViewContent({
         fabricModifier: selectedFabricGroup?.price_modifier ?? 0,
         variantId: activeVariant?.id,
         variantPriceOverride: activeVariant?.price_override ?? null,
+        sizePriceMode: selectedSizeOption?.price_mode ?? null,
+        sizePriceValue: selectedSizeOption?.price_value ?? null,
         priceTable,
     })
 
@@ -152,6 +166,8 @@ export function QuickViewContent({
         if (!variant) {
             return resolveVariantPricing({
                 basePrice: product.base_price ?? 0,
+                sizePriceMode: selectedSizeOption?.price_mode ?? null,
+                sizePriceValue: selectedSizeOption?.price_value ?? null,
                 priceTable,
             })
         }
@@ -166,6 +182,8 @@ export function QuickViewContent({
             fabricModifier,
             variantId: variant.id,
             variantPriceOverride: variant.price_override ?? null,
+            sizePriceMode: selectedSizeOption?.price_mode ?? null,
+            sizePriceValue: selectedSizeOption?.price_value ?? null,
             priceTable,
         })
     }
@@ -180,7 +198,6 @@ export function QuickViewContent({
         if (!variant) return
 
         if (variant.image_url) {
-            // Selection image is promoted to first position in the gallery.
             setActiveImageIndex(0)
         }
 
@@ -189,6 +206,10 @@ export function QuickViewContent({
 
     const handleAddToCart = () => {
         if (!product) return
+        if (requiresSizeSelection && !selectedSizeOption) {
+            toast.error('Selecione um tamanho antes de adicionar ao carrinho.')
+            return
+        }
 
         const variantsToAdd = Object.entries(quantities).filter(([, quantity]) => quantity > 0)
         if (variantsToAdd.length === 0) return
@@ -203,14 +224,19 @@ export function QuickViewContent({
                 const fabric = fabrics.find((item) => item.id === matchedVariant.fabric_id)
                 const color = fabric?.colors.find((item) => item.id === matchedVariant.fabric_color_id)
                 const priceBreakdown = getVariantPricing(matchedVariant.id)
+                const resolvedSizeName = selectedSizeOption?.name || product.size || null
+                const resolvedSizeOptionId = selectedSizeOption?.id || null
 
                 addItem({
+                    cartKey: buildCartKey(matchedVariant.id, resolvedSizeOptionId),
                     variantId: matchedVariant.id,
                     productId: product.id,
                     productName: product.name,
                     fabricName: fabric?.name || '',
                     colorName: color?.name || '',
-                    size: product.size,
+                    size: resolvedSizeName,
+                    sizeOptionId: resolvedSizeOptionId,
+                    sizePrice: priceBreakdown.sizePrice,
                     imageUrl: matchedVariant.image_url || baseImages[0]?.url || null,
                     quantity,
                     unitPrice: priceBreakdown.unitPrice,
@@ -273,7 +299,7 @@ export function QuickViewContent({
                                         {product.name}
                                     </h2>
                                 )}
-                                {product.size && (
+                                {product.size && !product.has_size_variants && (
                                     <p className="mt-0.5 text-xs text-muted-foreground">
                                         Ref/Tamanho: {product.size}
                                     </p>
@@ -287,7 +313,7 @@ export function QuickViewContent({
                     <div className="px-4 py-3 md:px-5">
                         <PricePresentation
                             className="rounded-xl border-border/60 bg-muted/10 p-4 shadow-none"
-                            title="Preço Atual"
+                            title="Preco Atual"
                             price={displayPriceBreakdown.finalPrice}
                             layer={displayPriceBreakdown.layer}
                             discountPercentage={discountPercentage}
@@ -300,7 +326,7 @@ export function QuickViewContent({
                             <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-3">
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                     <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                        Descrição
+                                        Descricao
                                     </span>
                                     {hasLongDescription && (
                                         <button
@@ -323,6 +349,34 @@ export function QuickViewContent({
                         </div>
                     )}
 
+                    {requiresSizeSelection && (
+                        <div className="px-4 py-3 md:px-5">
+                            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Tamanho
+                            </label>
+                            <div className="flex flex-wrap gap-1.5">
+                                {sizeOptions.map((sizeOption) => (
+                                    <button
+                                        key={sizeOption.id}
+                                        onClick={() => setSelectedSizeOptionId(sizeOption.id)}
+                                        className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                            selectedSizeOption?.id === sizeOption.id
+                                                ? 'border-primary bg-primary text-primary-foreground'
+                                                : 'border-border bg-white text-foreground hover:bg-muted'
+                                        }`}
+                                    >
+                                        {sizeOption.name}
+                                    </button>
+                                ))}
+                            </div>
+                            {!selectedSizeOption && (
+                                <p className="mt-2 text-xs text-amber-700">
+                                    Selecione um tamanho para liberar tecido, cor e compra.
+                                </p>
+                            )}
+                        </div>
+                    )}
+
                     {fabrics.length > 0 && (
                         <div className="px-4 py-3 md:px-5">
                             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -333,7 +387,8 @@ export function QuickViewContent({
                                     <button
                                         key={fabric.id}
                                         onClick={() => setSelectedFabric(fabric.id)}
-                                        className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                        disabled={!canSelectVariants}
+                                        className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                                             selectedFabric === fabric.id
                                                 ? 'border-primary bg-primary text-primary-foreground'
                                                 : 'border-border bg-white text-foreground hover:bg-muted'
@@ -349,7 +404,7 @@ export function QuickViewContent({
                     {fabrics.length === 0 && (
                         <div className="px-4 py-6 md:px-5">
                             <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
-                                Este produto não possui variações ativas no momento.
+                                Este produto nao possui variacoes ativas no momento.
                             </div>
                         </div>
                     )}
@@ -358,7 +413,7 @@ export function QuickViewContent({
                         <div className="px-4 py-2 pb-20 md:px-5 md:pb-6">
                             <div className="mb-2 flex items-center justify-between">
                                 <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                    Cores Disponíveis ({filteredColors.length})
+                                    Cores disponiveis ({filteredColors.length})
                                 </label>
                                 {totalQuantity > 0 && (
                                     <button
@@ -415,6 +470,7 @@ export function QuickViewContent({
                                                 type="button"
                                                 onClick={() => handleActivateVariant(variant.id)}
                                                 className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                                                disabled={!canSelectVariants}
                                             >
                                                 <div
                                                     className="relative h-7 w-7 shrink-0 rounded-sm border shadow-sm md:h-8 md:w-8"
@@ -464,7 +520,7 @@ export function QuickViewContent({
                                                 <div className="flex shrink-0 items-center gap-1 rounded border border-border/80 bg-white p-0.5">
                                                     <button
                                                         className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-all hover:bg-muted hover:text-foreground active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent md:h-7 md:w-8"
-                                                        disabled={quantity === 0}
+                                                        disabled={quantity === 0 || !canSelectVariants}
                                                         onClick={() =>
                                                             setVariantQuantity(variant.id, quantity - 1)
                                                         }
@@ -475,7 +531,8 @@ export function QuickViewContent({
                                                         {quantity === 0 ? '-' : quantity}
                                                     </span>
                                                     <button
-                                                        className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-all hover:bg-muted hover:text-foreground active:scale-95 md:h-7 md:w-8"
+                                                        className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-all hover:bg-muted hover:text-foreground active:scale-95 md:h-7 md:w-8 disabled:opacity-30"
+                                                        disabled={!canSelectVariants}
                                                         onClick={() =>
                                                             setVariantQuantity(variant.id, quantity + 1)
                                                         }
@@ -490,7 +547,7 @@ export function QuickViewContent({
 
                                 {filteredColors.length === 0 && colorSearch && (
                                     <div className="rounded-md border border-dashed bg-muted/20 py-4 text-center text-sm text-muted-foreground">
-                                        Cor não encontrada
+                                        Cor nao encontrada
                                     </div>
                                 )}
                             </div>
@@ -500,7 +557,7 @@ export function QuickViewContent({
                     {selectedFabricGroup && selectedFabricGroup.colors.length === 0 && (
                         <div className="px-4 py-4 md:px-5">
                             <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
-                                Nenhuma cor disponível para este tecido.
+                                Nenhuma cor disponivel para este tecido.
                             </div>
                         </div>
                     )}
@@ -519,11 +576,15 @@ export function QuickViewContent({
 
                         <Button
                             className="h-11 w-full min-w-[180px] gap-2 rounded-md px-6 font-semibold sm:w-auto"
-                            disabled={!selectedFabric || totalQuantity === 0 || addingToCart}
+                            disabled={!selectedFabric || totalQuantity === 0 || addingToCart || !canSelectVariants}
                             onClick={handleAddToCart}
                         >
                             <ShoppingCart className="h-4 w-4" />
-                            {totalQuantity === 0 ? 'Selecionar cores' : 'Adicionar Lote'}
+                            {!canSelectVariants
+                                ? 'Selecione tamanho'
+                                : totalQuantity === 0
+                                  ? 'Selecionar cores'
+                                  : 'Adicionar lote'}
                         </Button>
                     </div>
                 </div>

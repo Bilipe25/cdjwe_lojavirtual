@@ -231,7 +231,7 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
 
     return (
         <Dialog open={isOpen} onOpenChange={handleClose}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-4xl lg:max-w-5xl xl:max-w-6xl max-h-[95vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="font-heading text-2xl flex items-center gap-2">
                         <FileSpreadsheet className="h-6 w-6 text-bronze" />
@@ -277,7 +277,7 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                             <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-navy border-b">
                                 Preview - {parsedRows.length} clientes
                             </div>
-                            <div className="max-h-60 overflow-y-auto">
+                            <div className="max-h-[52vh] overflow-auto">
                                 <table className="w-full text-xs">
                                     <thead className="bg-slate-50 sticky top-0">
                                         <tr>
@@ -314,7 +314,7 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                     {importResults && (
                         <div className="border rounded-lg overflow-hidden">
                             <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-navy border-b">Resultado da Importacao</div>
-                            <div className="max-h-60 overflow-y-auto p-3 space-y-1.5">
+                            <div className="max-h-[52vh] overflow-y-auto p-3 space-y-1.5">
                                 {importResults.map((result, index) => (
                                     <div key={`${result.row}-${index}`} className="flex items-center gap-2 text-xs">
                                         {result.status === 'success' ? (

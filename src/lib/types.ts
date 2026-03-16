@@ -115,6 +115,7 @@ export interface Product {
   description: string | null
   category_id: string
   size: string | null // ex: "3x2 lugares"
+  has_size_variants?: boolean
   base_price: number
   is_active: boolean
   is_featured: boolean
@@ -125,6 +126,21 @@ export interface Product {
   category?: Category
   images?: ProductImage[]
   variants?: ProductVariant[]
+  size_options?: ProductSizeOption[]
+}
+
+export interface ProductSizeOption {
+  id: string
+  product_id: string
+  name: string
+  slug: string
+  price_mode: 'absolute' | 'delta'
+  price_value: number
+  is_active: boolean
+  sort_order: number
+  is_default: boolean
+  created_at: string
+  updated_at: string
 }
 
 export interface ProductImage {
@@ -270,13 +286,16 @@ export interface OrderItem {
   id: string
   order_id: string
   product_variant_id: string
+  size_option_id?: string | null
   product_name: string // snapshot do nome no momento da compra
   fabric_name: string
   color_name: string
   size: string | null
+  size_name?: string | null
   quantity: number
   unit_price: number
   product_price?: number | null
+  size_price?: number | null
   variation_price?: number | null
   final_price?: number | null
   subtotal: number
@@ -358,12 +377,15 @@ export interface SystemSettings {
 // ==================== CART (Client-side) ====================
 
 export interface CartItem {
+  cartKey?: string
   variantId: string
   productId: string
   productName: string
   fabricName: string
   colorName: string
   size: string | null
+  sizeOptionId?: string | null
+  sizePrice?: number | null
   imageUrl: string | null
   quantity: number
   unitPrice: number

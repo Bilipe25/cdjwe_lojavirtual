@@ -1,8 +1,8 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Product, ProductImage } from '@/lib/types'
+import type { Product, ProductImage, ProductSizeOption } from '@/lib/types'
 import {
     buildProductFabricGroups,
     PRODUCT_VARIANT_DETAIL_SELECT,
@@ -20,6 +20,7 @@ export interface ProductDetailData {
     images: ProductImage[]
     fabrics: ProductFabricGroup[]
     variants: ProductDetailVariant[]
+    sizeOptions: ProductSizeOption[]
     loading: boolean
     error: string | null
     reload: () => Promise<void>
@@ -30,6 +31,7 @@ const EMPTY_DETAIL_DATA: Omit<ProductDetailData, 'loading' | 'reload'> = {
     images: [],
     fabrics: [],
     variants: [],
+    sizeOptions: [],
     error: null,
 }
 
@@ -41,14 +43,16 @@ export function useProductDetailData({
     const [images, setImages] = useState<ProductImage[]>(EMPTY_DETAIL_DATA.images)
     const [fabrics, setFabrics] = useState<ProductFabricGroup[]>(EMPTY_DETAIL_DATA.fabrics)
     const [variants, setVariants] = useState<ProductDetailVariant[]>(EMPTY_DETAIL_DATA.variants)
+    const [sizeOptions, setSizeOptions] = useState<ProductSizeOption[]>(EMPTY_DETAIL_DATA.sizeOptions)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(EMPTY_DETAIL_DATA.error)
 
     const resetState = useCallback(() => {
         setProduct(EMPTY_DETAIL_DATA.product)
         setImages(EMPTY_DETAIL_DATA.images)
-        setFabrics(EMPTY_DETAIL_DATA.fabrics)
         setVariants(EMPTY_DETAIL_DATA.variants)
+        setFabrics(EMPTY_DETAIL_DATA.fabrics)
+        setSizeOptions(EMPTY_DETAIL_DATA.sizeOptions)
         setError(EMPTY_DETAIL_DATA.error)
         setLoading(false)
     }, [])
@@ -59,7 +63,7 @@ export function useProductDetailData({
         const supabase = createClient()
 
         try {
-            const [productRes, imagesRes, variantsRes] = await Promise.all([
+            const [productRes, imagesRes, variantsRes, sizeOptionsRes] = await Promise.all([
                 supabase
                     .from('products')
                     .select('*, category:categories(*)')
@@ -75,6 +79,13 @@ export function useProductDetailData({
                     .select(PRODUCT_VARIANT_DETAIL_SELECT)
                     .eq('product_id', id)
                     .eq('is_active', true),
+                supabase
+                    .from('product_size_options')
+                    .select('*')
+                    .eq('product_id', id)
+                    .eq('is_active', true)
+                    .order('sort_order', { ascending: true })
+                    .order('created_at', { ascending: true }),
             ])
 
             if (productRes.error || !productRes.data) {
@@ -82,7 +93,8 @@ export function useProductDetailData({
                 setImages([])
                 setVariants([])
                 setFabrics([])
-                setError('Produto não encontrado ou indisponível.')
+                setSizeOptions([])
+                setError('Produto nao encontrado ou indisponivel.')
                 return
             }
 
@@ -91,7 +103,8 @@ export function useProductDetailData({
                 setImages(imagesRes.data || [])
                 setVariants([])
                 setFabrics([])
-                setError('Falha ao carregar variações do produto.')
+                setSizeOptions((sizeOptionsRes.data as ProductSizeOption[]) || [])
+                setError('Falha ao carregar variacoes do produto.')
                 return
             }
 
@@ -100,13 +113,15 @@ export function useProductDetailData({
             setImages(imagesRes.data || [])
             setVariants(nextVariants)
             setFabrics(buildProductFabricGroups(nextVariants))
+            setSizeOptions((sizeOptionsRes.data as ProductSizeOption[]) || [])
         } catch (err) {
             console.error('[PRODUCT_DETAIL_DATA] Load error:', err)
             setProduct(null)
             setImages([])
             setVariants([])
             setFabrics([])
-            setError('Não foi possível carregar este produto. Verifique sua conexão.')
+            setSizeOptions([])
+            setError('Nao foi possivel carregar este produto. Verifique sua conexao.')
         } finally {
             setLoading(false)
         }
@@ -126,5 +141,5 @@ export function useProductDetailData({
         await loadProduct(productId)
     }, [enabled, loadProduct, productId])
 
-    return { product, images, fabrics, variants, loading, error, reload }
+    return { product, images, fabrics, variants, sizeOptions, loading, error, reload }
 }

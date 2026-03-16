@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import type { CartItem, PriceTablePaymentRule, PaymentCondition } from '@/lib/types'
+import type { CartItem, PaymentCondition, PriceTablePaymentRule } from '@/lib/types'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
 import {
     buildOrderCreatedAuditNote,
@@ -14,23 +14,57 @@ type PriceTableContext = {
     overrides: Record<string, number>
 }
 
-
-type VariantPricingRow = {
-    id: string
-    is_active: boolean
-    price_override: number | null
-    product: { base_price: number | null } | null
-    fabric: { price_modifier: number | null } | null
-}
-
 type VariantPricingRelation<T> = T | T[] | null
 
 type RawVariantPricingRow = {
     id: string
     is_active: boolean
     price_override: number | null
-    product: VariantPricingRelation<{ base_price: number | null }>
+    product: VariantPricingRelation<{
+        id: string
+        base_price: number | null
+        has_size_variants?: boolean | null
+        size?: string | null
+    }>
     fabric: VariantPricingRelation<{ price_modifier: number | null }>
+}
+
+type VariantPricingRow = {
+    id: string
+    is_active: boolean
+    price_override: number | null
+    product: {
+        id: string
+        base_price: number | null
+        has_size_variants?: boolean | null
+        size?: string | null
+    } | null
+    fabric: { price_modifier: number | null } | null
+}
+
+type ProductSizeOptionRow = {
+    id: string
+    product_id: string
+    name: string
+    price_mode: 'absolute' | 'delta'
+    price_value: number
+    is_active: boolean
+}
+
+type PricingLineInput = {
+    cartKey?: string
+    variantId: string
+    sizeOptionId?: string | null
+}
+
+type PriceSnapshot = {
+    unitPrice: number
+    productPrice: number
+    variationPrice: number | null
+    finalPrice: number
+    sizePrice: number | null
+    sizeOptionId: string | null
+    sizeName: string | null
 }
 
 type CreateOrderAtomicResult = {
@@ -39,10 +73,7 @@ type CreateOrderAtomicResult = {
 }
 
 function unwrapRelation<T>(value: VariantPricingRelation<T>): T | null {
-    if (Array.isArray(value)) {
-        return value[0] ?? null
-    }
-
+    if (Array.isArray(value)) return value[0] ?? null
     return value ?? null
 }
 
@@ -56,7 +87,37 @@ function normalizeVariantPricingRow(variant: RawVariantPricingRow): VariantPrici
     }
 }
 
-async function resolveActivePriceTableId(supabase: Awaited<ReturnType<typeof createClient>>, storeId: string) {
+function buildCartKey(variantId: string, sizeOptionId: string | null) {
+    return `${variantId}::${sizeOptionId || 'legacy'}`
+}
+
+function normalizePricingLines(input: Array<PricingLineInput> | string[]): PricingLineInput[] {
+    if (!input.length) return []
+
+    if (typeof input[0] === 'string') {
+        return (input as string[]).map((variantId) => ({
+            variantId,
+            sizeOptionId: null,
+            cartKey: buildCartKey(variantId, null),
+        }))
+    }
+
+    return (input as Array<PricingLineInput>)
+        .filter((line) => Boolean(line.variantId))
+        .map((line) => {
+            const sizeOptionId = line.sizeOptionId ?? null
+            return {
+                variantId: line.variantId,
+                sizeOptionId,
+                cartKey: line.cartKey || buildCartKey(line.variantId, sizeOptionId),
+            }
+        })
+}
+
+async function resolveActivePriceTableId(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    storeId: string
+) {
     const { data: pivot } = await supabase
         .from('store_price_tables')
         .select('price_table_id')
@@ -65,19 +126,17 @@ async function resolveActivePriceTableId(supabase: Awaited<ReturnType<typeof cre
         .limit(1)
         .single()
 
-    let tableId = pivot?.price_table_id
-
+    let tableId = pivot?.price_table_id || null
     if (!tableId) {
         const { data: defaultTable } = await supabase
             .from('price_tables')
             .select('id')
             .eq('is_default', true)
             .single()
-
-        tableId = defaultTable?.id
+        tableId = defaultTable?.id || null
     }
 
-    return tableId || null
+    return tableId
 }
 
 async function getActivePriceTableContext(
@@ -116,17 +175,87 @@ async function getActivePriceTableContext(
             .eq('price_table_id', priceTable.id)
             .in('product_variant_id', variantIds)
 
-        customItems?.forEach(item => {
+        customItems?.forEach((item) => {
             overrides[item.product_variant_id] = item.custom_price
         })
     }
 
-    return { discountPercentage: priceTable.discount_percentage || 0, overrides }
+    return {
+        discountPercentage: priceTable.discount_percentage || 0,
+        overrides,
+    }
+}
+
+async function fetchVariantPricingRows(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    variantIds: string[]
+) {
+    const primaryQuery = await supabase
+        .from('product_variants')
+        .select(`
+            id,
+            is_active,
+            price_override,
+            product:products(id, base_price, has_size_variants, size),
+            fabric:fabrics(price_modifier)
+        `)
+        .in('id', variantIds)
+
+    let data = primaryQuery.data as unknown as RawVariantPricingRow[] | null
+    let error: { message?: string } | null = primaryQuery.error
+
+    // Backward compatibility for environments where has_size_variants is not migrated yet.
+    if (
+        error &&
+        typeof error.message === 'string' &&
+        error.message.toLowerCase().includes('has_size_variants')
+    ) {
+        const fallbackQuery = await supabase
+            .from('product_variants')
+            .select(`
+                id,
+                is_active,
+                price_override,
+                product:products(id, base_price, size),
+                fabric:fabrics(price_modifier)
+            `)
+            .in('id', variantIds)
+
+        data = fallbackQuery.data as unknown as RawVariantPricingRow[] | null
+        error = fallbackQuery.error
+    }
+
+    if (error || !data) return { variants: [] as VariantPricingRow[], error: true }
+
+    const normalized = (data as RawVariantPricingRow[]).map(normalizeVariantPricingRow)
+    return { variants: normalized, error: false }
+}
+
+async function fetchSizeOptionsById(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    sizeOptionIds: string[]
+) {
+    if (!sizeOptionIds.length) return new Map<string, ProductSizeOptionRow>()
+
+    const { data, error } = await supabase
+        .from('product_size_options')
+        .select('id, product_id, name, price_mode, price_value, is_active')
+        .in('id', sizeOptionIds)
+
+    if (error || !data) return new Map<string, ProductSizeOptionRow>()
+
+    const output = new Map<string, ProductSizeOptionRow>()
+    ;(data as ProductSizeOptionRow[]).forEach((sizeOption) => {
+        output.set(sizeOption.id, sizeOption)
+    })
+    return output
 }
 
 export async function getAvailablePaymentRules(cartTotal: number) {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
     if (!user) return { globalConditions: [] }
 
     const { data: store } = await supabase
@@ -134,7 +263,6 @@ export async function getAvailablePaymentRules(cartTotal: number) {
         .select('id')
         .eq('profile_id', user.id)
         .single()
-
     if (!store) return { globalConditions: [] }
 
     let priceTableId = await resolveActivePriceTableId(supabase, store.id)
@@ -160,7 +288,6 @@ export async function getAvailablePaymentRules(cartTotal: number) {
         }
     }
 
-    // 1. Fetch Table Specific Rules
     let tableRules: PriceTablePaymentRule[] = []
     if (priceTableId) {
         const { data: rules } = await supabase
@@ -169,15 +296,15 @@ export async function getAvailablePaymentRules(cartTotal: number) {
             .eq('price_table_id', priceTableId)
             .order('min_order_value', { ascending: true })
 
-        if (rules && rules.length > 0) {
-            tableRules = (rules as PriceTablePaymentRule[]).filter(r => 
-                cartTotal >= r.min_order_value && 
-                (!r.max_order_value || cartTotal <= r.max_order_value)
+        if (rules?.length) {
+            tableRules = (rules as PriceTablePaymentRule[]).filter(
+                (rule) =>
+                    cartTotal >= rule.min_order_value &&
+                    (!rule.max_order_value || cartTotal <= rule.max_order_value)
             )
         }
     }
 
-    // 2. Fetch Global Conditions filtered by value range
     const { data: globals } = await supabase
         .from('payment_conditions')
         .select('*')
@@ -185,24 +312,21 @@ export async function getAvailablePaymentRules(cartTotal: number) {
         .lte('min_order_value', cartTotal)
         .order('sort_order')
 
-    const validGlobals = (globals as PaymentCondition[] || []).filter(g => 
-        !g.max_order_value || cartTotal <= g.max_order_value
+    const validGlobals = ((globals as PaymentCondition[]) || []).filter(
+        (rule) => !rule.max_order_value || cartTotal <= rule.max_order_value
     )
 
-    // IMPORTANT: If there are table rules for THIS value range, they take priority.
-    // However, the user might want a mix. The instruction says Table Rule > Global Condition.
-    // We will return both but the UI will decide how to show them.
-    // In our logic, if Table Rules exist, they usually "win" for those specific installments.
-    
-    return { 
+    return {
         priceTableRules: tableRules,
-        globalConditions: validGlobals 
+        globalConditions: validGlobals,
     }
 }
 
 export async function getAvailableStoreAddresses() {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
     if (!user) return []
 
     const { data: store } = await supabase
@@ -210,7 +334,6 @@ export async function getAvailableStoreAddresses() {
         .select('id')
         .eq('profile_id', user.id)
         .single()
-
     if (!store) return []
 
     const { data: addresses } = await supabase
@@ -235,207 +358,258 @@ export async function createStoreAddress(data: {
     is_main?: boolean
 }) {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return { error: 'Usuário não autenticado.' }
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return { error: 'Usuario nao autenticado.' }
 
     const { data: store } = await supabase
         .from('stores')
         .select('id')
         .eq('profile_id', user.id)
         .single()
-
-    if (!store) return { error: 'Loja do usuário não localizada.' }
+    if (!store) return { error: 'Loja do usuario nao localizada.' }
 
     const { data: newAddress, error } = await supabase
         .from('store_addresses')
         .insert({
             ...data,
-            store_id: store.id
+            store_id: store.id,
         })
         .select('*')
         .single()
 
     if (error) {
         console.error('[CART_ACTIONS] Create address error:', error)
-        return { error: 'Erro ao criar endereço.' }
+        return { error: 'Erro ao criar endereco.' }
     }
 
     return { success: true, address: newAddress }
 }
 
-export async function getCurrentVariantPricing(variantIds: string[]) {
+export async function getCurrentVariantPricing(input: Array<PricingLineInput> | string[]) {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return { error: 'Usuário não autenticado.' }
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return { error: 'Usuario nao autenticado.' as const }
 
-    const cleanVariantIds = Array.from(new Set(variantIds)).filter(Boolean)
-    if (cleanVariantIds.length === 0) return { prices: {}, missingVariantIds: [] }
+    const pricingLines = normalizePricingLines(input)
+    if (!pricingLines.length) {
+        return { prices: {}, missingKeys: [], missingVariantIds: [] }
+    }
+
+    const variantIds = Array.from(new Set(pricingLines.map((line) => line.variantId)))
+    const sizeOptionIds = Array.from(
+        new Set(
+            pricingLines
+                .map((line) => line.sizeOptionId)
+                .filter((value): value is string => Boolean(value))
+        )
+    )
 
     const { data: store } = await supabase
         .from('stores')
         .select('id')
         .eq('profile_id', user.id)
         .single()
+    if (!store) return { error: 'Loja do usuario nao localizada.' as const }
 
-    if (!store) return { error: 'Loja do usuário não localizada.' }
+    const [priceTableContext, variantsResult, sizeOptionMap] = await Promise.all([
+        getActivePriceTableContext(supabase, store.id, variantIds),
+        fetchVariantPricingRows(supabase, variantIds),
+        fetchSizeOptionsById(supabase, sizeOptionIds),
+    ])
 
-    const priceTableContext = await getActivePriceTableContext(supabase, store.id, cleanVariantIds)
-
-    const { data: variantsData, error: variantsError } = await supabase
-        .from('product_variants')
-        .select(`
-            id,
-            is_active,
-            price_override,
-            product:products(base_price),
-            fabric:fabrics(price_modifier)
-        `)
-        .in('id', cleanVariantIds)
-
-    if (variantsError || !variantsData) {
-        return { error: 'Falha ao validar os preços do carrinho.' }
+    if (variantsResult.error) {
+        return { error: 'Falha ao validar os precos do carrinho.' as const }
     }
 
-    const normalizedVariants = (variantsData as RawVariantPricingRow[]).map(normalizeVariantPricingRow)
-    const prices: Record<string, { unitPrice: number; productPrice: number; variationPrice: number | null; finalPrice: number }> = {}
+    const variantMap = new Map<string, VariantPricingRow>()
+    variantsResult.variants.forEach((variant) => variantMap.set(variant.id, variant))
+
+    const prices: Record<string, PriceSnapshot> = {}
     const missingVariantIds: string[] = []
+    const missingKeys: string[] = []
 
-    const foundIds = new Set(normalizedVariants.map(v => v.id))
-    cleanVariantIds.forEach(id => {
-        if (!foundIds.has(id)) missingVariantIds.push(id)
-    })
+    pricingLines.forEach((line) => {
+        const cartKey = line.cartKey || buildCartKey(line.variantId, line.sizeOptionId ?? null)
+        const dbVariant = variantMap.get(line.variantId)
 
-    normalizedVariants.forEach((variant) => {
-        if (!variant?.is_active) {
-            missingVariantIds.push(variant.id)
+        if (!dbVariant || !dbVariant.is_active) {
+            missingVariantIds.push(line.variantId)
+            missingKeys.push(cartKey)
             return
         }
 
-        const basePrice = variant?.product?.base_price ?? 0
-        const fabricMod = variant?.fabric?.price_modifier ?? 0
-        const variationPrice = variant?.price_override ?? null
+        const product = dbVariant.product
+        if (!product) {
+            missingVariantIds.push(line.variantId)
+            missingKeys.push(cartKey)
+            return
+        }
+
+        const productHasSizeVariants = Boolean(product.has_size_variants)
+        const requestedSizeOptionId = line.sizeOptionId ?? null
+        const sizeOption = requestedSizeOptionId ? sizeOptionMap.get(requestedSizeOptionId) || null : null
+
+        if (requestedSizeOptionId) {
+            if (!sizeOption || !sizeOption.is_active || sizeOption.product_id !== product.id) {
+                missingKeys.push(cartKey)
+                return
+            }
+        }
+
+        if (productHasSizeVariants && !sizeOption) {
+            missingKeys.push(cartKey)
+            return
+        }
 
         const pricing = resolveVariantPricing({
-            basePrice,
-            fabricModifier: fabricMod,
-            variantPriceOverride: variationPrice,
-            variantId: variant.id,
+            basePrice: product.base_price ?? 0,
+            fabricModifier: dbVariant.fabric?.price_modifier ?? 0,
+            variantPriceOverride: dbVariant.price_override ?? null,
+            variantId: dbVariant.id,
+            sizePriceMode: sizeOption?.price_mode ?? null,
+            sizePriceValue: sizeOption?.price_value ?? null,
             priceTable: priceTableContext,
         })
 
-        prices[variant.id] = {
+        const snapshot: PriceSnapshot = {
             unitPrice: pricing.unitPrice,
             productPrice: pricing.productPrice,
             variationPrice: pricing.variationPrice,
             finalPrice: pricing.finalPrice,
+            sizePrice: pricing.sizePrice,
+            sizeOptionId: sizeOption?.id ?? null,
+            sizeName: sizeOption?.name ?? product.size ?? null,
+        }
+
+        prices[cartKey] = snapshot
+
+        // Legacy compatibility for code paths still keyed only by variant id.
+        if (!requestedSizeOptionId && !prices[line.variantId]) {
+            prices[line.variantId] = snapshot
         }
     })
 
-    return { prices, missingVariantIds: Array.from(new Set(missingVariantIds)) }
+    const foundVariantIds = new Set(variantsResult.variants.map((variant) => variant.id))
+    variantIds.forEach((variantId) => {
+        if (!foundVariantIds.has(variantId)) {
+            missingVariantIds.push(variantId)
+        }
+    })
+
+    return {
+        prices,
+        missingKeys: Array.from(new Set(missingKeys)),
+        missingVariantIds: Array.from(new Set(missingVariantIds)),
+    }
 }
 
 export async function checkoutAction(
-    items: CartItem[], 
-    selectedPaymentId: string, 
+    items: CartItem[],
+    selectedPaymentId: string,
     notes: string,
-    isTableRule: boolean = false,
+    isTableRule = false,
     selectedAddressId?: string | null
 ) {
-    if (!items || items.length === 0) {
-        return { error: 'O carrinho está vazio.' }
-    }
-    if (!selectedPaymentId) {
-        return { error: 'Condição de pagamento obrigatória.' }
-    }
+    if (!items?.length) return { error: 'O carrinho esta vazio.' }
+    if (!selectedPaymentId) return { error: 'Condicao de pagamento obrigatoria.' }
 
     const supabase = await createClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return { error: 'Usuario nao autenticado.' }
 
-    // 1. Verify User Authentication
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-        return { error: 'Usuário não autenticado.' }
-    }
-
-    // 2. Locate User's Store
     const { data: store, error: storeError } = await supabase
         .from('stores')
         .select('id')
         .eq('profile_id', user.id)
         .single()
+    if (!store || storeError) return { error: 'Loja do usuario nao localizada no sistema.' }
 
-    if (!store || storeError) {
-        return { error: 'Loja do usuário não localizada no sistema.' }
+    const variantIds = Array.from(new Set(items.map((item) => item.variantId)))
+    const sizeOptionIds = Array.from(
+        new Set(items.map((item) => item.sizeOptionId).filter((value): value is string => Boolean(value)))
+    )
+
+    const [variantsResult, sizeOptionMap] = await Promise.all([
+        fetchVariantPricingRows(supabase, variantIds),
+        fetchSizeOptionsById(supabase, sizeOptionIds),
+    ])
+
+    if (variantsResult.error) {
+        return { error: 'Falha ao validar os precos originais do catalogo.' }
     }
 
-    // 3. SECURE PRICE RECALCULATION (Server-Side)
-    // Fetch real prices directly from Database instead of trusting client numbers
-    const variantIds = items.map(i => i.variantId)
-    const { data: variantsData, error: variantsError } = await supabase
-        .from('product_variants')
-        .select(`
-            id,
-            is_active,
-            price_override,
-            product:products(base_price),
-            fabric:fabrics(price_modifier)
-        `)
-        .in('id', variantIds)
+    const variantMap = new Map<string, VariantPricingRow>()
+    variantsResult.variants.forEach((variant) => variantMap.set(variant.id, variant))
 
-    if (variantsError || !variantsData) {
-        return { error: 'Falha ao validar os preços originais do catálogo.' }
-    }
-
-    const normalizedVariants = (variantsData as RawVariantPricingRow[]).map(normalizeVariantPricingRow)
-    const foundIds = new Set(normalizedVariants.map(v => v.id))
-    const missingIds = variantIds.filter(id => !foundIds.has(id))
-    const inactiveIds = normalizedVariants.filter(v => v.is_active === false).map(v => v.id)
-
+    const missingIds = variantIds.filter((variantId) => !variantMap.has(variantId))
+    const inactiveIds = variantsResult.variants
+        .filter((variant) => !variant.is_active)
+        .map((variant) => variant.id)
     if (missingIds.length > 0 || inactiveIds.length > 0) {
-        return { error: 'Alguns itens não estão mais disponíveis. Revise o carrinho antes de finalizar.' }
+        return { error: 'Alguns itens nao estao mais disponiveis. Revise o carrinho antes de finalizar.' }
     }
 
-    // 3.1 Resolve active Price Table context (store-specific or default)
     const priceTableContext = await getActivePriceTableContext(supabase, store.id, variantIds)
 
-    let secureSubtotal = 0;
-    const validatedItems = items.map(clientItem => {
-        // Find the database variant
-        const dbVariant = normalizedVariants.find(v => v.id === clientItem.variantId)
-        if (!dbVariant) throw new Error(`Produto não encontrado no sistema: ${clientItem.productName}`)
-        
-        const basePrice = dbVariant.product?.base_price || 0
-        const fabricMod = dbVariant.fabric?.price_modifier || 0
-        const variantPriceOverride = dbVariant.price_override ?? null
+    let secureSubtotal = 0
+    const validatedItems = items.map((clientItem) => {
+        const dbVariant = variantMap.get(clientItem.variantId)
+        if (!dbVariant || !dbVariant.product) {
+            throw new Error(`Produto nao encontrado no sistema: ${clientItem.productName}`)
+        }
+
+        const product = dbVariant.product
+        const requestedSizeOptionId = clientItem.sizeOptionId ?? null
+        const sizeOption = requestedSizeOptionId ? sizeOptionMap.get(requestedSizeOptionId) || null : null
+
+        if (requestedSizeOptionId) {
+            if (!sizeOption || !sizeOption.is_active || sizeOption.product_id !== product.id) {
+                throw new Error(`Tamanho selecionado nao e valido para ${clientItem.productName}.`)
+            }
+        }
+
+        if (product.has_size_variants && !sizeOption) {
+            throw new Error(`Selecione um tamanho valido para ${clientItem.productName}.`)
+        }
 
         const pricing = resolveVariantPricing({
-            basePrice,
-            fabricModifier: fabricMod,
-            variantPriceOverride,
+            basePrice: product.base_price ?? 0,
+            fabricModifier: dbVariant.fabric?.price_modifier ?? 0,
+            variantPriceOverride: dbVariant.price_override ?? null,
             variantId: clientItem.variantId,
+            sizePriceMode: sizeOption?.price_mode ?? null,
+            sizePriceValue: sizeOption?.price_value ?? null,
             priceTable: priceTableContext,
         })
 
         const realSubtotal = pricing.unitPrice * clientItem.quantity
-
         secureSubtotal += realSubtotal
 
         return {
             ...clientItem,
+            cartKey: clientItem.cartKey || buildCartKey(clientItem.variantId, requestedSizeOptionId),
+            sizeOptionId: sizeOption?.id ?? null,
+            sizeName: sizeOption?.name ?? clientItem.size ?? product.size ?? null,
+            sizePrice: pricing.sizePrice,
             productPrice: pricing.productPrice,
             variationPrice: pricing.variationPrice,
             finalPrice: pricing.finalPrice,
             unitPrice: pricing.unitPrice,
-            subtotal: realSubtotal
+            subtotal: realSubtotal,
         }
     })
 
-    // 4. Validate System Settings (Minimum Amount)
     const { data: settings } = await supabase.from('system_settings').select('min_order_amount').single()
     if (settings && settings.min_order_amount > 0 && secureSubtotal < settings.min_order_amount) {
-        return { error: `Pedido mínimo obrigatório de R$ ${settings.min_order_amount.toFixed(2)}.` }
+        return { error: `Pedido minimo obrigatorio de R$ ${settings.min_order_amount.toFixed(2)}.` }
     }
 
-    // 5. Calculate Payment Discounts and Surcharges
     let discountPercentage = 0
     let surchargePercentage = 0
     let paymentRuleId: string | null = null
@@ -447,12 +621,14 @@ export async function checkoutAction(
             .select('*')
             .eq('id', selectedPaymentId)
             .single()
-        
-        if (!rule) return { error: 'Regra de pagamento vinculada à tabela não encontrada.' }
-        
-        // Final Range Validation on Server
-        if (secureSubtotal < rule.min_order_value || (rule.max_order_value && secureSubtotal > rule.max_order_value)) {
-            return { error: 'O valor do pedido não é mais válido para esta regra de pagamento.' }
+
+        if (!rule) return { error: 'Regra de pagamento vinculada a tabela nao encontrada.' }
+
+        if (
+            secureSubtotal < rule.min_order_value ||
+            (rule.max_order_value && secureSubtotal > rule.max_order_value)
+        ) {
+            return { error: 'O valor do pedido nao e mais valido para esta regra de pagamento.' }
         }
 
         discountPercentage = rule.discount_percentage
@@ -464,56 +640,58 @@ export async function checkoutAction(
             .eq('id', selectedPaymentId)
             .single()
 
-        if (!paymentCondition) return { error: 'Condição de pagamento global não encontrada.' }
-        
-        // Final Range Validation on Server
-        if (secureSubtotal < paymentCondition.min_order_value || (paymentCondition.max_order_value && secureSubtotal > paymentCondition.max_order_value)) {
-            return { error: 'O valor do pedido não é mais válido para esta condição de pagamento.' }
+        if (!paymentCondition) return { error: 'Condicao de pagamento global nao encontrada.' }
+
+        if (
+            secureSubtotal < paymentCondition.min_order_value ||
+            (paymentCondition.max_order_value && secureSubtotal > paymentCondition.max_order_value)
+        ) {
+            return { error: 'O valor do pedido nao e mais valido para esta condicao de pagamento.' }
         }
 
         discountPercentage = paymentCondition.discount_percentage
         surchargePercentage = paymentCondition.surcharge_percentage || 0
         paymentConditionId = paymentCondition.id
     }
-    
-    // Apply discount first
+
     const paymentDiscount = (secureSubtotal * discountPercentage) / 100
     let finalTotal = secureSubtotal - paymentDiscount
-    
-    // Then apply surcharge if any
     const paymentSurcharge = (finalTotal * surchargePercentage) / 100
-    finalTotal = finalTotal + paymentSurcharge
+    finalTotal += paymentSurcharge
 
-    // 5.5 Fetch/Format Shipping Address
-    let shippingAddressStr = null;
+    let shippingAddressStr: string | null = null
     let addressQuery = supabase.from('store_addresses').select('*').eq('store_id', store.id)
-    
-    if (selectedAddressId) {
-        addressQuery = addressQuery.eq('id', selectedAddressId)
-    } else {
-        addressQuery = addressQuery.eq('is_main', true)
-    }
+    addressQuery = selectedAddressId
+        ? addressQuery.eq('id', selectedAddressId)
+        : addressQuery.eq('is_main', true)
 
     const { data: addressData } = await addressQuery.limit(1).single()
-    
     if (addressData) {
-        shippingAddressStr = `${addressData.title ? `[${addressData.title}] ` : ''}${addressData.address}${addressData.number ? `, ${addressData.number}` : ''}${addressData.complement ? ` - ${addressData.complement}` : ''}, ${addressData.neighborhood ? `${addressData.neighborhood}, ` : ''}${addressData.city} - ${addressData.state}, CEP: ${addressData.zip_code}`
+        shippingAddressStr =
+            `${addressData.title ? `[${addressData.title}] ` : ''}` +
+            `${addressData.address}${addressData.number ? `, ${addressData.number}` : ''}` +
+            `${addressData.complement ? ` - ${addressData.complement}` : ''}, ` +
+            `${addressData.neighborhood ? `${addressData.neighborhood}, ` : ''}` +
+            `${addressData.city} - ${addressData.state}, CEP: ${addressData.zip_code}`
     }
-    const orderItemsPayload = validatedItems.map(item => ({
+
+    const orderItemsPayload = validatedItems.map((item) => ({
         product_variant_id: item.variantId,
+        size_option_id: item.sizeOptionId,
         product_name: item.productName,
         fabric_name: item.fabricName,
         color_name: item.colorName,
-        size: item.size,
+        size: item.sizeName,
+        size_name: item.sizeName,
         quantity: item.quantity,
         unit_price: item.unitPrice,
         product_price: item.productPrice,
+        size_price: item.sizePrice,
         variation_price: item.variationPrice,
         final_price: item.finalPrice,
         subtotal: item.subtotal,
     }))
 
-    // 6. Atomic Order Creation (order + items + status history)
     const { data: orderCreateResult, error: createOrderError } = await supabase.rpc(
         'client_create_order_atomic',
         {
@@ -543,12 +721,10 @@ export async function checkoutAction(
     const createdOrderId = createdOrder.order_id
     const createdOrderNumber = createdOrder.order_number || createdOrderId
 
-    // 7. Send Email Notifications (fire-and-forget)
     try {
         const { sendEmail } = await import('@/lib/email')
         const React = (await import('react')).default
 
-        // Fetch system settings and client profile
         const [settingsRes, profileRes, storeDataRes] = await Promise.all([
             supabase.from('system_settings').select('system_name, email').limit(1).single(),
             supabase.from('profiles').select('full_name, email').eq('id', user.id).single(),
@@ -566,12 +742,11 @@ export async function checkoutAction(
         const emailItems = buildOrderEmailItems(validatedItems)
         const snapshotSummary = buildOrderSnapshotSummary(emailItems)
 
-        // Email to Admin: New Order
         if (adminEmail) {
             const { default: NewOrderEmail } = await import('@/emails/NewOrderEmail')
             sendEmail({
                 to: adminEmail,
-                subject: `🛒 Novo pedido #${createdOrderNumber} — ${systemName}`,
+                subject: `Novo pedido #${createdOrderNumber} - ${systemName}`,
                 senderName: systemName,
                 react: React.createElement(NewOrderEmail, {
                     orderId: createdOrderId,
@@ -586,12 +761,11 @@ export async function checkoutAction(
             }).catch(() => {})
         }
 
-        // Email to Client: Order Confirmation
         if (clientEmail) {
             const { default: OrderConfirmationEmail } = await import('@/emails/OrderConfirmationEmail')
             sendEmail({
                 to: clientEmail,
-                subject: `📋 Pedido #${createdOrderNumber} confirmado — ${systemName}`,
+                subject: `Pedido #${createdOrderNumber} confirmado - ${systemName}`,
                 senderName: systemName,
                 react: React.createElement(OrderConfirmationEmail, {
                     orderId: createdOrderId,
@@ -607,7 +781,6 @@ export async function checkoutAction(
             }).catch(() => {})
         }
     } catch (emailError) {
-        // Email failures should never block checkout
         console.error('[CHECKOUT EMAIL] Error:', emailError)
     }
 

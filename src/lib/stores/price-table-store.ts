@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 
 export interface PriceTableState {
@@ -16,6 +16,8 @@ export interface PriceTableState {
         fabricModifier?: number | null
         variantId?: string
         variantPriceOverride?: number | null
+        sizePriceMode?: 'absolute' | 'delta' | null
+        sizePriceValue?: number | null
     }) => number | null
 }
 
@@ -32,7 +34,14 @@ export const usePriceTableStore = create<PriceTableState>((set, get) => ({
         set({ tableId: null, discountPercentage: 0, overrides: {} })
     },
 
-    calculateB2BPrice: ({ basePrice, fabricModifier, variantId, variantPriceOverride }) => {
+    calculateB2BPrice: ({
+        basePrice,
+        fabricModifier,
+        variantId,
+        variantPriceOverride,
+        sizePriceMode,
+        sizePriceValue,
+    }) => {
         if (basePrice === null || basePrice === undefined) return null
 
         const { discountPercentage, overrides } = get()
@@ -42,6 +51,8 @@ export const usePriceTableStore = create<PriceTableState>((set, get) => ({
             fabricModifier,
             variantId,
             variantPriceOverride,
+            sizePriceMode,
+            sizePriceValue,
             priceTable: {
                 discountPercentage,
                 overrides,

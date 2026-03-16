@@ -1,10 +1,12 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useMemo, useState, type SetStateAction } from 'react'
+import type { ProductSizeOption } from '@/lib/types'
 import type { ProductDetailVariant, ProductFabricGroup } from '@/lib/products/product-detail'
 
 interface SelectionState {
     scopeKey: string | null
+    selectedSizeOptionId: string | null
     selectedFabricId: string | null
     activeVariantId: string | null
     quantities: Record<string, number>
@@ -17,10 +19,13 @@ interface UseProductSelectionStateOptions {
     scopeKey: string | null
     fabrics: ProductFabricGroup[]
     variants: ProductDetailVariant[]
+    sizeOptions?: ProductSizeOption[]
+    hasSizeVariants?: boolean
 }
 
 const INITIAL_SELECTION_STATE: SelectionState = {
     scopeKey: null,
+    selectedSizeOptionId: null,
     selectedFabricId: null,
     activeVariantId: null,
     quantities: {},
@@ -37,10 +42,32 @@ export function useProductSelectionState({
     scopeKey,
     fabrics,
     variants,
+    sizeOptions = [],
+    hasSizeVariants = false,
 }: UseProductSelectionStateOptions) {
     const [state, setState] = useState<SelectionState>(INITIAL_SELECTION_STATE)
 
     const isCurrentScope = scopeKey !== null && state.scopeKey === scopeKey
+
+    const selectedSizeOptionId = useMemo(() => {
+        if (!hasSizeVariants || sizeOptions.length === 0) return null
+
+        if (
+            isCurrentScope &&
+            state.selectedSizeOptionId &&
+            sizeOptions.some((option) => option.id === state.selectedSizeOptionId)
+        ) {
+            return state.selectedSizeOptionId
+        }
+
+        const defaultOption = sizeOptions.find((option) => option.is_default)
+        return defaultOption?.id ?? null
+    }, [hasSizeVariants, isCurrentScope, sizeOptions, state.selectedSizeOptionId])
+
+    const selectedSizeOption = useMemo(
+        () => sizeOptions.find((option) => option.id === selectedSizeOptionId) ?? null,
+        [selectedSizeOptionId, sizeOptions]
+    )
 
     const selectedFabric = useMemo(() => {
         if (
@@ -92,6 +119,17 @@ export function useProductSelectionState({
             })
         },
         [scopeKey]
+    )
+
+    const setSelectedSizeOptionId = useCallback(
+        (sizeOptionId: string | null) => {
+            updateState((previous) => ({
+                ...previous,
+                selectedSizeOptionId: sizeOptionId,
+                activeImageIndex: 0,
+            }))
+        },
+        [updateState]
     )
 
     const setSelectedFabric = useCallback(
@@ -194,6 +232,8 @@ export function useProductSelectionState({
     }, [scopeKey])
 
     return {
+        selectedSizeOptionId,
+        selectedSizeOption,
         selectedFabric,
         selectedFabricGroup,
         activeVariantId,
@@ -203,6 +243,7 @@ export function useProductSelectionState({
         activeImageIndex,
         colorSearch,
         showFullDescription,
+        setSelectedSizeOptionId,
         setSelectedFabric,
         setActiveVariantId,
         setActiveImageIndex,
