@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
     Dialog,
     DialogContent,
@@ -74,20 +74,43 @@ export function OrderDetailModal({
     onOpenChange,
     onDelete
 }: OrderDetailModalProps) {
+    const [orderData, setOrderData] = useState<AdminOrderDetailRecord | null>(null)
+    const [loadingOrder, setLoadingOrder] = useState(false)
     const [history, setHistory] = useState<AdminOrderHistoryRecord[]>([])
     const [loadingHistory, setLoadingHistory] = useState(false)
     const [isPrinting, setIsPrinting] = useState(false)
     const [settings, setSettings] = useState<SystemSettings | null>(null)
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
-    useEffect(() => {
-        if (open && order?.id) {
-            fetchHistory(order.id)
-            fetchSettings()
+    const fetchOrderDetail = useCallback(async (orderId: string) => {
+        setLoadingOrder(true)
+        const supabase = createClient()
+        const { data, error } = await supabase
+            .from('orders')
+            .select(`
+                id,
+                order_number,
+                status,
+                total,
+                subtotal,
+                discount_amount,
+                created_at,
+                notes,
+                store:stores(company_name, cnpj),
+                profile:profiles(full_name),
+                payment_condition:payment_conditions(name),
+                items:order_items(*)
+            `)
+            .eq('id', orderId)
+            .single()
+
+        if (!error && data) {
+            setOrderData(data as AdminOrderDetailRecord)
         } else {
-            setHistory([])
+            setOrderData(order)
         }
-    }, [open, order?.id])
+        setLoadingOrder(false)
+    }, [order])
 
     const fetchSettings = async () => {
         const supabase = createClient()
@@ -116,17 +139,29 @@ export function OrderDetailModal({
         setLoadingHistory(false)
     }
 
+    useEffect(() => {
+        if (open && order?.id) {
+            fetchOrderDetail(order.id)
+            fetchHistory(order.id)
+            fetchSettings()
+        } else {
+            setOrderData(null)
+            setHistory([])
+        }
+    }, [open, order?.id, fetchOrderDetail])
+
     const handlePrint = async () => {
-        if (!order) return
+        if (!orderData) return
         setIsPrinting(true)
         try {
-            await generateOrderReceiptPDF(order, order.items || [], settings)
+            await generateOrderReceiptPDF(orderData, orderData.items || [], settings)
         } finally {
             setIsPrinting(false)
         }
     }
 
     if (!order) return null;
+    const resolvedOrder = orderData || order
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -135,13 +170,13 @@ export function OrderDetailModal({
                     <div className="flex items-center justify-between pr-8 sm:pr-4">
                         <div className="min-w-0 pr-2 flex-1">
                             <DialogTitle className="text-xl md:text-2xl font-(family-name:--font-heading) flex flex-wrap items-center gap-2 sm:gap-3">
-                                <span className="truncate">Pedido {order.order_number}</span>
-                                <Badge className={`${statusConfig[order.status as keyof typeof statusConfig]?.color} border text-[10px] sm:text-xs`}>
-                                    {statusConfig[order.status as keyof typeof statusConfig]?.label}
+                                <span className="truncate">Pedido {resolvedOrder.order_number}</span>
+                                <Badge className={`${statusConfig[resolvedOrder.status as keyof typeof statusConfig]?.color} border text-[10px] sm:text-xs`}>
+                                    {statusConfig[resolvedOrder.status as keyof typeof statusConfig]?.label}
                                 </Badge>
                             </DialogTitle>
                             <p className="text-xs sm:text-sm text-muted-foreground mt-1 truncate">
-                                {format(new Date(order.created_at), "dd 'de' MMMM, yyyy 'às' HH:mm", { locale: ptBR })}
+                                {format(new Date(resolvedOrder.created_at), "dd 'de' MMMM, yyyy 'às' HH:mm", { locale: ptBR })}
                             </p>
                         </div>
 
@@ -174,6 +209,11 @@ export function OrderDetailModal({
                 </DialogHeader>
                 
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 md:space-y-8">
+                    {loadingOrder && (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            Atualizando detalhes do pedido...
+                        </div>
+                    )}
                     {/* General Information Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-muted/30 p-4 rounded-xl space-y-3 border border-border/50">
@@ -181,9 +221,9 @@ export function OrderDetailModal({
                                 <Building className="h-4 w-4" /> Dados do Lojista
                             </h4>
                             <div className="space-y-1 text-sm">
-                                <p><span className="text-muted-foreground">Razão Social:</span> <span className="font-medium">{order.store?.company_name || 'N/A'}</span></p>
-                                <p><span className="text-muted-foreground">CNPJ:</span> <span className="font-medium">{order.store?.cnpj || 'N/A'}</span></p>
-                                <p><span className="text-muted-foreground">Representante:</span> <span className="font-medium">{order.profile?.full_name || 'N/A'}</span></p>
+                                <p><span className="text-muted-foreground">Razão Social:</span> <span className="font-medium">{resolvedOrder.store?.company_name || 'N/A'}</span></p>
+                                <p><span className="text-muted-foreground">CNPJ:</span> <span className="font-medium">{resolvedOrder.store?.cnpj || 'N/A'}</span></p>
+                                <p><span className="text-muted-foreground">Representante:</span> <span className="font-medium">{resolvedOrder.profile?.full_name || 'N/A'}</span></p>
                             </div>
                         </div>
 
@@ -192,7 +232,7 @@ export function OrderDetailModal({
                                 <CreditCard className="h-4 w-4" /> Dados de Pagamento
                             </h4>
                             <div className="space-y-1 text-sm">
-                                <p><span className="text-muted-foreground">Condição Comercial:</span> <span className="font-medium">{order.payment_condition?.name || 'Não Informada'}</span></p>
+                                <p><span className="text-muted-foreground">Condição Comercial:</span> <span className="font-medium">{resolvedOrder.payment_condition?.name || 'Não Informada'}</span></p>
                                 <p className="text-muted-foreground">Este pedido será faturado de acordo com a condição atrelada no ato do carrinho.</p>
                             </div>
                         </div>
@@ -202,9 +242,9 @@ export function OrderDetailModal({
 
                     {/* Order Items */}
                     <div>
-                        <h4 className="font-bold text-lg mb-4 text-navy">Itens Solicitados ({order.items?.length || 0})</h4>
+                        <h4 className="font-bold text-lg mb-4 text-navy">Itens Solicitados ({resolvedOrder.items?.length || 0})</h4>
                         <div className="space-y-3">
-                            {order.items?.map((item) => (
+                            {resolvedOrder.items?.map((item) => (
                                 <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-border/50 hover:border-bronze/30 transition-colors bg-white">
                                     <div className="min-w-0 pr-4 mb-2 sm:mb-0">
                                         <p className="font-semibold text-base text-navy">{item.product_name}</p>
@@ -242,19 +282,19 @@ export function OrderDetailModal({
                         <div className="order-2 md:order-1">
                             <h4 className="font-semibold text-sm mb-2 text-navy">Observações do Pedido</h4>
                             <div className="bg-amber-50/50 text-amber-900 rounded-xl p-4 border border-amber-100 min-h-[100px] text-sm">
-                                {order.notes ? <p>{order.notes}</p> : <p className="text-amber-700/50 italic">Nenhuma observação informada pelo lojista neste pedido.</p>}
+                                {resolvedOrder.notes ? <p>{resolvedOrder.notes}</p> : <p className="text-amber-700/50 italic">Nenhuma observação informada pelo lojista neste pedido.</p>}
                             </div>
                         </div>
                         
                         <div className="order-1 md:order-2 bg-navy/5 p-6 rounded-xl border border-navy/10 space-y-2 text-sm flex flex-col justify-center">
-                            <div className="flex justify-between"><span className="text-muted-foreground">Subtotal dos Produtos</span><span className="font-medium">R$ {order.subtotal?.toFixed(2) || '0.00'}</span></div>
-                            {order.discount_amount > 0 && (
-                                <div className="flex justify-between text-green-600 font-medium"><span>Descontos Aplicados</span><span>- R$ {order.discount_amount.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-muted-foreground">Subtotal dos Produtos</span><span className="font-medium">R$ {resolvedOrder.subtotal?.toFixed(2) || '0.00'}</span></div>
+                            {resolvedOrder.discount_amount > 0 && (
+                                <div className="flex justify-between text-green-600 font-medium"><span>Descontos Aplicados</span><span>- R$ {resolvedOrder.discount_amount.toFixed(2)}</span></div>
                             )}
                             <Separator className="my-2" />
                             <div className="flex justify-between items-center pt-1">
                                 <span className="font-bold text-base text-navy">Total do Pedido</span>
-                                <span className="font-black text-2xl text-gradient-bronze">R$ {order.total?.toFixed(2) || '0.00'}</span>
+                                <span className="font-black text-2xl text-gradient-bronze">R$ {resolvedOrder.total?.toFixed(2) || '0.00'}</span>
                             </div>
                             <div className="rounded-xl border border-border/60 bg-white/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
                                 Valores unitários e totais permanecem congelados mesmo após alterações futuras em produto, cor ou tabela comercial.
@@ -326,15 +366,15 @@ export function OrderDetailModal({
                         </div>
                         <AlertDialogTitle className="text-center text-xl">Excluir Pedido?</AlertDialogTitle>
                         <AlertDialogDescription className="text-center text-balance">
-                            Você está prestes a excluir permanentemente o pedido <strong>{order.order_number}</strong>. Esta ação removerá todos os itens e históricos e não pode ser desfeita.
+                            Você está prestes a excluir permanentemente o pedido <strong>{resolvedOrder.order_number}</strong>. Esta ação removerá todos os itens e históricos e não pode ser desfeita.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="flex-row gap-3 sm:gap-0 mt-4">
                         <AlertDialogCancel className="flex-1 mt-0 rounded-xl border-navy/10 hover:bg-navy/5">Voltar</AlertDialogCancel>
                         <AlertDialogAction 
                             onClick={async () => {
-                                if (onDelete && order) {
-                                    const success = await onDelete(order.id)
+                                if (onDelete && resolvedOrder) {
+                                    const success = await onDelete(resolvedOrder.id)
                                     if (success) {
                                         onOpenChange(false)
                                     }

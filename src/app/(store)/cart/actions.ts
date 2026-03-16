@@ -33,6 +33,11 @@ type RawVariantPricingRow = {
     fabric: VariantPricingRelation<{ price_modifier: number | null }>
 }
 
+type CreateOrderAtomicResult = {
+    order_id: string
+    order_number: string
+}
+
 function unwrapRelation<T>(value: VariantPricingRelation<T>): T | null {
     if (Array.isArray(value)) {
         return value[0] ?? null
@@ -494,34 +499,7 @@ export async function checkoutAction(
     if (addressData) {
         shippingAddressStr = `${addressData.title ? `[${addressData.title}] ` : ''}${addressData.address}${addressData.number ? `, ${addressData.number}` : ''}${addressData.complement ? ` - ${addressData.complement}` : ''}, ${addressData.neighborhood ? `${addressData.neighborhood}, ` : ''}${addressData.city} - ${addressData.state}, CEP: ${addressData.zip_code}`
     }
-
-    // 6. Execute Order Creation safely
-    const { data: newOrder, error: insertError } = await supabase
-        .from('orders')
-        .insert({
-            store_id: store.id,
-            profile_id: user.id,
-            status: 'pending',
-            payment_status: 'pending',
-            payment_condition_id: paymentConditionId,
-            payment_rule_id: paymentRuleId,
-            subtotal: secureSubtotal,
-            discount_amount: paymentDiscount,
-            total: finalTotal,
-            shipping_address: shippingAddressStr,
-            notes: notes || null,
-        })
-        .select('id')
-        .single()
-
-    if (insertError || !newOrder) {
-        console.error('[CHECKOUT] Order insert error:', JSON.stringify(insertError, null, 2))
-        return { error: 'Erro de comunicação ao formatar pedido principal.' }
-    }
-
-    // 7. Insert Validated Order Items mapping
     const orderItemsPayload = validatedItems.map(item => ({
-        order_id: newOrder.id,
         product_variant_id: item.variantId,
         product_name: item.productName,
         fabric_name: item.fabricName,
@@ -535,20 +513,37 @@ export async function checkoutAction(
         subtotal: item.subtotal,
     }))
 
-    const { error: itemsError } = await supabase.from('order_items').insert(orderItemsPayload)
-    if (itemsError) {
-        return { error: 'Erro ao associar itens de catálogo ao pedido.' }
+    // 6. Atomic Order Creation (order + items + status history)
+    const { data: orderCreateResult, error: createOrderError } = await supabase.rpc(
+        'client_create_order_atomic',
+        {
+            p_store_id: store.id,
+            p_profile_id: user.id,
+            p_payment_condition_id: paymentConditionId,
+            p_payment_rule_id: paymentRuleId,
+            p_subtotal: secureSubtotal,
+            p_discount_amount: paymentDiscount,
+            p_total: finalTotal,
+            p_shipping_address: shippingAddressStr,
+            p_notes: notes || null,
+            p_items: orderItemsPayload,
+            p_created_note: buildOrderCreatedAuditNote(validatedItems.length, finalTotal),
+        }
+    )
+
+    const createdOrder = Array.isArray(orderCreateResult)
+        ? (orderCreateResult[0] as CreateOrderAtomicResult | undefined)
+        : (orderCreateResult as CreateOrderAtomicResult | null)
+
+    if (createOrderError || !createdOrder?.order_id) {
+        console.error('[CHECKOUT] Atomic order creation error:', createOrderError)
+        return { error: 'Erro ao criar pedido de forma atomica.' }
     }
 
-    // 8. Order Audit Trail Initiation
-    await supabase.from('order_status_history').insert({
-        order_id: newOrder.id,
-        status: 'pending',
-        notes: buildOrderCreatedAuditNote(validatedItems.length, finalTotal),
-        changed_by: user.id,
-    })
+    const createdOrderId = createdOrder.order_id
+    const createdOrderNumber = createdOrder.order_number || createdOrderId
 
-    // 9. Send Email Notifications (fire-and-forget)
+    // 7. Send Email Notifications (fire-and-forget)
     try {
         const { sendEmail } = await import('@/lib/email')
         const React = (await import('react')).default
@@ -567,14 +562,6 @@ export async function checkoutAction(
         const companyName = storeDataRes.data?.company_name || 'N/A'
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
 
-        // Get order number
-        const { data: orderDetail } = await supabase
-            .from('orders')
-            .select('order_number')
-            .eq('id', newOrder.id)
-            .single()
-
-        const orderNumber = orderDetail?.order_number || newOrder.id
         const commonProps = { systemName, appUrl }
         const emailItems = buildOrderEmailItems(validatedItems)
         const snapshotSummary = buildOrderSnapshotSummary(emailItems)
@@ -584,11 +571,11 @@ export async function checkoutAction(
             const { default: NewOrderEmail } = await import('@/emails/NewOrderEmail')
             sendEmail({
                 to: adminEmail,
-                subject: `🛒 Novo pedido #${orderNumber} — ${systemName}`,
+                subject: `🛒 Novo pedido #${createdOrderNumber} — ${systemName}`,
                 senderName: systemName,
                 react: React.createElement(NewOrderEmail, {
-                    orderId: newOrder.id,
-                    orderNumber,
+                    orderId: createdOrderId,
+                    orderNumber: createdOrderNumber,
                     clientName,
                     companyName,
                     itemCount: validatedItems.length,
@@ -604,11 +591,11 @@ export async function checkoutAction(
             const { default: OrderConfirmationEmail } = await import('@/emails/OrderConfirmationEmail')
             sendEmail({
                 to: clientEmail,
-                subject: `📋 Pedido #${orderNumber} confirmado — ${systemName}`,
+                subject: `📋 Pedido #${createdOrderNumber} confirmado — ${systemName}`,
                 senderName: systemName,
                 react: React.createElement(OrderConfirmationEmail, {
-                    orderId: newOrder.id,
-                    orderNumber,
+                    orderId: createdOrderId,
+                    orderNumber: createdOrderNumber,
                     clientName,
                     items: emailItems,
                     subtotal: secureSubtotal,
@@ -624,5 +611,5 @@ export async function checkoutAction(
         console.error('[CHECKOUT EMAIL] Error:', emailError)
     }
 
-    return { success: true, orderId: newOrder.id }
+    return { success: true, orderId: createdOrderId }
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
@@ -34,8 +34,8 @@ import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import type { ProductDetailVariant } from '@/lib/products/product-detail'
 import { usePriceTableStore } from '@/lib/stores/price-table-store'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
+import { buildBaseGalleryImages, buildDisplayGalleryImages } from '@/lib/products/gallery-images'
 import { toast } from 'sonner'
-import type { FabricColor } from '@/lib/types'
 import { ProductImageGallery } from '@/components/products/ProductImageGallery'
 import { PricePresentation, getVariantPriceBadges } from '@/components/catalog/price-presentation'
 
@@ -58,6 +58,33 @@ export default function ProductDetailPage() {
         fabrics,
         variants,
     })
+    const {
+        selectedFabric,
+        selectedFabricGroup: activeFabric,
+        activeVariant,
+        quantities,
+        totalQuantity: totalSelectedQuantity,
+        activeImageIndex,
+        colorSearch,
+        showFullDescription,
+        setSelectedFabric,
+        setActiveVariantId,
+        setActiveImageIndex,
+        setColorSearch,
+        setShowFullDescription,
+        setVariantQuantity,
+        clearQuantities,
+        resetSelection,
+    } = selection
+    const baseImages = useMemo(() => buildBaseGalleryImages(images), [images])
+    const displayImages = useMemo(
+        () =>
+            buildDisplayGalleryImages(baseImages, {
+                id: activeVariant?.id,
+                imageUrl: activeVariant?.image_url || null,
+            }),
+        [activeVariant?.id, activeVariant?.image_url, baseImages]
+    )
 
     if (loading) {
         return <ProductDetailSkeleton />
@@ -85,25 +112,6 @@ export default function ProductDetailPage() {
         )
     }
 
-    const {
-        selectedFabric,
-        selectedFabricGroup: activeFabric,
-        activeVariant,
-        quantities,
-        totalQuantity: totalSelectedQuantity,
-        activeImageIndex,
-        colorSearch,
-        showFullDescription,
-        setSelectedFabric,
-        setActiveVariantId,
-        setActiveImageIndex,
-        setColorSearch,
-        setShowFullDescription,
-        setVariantQuantity,
-        clearQuantities,
-        resetSelection,
-    } = selection
-
     const favorited = isFavorite(product.id)
     const availableColors = activeFabric?.colors || []
     const filteredColors = availableColors.filter((color) =>
@@ -121,13 +129,6 @@ export default function ProductDetailPage() {
         variantPriceOverride: activeVariant?.price_override ?? null,
         priceTable,
     })
-
-    const displayImages = activeVariant?.image_url
-        ? [
-              { url: activeVariant.image_url, id: `variant-${activeVariant.id}` },
-              ...images.map((image) => ({ url: image.url, id: image.id })),
-          ]
-        : images.map((image) => ({ url: image.url, id: image.id }))
 
     const description = product.description?.trim() || ''
     const hasLongDescription = description.length > 220
@@ -159,14 +160,9 @@ export default function ProductDetailPage() {
         return acc + getVariantPricing(variant).unitPrice * quantity
     }, 0)
 
-    const handleActivateVariant = (variant: ProductDetailVariant, color: FabricColor) => {
+    const handleActivateVariant = (variant: ProductDetailVariant) => {
         if (variant.image_url) {
             setActiveImageIndex(0)
-        } else {
-            const colorImageIndex = displayImages.findIndex((image) => image.url === color.image_url)
-            if (colorImageIndex !== -1) {
-                setActiveImageIndex(colorImageIndex)
-            }
         }
 
         setActiveVariantId(variant.id)
@@ -195,7 +191,7 @@ export default function ProductDetailPage() {
                     fabricName: fabric?.name || '',
                     colorName: color?.name || '',
                     size: product.size || null,
-                    imageUrl: variant.image_url || color?.image_url || images[0]?.url || null,
+                    imageUrl: variant.image_url || baseImages[0]?.url || null,
                     quantity,
                     unitPrice: getVariantPricing(variant).unitPrice,
                 })
@@ -443,9 +439,9 @@ export default function ProductDetailPage() {
                                                                   backgroundSize: 'cover',
                                                                   backgroundPosition: 'center',
                                                               }
-                                                            : {}),
+                                                                : {}),
                                                     }}
-                                                    onClick={() => handleActivateVariant(variant, color)}
+                                                    onClick={() => handleActivateVariant(variant)}
                                                 >
                                                     {quantity > 0 && (
                                                         <Check className="h-5 w-5 text-white drop-shadow-md mix-blend-difference" />

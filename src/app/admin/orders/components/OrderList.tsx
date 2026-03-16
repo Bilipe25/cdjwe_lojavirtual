@@ -34,9 +34,8 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { statusConfig } from './OrderFilters'
-import type { OrderItem, OrderStatus } from '@/lib/types'
-
-const statusFlow: OrderStatus[] = ['pending', 'approved', 'in_production', 'shipped', 'delivered']
+import type { OrderStatus } from '@/lib/types'
+import { getAvailableOrderStatusTransitions } from '@/lib/orders/order-status-transition'
 
 export interface OrderWithDetails {
     id: string;
@@ -50,7 +49,7 @@ export interface OrderWithDetails {
     store?: { company_name: string; cnpj: string };
     profile?: { full_name: string };
     payment_condition?: { name: string };
-    items?: OrderItem[];
+    item_count?: number;
 }
 
 interface OrderListProps {
@@ -113,12 +112,8 @@ export function OrderList({
             {orders.map((order, i) => {
                 const config = statusConfig[order.status];
                 const isSelected = selectedOrders.includes(order.id);
-                const hasFrozenSnapshot = order.items?.some(
-                    (item) =>
-                        (item.product_price !== null && item.product_price !== undefined) ||
-                        (item.variation_price !== null && item.variation_price !== undefined) ||
-                        (item.final_price !== null && item.final_price !== undefined)
-                );
+                const nextTransitions = getAvailableOrderStatusTransitions(order.status)
+                const itemCount = Number(order.item_count || 0)
 
                 return (
                     <motion.div 
@@ -183,16 +178,8 @@ export function OrderList({
                                             </span>
                                             <span>•</span>
                                             <span>
-                                                {order.items?.length || 0} {(order.items?.length || 0) === 1 ? 'item' : 'itens'}
+                                                {itemCount} {itemCount === 1 ? 'item' : 'itens'}
                                             </span>
-                                            {hasFrozenSnapshot && (
-                                                <>
-                                                    <span>&bull;</span>
-                                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700">
-                                                        Snapshot financeiro
-                                                    </span>
-                                                </>
-                                            )}
                                         </div>
                                     </div>
 
@@ -212,8 +199,8 @@ export function OrderList({
                                                     </DropdownMenuItem>
                                                     <DropdownMenuSeparator />
                                                     
-                                                    {statusFlow.map((s) => {
-                                                        if (s === order.status) return null
+                                                    {nextTransitions.map((s) => {
+                                                        if (s === 'cancelled') return null
                                                         const FlowIcon = statusConfig[s].icon
                                                         return (
                                                             <DropdownMenuItem key={s} onClick={() => onUpdateStatus(order.id, s)}>
@@ -223,7 +210,7 @@ export function OrderList({
                                                         )
                                                     })}
 
-                                                    {order.status !== 'cancelled' && (
+                                                    {nextTransitions.includes('cancelled') && (
                                                         <>
                                                             <DropdownMenuSeparator />
                                                             <DropdownMenuItem 

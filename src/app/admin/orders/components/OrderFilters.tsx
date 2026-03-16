@@ -66,11 +66,11 @@ export function OrderFilters({
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Buscar por nº do pedido, razão social ou CNPJ..."
+                        placeholder="Buscar por pedido, razao social, CNPJ, representante ou observacoes..."
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
                         className="pl-9 h-11 bg-white/60"
-                        title="Dica: Você pode pesquisar pelo nome da empresa ou documento."
+                        title="Busca em pedido, observacoes, razao social, CNPJ e representante."
                     />
                 </div>
                 

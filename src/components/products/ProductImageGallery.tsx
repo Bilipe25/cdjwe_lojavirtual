@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Image from 'next/image'
 import useEmblaCarousel from 'embla-carousel-react'
 import { ChevronLeft, ChevronRight, Maximize2, Package, Search } from 'lucide-react'
@@ -132,6 +132,7 @@ export function ProductImageGallery({
     }
 
     const slides = images.map(img => ({ src: img.url }))
+    const mainImageClassName = 'object-contain p-3 md:p-4'
 
     return (
         <div className="flex flex-col md:flex-row gap-2 md:gap-4 h-full p-2 md:p-4">
@@ -146,15 +147,16 @@ export function ProductImageGallery({
                                     onClick={() => onThumbClick(index)}
                                     className={`relative min-h-[80px] w-full rounded-xl overflow-hidden border-2 transition-all ${
                                         index === activeImageIndex
-                                            ? 'border-primary ring-2 ring-primary/20 shadow-lg scale-105'
-                                            : 'border-transparent opacity-60 hover:opacity-100 hover:scale-102'
+                                            ? 'border-primary ring-2 ring-primary/20 shadow-lg scale-105 bg-white/90'
+                                            : 'border-transparent opacity-60 hover:opacity-100 hover:scale-102 bg-white/70'
                                     }`}
                                 >
                                     <Image
                                         src={img.url}
                                         alt={`Miniatura ${index + 1}`}
                                         fill
-                                        className="object-cover"
+                                        sizes="96px"
+                                        className="object-contain p-1"
                                     />
                                     {!imagesLoaded[img.id] && (
                                         <Skeleton className="absolute inset-0 z-10" />
@@ -182,6 +184,18 @@ export function ProductImageGallery({
                                     if (!lightboxOpen) setLightboxOpen(true)
                                 }}
                             >
+                                <div className="pointer-events-none absolute inset-0">
+                                    <Image
+                                        src={img.url}
+                                        alt=""
+                                        fill
+                                        aria-hidden
+                                        sizes="(max-width: 768px) 100vw, 50vw"
+                                        className="object-cover scale-110 blur-2xl opacity-25"
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-b from-black/5 via-transparent to-black/10" />
+                                </div>
+
                                 {isMobile ? (
                                     <TransformWrapper
                                         initialScale={1}
@@ -204,7 +218,7 @@ export function ProductImageGallery({
                                                     fill
                                                     sizes="(max-width: 768px) 100vw, 50vw"
                                                     priority={index <= 1}
-                                                    className="object-cover"
+                                                    className={mainImageClassName}
                                                     onLoad={() => handleImageLoad(img.id)}
                                                 />
                                             </div>
@@ -215,8 +229,9 @@ export function ProductImageGallery({
                                         src={img.url}
                                         alt={`${productName} - Imagem ${index + 1}`}
                                         fill
+                                        sizes="(max-width: 768px) 100vw, 50vw"
                                         priority={index <= 1}
-                                        className="object-cover"
+                                        className={mainImageClassName}
                                         onLoad={() => handleImageLoad(img.id)}
                                     />
                                 )}
@@ -306,17 +321,18 @@ export function ProductImageGallery({
                             <button
                                 key={`hthumb-${img.id}-${index}`}
                                 onClick={() => onThumbClick(index)}
-                                className={`relative h-18 w-18 rounded-xl overflow-hidden shrink-0 border-2 transition-all ${
+                                className={`relative h-[4.5rem] w-[4.5rem] rounded-xl overflow-hidden shrink-0 border-2 transition-all ${
                                     index === activeImageIndex
-                                        ? 'border-primary shadow-md'
-                                        : 'border-transparent opacity-50'
+                                        ? 'border-primary shadow-md bg-white/90'
+                                        : 'border-transparent opacity-50 bg-white/70'
                                 }`}
                             >
                                 <Image
                                     src={img.url}
                                     alt={`Miniatura ${index + 1}`}
                                     fill
-                                    className="object-cover"
+                                    sizes="72px"
+                                    className="object-contain p-1"
                                     onLoad={() => handleImageLoad(`thumb-${img.id}`)}
                                 />
                                 {!imagesLoaded[`thumb-${img.id}`] && (

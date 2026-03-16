@@ -3,9 +3,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { format } from 'date-fns'
 import type { OrderStatus } from '@/lib/types'
 import { buildOrderStatusAuditNote } from '@/lib/orders/order-communication'
+import { canTransitionOrderStatus } from '@/lib/orders/order-status-transition'
 import { Button } from '@/components/ui/button'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
@@ -18,6 +18,46 @@ import { OrderDetailModal, type AdminOrderDetailRecord } from './components/Orde
 import { deleteOrderAction } from './actions'
 
 const ITEMS_PER_PAGE = 15;
+
+type AdminOrdersSearchRpcRow = {
+    id: string
+    order_number: string
+    status: string
+    total: number
+    subtotal: number
+    discount_amount: number
+    created_at: string
+    notes: string | null
+    store_company_name: string | null
+    store_cnpj: string | null
+    profile_full_name: string | null
+    payment_condition_name: string | null
+    item_count: number | null
+    total_count: number | null
+}
+
+type AdminOrderStatusUpdateRpcRow = {
+    order_id: string
+    order_number: string
+    previous_status: string
+    new_status: string
+    profile_id: string | null
+    client_email: string | null
+    client_name: string | null
+    changed: boolean
+}
+
+type AdminOrderBulkStatusUpdateRpcRow = {
+    order_id: string
+    order_number: string | null
+    previous_status: string | null
+    new_status: string | null
+    client_email: string | null
+    client_name: string | null
+    changed: boolean
+    success: boolean
+    error_message: string | null
+}
 
 export default function AdminOrdersPage() {
     const [orders, setOrders] = useState<OrderWithDetails[]>([])
@@ -38,53 +78,44 @@ export default function AdminOrdersPage() {
     const loadOrders = useCallback(async () => {
         setLoading(true)
         const supabase = createClient()
-        
-        let query = supabase
-            .from('orders')
-            .select(`
-                *,
-                store:stores(company_name, cnpj),
-                profile:profiles(full_name),
-                items:order_items(*),
-                payment_condition:payment_conditions(name)
-            `, { count: 'exact' })
-            
-        // Filters
-        if (statusFilter !== 'all') {
-            query = query.eq('status', statusFilter)
-        }
-        
-        // Complex Server-Side Search (ilike crossing multiple fields)
-        if (search) {
-            query = query.or(`order_number.ilike.%${search}%, notes.ilike.%${search}%`)
-            // Ideally backend would have full-text search capability configured to join names,
-            // As Fallback we are using standard ilike on the main table for safety.
-        }
+        const searchTerm = search.trim()
 
-        // Pagination
-        const start = (currentPage - 1) * ITEMS_PER_PAGE;
-        const end = start + ITEMS_PER_PAGE - 1;
-        
-        const { data, count, error } = await query
-            .order('created_at', { ascending: false })
-            .range(start, end)
+        const { data, error } = await supabase.rpc('admin_search_orders_paginated', {
+            p_search: searchTerm.length > 0 ? searchTerm : null,
+            p_status: statusFilter === 'all' ? null : statusFilter,
+            p_page: currentPage,
+            p_page_size: ITEMS_PER_PAGE,
+        })
 
         if (error) {
             toast.error('Erro ao carregar os pedidos do servidor.')
         } else {
-            // Further in-memory filter if cross-table search is needed (workaround for Supabase .or relationship limits without RPC)
-            let finalData = data as OrderWithDetails[];
-            if (search) {
-                const s = search.toLowerCase();
-                finalData = (data as OrderWithDetails[]).filter(o => 
-                    o.order_number.toLowerCase().includes(s) ||
-                    o.store?.company_name?.toLowerCase().includes(s) ||
-                    o.store?.cnpj?.includes(s) ||
-                    o.profile?.full_name?.toLowerCase().includes(s)
-                );
-            }
-            setOrders(finalData)
-            setTotalCount(count || 0)
+            const rows = (data || []) as AdminOrdersSearchRpcRow[]
+            const mapped = rows.map((order) => {
+                return {
+                    id: order.id,
+                    order_number: order.order_number,
+                    status: order.status as OrderStatus,
+                    total: Number(order.total || 0),
+                    subtotal: Number(order.subtotal || 0),
+                    discount_amount: Number(order.discount_amount || 0),
+                    created_at: order.created_at,
+                    notes: order.notes,
+                    store: {
+                        company_name: order.store_company_name || '',
+                        cnpj: order.store_cnpj || '',
+                    },
+                    profile: {
+                        full_name: order.profile_full_name || '',
+                    },
+                    payment_condition: {
+                        name: order.payment_condition_name || '',
+                    },
+                    item_count: Number(order.item_count || 0),
+                }
+            })
+            setOrders(mapped)
+            setTotalCount(rows.length > 0 ? Number(rows[0].total_count || 0) : 0)
         }
         
         setLoading(false)
@@ -101,41 +132,41 @@ export default function AdminOrdersPage() {
     }, [loadOrders])
 
     const updateOrderStatus = async (orderId: string, newStatus: OrderStatus, skipRefresh = false) => {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
+        const currentStatus =
+            orders.find((order) => order.id === orderId)?.status ||
+            (selectedOrderDetail?.id === orderId ? selectedOrderDetail.status : null)
 
-        const { error } = await supabase
-            .from('orders')
-            .update({ status: newStatus })
-            .eq('id', orderId)
-
-        if (error) {
-            toast.error('Erro ao atualizar status do pedido ' + orderId)
-            return false;
+        if (currentStatus) {
+            if (currentStatus === newStatus) return true
+            if (!canTransitionOrderStatus(currentStatus, newStatus)) {
+                toast.error('TransiÃ§Ã£o de status invÃ¡lida para este pedido.')
+                return false
+            }
         }
 
-        // Add to history (The Audit Trail)
-        if (user) {
-            await supabase.from('order_status_history').insert({
-                order_id: orderId,
-                status: newStatus,
-                notes: buildOrderStatusAuditNote(newStatus),
-                changed_by: user.id,
-            })
+        const supabase = createClient()
+        const { data: rpcData, error } = await supabase.rpc('admin_update_order_status_atomic', {
+            p_order_id: orderId,
+            p_new_status: newStatus,
+            p_notes: buildOrderStatusAuditNote(newStatus),
+        })
+
+        if (error) {
+            toast.error(error.message || 'Erro ao atualizar status do pedido.')
+            return false
+        }
+
+        const rpcRow = (rpcData as AdminOrderStatusUpdateRpcRow[] | null)?.[0] || null
+        if (!rpcRow) {
+            toast.error('Resposta invalida ao atualizar status do pedido.')
+            return false
         }
 
         // Send status update email to client
-        const order = orders.find(o => o.id === orderId)
-        if (order?.order_number) {
-            // Fetch client email from order's profile
-            const { data: orderData } = await supabase
-                .from('orders')
-                .select('profile_id, profiles:profile_id(email, full_name)')
-                .eq('id', orderId)
-                .single()
-
-            const clientProfile = (orderData as { profiles?: { email?: string | null; full_name?: string | null } | null } | null)?.profiles
-            if (clientProfile?.email) {
+        if (rpcRow.changed && rpcRow.client_email) {
+            const localOrder = orders.find((o) => o.id === orderId)
+            const orderNumber = rpcRow.order_number || localOrder?.order_number
+            if (orderNumber) {
                 fetch('/api/email/send', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -143,9 +174,9 @@ export default function AdminOrdersPage() {
                         type: 'order_status',
                         payload: {
                             orderId,
-                            orderNumber: order.order_number,
-                            clientName: clientProfile.full_name,
-                            clientEmail: clientProfile.email,
+                            orderNumber,
+                            clientName: rpcRow.client_name,
+                            clientEmail: rpcRow.client_email,
                             newStatus,
                         },
                     }),
@@ -170,12 +201,64 @@ export default function AdminOrdersPage() {
         const confirm = window.confirm(`Tem certeza que deseja marcar ${selectedOrders.length} pedido(s) como "${statusConfig[newStatus].label}"?`);
         if (!confirm) return;
 
-        const promises = selectedOrders.map(id => updateOrderStatus(id, newStatus, true));
-        await Promise.all(promises);
-        
-        toast.success(`${selectedOrders.length} pedido(s) atualizado(s) com sucesso para "${statusConfig[newStatus].label}"!`);
-        setSelectedOrders([]);
-        loadOrders(); // Bruteforce refresh to get accurate data and timeline configs
+        const supabase = createClient()
+        const { data, error } = await supabase.rpc('admin_bulk_update_order_status_atomic', {
+            p_order_ids: selectedOrders,
+            p_new_status: newStatus,
+            p_notes: buildOrderStatusAuditNote(newStatus),
+        })
+
+        if (error) {
+            toast.error(error.message || 'Erro ao atualizar pedidos em lote.')
+            return
+        }
+
+        const rows = (data || []) as AdminOrderBulkStatusUpdateRpcRow[]
+        const successRows = rows.filter((row) => row.success)
+        const changedRows = successRows.filter((row) => row.changed)
+        const failedRows = rows.filter((row) => !row.success)
+
+        changedRows.forEach((row) => {
+            const orderNumber = row.order_number || orders.find((order) => order.id === row.order_id)?.order_number
+            if (!orderNumber || !row.client_email) return
+            fetch('/api/email/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'order_status',
+                    payload: {
+                        orderId: row.order_id,
+                        orderNumber,
+                        clientName: row.client_name,
+                        clientEmail: row.client_email,
+                        newStatus,
+                    },
+                }),
+            }).catch(() => {})
+        })
+
+        const changedIds = new Set(changedRows.map((row) => row.order_id))
+        if (changedIds.size > 0) {
+            setOrders((prev) => prev.map((order) => (
+                changedIds.has(order.id) ? { ...order, status: newStatus } : order
+            )))
+            if (selectedOrderDetail?.id && changedIds.has(selectedOrderDetail.id)) {
+                setSelectedOrderDetail((prev) => prev ? { ...prev, status: newStatus } : null)
+            }
+        }
+
+        if (changedRows.length > 0) {
+            toast.success(`${changedRows.length} pedido(s) atualizado(s) para "${statusConfig[newStatus].label}".`)
+        }
+        if (failedRows.length > 0) {
+            const firstError = failedRows[0]?.error_message ? ` (${failedRows[0].error_message})` : ''
+            toast.error(`${failedRows.length} pedido(s) nÃ£o puderam ser atualizados${firstError}`)
+        } else if (changedRows.length === 0 && successRows.length > 0) {
+            toast.message('Nenhum pedido precisou de alteraÃ§Ã£o de status.')
+        }
+
+        setSelectedOrders([])
+        void loadOrders()
     }
 
     const deleteOrder = async (orderId: string) => {
@@ -190,7 +273,7 @@ export default function AdminOrdersPage() {
         if (selectedOrderDetail?.id === orderId) {
             setSelectedOrderDetail(null)
         }
-        toast.success('Pedido excluído com sucesso.')
+        toast.success('Pedido excluÃ­do com sucesso.')
         return true
     }
 
@@ -202,40 +285,43 @@ export default function AdminOrdersPage() {
 
     // CSV Download directly from DB state instead of limited local memory
     const exportCSV = async () => {
-        toast.message('Preparando arquivo CSV...', { description: 'Buscando todos os registros...' })
-        const supabase = createClient()
-        
-        let query = supabase.from('orders').select(`
-            *, store:stores(company_name, cnpj), profile:profiles(full_name)
-        `)
-        if (statusFilter !== 'all') query = query.eq('status', statusFilter)
+        toast.message('Preparando arquivo CSV...', { description: 'Buscando todos os registros no servidor...' })
+        const params = new URLSearchParams()
+        const searchTerm = search.trim()
+        if (searchTerm) params.set('q', searchTerm)
+        if (statusFilter !== 'all') params.set('status', statusFilter)
 
-        const { data, error } = await query;
-        if (error || !data) {
-            toast.error('Erro ao exportar base de dados.')
-            return;
+        try {
+            const query = params.toString()
+            const response = await fetch(`/api/admin/orders/export${query ? `?${query}` : ''}`, {
+                method: 'GET',
+                credentials: 'include',
+            })
+
+            if (!response.ok) {
+                const body = await response.json().catch(() => null)
+                throw new Error(body?.error || 'Erro ao exportar base de dados.')
+            }
+
+            const csv = await response.text()
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+
+            const disposition = response.headers.get('Content-Disposition') || ''
+            const fileNameMatch = disposition.match(/filename=\"?([^"]+)\"?/)
+            link.download = fileNameMatch?.[1] || 'relatorio_pedidos.csv'
+
+            document.body.appendChild(link)
+            link.click()
+            link.remove()
+            URL.revokeObjectURL(url)
+            toast.success('Arquivo CSV baixado com sucesso!')
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Erro ao exportar base de dados.'
+            toast.error(message)
         }
-
-        const csv = [
-            ['ID', 'Pedido', 'Cliente', 'CNPJ/Empresa', 'Status', 'Total', 'Data'].join(','),
-            ...data.map(o => [
-                o.id,
-                o.order_number,
-                `"${o.profile?.full_name || ''}"`,
-                `"${o.store?.cnpj || ''} - ${o.store?.company_name || ''}"`,
-                statusConfig[o.status as OrderStatus]?.label || o.status,
-                o.total.toFixed(2),
-                format(new Date(o.created_at), 'dd/MM/yyyy'),
-            ].join(','))
-        ].join('\n')
-
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `relatorio_pedidos_${format(new Date(), 'yyyy-MM-dd')}.csv`
-        a.click()
-        toast.success('Arquivo CSV baixado com sucesso!')
     }
 
     const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
@@ -294,7 +380,7 @@ export default function AdminOrdersPage() {
                             disabled={currentPage >= totalPages}
                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         >
-                            Próxima <ChevronRight className="h-4 w-4 ml-1" />
+                            PrÃ³xima <ChevronRight className="h-4 w-4 ml-1" />
                         </Button>
                     </div>
                 </div>
@@ -310,3 +396,4 @@ export default function AdminOrdersPage() {
         </div>
     )
 }
+

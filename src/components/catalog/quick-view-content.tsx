@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { Package, ShoppingCart, Search, Minus, Plus, Heart } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { DialogTitle } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
@@ -13,6 +13,7 @@ import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useProductDetailData, type ProductDetailData } from '@/lib/hooks/use-product-detail-data'
 import { useProductSelectionState } from '@/lib/hooks/use-product-selection-state'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
+import { buildBaseGalleryImages, buildDisplayGalleryImages } from '@/lib/products/gallery-images'
 import { toast } from 'sonner'
 import { ProductImageGallery } from '../products/ProductImageGallery'
 import { PricePresentation, getVariantPriceBadges } from './price-presentation'
@@ -68,6 +69,15 @@ export function QuickViewContent({
         clearQuantities,
         resetSelection,
     } = selection
+    const baseImages = useMemo(() => buildBaseGalleryImages(images), [images])
+    const displayImages = useMemo(
+        () =>
+            buildDisplayGalleryImages(baseImages, {
+                id: activeVariant?.id,
+                imageUrl: activeVariant?.image_url || null,
+            }),
+        [activeVariant?.id, activeVariant?.image_url, baseImages]
+    )
 
     if (loading) {
         return (
@@ -165,16 +175,13 @@ export function QuickViewContent({
         return sum + getVariantPricing(variantId).unitPrice * quantity
     }, 0)
 
-    const handleActivateVariant = (variantId: string, colorImageUrl: string | null) => {
+    const handleActivateVariant = (variantId: string) => {
         const variant = variants.find((item) => item.id === variantId)
         if (!variant) return
 
-        const imageUrl = variant.image_url || colorImageUrl
-        if (imageUrl) {
-            const imageIndex = images.findIndex((image) => image.url === imageUrl)
-            if (imageIndex !== -1) {
-                setActiveImageIndex(imageIndex)
-            }
+        if (variant.image_url) {
+            // Selection image is promoted to first position in the gallery.
+            setActiveImageIndex(0)
         }
 
         setActiveVariantId(variant.id)
@@ -204,7 +211,7 @@ export function QuickViewContent({
                     fabricName: fabric?.name || '',
                     colorName: color?.name || '',
                     size: product.size,
-                    imageUrl: matchedVariant.image_url || color?.image_url || images[0]?.url || null,
+                    imageUrl: matchedVariant.image_url || baseImages[0]?.url || null,
                     quantity,
                     unitPrice: priceBreakdown.unitPrice,
                 })
@@ -230,7 +237,7 @@ export function QuickViewContent({
         <div className="flex flex-col bg-white md:grid md:h-full md:grid-cols-[1fr_1.2fr] md:overflow-hidden">
             <div className="relative shrink-0 overflow-hidden bg-muted/20 md:h-full md:border-r md:border-border/50">
                 <ProductImageGallery
-                    images={images}
+                    images={displayImages}
                     productName={product.name}
                     activeImageIndex={activeImageIndex}
                     onImageChange={setActiveImageIndex}
@@ -406,7 +413,7 @@ export function QuickViewContent({
                                         >
                                             <button
                                                 type="button"
-                                                onClick={() => handleActivateVariant(variant.id, color.image_url)}
+                                                onClick={() => handleActivateVariant(variant.id)}
                                                 className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
                                             >
                                                 <div
