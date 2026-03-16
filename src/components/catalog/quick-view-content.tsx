@@ -241,6 +241,7 @@ export function QuickViewContent({
                     productName={product.name}
                     activeImageIndex={activeImageIndex}
                     onImageChange={setActiveImageIndex}
+                    layoutContext="quickview"
                 />
 
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/30 via-black/10 to-transparent md:hidden" />

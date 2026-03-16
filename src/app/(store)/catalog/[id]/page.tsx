@@ -226,6 +226,7 @@ export default function ProductDetailPage() {
                         productName={product.name}
                         activeImageIndex={activeImageIndex}
                         onImageChange={setActiveImageIndex}
+                        layoutContext="detail"
                     />
                 </div>
 

@@ -25,13 +25,15 @@ interface ProductImageGalleryProps {
     productName: string
     activeImageIndex?: number
     onImageChange?: (index: number) => void
+    layoutContext?: 'quickview' | 'detail'
 }
 
 export function ProductImageGallery({
     images,
     productName,
     activeImageIndex = 0,
-    onImageChange
+    onImageChange,
+    layoutContext = 'detail',
 }: ProductImageGalleryProps) {
     const [lightboxOpen, setLightboxOpen] = useState(false)
     const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
@@ -132,20 +134,28 @@ export function ProductImageGallery({
     }
 
     const slides = images.map(img => ({ src: img.url }))
-    const mainImageClassName = 'object-contain p-3 md:p-4'
+    const isQuickView = layoutContext === 'quickview'
+    const wrapperSpacingClass = isQuickView ? 'gap-1.5 md:gap-3 p-1.5 md:p-3' : 'gap-2 md:gap-4 p-2 md:p-4'
+    const desktopThumbRailClass = isQuickView ? 'w-[64px]' : 'w-[72px]'
+    const desktopThumbItemClass = isQuickView ? 'min-h-[72px]' : 'min-h-[80px]'
+    const mainImageClassName = isQuickView
+        ? 'object-contain p-1.5 sm:p-2.5 md:p-3 lg:p-3.5 xl:p-4'
+        : 'object-contain p-2 sm:p-3 md:p-4 lg:p-5 xl:p-6'
+    const thumbImagePaddingClass = isQuickView ? 'object-contain p-0.5' : 'object-contain p-1'
+    const mobileThumbSizeClass = isQuickView ? 'h-16 w-16' : 'h-[4.5rem] w-[4.5rem]'
 
     return (
-        <div className="flex flex-col md:flex-row gap-2 md:gap-4 h-full p-2 md:p-4">
+        <div className={`flex h-full flex-col md:flex-row ${wrapperSpacingClass}`}>
             {/* Desktop Thumbnails (Vertical) */}
             {images.length > 1 && (
-                <div className="hidden md:flex flex-col w-[72px] shrink-0 h-full"> 
+                <div className={`hidden h-full shrink-0 flex-col md:flex ${desktopThumbRailClass}`}> 
                     <div className="overflow-hidden flex-1 relative" ref={emblaThumbsRef}>
                         <div className="flex flex-col gap-3 py-1">
                             {images.map((img, index) => (
                                 <button
                                     key={`vthumb-${img.id}-${index}`}
                                     onClick={() => onThumbClick(index)}
-                                    className={`relative min-h-[80px] w-full rounded-xl overflow-hidden border-2 transition-all ${
+                                    className={`relative w-full rounded-xl overflow-hidden border-2 transition-all ${desktopThumbItemClass} ${
                                         index === activeImageIndex
                                             ? 'border-primary ring-2 ring-primary/20 shadow-lg scale-105 bg-white/90'
                                             : 'border-transparent opacity-60 hover:opacity-100 hover:scale-102 bg-white/70'
@@ -156,7 +166,7 @@ export function ProductImageGallery({
                                         alt={`Miniatura ${index + 1}`}
                                         fill
                                         sizes="96px"
-                                        className="object-contain p-1"
+                                        className={thumbImagePaddingClass}
                                     />
                                     {!imagesLoaded[img.id] && (
                                         <Skeleton className="absolute inset-0 z-10" />
@@ -321,7 +331,7 @@ export function ProductImageGallery({
                             <button
                                 key={`hthumb-${img.id}-${index}`}
                                 onClick={() => onThumbClick(index)}
-                                className={`relative h-[4.5rem] w-[4.5rem] rounded-xl overflow-hidden shrink-0 border-2 transition-all ${
+                                className={`relative rounded-xl overflow-hidden shrink-0 border-2 transition-all ${mobileThumbSizeClass} ${
                                     index === activeImageIndex
                                         ? 'border-primary shadow-md bg-white/90'
                                         : 'border-transparent opacity-50 bg-white/70'
@@ -332,7 +342,7 @@ export function ProductImageGallery({
                                     alt={`Miniatura ${index + 1}`}
                                     fill
                                     sizes="72px"
-                                    className="object-contain p-1"
+                                    className={thumbImagePaddingClass}
                                     onLoad={() => handleImageLoad(`thumb-${img.id}`)}
                                 />
                                 {!imagesLoaded[`thumb-${img.id}`] && (

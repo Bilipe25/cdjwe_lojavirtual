@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
@@ -10,16 +10,23 @@ import { ProductList, type ProductWithDetails } from './components/ProductList'
 import { ProductFilters } from './components/ProductFilters'
 import { ProductFormModal } from './components/ProductFormModal'
 import { type ProductFormData } from './schema'
-import { syncAllVariants, saveProductVariantConfig, saveProductVariantPrices } from '../actions/variants'
+import {
+    cleanupProductImageUploadsAction,
+    createProductImageSignedUploadUrlsAction,
+    saveProductImagesMetadataAction,
+    upsertProductDomainAction,
+} from '@/app/admin/actions/products'
 
 function slugify(text: string) {
     return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 }
 
 const ITEMS_PER_PAGE = 12;
+const MAX_PRODUCT_IMAGES = 5
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
 
 export default function AdminProductsPage() {
-    const supabase = createClient()
+    const supabase = useMemo(() => createClient(), [])
 
     const [products, setProducts] = useState<ProductWithDetails[]>([])
     const [categories, setCategories] = useState<Category[]>([])
@@ -75,12 +82,18 @@ export default function AdminProductsPage() {
                 : Promise.resolve({ data: categories })
         ])
 
+        if (prodsRes.error) {
+            toast.error('Erro ao carregar produtos.')
+        }
+        if ('error' in catsRes && catsRes.error) {
+            toast.error('Erro ao carregar categorias.')
+        }
         if (prodsRes.data) setProducts(prodsRes.data)
         if (prodsRes.count !== null) setTotalCount(prodsRes.count)
         if (catsRes.data) setCategories(catsRes.data)
         
         setLoading(false)
-    }, [debouncedSearch, categoryFilter, currentPage, categories.length, supabase])
+    }, [debouncedSearch, categoryFilter, currentPage, categories, supabase])
 
     useEffect(() => {
         loadData()
@@ -111,9 +124,12 @@ export default function AdminProductsPage() {
         imagesToDelete: string[], 
         primaryImageId: string | null,
         activeVariantIds: string[],
-        variantPriceOverrides: Record<string, number | null>
+        variantPriceOverrides: Record<string, number | null>,
+        options: { variantConfigTouched: boolean; variantPricingTouched: boolean }
     ) => {
         setSaving(true)
+        const operationId = crypto.randomUUID()
+        const uploadedStoragePaths: string[] = []
         const slug = slugify(data.name)
         const payload = {
             name: data.name,
@@ -129,97 +145,115 @@ export default function AdminProductsPage() {
         let productId = editingProduct?.id
 
         try {
-            // 1. Save Product
-            if (editingProduct) {
-                const { error } = await supabase.from('products').update(payload).eq('id', editingProduct.id)
-                if (error) throw error
-            } else {
-                const { data: newProd, error } = await supabase.from('products').insert(payload).select().single()
-                if (error) throw error
-                productId = newProd.id
+            const existingImagesAfterDelete = (editingProduct?.images || []).filter(
+                (image) => !imagesToDelete.includes(image.id)
+            ).length
+            const totalImagesAfterSave = existingImagesAfterDelete + newImageFiles.length
+            if (totalImagesAfterSave > MAX_PRODUCT_IMAGES) {
+                throw new Error(`Limite maximo de ${MAX_PRODUCT_IMAGES} imagens por produto.`)
             }
 
-            // 2. Delete Removed Images
-            if (imagesToDelete.length > 0) {
-                const { data: imgsToRemove } = await supabase.from('product_images').select('url').in('id', imagesToDelete)
-                if (imgsToRemove) {
-                    const paths = imgsToRemove.map(img => img.url.split('/').pop())
-                    if (paths.length > 0) {
-                        await supabase.storage.from('products').remove(paths as string[])
-                    }
+            for (const file of newImageFiles) {
+                if (!file.type.startsWith('image/')) {
+                    throw new Error(`Arquivo nao suportado: ${file.name}`)
                 }
-                await supabase.from('product_images').delete().in('id', imagesToDelete)
+                if (file.size > MAX_IMAGE_SIZE_BYTES) {
+                    throw new Error(`Imagem excede 5MB: ${file.name}`)
+                }
             }
 
-            // 3. Upload New Images
+            // 1. Persist product + variant domain atomically (RPC layer)
+            const domainResult = await upsertProductDomainAction({
+                productId: editingProduct?.id ?? null,
+                name: payload.name,
+                slug: payload.slug,
+                description: payload.description,
+                categoryId: payload.category_id,
+                size: payload.size,
+                basePrice: payload.base_price,
+                isActive: payload.is_active,
+                isFeatured: payload.is_featured,
+                activeVariantIds: options.variantConfigTouched ? activeVariantIds : null,
+                variantPriceOverrides: options.variantPricingTouched ? variantPriceOverrides : null,
+                operationId,
+            })
+
+            if (!domainResult.success || !domainResult.productId) {
+                throw new Error(domainResult.error || 'Falha ao salvar produto.')
+            }
+
+            productId = domainResult.productId
+
+            // 2. Upload files via signed upload URLs (server-side issued)
+            const uploadedPublicUrls: string[] = []
             if (newImageFiles.length > 0 && productId) {
-                // Determine existing count to start sort_order
-                const existingCount = editingProduct?.images?.filter(i => !imagesToDelete.includes(i.id)).length || 0;
+                const signedUploadResult = await createProductImageSignedUploadUrlsAction({
+                    productId,
+                    files: newImageFiles.map((file) => ({ name: file.name, contentType: file.type })),
+                    operationId,
+                })
+
+                if (!signedUploadResult.success || !signedUploadResult.uploads) {
+                    throw new Error(signedUploadResult.error || 'Falha ao preparar upload das imagens.')
+                }
+
+                if (signedUploadResult.uploads.length !== newImageFiles.length) {
+                    throw new Error('Falha ao validar lote de upload assinado.')
+                }
 
                 for (let i = 0; i < newImageFiles.length; i++) {
                     const file = newImageFiles[i]
-                    const fileExt = file.name.split('.').pop()
-                    const fileName = `${productId}_${Date.now()}_${i}.${fileExt}`
-
-                    const { error: uploadError } = await supabase.storage.from('products').upload(fileName, file)
+                    const signed = signedUploadResult.uploads[i]
+                    const { error: uploadError } = await supabase.storage
+                        .from('products')
+                        .uploadToSignedUrl(signed.path, signed.token, file)
 
                     if (uploadError) {
-                        toast.error(`Erro ao fazer upload da imagem ${file.name}`)
-                        continue
+                        throw new Error(`Erro ao fazer upload da imagem ${file.name}`)
                     }
 
-                    const { data: publicUrlData } = supabase.storage.from('products').getPublicUrl(fileName)
-                    
-                    // Logic to set primary accurately for mixed old/new
-                    const isPrimary = (primaryImageId === `new_${i}`) || 
-                                      (primaryImageId === null && i === 0 && existingCount === 0);
-
-                    await supabase.from('product_images').insert({
-                        product_id: productId,
-                        url: publicUrlData.publicUrl,
-                        is_primary: isPrimary,
-                        sort_order: existingCount + i
-                    })
+                    uploadedStoragePaths.push(signed.path)
+                    uploadedPublicUrls.push(signed.publicUrl)
                 }
             }
 
-            // 4. Update Primary Status for Existing Images
-            if (productId && (!newImageFiles.length || !primaryImageId?.startsWith('new_'))) {
-                const finalImages = editingProduct?.images?.filter(i => !imagesToDelete.includes(i.id)) || [];
-                for (const img of finalImages) {
-                    const isPrimary = img.id === primaryImageId;
-                    if (img.is_primary !== isPrimary) {
-                        await supabase.from('product_images').update({ is_primary: isPrimary }).eq('id', img.id)
-                    }
+            // 3. Persist image metadata in a single server-side contract
+            if (productId) {
+                const imagesResult = await saveProductImagesMetadataAction({
+                    productId,
+                    imageIdsToDelete: imagesToDelete,
+                    newImageUrls: uploadedPublicUrls,
+                    primaryImageRef: primaryImageId,
+                    operationId,
+                })
+                if (!imagesResult.success) {
+                    throw new Error(imagesResult.error || 'Falha ao salvar metadados das imagens.')
                 }
             }
 
-            // 5. Silently trigger the global variant sync so new products become available to sell immediately!
-            await syncAllVariants()
-
-            // 6. Persist fabric/color configuration if the admin opened the config tab
-            if (productId && activeVariantIds.length > 0) {
-                await saveProductVariantConfig(productId, activeVariantIds)
+            // 4. Optional: keep user informed when new variants were synced
+            if (domainResult.variantsInserted && domainResult.variantsInserted > 0) {
+                toast.info(`${domainResult.variantsInserted} variacoes foram sincronizadas automaticamente.`)
             }
 
-            // 7. Persist optional price overrides for each variant color
-            if (productId && Object.keys(variantPriceOverrides).length > 0) {
-                const result = await saveProductVariantPrices(productId, variantPriceOverrides)
-                if (!result.success) {
-                    console.error(result.error)
-                    toast.error('Falha ao salvar preÃ§os das variaÃ§Ãµes.')
-                }
-            }
-
+            // 5. Refresh local data
             toast.success(editingProduct ? 'Produto atualizado!' : 'Produto criado!')
             setDialogOpen(false)
-            loadData()
-        } catch (err: any) {
+            await loadData()
+        } catch (err: unknown) {
             console.error(err)
-            if (err.message?.includes('duplicate')) {
-                toast.error('Já existe um produto com esse nome')
+            const errorMessage = err instanceof Error ? err.message : ''
+            if (errorMessage.includes('duplicate') || errorMessage.toLowerCase().includes('slug')) {
+                toast.error('Ja existe um produto com esse nome')
             } else {
-                toast.error('Erro ao salvar produto')
+                toast.error(errorMessage || 'Erro ao salvar produto')
+            }
+            if (uploadedStoragePaths.length > 0) {
+                await cleanupProductImageUploadsAction({
+                    paths: uploadedStoragePaths,
+                    productId: productId ?? editingProduct?.id,
+                    operationId,
+                })
             }
         } finally {
             setSaving(false)
@@ -231,7 +265,7 @@ export default function AdminProductsPage() {
         const { error } = await supabase.from('products').delete().eq('id', id)
         if (error) { toast.error('Erro ao excluir. O produto pode ter pedidos vinculados.'); return }
         setProducts(prev => prev.filter(p => p.id !== id))
-        toast.success('Produto excluído!')
+        toast.success('Produto excluido!')
     }
 
     const handleBulkActivate = async () => {
@@ -254,7 +288,7 @@ export default function AdminProductsPage() {
         if (!confirm(`Tem certeza que deseja EXCLUIR DEFINITIVAMENTE os ${selectedProducts.length} produtos selecionados?`)) return
         const { error } = await supabase.from('products').delete().in('id', selectedProducts)
         if (error) { toast.error('Erro ao excluir. Alguns produtos podem ter pedidos vinculados.'); return }
-        toast.success(`${selectedProducts.length} produtos excluídos!`)
+        toast.success(`${selectedProducts.length} produtos excluidos!`)
         setSelectedProducts([])
         loadData()
     }
@@ -268,7 +302,7 @@ export default function AdminProductsPage() {
                     <h1 className="text-3xl font-bold font-heading text-gradient-navy">
                         Produtos
                     </h1>
-                    <p className="text-muted-foreground mt-1">Gerencie seu catálogo de produtos</p>
+                    <p className="text-muted-foreground mt-1">Gerencie seu catalogo de produtos</p>
                 </div>
                 <Button className="gradient-navy border-0 text-white gap-2" onClick={() => openDialog()}>
                     <Plus className="h-4 w-4" />Novo Produto
@@ -321,7 +355,7 @@ export default function AdminProductsPage() {
                             disabled={currentPage === totalPages}
                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         >
-                            Próxima <ChevronRight className="h-4 w-4 ml-1" />
+                            Proxima <ChevronRight className="h-4 w-4 ml-1" />
                         </Button>
                     </div>
                 </div>
@@ -338,3 +372,4 @@ export default function AdminProductsPage() {
         </div>
     )
 }
+

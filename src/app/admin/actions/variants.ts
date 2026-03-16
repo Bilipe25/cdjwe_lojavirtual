@@ -10,57 +10,125 @@ export interface FabricConfigGroup {
     colors: (FabricColor & { variantId: string; isActive: boolean; price_override: number | null })[]
 }
 
+interface ProductRow {
+    id: string
+    is_active: boolean
+}
+
+interface ColorRow {
+    id: string
+    fabric_id: string
+    is_active: boolean
+}
+
+interface VariantRow {
+    id: string
+    fabric_id: string
+    fabric_color_id: string
+    is_active: boolean
+    price_override: number | null
+}
+
+interface ExistingVariantKeyRow {
+    product_id: string
+    fabric_id: string
+    fabric_color_id: string
+}
+
+interface ExistingProductVariantKeyRow {
+    fabric_id: string
+    fabric_color_id: string
+}
+
+interface VariantInsert {
+    product_id: string
+    fabric_id: string
+    fabric_color_id: string
+    stock_quantity: number
+    is_active: boolean
+}
+
+interface VariantIdRow {
+    id: string
+}
+
+const VARIANT_INSERT_CHUNK_SIZE = 500
+const VARIANT_UPDATE_CHUNK_SIZE = 200
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message
+    return 'Erro inesperado'
+}
+
+async function insertVariantsInChunks(variants: VariantInsert[]) {
+    const supabase = await createClient()
+
+    for (let index = 0; index < variants.length; index += VARIANT_INSERT_CHUNK_SIZE) {
+        const chunk = variants.slice(index, index + VARIANT_INSERT_CHUNK_SIZE)
+        const { error } = await supabase.from('product_variants').insert(chunk)
+        if (error) throw error
+    }
+}
+
 // ==================== SYNC ALL VARIANTS ====================
 
 export async function syncAllVariants() {
     try {
         const supabase = await createClient()
 
-        // 1. Get all active items
-        const { data: products } = await supabase.from('products').select('id, is_active')
-        const { data: fabrics } = await supabase.from('fabrics').select('id, is_active')
-        const { data: colors } = await supabase.from('fabric_colors').select('id, fabric_id, is_active')
-        
-        if (!products?.length || !fabrics?.length || !colors?.length) {
+        // 1. Get base data
+        const [{ data: products, error: productsError }, { data: colors, error: colorsError }] = await Promise.all([
+            supabase.from('products').select('id, is_active'),
+            supabase.from('fabric_colors').select('id, fabric_id, is_active'),
+        ])
+
+        if (productsError) throw productsError
+        if (colorsError) throw colorsError
+
+        if (!products?.length || !colors?.length) {
             return { success: false, message: 'Faltam dados base' }
         }
 
         // 2. Fetch existing variants
-        const { data: existingVars } = await supabase.from('product_variants').select('product_id, fabric_id, fabric_color_id')
-        const existingSet = new Set(existingVars?.map(v => `${v.product_id}-${v.fabric_id}-${v.fabric_color_id}`) || [])
+        const { data: existingVariants, error: existingError } = await supabase
+            .from('product_variants')
+            .select('product_id, fabric_id, fabric_color_id')
+
+        if (existingError) throw existingError
+
+        const existingSet = new Set(
+            (existingVariants as ExistingVariantKeyRow[] | null)?.map(
+                (variant) => `${variant.product_id}-${variant.fabric_id}-${variant.fabric_color_id}`
+            ) || []
+        )
 
         // 3. Build new variants
-        const newVariants = []
-        
-        for (const p of products) {
-            for (const c of colors) {
-                const key = `${p.id}-${c.fabric_id}-${c.id}`
+        const newVariants: VariantInsert[] = []
+
+        for (const product of products as ProductRow[]) {
+            for (const color of colors as ColorRow[]) {
+                const key = `${product.id}-${color.fabric_id}-${color.id}`
                 if (!existingSet.has(key)) {
                     newVariants.push({
-                        product_id: p.id,
-                        fabric_id: c.fabric_id,
-                        fabric_color_id: c.id,
+                        product_id: product.id,
+                        fabric_id: color.fabric_id,
+                        fabric_color_id: color.id,
                         stock_quantity: 999,
-                        is_active: p.is_active && c.is_active
+                        is_active: product.is_active && color.is_active,
                     })
                 }
             }
         }
-        
+
         if (newVariants.length > 0) {
-            const chunkSize = 500
-            for (let i = 0; i < newVariants.length; i += chunkSize) {
-                const chunk = newVariants.slice(i, i + chunkSize)
-                const { error } = await supabase.from('product_variants').insert(chunk)
-                if (error) console.error('Sync Variants Error chunk:', error)
-            }
+            await insertVariantsInChunks(newVariants)
             return { success: true, count: newVariants.length }
         }
-        
+
         return { success: true, count: 0 }
-    } catch (e: any) {
-        console.error('Fatal Sync Variants Error:', e)
-        return { success: false, error: e.message }
+    } catch (error: unknown) {
+        console.error('Fatal syncAllVariants error:', error)
+        return { success: false, error: getErrorMessage(error) }
     }
 }
 
@@ -70,46 +138,53 @@ export async function syncProductVariants(productId: string) {
     try {
         const supabase = await createClient()
 
-        const [{ data: product }, { data: colors }, { data: existingVars }] = await Promise.all([
+        const [
+            { data: product, error: productError },
+            { data: colors, error: colorsError },
+            { data: existingVariants, error: existingVariantsError },
+        ] = await Promise.all([
             supabase.from('products').select('id, is_active').eq('id', productId).single(),
             supabase.from('fabric_colors').select('id, fabric_id, is_active'),
             supabase.from('product_variants').select('fabric_id, fabric_color_id').eq('product_id', productId),
         ])
 
+        if (productError) throw productError
+        if (colorsError) throw colorsError
+        if (existingVariantsError) throw existingVariantsError
+
         if (!product || !colors?.length) {
             return { success: false, message: 'Faltam dados base' }
         }
 
-        const existingSet = new Set(existingVars?.map(v => `${v.fabric_id}-${v.fabric_color_id}`) || [])
-        const newVariants = []
+        const existingSet = new Set(
+            (existingVariants as ExistingProductVariantKeyRow[] | null)?.map(
+                (variant) => `${variant.fabric_id}-${variant.fabric_color_id}`
+            ) || []
+        )
+        const newVariants: VariantInsert[] = []
 
-        for (const c of colors) {
-            const key = `${c.fabric_id}-${c.id}`
+        for (const color of colors as ColorRow[]) {
+            const key = `${color.fabric_id}-${color.id}`
             if (!existingSet.has(key)) {
                 newVariants.push({
                     product_id: productId,
-                    fabric_id: c.fabric_id,
-                    fabric_color_id: c.id,
+                    fabric_id: color.fabric_id,
+                    fabric_color_id: color.id,
                     stock_quantity: 999,
-                    is_active: product.is_active && c.is_active
+                    is_active: product.is_active && color.is_active,
                 })
             }
         }
 
         if (newVariants.length > 0) {
-            const chunkSize = 500
-            for (let i = 0; i < newVariants.length; i += chunkSize) {
-                const chunk = newVariants.slice(i, i + chunkSize)
-                const { error } = await supabase.from('product_variants').insert(chunk)
-                if (error) console.error('Sync Product Variants Error chunk:', error)
-            }
+            await insertVariantsInChunks(newVariants)
             return { success: true, count: newVariants.length }
         }
 
         return { success: true, count: 0 }
-    } catch (e: any) {
-        console.error('Fatal Sync Product Variants Error:', e)
-        return { success: false, error: e.message }
+    } catch (error: unknown) {
+        console.error('Fatal syncProductVariants error:', error)
+        return { success: false, error: getErrorMessage(error) }
     }
 }
 
@@ -127,17 +202,17 @@ export async function getProductVariantConfig(productId: string): Promise<{
     try {
         const supabase = await createClient()
         const syncResult = await syncProductVariants(productId)
-        if (syncResult && syncResult.success === false && syncResult.error) {
+        if (syncResult.success === false && syncResult.error) {
             return { data: null, error: syncResult.error }
         }
 
-        const { data: variantsData, error } = await supabase
+        const { data: variantsData, error: variantsError } = await supabase
             .from('product_variants')
             .select('id, is_active, price_override, fabric_id, fabric_color_id')
             .eq('product_id', productId)
             .order('fabric_id')
 
-        if (error) throw error
+        if (variantsError) throw variantsError
         if (!variantsData) return { data: [], error: null }
 
         const [
@@ -156,34 +231,45 @@ export async function getProductVariantConfig(productId: string): Promise<{
             supabase.from('product_variants').select('id', { count: 'exact', head: true }).eq('product_id', productId),
         ])
 
+        if (fabricsRes.error) throw fabricsRes.error
+        if (colorsRes.error) throw colorsRes.error
+        if (fabricsCount.error) throw fabricsCount.error
+        if (colorsCount.error) throw colorsCount.error
+        if (variantsAllCount.error) throw variantsAllCount.error
+        if (variantsProductCount.error) throw variantsProductCount.error
+
         const fabricById = new Map<string, Fabric>()
-        fabricsRes.data?.forEach(f => fabricById.set(f.id, f as Fabric))
+        ;(fabricsRes.data ?? []).forEach((fabric) => fabricById.set(fabric.id, fabric as Fabric))
 
         const colorById = new Map<string, FabricColor>()
-        colorsRes.data?.forEach(c => colorById.set(c.id, c as FabricColor))
+        ;(colorsRes.data ?? []).forEach((color) => colorById.set(color.id, color as FabricColor))
 
         // Group by fabric
         const fabricMap = new Map<string, FabricConfigGroup>()
-        for (const v of variantsData as any[]) {
-            const fabric = fabricById.get(v.fabric_id)
-            const color = colorById.get(v.fabric_color_id)
+        for (const variant of variantsData as VariantRow[]) {
+            const fabric = fabricById.get(variant.fabric_id)
+            const color = colorById.get(variant.fabric_color_id)
             if (!fabric || !color) continue
+
             if (!fabricMap.has(fabric.id)) {
                 fabricMap.set(fabric.id, { fabric, colors: [] })
             }
-            const group = fabricMap.get(fabric.id)!
+
+            const group = fabricMap.get(fabric.id)
+            if (!group) continue
+
             group.colors.push({
                 ...color,
-                variantId: v.id,
-                isActive: v.is_active,
-                price_override: v.price_override ?? null,
+                variantId: variant.id,
+                isActive: variant.is_active,
+                price_override: variant.price_override ?? null,
             })
         }
 
         // Sort fabrics by sort_order, colors by sort_order
         const groups = Array.from(fabricMap.values())
         groups.sort((a, b) => (a.fabric.sort_order ?? 0) - (b.fabric.sort_order ?? 0))
-        groups.forEach(g => g.colors.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
+        groups.forEach((group) => group.colors.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
 
         return {
             data: groups,
@@ -193,11 +279,11 @@ export async function getProductVariantConfig(productId: string): Promise<{
                 colors: colorsCount.count || 0,
                 variantsAll: variantsAllCount.count || 0,
                 variantsForProduct: variantsProductCount.count || 0,
-            }
+            },
         }
-    } catch (e: any) {
-        console.error('getProductVariantConfig error:', e)
-        return { data: null, error: e.message }
+    } catch (error: unknown) {
+        console.error('getProductVariantConfig error:', error)
+        return { data: null, error: getErrorMessage(error) }
     }
 }
 
@@ -221,34 +307,37 @@ export async function saveProductVariantPrices(
 
         if (fetchError) throw fetchError
 
-        const allowedIds = new Set(allVariants?.map(v => v.id) ?? [])
+        const allowedIds = new Set((allVariants as VariantIdRow[] | null)?.map((variant) => variant.id) ?? [])
         const updates = Object.entries(priceOverrides)
             .filter(([id]) => id && allowedIds.has(id))
             .map(([id, price]) => ({ id, price }))
 
         if (updates.length === 0) return { success: true }
 
-        const chunkSize = 200
-        for (let i = 0; i < updates.length; i += chunkSize) {
-            const chunk = updates.slice(i, i + chunkSize)
+        for (let index = 0; index < updates.length; index += VARIANT_UPDATE_CHUNK_SIZE) {
+            const chunk = updates.slice(index, index + VARIANT_UPDATE_CHUNK_SIZE)
             await Promise.all(
                 chunk.map(async ({ id, price }) => {
-                    if (price !== null && price < 0) {
-                        throw new Error('PreÃ§o invÃ¡lido para a variaÃ§Ã£o.')
+                    if (price !== null) {
+                        if (!Number.isFinite(price) || price < 0) {
+                            throw new Error('Preco invalido para a variacao.')
+                        }
                     }
+
                     const { error } = await supabase
                         .from('product_variants')
                         .update({ price_override: price })
                         .eq('id', id)
+
                     if (error) throw error
                 })
             )
         }
 
         return { success: true }
-    } catch (e: any) {
-        console.error('saveProductVariantPrices error:', e)
-        return { success: false, error: e.message }
+    } catch (error: unknown) {
+        console.error('saveProductVariantPrices error:', error)
+        return { success: false, error: getErrorMessage(error) }
     }
 }
 
@@ -273,33 +362,35 @@ export async function saveProductVariantConfig(
 
         if (fetchError) throw fetchError
 
-        const allIds = allVariants?.map(v => v.id) ?? []
+        const allIds = (allVariants as VariantIdRow[] | null)?.map((variant) => variant.id) ?? []
         const activeSet = new Set(activeVariantIds)
-        
-        const toActivate = allIds.filter(id => activeSet.has(id))
-        const toDeactivate = allIds.filter(id => !activeSet.has(id))
 
-        // 2. Batch update — activate
+        const toActivate = allIds.filter((id) => activeSet.has(id))
+        const toDeactivate = allIds.filter((id) => !activeSet.has(id))
+
+        // 2. Batch update - activate
         if (toActivate.length > 0) {
             const { error } = await supabase
                 .from('product_variants')
                 .update({ is_active: true })
                 .in('id', toActivate)
+
             if (error) throw error
         }
 
-        // 3. Batch update — deactivate
+        // 3. Batch update - deactivate
         if (toDeactivate.length > 0) {
             const { error } = await supabase
                 .from('product_variants')
                 .update({ is_active: false })
                 .in('id', toDeactivate)
+
             if (error) throw error
         }
 
         return { success: true }
-    } catch (e: any) {
-        console.error('saveProductVariantConfig error:', e)
-        return { success: false, error: e.message }
+    } catch (error: unknown) {
+        console.error('saveProductVariantConfig error:', error)
+        return { success: false, error: getErrorMessage(error) }
     }
 }

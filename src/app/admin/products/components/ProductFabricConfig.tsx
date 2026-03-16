@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { ChevronDown, ChevronRight, CheckSquare, Square, Minus } from 'lucide-react'
+import { ChevronDown, ChevronRight, CheckSquare, Square, Minus, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -17,22 +17,27 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
     const [activeIds, setActiveIds] = useState<Set<string>>(new Set())
     const [expandedFabrics, setExpandedFabrics] = useState<Set<string>>(new Set())
     const [loading, setLoading] = useState(false)
+    const [loadError, setLoadError] = useState<string | null>(null)
     const [priceInputs, setPriceInputs] = useState<Record<string, string>>({})
+    const hasUserInteractedRef = useRef(false)
 
     // Keep onChange in a ref so it never triggers unnecessary re-runs
     const onChangeRef = useRef(onChange)
-    useEffect(() => { onChangeRef.current = onChange }, [onChange])
+    useEffect(() => {
+        onChangeRef.current = onChange
+    }, [onChange])
 
     const parsePrice = (val: string) => {
         if (!val || val.trim() === '') return null
         const parsed = parseFloat(val.replace(',', '.'))
-        return Number.isNaN(parsed) ? null : parsed
+        if (Number.isNaN(parsed)) return null
+        return parsed < 0 ? null : parsed
     }
 
     // Sync activeIds and prices to parent onChange safely AFTER rendering
     useEffect(() => {
         // Only notify if we have data (avoid initial empty set call)
-        if (groups.length > 0) {
+        if (groups.length > 0 && hasUserInteractedRef.current) {
             const priceOverrides: Record<string, number | null> = {}
             Object.entries(priceInputs).forEach(([variantId, value]) => {
                 priceOverrides[variantId] = parsePrice(value)
@@ -47,32 +52,54 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
 
     const loadConfig = useCallback(async (id: string) => {
         setLoading(true)
-        const { data } = await getProductVariantConfig(id)
-        if (data) {
-            setGroups(data)
-            const initial = new Set<string>()
+        setLoadError(null)
+
+        const result = await getProductVariantConfig(id)
+        if (result.error) {
+            setLoadError(result.error)
+            setGroups([])
+            setActiveIds(new Set())
+            setExpandedFabrics(new Set())
+            setPriceInputs({})
+            setLoading(false)
+            return
+        }
+
+        if (result.data) {
+            hasUserInteractedRef.current = false
+            setGroups(result.data)
+
+            const initialActiveIds = new Set<string>()
             const initialPrices: Record<string, string> = {}
-            data.forEach(g => g.colors.forEach(c => { if (c.isActive) initial.add(c.variantId) }))
-            data.forEach(g => g.colors.forEach(c => {
-                initialPrices[c.variantId] = c.price_override !== null && c.price_override !== undefined
-                    ? c.price_override.toString()
-                    : ''
-            }))
-            setActiveIds(initial)
-            setExpandedFabrics(new Set(data.map(g => g.fabric.id)))
+
+            result.data.forEach((group) => {
+                group.colors.forEach((color) => {
+                    if (color.isActive) initialActiveIds.add(color.variantId)
+                    initialPrices[color.variantId] =
+                        color.price_override !== null && color.price_override !== undefined
+                            ? color.price_override.toString()
+                            : ''
+                })
+            })
+
+            setActiveIds(initialActiveIds)
+            setExpandedFabrics(new Set(result.data.map((group) => group.fabric.id)))
             setPriceInputs(initialPrices)
         }
+
         setLoading(false)
     }, [])
 
     useEffect(() => {
         if (productId) {
-            loadConfig(productId)
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            void loadConfig(productId)
         }
     }, [productId, loadConfig])
 
     const toggleVariant = (variantId: string) => {
-        setActiveIds(prev => {
+        hasUserInteractedRef.current = true
+        setActiveIds((prev) => {
             const next = new Set(prev)
             if (next.has(variantId)) next.delete(variantId)
             else next.add(variantId)
@@ -81,28 +108,30 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
     }
 
     const toggleFabric = (group: FabricConfigGroup, activate: boolean) => {
-        setActiveIds(prev => {
+        hasUserInteractedRef.current = true
+        setActiveIds((prev) => {
             const next = new Set(prev)
-            group.colors.forEach(c => {
-                if (activate) next.add(c.variantId)
-                else next.delete(c.variantId)
+            group.colors.forEach((color) => {
+                if (activate) next.add(color.variantId)
+                else next.delete(color.variantId)
             })
             return next
         })
     }
 
     const toggleAll = (activate: boolean) => {
+        hasUserInteractedRef.current = true
         setActiveIds(() => {
             const next = new Set<string>()
             if (activate) {
-                groups.forEach(g => g.colors.forEach(c => next.add(c.variantId)))
+                groups.forEach((group) => group.colors.forEach((color) => next.add(color.variantId)))
             }
             return next
         })
     }
 
     const toggleExpand = (fabricId: string) => {
-        setExpandedFabrics(prev => {
+        setExpandedFabrics((prev) => {
             const next = new Set(prev)
             if (next.has(fabricId)) next.delete(fabricId)
             else next.add(fabricId)
@@ -117,7 +146,7 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                     <Minus className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <p className="text-sm text-muted-foreground max-w-xs">
-                    Salve o produto primeiro para configurar quais tecidos e cores estarão disponíveis.
+                    Salve o produto primeiro para configurar quais tecidos e cores estarao disponiveis.
                 </p>
             </div>
         )
@@ -131,6 +160,18 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
         )
     }
 
+    if (loadError) {
+        return (
+            <div className="text-center py-12 text-sm space-y-2">
+                <p className="text-destructive">Falha ao carregar tecidos e cores.</p>
+                <p className="text-xs text-muted-foreground">{loadError}</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void loadConfig(productId)}>
+                    Tentar novamente
+                </Button>
+            </div>
+        )
+    }
+
     if (groups.length === 0) {
         return (
             <div className="text-center py-12 text-sm text-muted-foreground">
@@ -139,7 +180,7 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
         )
     }
 
-    const totalVariants = groups.reduce((acc, g) => acc + g.colors.length, 0)
+    const totalVariants = groups.reduce((acc, group) => acc + group.colors.length, 0)
     const totalActive = activeIds.size
     const allActive = totalActive === totalVariants
     const noneActive = totalActive === 0
@@ -182,8 +223,8 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
 
             {/* Fabric Groups */}
             <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                {groups.map(group => {
-                    const fabricActive = group.colors.filter(c => activeIds.has(c.variantId)).length
+                {groups.map((group) => {
+                    const fabricActive = group.colors.filter((color) => activeIds.has(color.variantId)).length
                     const fabricTotal = group.colors.length
                     const isExpanded = expandedFabrics.has(group.fabric.id)
                     const allFabricActive = fabricActive === fabricTotal
@@ -192,14 +233,12 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                     return (
                         <div key={group.fabric.id} className="border rounded-xl overflow-hidden bg-white/50">
                             {/* Fabric Header Row */}
-                            <div className="flex items-center gap-3 p-3 cursor-pointer hover:bg-muted/30 transition-colors select-none"
+                            <div
+                                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-muted/30 transition-colors select-none"
                                 onClick={() => toggleExpand(group.fabric.id)}
                             >
                                 <span className="text-muted-foreground">
-                                    {isExpanded
-                                        ? <ChevronDown className="h-4 w-4" />
-                                        : <ChevronRight className="h-4 w-4" />
-                                    }
+                                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                 </span>
 
                                 {/* Fabric swatch */}
@@ -222,7 +261,7 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                                 </Badge>
 
                                 {/* Per-fabric quick-toggle buttons */}
-                                <div className="flex gap-1 ml-1" onClick={e => e.stopPropagation()}>
+                                <div className="flex gap-1 ml-1" onClick={(event) => event.stopPropagation()}>
                                     <button
                                         type="button"
                                         title="Ativar todas as cores"
@@ -247,15 +286,13 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                             {/* Color + Price */}
                             {isExpanded && (
                                 <div className="px-3 pb-3 pt-3 flex flex-col gap-2 border-t bg-muted/10">
-                                    {group.colors.map(color => {
+                                    {group.colors.map((color) => {
                                         const active = activeIds.has(color.variantId)
                                         return (
                                             <div
                                                 key={color.variantId}
                                                 className={`flex items-center gap-3 rounded-lg border p-2 transition-colors ${
-                                                    active
-                                                        ? 'border-primary/40 bg-primary/5'
-                                                        : 'border-border bg-white/70'
+                                                    active ? 'border-primary/40 bg-primary/5' : 'border-border bg-white/70'
                                                 }`}
                                             >
                                                 <button
@@ -268,29 +305,34 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                                                         className="h-6 w-6 rounded-full border border-black/10 shrink-0"
                                                         style={{
                                                             backgroundColor: color.hex_code || '#e5e7eb',
-                                                            ...(color.image_url ? {
-                                                                backgroundImage: `url(${color.image_url})`,
-                                                                backgroundSize: 'cover',
-                                                            } : {})
+                                                            ...(color.image_url
+                                                                ? {
+                                                                      backgroundImage: `url(${color.image_url})`,
+                                                                      backgroundSize: 'cover',
+                                                                  }
+                                                                : {}),
                                                         }}
                                                     />
-                                                    <span className={`text-xs font-medium truncate ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                                    <span
+                                                        className={`text-xs font-medium truncate ${
+                                                            active ? 'text-foreground' : 'text-muted-foreground'
+                                                        }`}
+                                                    >
                                                         {color.name}
                                                     </span>
-                                                    {active && (
-                                                        <span className="text-primary text-xs">âœ“</span>
-                                                    )}
+                                                    {active && <Check className="h-3.5 w-3.5 text-primary" />}
                                                 </button>
 
                                                 <div className="ml-auto flex items-center gap-2">
                                                     <span className="text-[11px] text-muted-foreground">R$</span>
                                                     <Input
                                                         value={priceInputs[color.variantId] || ''}
-                                                        onChange={(e) => {
-                                                            const val = e.target.value
-                                                            setPriceInputs(prev => ({ ...prev, [color.variantId]: val }))
+                                                        onChange={(event) => {
+                                                            hasUserInteractedRef.current = true
+                                                            const value = event.target.value
+                                                            setPriceInputs((prev) => ({ ...prev, [color.variantId]: value }))
                                                         }}
-                                                        placeholder="Padrão"
+                                                        placeholder="Padrao"
                                                         type="number"
                                                         step="0.01"
                                                         min="0"

@@ -1,23 +1,23 @@
-import { z } from "zod";
+import { z } from 'zod'
 
 export const productSchema = z.object({
-    name: z.string().min(1, "O nome do produto é obrigatório"),
+    name: z.string().min(1, 'O nome do produto e obrigatorio'),
     description: z.string().optional(),
-    category_id: z.string().min(1, "A categoria é obrigatória"),
+    category_id: z.string().min(1, 'A categoria e obrigatoria'),
     size: z.string().optional(),
     base_price: z.preprocess(
-        (val) => {
-            if (typeof val === 'string') {
-                const parsed = parseFloat(val.replace(',', '.'));
-                return isNaN(parsed) ? 0 : parsed;
+        (value) => {
+            if (typeof value === 'string') {
+                const parsed = parseFloat(value.replace(',', '.'))
+                return Number.isNaN(parsed) ? 0 : parsed
             }
-            if (typeof val === 'number') return val;
-            return 0;
+            if (typeof value === 'number') return value
+            return 0
         },
-        z.number({ message: "Preço inválido" }).min(0, "O preço deve ser maior ou igual a zero")
+        z.number({ message: 'Preco invalido' }).min(0, 'O preco deve ser maior ou igual a zero')
     ),
     is_active: z.boolean().default(true),
     is_featured: z.boolean().default(false),
-});
+})
 
-export type ProductFormData = z.infer<typeof productSchema>;
+export type ProductFormData = z.infer<typeof productSchema>

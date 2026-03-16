@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, Info, Palette } from 'lucide-react';
 import {
@@ -33,7 +33,8 @@ interface ProductFormModalProps {
         imagesToDelete: string[],
         primaryImageId: string | null,
         activeVariantIds: string[],
-        variantPriceOverrides: Record<string, number | null>
+        variantPriceOverrides: Record<string, number | null>,
+        options: { variantConfigTouched: boolean; variantPricingTouched: boolean }
     ) => Promise<void>;
 }
 
@@ -48,7 +49,7 @@ export function ProductFormModal({
     onSave,
 }: ProductFormModalProps) {
     const form = useForm<ProductFormData>({
-        resolver: zodResolver(productSchema) as any,
+        resolver: zodResolver(productSchema) as Resolver<ProductFormData>,
         defaultValues: {
             name: '',
             description: '',
@@ -60,7 +61,7 @@ export function ProductFormModal({
         }
     });
 
-    const { register, handleSubmit, setValue, watch, reset, formState: { errors, isDirty } } = form;
+    const { register, handleSubmit, setValue, reset, formState: { errors, isDirty } } = form;
 
     // Image state
     const [existingImages, setExistingImages] = useState<DBProductImage[]>([]);
@@ -76,8 +77,10 @@ export function ProductFormModal({
     // Track if the fabric config was touched (to avoid unnecessary saves)
     const fabricConfigTouched = useRef(false);
     const variantPricingTouched = useRef(false);
+    const previousPreviewUrlsRef = useRef<string[]>([]);
 
     // Initialize form when opening/editing
+    /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
         if (isOpen) {
             setActiveTab('info');
@@ -118,10 +121,11 @@ export function ProductFormModal({
             setImagesToDelete([]);
         }
     }, [isOpen, editingProduct, reset, categories]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     const handleOpenChange = (open: boolean) => {
         if (!open && isDirty) {
-            if (!confirm('Você tem alterações não salvas. Deseja realmente fechar?')) {
+            if (!confirm('Voce tem alteracoes nao salvas. Deseja realmente fechar?')) {
                 return;
             }
         }
@@ -142,7 +146,11 @@ export function ProductFormModal({
             imagesToDelete,
             primaryImageId,
             fabricConfigTouched.current ? activeVariantIds : [],
-            variantPricingTouched.current ? variantPriceOverrides : {}
+            variantPricingTouched.current ? variantPriceOverrides : {},
+            {
+                variantConfigTouched: fabricConfigTouched.current,
+                variantPricingTouched: variantPricingTouched.current,
+            }
         );
     };
 
@@ -168,15 +176,36 @@ export function ProductFormModal({
     const handleRemoveNew = (index: number) => {
         setNewImageFiles(prev => prev.filter((_, i) => i !== index));
         setPreviewUrls(prev => prev.filter((_, i) => i !== index));
-        if (primaryImageId === `new_${index}`) setPrimaryImageId(null);
+        setPrimaryImageId((current) => {
+            if (!current?.startsWith('new_')) return current;
+            const currentIndex = Number(current.replace('new_', ''));
+            if (!Number.isFinite(currentIndex)) return current;
+            if (currentIndex === index) return null;
+            if (currentIndex > index) return `new_${currentIndex - 1}`;
+            return current;
+        });
     };
 
-    const categoryIdValue = watch('category_id') || undefined;
-    const isActiveValue = watch('is_active');
-    const isFeaturedValue = watch('is_featured');
+    useEffect(() => {
+        const previousUrls = previousPreviewUrlsRef.current;
+        previousUrls.forEach((url) => {
+            if (!previewUrls.includes(url)) URL.revokeObjectURL(url);
+        });
+        previousPreviewUrlsRef.current = previewUrls;
+    }, [previewUrls]);
+
+    useEffect(() => {
+        return () => {
+            previousPreviewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+        };
+    }, []);
+
+    const categoryIdValue = useWatch({ control: form.control, name: 'category_id' }) || undefined;
+    const isActiveValue = useWatch({ control: form.control, name: 'is_active' }) ?? false;
+    const isFeaturedValue = useWatch({ control: form.control, name: 'is_featured' }) ?? false;
 
     const tabs: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
-        { id: 'info', label: 'Informações', icon: <Info className="h-3.5 w-3.5" /> },
+        { id: 'info', label: 'Informacoes', icon: <Info className="h-3.5 w-3.5" /> },
         { id: 'fabrics', label: 'Tecidos & Cores', icon: <Palette className="h-3.5 w-3.5" /> },
     ];
 
@@ -211,16 +240,16 @@ export function ProductFormModal({
                 </DialogHeader>
 
                 <div className="flex-1 overflow-y-auto px-4 md:px-6 pb-2">
-                    {/* Tab: Informações */}
+                    {/* Tab: Informacoes */}
                     {activeTab === 'info' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
                             {/* Left Column: Form Details */}
                             <div className="space-y-4">
-                                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b">Informações Básicas</h3>
+                                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 pb-2 border-b">Informacoes Basicas</h3>
 
                                 <div className="space-y-2">
                                     <Label className="text-navy font-medium">Nome do Produto *</Label>
-                                    <Input {...register('name')} placeholder="Ex: Sofá Retrátil Florença" className="bg-white/60" />
+                                    <Input {...register('name')} placeholder="Ex: Sofa Retratil Florenca" className="bg-white/60" />
                                     {errors.name && <p className="text-xs text-red-500">{errors.name.message}</p>}
                                 </div>
 
@@ -243,20 +272,20 @@ export function ProductFormModal({
                                         {errors.category_id && <p className="text-xs text-red-500">{errors.category_id.message}</p>}
                                     </div>
                                     <div className="space-y-2">
-                                        <Label className="text-navy font-medium">Preço Base (R$) *</Label>
+                                        <Label className="text-navy font-medium">Preco Base (R$) *</Label>
                                         <Input {...register('base_price')} type="text" placeholder="0.00" className="bg-white/60" />
                                         {errors.base_price && <p className="text-xs text-red-500">{errors.base_price.message}</p>}
                                     </div>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label className="text-navy font-medium">Tamanho / Dimensões</Label>
+                                    <Label className="text-navy font-medium">Tamanho / Dimensoes</Label>
                                     <Input {...register('size')} placeholder="Ex: 3 Lugares (2.50m x 1.10m)" className="bg-white/60" />
                                     <p className="text-[11px] text-muted-foreground">Informe as medidas descritivas para facilitar a escolha do lojista.</p>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label className="text-navy font-medium">Descrição Detalhada</Label>
+                                    <Label className="text-navy font-medium">Descricao Detalhada</Label>
                                     <Textarea {...register('description')} placeholder="Descreva os diferenciais, espumas utilizadas, etc..." className="bg-white/60 resize-none" rows={4} />
                                 </div>
 
@@ -283,7 +312,6 @@ export function ProductFormModal({
                             {/* Right Column: Images Gallery */}
                             <ImageUploader
                                 existingImages={existingImages}
-                                newImageFiles={newImageFiles}
                                 previewUrls={previewUrls}
                                 primaryImageId={primaryImageId}
                                 onAddFiles={handleAddFiles}
@@ -299,8 +327,8 @@ export function ProductFormModal({
                         <div className="pt-4">
                             <div className="mb-3">
                                 <p className="text-xs text-muted-foreground">
-                                    Selecione quais combinações de tecido e cor estarão disponíveis para este produto.
-                                    Por padrão, todas as combinações estão ativas.
+                                    Selecione quais combinacoes de tecido e cor estarao disponiveis para este produto.
+                                    Por padrao, todas as combinacoes estao ativas.
                                 </p>
                             </div>
                             <ProductFabricConfig
@@ -313,11 +341,12 @@ export function ProductFormModal({
 
                 <DialogFooter className="px-4 md:px-6 pb-6 pt-4 border-t bg-muted/10">
                     <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving} className="flex-1 sm:flex-none">Cancelar</Button>
-                    <Button type="button" className="gradient-navy border-0 text-white min-w-[120px] flex-1 sm:flex-none" onClick={handleSubmit(onSubmit)} disabled={saving}>
-                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editingProduct ? 'Salvar Alterações' : 'Criar Produto'}
+                    <Button type="button" className="gradient-navy border-0 text-white min-w-[120px] flex-1 sm:flex-none" onClick={() => { void handleSubmit(onSubmit)() }} disabled={saving}>
+                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editingProduct ? 'Salvar Alteracoes' : 'Criar Produto'}
                     </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
     );
 }
+
