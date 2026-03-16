@@ -1,27 +1,25 @@
 'use server'
 
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
 // ==================== HELPER: Get Admin Supabase Client ====================
 
 async function getAdminClient() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!serviceRoleKey) {
-        throw new Error('Chave SUPABASE_SERVICE_ROLE_KEY nao configurada no servidor.')
+    if (!supabaseUrl || !serviceRoleKey) {
+        throw new Error('Supabase server credentials nao configuradas no servidor.')
     }
-
-    const cookieStore = await cookies()
-    return createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        serviceRoleKey,
-        {
-            cookies: {
-                getAll() { return cookieStore.getAll() },
-                setAll() { /* Don't mess with session cookies */ },
-            },
-        }
-    )
+    // Intentionally stateless service-role client to avoid inheriting end-user JWT and hitting RLS on admin writes.
+    return createSupabaseClient(supabaseUrl, serviceRoleKey, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+        },
+    })
 }
 
 async function verifyAdmin() {
