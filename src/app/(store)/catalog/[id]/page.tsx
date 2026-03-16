@@ -228,6 +228,34 @@ export default function ProductDetailPage() {
                         onImageChange={setActiveImageIndex}
                         layoutContext="detail"
                     />
+
+                    {description && (
+                        <div className="rounded-2xl border border-border/70 bg-muted/10 p-5">
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                    Descrição
+                                </span>
+                                {hasLongDescription && (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setShowFullDescription((previous) => !previous)
+                                        }
+                                        className="text-sm font-semibold text-primary transition-colors hover:text-primary/80"
+                                    >
+                                        {showFullDescription ? 'Ver menos' : 'Ver mais'}
+                                    </button>
+                                )}
+                            </div>
+                            <p
+                                className={`text-sm leading-7 text-muted-foreground ${
+                                    showFullDescription ? '' : 'line-clamp-3'
+                                }`}
+                            >
+                                {showFullDescription ? description : descriptionPreview}
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 <motion.div
@@ -286,36 +314,8 @@ export default function ProductDetailPage() {
                         price={priceBreakdown.finalPrice}
                         layer={priceBreakdown.layer}
                         discountPercentage={discountPercentage}
-                        description="O valor final do pedido acompanha a cor selecionada e a política comercial da sua tabela B2B."
                     />
 
-                    {description && (
-                        <div className="rounded-2xl border border-border/70 bg-muted/10 p-5">
-                            <div className="mb-2 flex items-center justify-between gap-3">
-                                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                    Descrição
-                                </span>
-                                {hasLongDescription && (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            setShowFullDescription((previous) => !previous)
-                                        }
-                                        className="text-sm font-semibold text-primary transition-colors hover:text-primary/80"
-                                    >
-                                        {showFullDescription ? 'Ver menos' : 'Ver mais'}
-                                    </button>
-                                )}
-                            </div>
-                            <p
-                                className={`text-sm leading-7 text-muted-foreground ${
-                                    showFullDescription ? '' : 'line-clamp-3'
-                                }`}
-                            >
-                                {showFullDescription ? description : descriptionPreview}
-                            </p>
-                        </div>
-                    )}
 
                     <Separator />
 

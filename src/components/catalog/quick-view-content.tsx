@@ -291,7 +291,6 @@ export function QuickViewContent({
                             price={displayPriceBreakdown.finalPrice}
                             layer={displayPriceBreakdown.layer}
                             discountPercentage={discountPercentage}
-                            description="O valor final acompanha a cor selecionada e a política comercial da sua tabela B2B."
                             priceClassName="text-2xl text-primary"
                         />
                     </div>

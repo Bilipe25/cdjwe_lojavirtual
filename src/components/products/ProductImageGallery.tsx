@@ -194,18 +194,6 @@ export function ProductImageGallery({
                                     if (!lightboxOpen) setLightboxOpen(true)
                                 }}
                             >
-                                <div className="pointer-events-none absolute inset-0">
-                                    <Image
-                                        src={img.url}
-                                        alt=""
-                                        fill
-                                        aria-hidden
-                                        sizes="(max-width: 768px) 100vw, 50vw"
-                                        className="object-cover scale-110 blur-2xl opacity-25"
-                                    />
-                                    <div className="absolute inset-0 bg-gradient-to-b from-black/5 via-transparent to-black/10" />
-                                </div>
-
                                 {isMobile ? (
                                     <TransformWrapper
                                         initialScale={1}
