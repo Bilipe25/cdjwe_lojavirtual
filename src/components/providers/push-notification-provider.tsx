@@ -39,7 +39,6 @@ export function PushNotificationProvider() {
                         endpoint: subJson.endpoint,
                         keys: subJson.keys,
                     },
-                    profile_id: user.id,
                     user_agent: navigator.userAgent,
                 }),
             })

@@ -42,6 +42,7 @@ interface Campaign {
 const statusConfig: Record<string, { label: string; color: string; icon: any }> = {
     draft: { label: 'Rascunho', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Clock },
     scheduled: { label: 'Agendada', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Calendar },
+    processing: { label: 'Processando', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Clock },
     sent: { label: 'Enviada', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
     cancelled: { label: 'Cancelada', color: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
 }
@@ -175,6 +176,7 @@ export default function CampaignsPage() {
 
             const uploadedUrl = await uploadImage()
             const status = asDraft ? 'draft' : (sendType === 'scheduled' ? 'scheduled' : 'sent')
+            let campaignId = editingCampaign?.id || null
 
             const payload = {
                 title: title.trim(),
@@ -199,21 +201,28 @@ export default function CampaignsPage() {
                 if (error) throw error
                 toast.success('Campanha atualizada!')
             } else {
-                const { error } = await supabase
+                const { data: newCampaign, error } = await supabase
                     .from('campaigns')
                     .insert({ ...payload, created_by: user.id })
+                    .select('id')
+                    .single()
                 if (error) throw error
+                campaignId = newCampaign.id
                 toast.success(asDraft ? 'Rascunho salvo!' : 'Campanha criada!')
             }
 
             // If sending immediately (not draft), dispatch to channels
             if (!asDraft && status === 'sent') {
                 try {
-                    await fetch('/api/marketing/send', {
+                    const response = await fetch('/api/marketing/send', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...payload, channels }),
+                        body: JSON.stringify({ ...payload, channels, campaign_id: campaignId }),
                     })
+                    if (!response.ok) {
+                        const data = await response.json()
+                        throw new Error(data.error || 'Falha ao enviar campanha.')
+                    }
                 } catch { /* send errors are non-blocking */ }
             }
 
@@ -276,7 +285,7 @@ export default function CampaignsPage() {
                     />
                 </div>
                 <div className="flex gap-2">
-                    {['all', 'draft', 'scheduled', 'sent', 'cancelled'].map(s => (
+                    {['all', 'draft', 'scheduled', 'processing', 'sent', 'cancelled'].map(s => (
                         <Button
                             key={s}
                             variant={statusFilter === s ? 'default' : 'outline'}
@@ -533,7 +542,7 @@ export default function CampaignsPage() {
 
                             {/* Target Audience */}
                             <AudienceSelector
-                                value={targetAudience as 'all' | 'segment'}
+                                value={targetAudience}
                                 segmentData={targetSegment}
                                 onChangeValue={(val) => setTargetAudience(val)}
                                 onChangeSegment={setTargetSegment}
