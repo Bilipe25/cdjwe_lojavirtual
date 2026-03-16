@@ -161,6 +161,12 @@ function isMissingRpcFunctionError(error: unknown, functionName: string): boolea
     )
 }
 
+function isAmbiguousProductIdReferenceError(error: unknown): boolean {
+    const message = getErrorMessage(error, '').toLowerCase()
+    if (!message) return false
+    return message.includes('column reference "product_id" is ambiguous')
+}
+
 function sanitizeExtension(fileName: string): string {
     const extension = fileName.split('.').pop()?.trim().toLowerCase() ?? ''
     const sanitized = extension.replace(/[^a-z0-9]/g, '')
@@ -408,7 +414,10 @@ export async function saveProductImagesMetadataAction(
         let row = Array.isArray(data) ? (data[0] as ProductImagesRpcRow | undefined) : undefined
         let usedFallback = false
         if (error) {
-            if (isMissingRpcFunctionError(error, 'admin_save_product_images_metadata')) {
+            if (
+                isMissingRpcFunctionError(error, 'admin_save_product_images_metadata') ||
+                isAmbiguousProductIdReferenceError(error)
+            ) {
                 row = await saveProductImagesMetadataFallback(
                     input.productId,
                     input.imageIdsToDelete ?? [],

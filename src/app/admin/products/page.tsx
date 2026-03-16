@@ -42,6 +42,7 @@ export default function AdminProductsPage() {
     const [dialogOpen, setDialogOpen] = useState(false)
     const [saving, setSaving] = useState(false)
     const [editingProduct, setEditingProduct] = useState<ProductWithDetails | null>(null)
+    const [draftCreatedProductId, setDraftCreatedProductId] = useState<string | null>(null)
 
     // Bulk Mode State
     const [selectedProducts, setSelectedProducts] = useState<string[]>([])
@@ -108,6 +109,7 @@ export default function AdminProductsPage() {
     // Helpers
     const openDialog = (product?: ProductWithDetails) => {
         setEditingProduct(product || null)
+        setDraftCreatedProductId(null)
         setDialogOpen(true)
     }
 
@@ -142,7 +144,7 @@ export default function AdminProductsPage() {
             is_featured: data.is_featured,
         }
 
-        let productId = editingProduct?.id
+        let productId = editingProduct?.id ?? draftCreatedProductId
 
         try {
             const existingImagesAfterDelete = (editingProduct?.images || []).filter(
@@ -164,7 +166,7 @@ export default function AdminProductsPage() {
 
             // 1. Persist product + variant domain atomically (RPC layer)
             const domainResult = await upsertProductDomainAction({
-                productId: editingProduct?.id ?? null,
+                productId: productId ?? null,
                 name: payload.name,
                 slug: payload.slug,
                 description: payload.description,
@@ -183,6 +185,9 @@ export default function AdminProductsPage() {
             }
 
             productId = domainResult.productId
+            if (!editingProduct && !draftCreatedProductId) {
+                setDraftCreatedProductId(productId)
+            }
 
             // 2. Upload files via signed upload URLs (server-side issued)
             const uploadedPublicUrls: string[] = []
@@ -239,6 +244,7 @@ export default function AdminProductsPage() {
             // 5. Refresh local data
             toast.success(editingProduct ? 'Produto atualizado!' : 'Produto criado!')
             setDialogOpen(false)
+            setDraftCreatedProductId(null)
             await loadData()
         } catch (err: unknown) {
             console.error(err)
