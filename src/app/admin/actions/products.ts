@@ -185,6 +185,117 @@ function validateSignedUploadFileInput(file: SignedUploadFileInput): { ok: boole
     return { ok: true }
 }
 
+function isValidUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
+async function upsertProductDomainFallback(input: UpsertProductDomainInput): Promise<ProductRpcRow> {
+    const adminSupabase = createServiceRoleClient()
+    let productId = input.productId ?? null
+    let created = false
+
+    const productPayload = {
+        name: input.name.trim(),
+        slug: input.slug.trim(),
+        description: input.description?.trim() ? input.description.trim() : null,
+        category_id: input.categoryId,
+        size: input.size?.trim() ? input.size.trim() : null,
+        base_price: input.basePrice,
+        is_active: input.isActive,
+        is_featured: input.isFeatured,
+    }
+
+    if (!productId) {
+        const { data: inserted, error: insertError } = await adminSupabase
+            .from('products')
+            .insert(productPayload)
+            .select('id')
+            .single()
+        if (insertError || !inserted?.id) throw insertError || new Error('Falha ao criar produto.')
+        productId = inserted.id
+        created = true
+    } else {
+        const { data: updated, error: updateError } = await adminSupabase
+            .from('products')
+            .update(productPayload)
+            .eq('id', productId)
+            .select('id')
+            .single()
+        if (updateError || !updated?.id) throw updateError || new Error('Produto nao encontrado.')
+        productId = updated.id
+    }
+
+    const [{ data: colors, error: colorsError }, { data: existing, error: existingError }] = await Promise.all([
+        adminSupabase.from('fabric_colors').select('id, fabric_id, is_active'),
+        adminSupabase.from('product_variants').select('fabric_id, fabric_color_id').eq('product_id', productId),
+    ])
+    if (colorsError) throw colorsError
+    if (existingError) throw existingError
+
+    const existingSet = new Set((existing ?? []).map((row) => `${row.fabric_id}-${row.fabric_color_id}`))
+    const toInsert = (colors ?? [])
+        .filter((color) => !existingSet.has(`${color.fabric_id}-${color.id}`))
+        .map((color) => ({
+            product_id: productId,
+            fabric_id: color.fabric_id,
+            fabric_color_id: color.id,
+            stock_quantity: 999,
+            is_active: input.isActive && Boolean(color.is_active),
+        }))
+
+    let variantsInserted = 0
+    if (toInsert.length > 0) {
+        const { error: insertVariantsError } = await adminSupabase.from('product_variants').insert(toInsert)
+        if (insertVariantsError) throw insertVariantsError
+        variantsInserted = toInsert.length
+    }
+
+    if (input.activeVariantIds !== undefined && input.activeVariantIds !== null) {
+        const { error: deactivateError } = await adminSupabase
+            .from('product_variants')
+            .update({ is_active: false })
+            .eq('product_id', productId)
+        if (deactivateError) throw deactivateError
+
+        const validActiveIds = input.activeVariantIds.filter((id) => isValidUuid(id))
+        if (validActiveIds.length > 0) {
+            const { error: activateError } = await adminSupabase
+                .from('product_variants')
+                .update({ is_active: true })
+                .eq('product_id', productId)
+                .in('id', validActiveIds)
+            if (activateError) throw activateError
+        }
+    }
+
+    if (input.variantPriceOverrides !== undefined && input.variantPriceOverrides !== null) {
+        const entries = Object.entries(input.variantPriceOverrides)
+        for (const [variantId, price] of entries) {
+            if (!isValidUuid(variantId)) continue
+            if (price !== null && (!Number.isFinite(price) || price < 0)) {
+                throw new Error(`Preco invalido para variacao ${variantId}.`)
+            }
+
+            const { error: priceError } = await adminSupabase
+                .from('product_variants')
+                .update({ price_override: price })
+                .eq('product_id', productId)
+                .eq('id', variantId)
+            if (priceError) throw priceError
+        }
+    }
+
+    if (!productId) {
+        throw new Error('Falha ao resolver produto para fallback de dominio.')
+    }
+
+    return {
+        product_id: productId,
+        created,
+        variants_inserted: variantsInserted,
+    }
+}
+
 async function saveProductImagesMetadataFallback(
     productId: string,
     imageIdsToDelete: string[],
@@ -343,9 +454,20 @@ export async function upsertProductDomainAction(
         }
 
         const { data, error } = await adminSupabase.rpc('admin_upsert_product_domain', payload)
-        if (error) throw error
+        let row = Array.isArray(data) ? (data[0] as ProductRpcRow | undefined) : undefined
+        let usedFallback = false
+        if (error) {
+            if (
+                isMissingRpcFunctionError(error, 'admin_upsert_product_domain') ||
+                isAmbiguousProductIdReferenceError(error)
+            ) {
+                row = await upsertProductDomainFallback(input)
+                usedFallback = true
+            } else {
+                throw error
+            }
+        }
 
-        const row = Array.isArray(data) ? (data[0] as ProductRpcRow | undefined) : undefined
         if (!row?.product_id) {
             throw new Error('Falha ao persistir dados do produto.')
         }
@@ -356,12 +478,14 @@ export async function upsertProductDomainAction(
             actorProfileId,
             productId: resolvedProductId,
             action: 'product_domain_upsert',
+            stage: usedFallback ? 'fallback' : 'application',
             success: true,
             payload: {
                 created: Boolean(row.created),
                 variantsInserted: Number(row.variants_inserted || 0),
                 variantConfigTouched: input.activeVariantIds !== undefined && input.activeVariantIds !== null,
                 variantPricingTouched: input.variantPriceOverrides !== undefined && input.variantPriceOverrides !== null,
+                usedFallback,
             },
         })
 
