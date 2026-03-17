@@ -21,6 +21,7 @@ import type { CustomerEditFormData } from './schema'
 // Components
 import { CustomerFilters } from './components/CustomerFilters'
 import { CustomerList, type CustomerWithStore } from './components/CustomerList'
+import { CustomerOverviewCards, type OverviewFilterKey } from './components/CustomerOverviewCards'
 import { CustomerFormModal } from './components/CustomerFormModal'
 import { CustomerDetailModal } from './components/CustomerDetailModal'
 import { CustomerEditDrawer } from './components/CustomerEditDrawer'
@@ -30,6 +31,19 @@ import { type CustomerFormData } from './schema'
 
 const ITEMS_PER_PAGE = 15;
 type CustomerStatusAction = 'pending' | 'approved' | 'blocked' | 'imported' | 'delete'
+
+interface CustomerOverviewStats {
+    total: number
+    registered: number
+    unregistered: number
+    withoutEmail: number
+}
+
+const PLACEHOLDER_EMAIL_OR_FILTER = [
+    'email.ilike.%@placeholder.invalid',
+    'email.ilike.%@placeholder.local',
+    'email.ilike.importado+%',
+].join(',')
 
 export default function CustomersPage() {
     const supabase = useMemo(() => createClient(), [])
@@ -48,6 +62,14 @@ export default function CustomersPage() {
     const [typeFilter, setTypeFilter] = useState('all')
     const [currentPage, setCurrentPage] = useState(1)
     const [totalCount, setTotalCount] = useState(0)
+    const [overviewStats, setOverviewStats] = useState<CustomerOverviewStats>({
+        total: 0,
+        registered: 0,
+        unregistered: 0,
+        withoutEmail: 0,
+    })
+    const [loadingOverview, setLoadingOverview] = useState(true)
+    const [overviewFilter, setOverviewFilter] = useState<OverviewFilterKey>('registered')
 
     // Modals & Selection State
     const [selectedCustomer, setSelectedCustomer] = useState<CustomerWithStore | null>(null)
@@ -118,7 +140,7 @@ export default function CustomersPage() {
             }
         }
 
-        // Type filter — need to filter by store's customer_type_id
+        // Type filter â€” need to filter by store's customer_type_id
         if (typeFilter !== 'all') {
             const { data: typeStores } = await supabase
                 .from('stores')
@@ -130,6 +152,50 @@ export default function CustomersPage() {
                 query = query.in('id', typeProfileIds)
             } else {
                 // No matches for this type, set empty result
+                setCustomers([])
+                setTotalCount(0)
+                setLoading(false)
+                return
+            }
+        }
+
+        if (overviewFilter === 'registered') {
+            query = query
+                .eq('status', 'approved')
+                .not('email', 'ilike', '%@placeholder.invalid')
+                .not('email', 'ilike', '%@placeholder.local')
+                .not('email', 'ilike', 'importado+%')
+        }
+
+        if (overviewFilter === 'withoutEmail') {
+            const { data: noEmailProfiles } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('role', 'client')
+                .or(PLACEHOLDER_EMAIL_OR_FILTER)
+
+            const idsWithoutEmail = noEmailProfiles?.map((profile) => profile.id) || []
+            if (idsWithoutEmail.length > 0) {
+                query = query.in('id', idsWithoutEmail)
+            } else {
+                setCustomers([])
+                setTotalCount(0)
+                setLoading(false)
+                return
+            }
+        }
+
+        if (overviewFilter === 'unregistered') {
+            const { data: unregisteredProfiles } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('role', 'client')
+                .or(`status.eq.imported,status.eq.pending,${PLACEHOLDER_EMAIL_OR_FILTER}`)
+
+            const idsUnregistered = unregisteredProfiles?.map((profile) => profile.id) || []
+            if (idsUnregistered.length > 0) {
+                query = query.in('id', idsUnregistered)
+            } else {
                 setCustomers([])
                 setTotalCount(0)
                 setLoading(false)
@@ -153,7 +219,52 @@ export default function CustomersPage() {
         }
         
         setLoading(false)
-    }, [debouncedSearch, statusFilter, typeFilter, currentPage, supabase])
+    }, [debouncedSearch, statusFilter, typeFilter, currentPage, overviewFilter, supabase])
+
+    const loadOverviewStats = useCallback(async () => {
+        setLoadingOverview(true)
+        try {
+            const [totalRes, registeredRes, unregisteredRes, withoutEmailRes] = await Promise.all([
+                supabase
+                    .from('profiles')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('role', 'client'),
+                supabase
+                    .from('profiles')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('role', 'client')
+                    .eq('status', 'approved')
+                    .not('email', 'ilike', '%@placeholder.invalid')
+                    .not('email', 'ilike', '%@placeholder.local')
+                    .not('email', 'ilike', 'importado+%'),
+                supabase
+                    .from('profiles')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('role', 'client')
+                    .or(`status.eq.imported,status.eq.pending,${PLACEHOLDER_EMAIL_OR_FILTER}`),
+                supabase
+                    .from('profiles')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('role', 'client')
+                    .or(PLACEHOLDER_EMAIL_OR_FILTER),
+            ])
+
+            setOverviewStats({
+                total: totalRes.count || 0,
+                registered: registeredRes.count || 0,
+                unregistered: unregisteredRes.count || 0,
+                withoutEmail: withoutEmailRes.count || 0,
+            })
+        } catch {
+            toast.error('Erro ao carregar totais de clientes')
+        } finally {
+            setLoadingOverview(false)
+        }
+    }, [supabase])
+
+    const refreshCustomersPage = useCallback(async () => {
+        await Promise.all([loadData(), loadOverviewStats()])
+    }, [loadData, loadOverviewStats])
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -161,6 +272,13 @@ export default function CustomersPage() {
         }, 0)
         return () => clearTimeout(timer)
     }, [loadData])
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            void loadOverviewStats()
+        }, 0)
+        return () => clearTimeout(timer)
+    }, [loadOverviewStats])
 
     const handleSearchChange = (value: string) => {
         setSearch(value)
@@ -177,6 +295,14 @@ export default function CustomersPage() {
         setCurrentPage(1)
     }
 
+    const handleOverviewCardClick = (key: OverviewFilterKey) => {
+        setOverviewFilter((previous) => {
+            if (key === 'total') return 'total'
+            return previous === key ? 'total' : key
+        })
+        setCurrentPage(1)
+    }
+
     // Toggle Selection
     const toggleSelect = (id: string) => {
         setSelectedIds(prev => 
@@ -187,15 +313,15 @@ export default function CustomersPage() {
     // Server Actions
     const updateStatus = async (profileId: string, status: CustomerStatusAction) => {
         if (status === 'delete') {
-            if (!confirm('Tem certeza que deseja EXCLUIR este cliente? Esta ação não pode ser desfeita.')) return
+            if (!confirm('Tem certeza que deseja EXCLUIR este cliente? Esta aÃ§Ã£o nÃ£o pode ser desfeita.')) return
             
             const result = await deleteCustomerAction(profileId)
             if (result.error) {
                 toast.error(result.error)
                 return
             }
-            toast.success('Cliente excluído com sucesso!')
-            loadData()
+            toast.success('Cliente excluÃ­do com sucesso!')
+            void refreshCustomersPage()
             return
         }
 
@@ -216,6 +342,7 @@ export default function CustomersPage() {
             pending: 'marcado como pendente',
         }
         toast.success(`Cliente ${statusLabels[status] || 'atualizado'}!`)
+        void loadOverviewStats()
     }
 
     const handleCreateCustomer = async (data: CustomerFormData) => {
@@ -249,7 +376,7 @@ export default function CustomersPage() {
 
         toast.success('Cliente cadastrado e aprovado com sucesso!')
         setIsCreateOpen(false)
-        loadData() 
+        void refreshCustomersPage() 
     }
 
     const handleEditCustomer = async (profileId: string, storeId: string, data: CustomerEditFormData) => {
@@ -276,7 +403,7 @@ export default function CustomersPage() {
 
         toast.success('Cliente atualizado com sucesso!')
         setEditCustomer(null)
-        loadData()
+        void refreshCustomersPage()
     }
 
     // Bulk Actions
@@ -286,7 +413,7 @@ export default function CustomersPage() {
 
         toast.success(`${selectedIds.length} clientes aprovados!`)
         setSelectedIds([])
-        loadData()
+        void refreshCustomersPage()
     }
 
     const handleBulkBlock = async () => {
@@ -294,16 +421,16 @@ export default function CustomersPage() {
         if (result.error) { toast.error(result.error); return }
         toast.success(`${selectedIds.length} clientes bloqueados!`)
         setSelectedIds([])
-        loadData()
+        void refreshCustomersPage()
     }
 
     const handleBulkDelete = async () => {
         if (!confirm(`Tem certeza que deseja EXCLUIR DEFINITIVAMENTE os ${selectedIds.length} clientes selecionados?`)) return
         const result = await bulkDeleteCustomersAction(selectedIds)
         if (result.error) { toast.error(result.error); return }
-        toast.success(`${selectedIds.length} clientes excluídos!`)
+        toast.success(`${selectedIds.length} clientes excluÃ­dos!`)
         setSelectedIds([])
-        loadData()
+        void refreshCustomersPage()
     }
 
     const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE))
@@ -345,6 +472,13 @@ export default function CustomersPage() {
                 onBulkDelete={handleBulkDelete}
             />
 
+            <CustomerOverviewCards
+                stats={overviewStats}
+                loading={loadingOverview}
+                activeKey={overviewFilter}
+                onCardClick={handleOverviewCardClick}
+            />
+
             <CustomerList 
                 customers={customers}
                 loading={loading}
@@ -377,7 +511,7 @@ export default function CustomersPage() {
                             disabled={currentPage === totalPages}
                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         >
-                            Próxima <ChevronRight className="h-4 w-4 ml-1" />
+                            PrÃ³xima <ChevronRight className="h-4 w-4 ml-1" />
                         </Button>
                     </div>
                 </div>
@@ -417,7 +551,9 @@ export default function CustomersPage() {
             <CustomerImportModal
                 isOpen={isImportOpen}
                 onOpenChange={setIsImportOpen}
-                onImportComplete={loadData}
+                onImportComplete={() => {
+                    void refreshCustomersPage()
+                }}
             />
 
             {/* Access Modal */}
