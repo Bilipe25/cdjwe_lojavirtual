@@ -40,6 +40,12 @@ export function CustomerEditDrawer({
 }: CustomerEditDrawerProps) {
     const [saving, setSaving] = useState(false);
     const store = customer?.stores?.[0];
+    const normalizedEmail = (customer?.email || '').trim().toLowerCase();
+    const hasPlaceholderEmail =
+        normalizedEmail.endsWith('@placeholder.invalid') ||
+        normalizedEmail.endsWith('@placeholder.local') ||
+        normalizedEmail.startsWith('importado+');
+    const canEditEmail = Boolean(customer && (customer.status === 'imported' || customer.status === 'pending' || hasPlaceholderEmail));
 
     const form = useForm<CustomerEditFormData>({
         resolver: zodResolver(customerEditSchema),
@@ -126,7 +132,12 @@ export function CustomerEditDrawer({
                             </div>
                             <div className="space-y-2">
                                 <Label>E-mail *</Label>
-                                <Input {...register('email')} type="email" className="bg-white/60" disabled />
+                                <Input {...register('email')} type="email" className="bg-white/60" disabled={!canEditEmail} />
+                                {!canEditEmail && (
+                                    <p className="text-[11px] text-muted-foreground">
+                                        E-mail bloqueado para cliente ja cadastrado.
+                                    </p>
+                                )}
                                 {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
                             </div>
                             <div className="space-y-2">
