@@ -171,6 +171,76 @@ function toErrorMessage(error: unknown, fallback: string) {
     return fallback
 }
 
+function isAuthUserMissingError(message?: string) {
+    const normalized = (message || '').toLowerCase()
+    return normalized.includes('user not found') || normalized.includes('not found')
+}
+
+async function getCustomerDeleteBlocker(
+    supabaseAdmin: Awaited<ReturnType<typeof getAdminClient>>,
+    profileId: string
+) {
+    const [{ count: ordersByProfileCount }, { count: ordersByStoreCount }] = await Promise.all([
+        supabaseAdmin
+            .from('orders')
+            .select('id', { count: 'exact', head: true })
+            .eq('profile_id', profileId),
+        supabaseAdmin
+            .from('orders')
+            .select('id', { count: 'exact', head: true })
+            .in(
+                'store_id',
+                (
+                    await supabaseAdmin
+                        .from('stores')
+                        .select('id')
+                        .eq('profile_id', profileId)
+                ).data?.map((store) => store.id) || ['00000000-0000-0000-0000-000000000000']
+            ),
+    ])
+
+    const totalOrders = Math.max(ordersByProfileCount || 0, ordersByStoreCount || 0)
+    if (totalOrders > 0) {
+        return `Este cliente possui ${totalOrders} pedido(s) vinculado(s) e nao pode ser excluido. Bloqueie ou inative o cadastro para preservar o historico.`
+    }
+
+    return null
+}
+
+async function deleteCustomerSafely(
+    supabaseAdmin: Awaited<ReturnType<typeof getAdminClient>>,
+    profileId: string
+) {
+    const blockerMessage = await getCustomerDeleteBlocker(supabaseAdmin, profileId)
+    if (blockerMessage) {
+        return { error: blockerMessage }
+    }
+
+    const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(profileId)
+
+    if (!authDeleteError) {
+        return { success: true as const }
+    }
+
+    if (!isAuthUserMissingError(authDeleteError.message)) {
+        console.error('Delete Customer Auth Error:', authDeleteError)
+        return { error: 'Falha ao excluir o cliente no Supabase Auth.' }
+    }
+
+    // Safety fallback for legacy/inconsistent rows where the auth user no longer exists.
+    const { error: profileDeleteError } = await supabaseAdmin
+        .from('profiles')
+        .delete()
+        .eq('id', profileId)
+
+    if (profileDeleteError) {
+        console.error('Delete Customer Profile Fallback Error:', profileDeleteError)
+        return { error: 'Falha ao excluir o cadastro legado do cliente.' }
+    }
+
+    return { success: true as const }
+}
+
 // ==================== CREATE CUSTOMER ====================
 
 export async function createCustomerAsAdmin(formData: FormData) {
@@ -1018,16 +1088,7 @@ export async function deleteCustomerAction(id: string) {
     try {
         await verifyAdmin()
         const supabaseAdmin = await getAdminClient()
-
-        // Delete user via Auth Admin API (this cascades to profiles and related tables)
-        const { error } = await supabaseAdmin.auth.admin.deleteUser(id)
-
-        if (error) {
-           console.error('Delete Customer Error:', error)
-           return { error: 'Falha ao excluir o cliente no Supabase Auth.' }
-        }
-
-        return { success: true }
+        return await deleteCustomerSafely(supabaseAdmin, id)
     } catch (err: unknown) {
         console.error('Delete Customer Action Error:', err)
         return { error: toErrorMessage(err, 'Erro ao excluir o cliente.') }
@@ -1040,29 +1101,27 @@ export async function bulkDeleteCustomersAction(ids: string[]) {
         const supabaseAdmin = await getAdminClient()
 
         const uniqueIds = Array.from(new Set(ids.filter(Boolean)))
-        const deleteResults = await Promise.allSettled(
-            uniqueIds.map((id) => supabaseAdmin.auth.admin.deleteUser(id))
-        )
+        const deleteResults = await Promise.allSettled(uniqueIds.map((id) => deleteCustomerSafely(supabaseAdmin, id)))
 
         let successCount = 0
-        let errorCount = 0
+        const errorMessages: string[] = []
 
         deleteResults.forEach((result, idx) => {
             if (result.status === 'fulfilled') {
-                if (result.value.error) {
+                if ('error' in result.value && result.value.error) {
                     console.error(`Error deleting customer ${uniqueIds[idx]}:`, result.value.error)
-                    errorCount++
+                    errorMessages.push(result.value.error)
                 } else {
                     successCount++
                 }
             } else {
                 console.error(`Error deleting customer ${uniqueIds[idx]}:`, result.reason)
-                errorCount++
+                errorMessages.push('Erro inesperado ao excluir cliente.')
             }
         })
 
-        if (errorCount > 0) {
-            return { error: `Deletados: ${successCount}. Falhas: ${errorCount}.` }
+        if (errorMessages.length > 0) {
+            return { error: errorMessages.length === 1 ? errorMessages[0] : `Deletados: ${successCount}. Falhas: ${errorMessages.length}.` }
         }
 
         return { success: true }
