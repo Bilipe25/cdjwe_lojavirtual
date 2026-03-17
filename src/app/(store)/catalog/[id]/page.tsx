@@ -71,6 +71,7 @@ export default function ProductDetailPage() {
         selectedFabricGroup: activeFabric,
         activeVariant,
         quantities,
+        selectionBuckets,
         totalQuantity: totalSelectedQuantity,
         activeImageIndex,
         colorSearch,
@@ -166,13 +167,34 @@ export default function ProductDetailPage() {
         })
     }
 
-    const totalSelectedPrice = Object.entries(quantities).reduce((acc, [variantId, quantity]) => {
-        if (quantity <= 0) return acc
+    const getVariantPricingForSize = (variant: ProductDetailVariant, sizeOptionId: string | null) => {
+        const sizeOption = sizeOptions.find((item) => item.id === sizeOptionId) || null
+        const fabricModifier =
+            variant.fabric?.price_modifier ??
+            fabrics.find((fabric) => fabric.id === variant.fabric_id)?.price_modifier ??
+            0
 
-        const variant = variants.find((currentVariant) => currentVariant.id === variantId)
-        if (!variant) return acc
+        return resolveVariantPricing({
+            basePrice: product.base_price ?? 0,
+            fabricModifier,
+            variantId: variant.id,
+            variantPriceOverride: variant.price_override ?? null,
+            sizePriceMode: sizeOption?.price_mode ?? null,
+            sizePriceValue: sizeOption?.price_value ?? null,
+            priceTable,
+        })
+    }
 
-        return acc + getVariantPricing(variant).unitPrice * quantity
+    const totalSelectedPrice = selectionBuckets.reduce((acc, bucket) => {
+        return (
+            acc +
+            Object.entries(bucket.quantities).reduce((bucketAcc, [variantId, quantity]) => {
+                if (quantity <= 0) return bucketAcc
+                const variant = variants.find((currentVariant) => currentVariant.id === variantId)
+                if (!variant) return bucketAcc
+                return bucketAcc + getVariantPricingForSize(variant, bucket.sizeOptionId).unitPrice * quantity
+            }, 0)
+        )
     }, 0)
 
     const handleActivateVariant = (variant: ProductDetailVariant) => {
@@ -190,21 +212,30 @@ export default function ProductDetailPage() {
             return
         }
 
-        const variantsToAdd = Object.entries(quantities).filter(([, quantity]) => quantity > 0)
+        const variantsToAdd = selectionBuckets.flatMap((bucket) =>
+            Object.entries(bucket.quantities)
+                .filter(([, quantity]) => quantity > 0)
+                .map(([variantId, quantity]) => ({
+                    variantId,
+                    quantity,
+                    sizeOptionId: bucket.sizeOptionId,
+                }))
+        )
         if (variantsToAdd.length === 0) return
 
         setAddingToCart(true)
 
         try {
-            variantsToAdd.forEach(([variantId, quantity]) => {
+            variantsToAdd.forEach(({ variantId, quantity, sizeOptionId }) => {
                 const variant = variants.find((currentVariant) => currentVariant.id === variantId)
                 if (!variant) return
 
                 const fabric = fabrics.find((item) => item.id === variant.fabric_id)
                 const color = fabric?.colors.find((item) => item.id === variant.fabric_color_id)
-                const pricing = getVariantPricing(variant)
-                const resolvedSizeName = selectedSizeOption?.name || product.size || null
-                const resolvedSizeOptionId = selectedSizeOption?.id || null
+                const pricing = getVariantPricingForSize(variant, sizeOptionId)
+                const selectedSize = sizeOptions.find((item) => item.id === sizeOptionId) || null
+                const resolvedSizeName = selectedSize?.name || product.size || null
+                const resolvedSizeOptionId = selectedSize?.id || null
 
                 addItem({
                     cartKey: buildCartKey(variant.id, resolvedSizeOptionId),

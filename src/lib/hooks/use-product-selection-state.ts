@@ -4,14 +4,23 @@ import { useCallback, useMemo, useState, type SetStateAction } from 'react'
 import type { ProductSizeOption } from '@/lib/types'
 import type { ProductDetailVariant, ProductFabricGroup } from '@/lib/products/product-detail'
 
-interface SelectionState {
-    scopeKey: string | null
-    selectedSizeOptionId: string | null
+interface SelectionBucketState {
     selectedFabricId: string | null
     activeVariantId: string | null
     quantities: Record<string, number>
     activeImageIndex: number
     colorSearch: string
+}
+
+interface SelectionBucketEntry {
+    sizeOptionId: string | null
+    quantities: Record<string, number>
+}
+
+interface SelectionState {
+    scopeKey: string | null
+    selectedSizeOptionId: string | null
+    bucketsBySize: Record<string, SelectionBucketState>
     showFullDescription: boolean
 }
 
@@ -23,19 +32,41 @@ interface UseProductSelectionStateOptions {
     hasSizeVariants?: boolean
 }
 
-const INITIAL_SELECTION_STATE: SelectionState = {
-    scopeKey: null,
-    selectedSizeOptionId: null,
+const INITIAL_SELECTION_BUCKET: SelectionBucketState = {
     selectedFabricId: null,
     activeVariantId: null,
     quantities: {},
     activeImageIndex: 0,
     colorSearch: '',
+}
+
+const INITIAL_SELECTION_STATE: SelectionState = {
+    scopeKey: null,
+    selectedSizeOptionId: null,
+    bucketsBySize: {},
     showFullDescription: false,
 }
 
 function clampQuantity(value: number) {
     return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+}
+
+function getBucketKey(hasSizeVariants: boolean, sizeOptionId: string | null) {
+    if (!hasSizeVariants) return 'legacy'
+    return sizeOptionId ?? '__size_unselected__'
+}
+
+function getSizeOptionIdFromBucketKey(hasSizeVariants: boolean, bucketKey: string) {
+    if (!hasSizeVariants) return null
+    if (bucketKey === '__size_unselected__') return null
+    return bucketKey
+}
+
+function getDefaultBucket() {
+    return {
+        ...INITIAL_SELECTION_BUCKET,
+        quantities: {},
+    }
 }
 
 export function useProductSelectionState({
@@ -49,53 +80,74 @@ export function useProductSelectionState({
 
     const isCurrentScope = scopeKey !== null && state.scopeKey === scopeKey
 
+    const resolveSizeOptionId = useCallback(
+        (candidate: string | null) => {
+            if (!hasSizeVariants || sizeOptions.length === 0) return null
+            if (candidate && sizeOptions.some((option) => option.id === candidate)) {
+                return candidate
+            }
+            const defaultOption = sizeOptions.find((option) => option.is_default)
+            return defaultOption?.id ?? null
+        },
+        [hasSizeVariants, sizeOptions]
+    )
+
     const selectedSizeOptionId = useMemo(() => {
-        if (!hasSizeVariants || sizeOptions.length === 0) return null
-
-        if (
-            isCurrentScope &&
-            state.selectedSizeOptionId &&
-            sizeOptions.some((option) => option.id === state.selectedSizeOptionId)
-        ) {
-            return state.selectedSizeOptionId
-        }
-
-        const defaultOption = sizeOptions.find((option) => option.is_default)
-        return defaultOption?.id ?? null
-    }, [hasSizeVariants, isCurrentScope, sizeOptions, state.selectedSizeOptionId])
+        if (!isCurrentScope) return resolveSizeOptionId(null)
+        return resolveSizeOptionId(state.selectedSizeOptionId)
+    }, [isCurrentScope, resolveSizeOptionId, state.selectedSizeOptionId])
 
     const selectedSizeOption = useMemo(
         () => sizeOptions.find((option) => option.id === selectedSizeOptionId) ?? null,
         [selectedSizeOptionId, sizeOptions]
     )
 
+    const currentBucketKey = useMemo(
+        () => getBucketKey(hasSizeVariants, selectedSizeOptionId),
+        [hasSizeVariants, selectedSizeOptionId]
+    )
+
+    const currentBucket = useMemo(() => {
+        if (!isCurrentScope) return INITIAL_SELECTION_BUCKET
+        return state.bucketsBySize[currentBucketKey] ?? INITIAL_SELECTION_BUCKET
+    }, [currentBucketKey, isCurrentScope, state.bucketsBySize])
+
+    const selectionBuckets = useMemo<SelectionBucketEntry[]>(() => {
+        if (!isCurrentScope) return []
+
+        return Object.entries(state.bucketsBySize)
+            .map(([bucketKey, bucket]) => ({
+                sizeOptionId: getSizeOptionIdFromBucketKey(hasSizeVariants, bucketKey),
+                quantities: bucket.quantities,
+            }))
+            .filter((entry) => Object.keys(entry.quantities).length > 0)
+    }, [hasSizeVariants, isCurrentScope, state.bucketsBySize])
+
     const selectedFabric = useMemo(() => {
         if (
-            isCurrentScope &&
-            state.selectedFabricId &&
-            fabrics.some((fabric) => fabric.id === state.selectedFabricId)
+            currentBucket.selectedFabricId &&
+            fabrics.some((fabric) => fabric.id === currentBucket.selectedFabricId)
         ) {
-            return state.selectedFabricId
+            return currentBucket.selectedFabricId
         }
 
         return fabrics[0]?.id ?? null
-    }, [fabrics, isCurrentScope, state.selectedFabricId])
+    }, [currentBucket.selectedFabricId, fabrics])
 
     const activeVariantId = useMemo(() => {
         if (
-            isCurrentScope &&
-            state.activeVariantId &&
-            variants.some((variant) => variant.id === state.activeVariantId)
+            currentBucket.activeVariantId &&
+            variants.some((variant) => variant.id === currentBucket.activeVariantId)
         ) {
-            return state.activeVariantId
+            return currentBucket.activeVariantId
         }
 
         return variants.find((variant) => variant.fabric_id === selectedFabric)?.id ?? null
-    }, [isCurrentScope, selectedFabric, state.activeVariantId, variants])
+    }, [currentBucket.activeVariantId, selectedFabric, variants])
 
-    const quantities = isCurrentScope ? state.quantities : INITIAL_SELECTION_STATE.quantities
-    const activeImageIndex = isCurrentScope ? state.activeImageIndex : INITIAL_SELECTION_STATE.activeImageIndex
-    const colorSearch = isCurrentScope ? state.colorSearch : INITIAL_SELECTION_STATE.colorSearch
+    const quantities = currentBucket.quantities
+    const activeImageIndex = currentBucket.activeImageIndex
+    const colorSearch = currentBucket.colorSearch
     const showFullDescription = isCurrentScope
         ? state.showFullDescription
         : INITIAL_SELECTION_STATE.showFullDescription
@@ -105,7 +157,15 @@ export function useProductSelectionState({
         variants.find((variant) => variant.id === activeVariantId) ||
         variants.find((variant) => variant.fabric_id === selectedFabric) ||
         null
-    const totalQuantity = Object.values(quantities).reduce((sum, quantity) => sum + quantity, 0)
+    const currentSizeQuantity = Object.values(quantities).reduce(
+        (sum, quantity) => sum + quantity,
+        0
+    )
+    const totalQuantity = selectionBuckets.reduce(
+        (sum, bucket) =>
+            sum + Object.values(bucket.quantities).reduce((bucketSum, quantity) => bucketSum + quantity, 0),
+        0
+    )
 
     const updateState = useCallback(
         (updater: (previous: SelectionState) => SelectionState) => {
@@ -121,62 +181,130 @@ export function useProductSelectionState({
         [scopeKey]
     )
 
+    const resolveBucketKeyFromState = useCallback(
+        (previous: SelectionState) => {
+            const resolvedSizeOptionId = resolveSizeOptionId(previous.selectedSizeOptionId)
+            return getBucketKey(hasSizeVariants, resolvedSizeOptionId)
+        },
+        [hasSizeVariants, resolveSizeOptionId]
+    )
+
     const setSelectedSizeOptionId = useCallback(
         (sizeOptionId: string | null) => {
-            updateState((previous) => ({
-                ...previous,
-                selectedSizeOptionId: sizeOptionId,
-                activeImageIndex: 0,
-            }))
+            updateState((previous) => {
+                const nextSizeOptionId = hasSizeVariants ? sizeOptionId : null
+                const nextBucketKey = getBucketKey(
+                    hasSizeVariants,
+                    resolveSizeOptionId(nextSizeOptionId)
+                )
+
+                if (previous.bucketsBySize[nextBucketKey]) {
+                    return {
+                        ...previous,
+                        selectedSizeOptionId: nextSizeOptionId,
+                    }
+                }
+
+                return {
+                    ...previous,
+                    selectedSizeOptionId: nextSizeOptionId,
+                    bucketsBySize: {
+                        ...previous.bucketsBySize,
+                        [nextBucketKey]: getDefaultBucket(),
+                    },
+                }
+            })
         },
-        [updateState]
+        [hasSizeVariants, resolveSizeOptionId, updateState]
     )
 
     const setSelectedFabric = useCallback(
         (fabricId: string) => {
-            updateState((previous) => ({
-                ...previous,
-                selectedFabricId: fabricId,
-                activeVariantId:
-                    variants.find((variant) => variant.fabric_id === fabricId)?.id ?? null,
-                colorSearch: '',
-                activeImageIndex: 0,
-            }))
+            updateState((previous) => {
+                const bucketKey = resolveBucketKeyFromState(previous)
+                const bucket = previous.bucketsBySize[bucketKey] ?? getDefaultBucket()
+                return {
+                    ...previous,
+                    bucketsBySize: {
+                        ...previous.bucketsBySize,
+                        [bucketKey]: {
+                            ...bucket,
+                            selectedFabricId: fabricId,
+                            activeVariantId:
+                                variants.find((variant) => variant.fabric_id === fabricId)?.id ??
+                                null,
+                            colorSearch: '',
+                            activeImageIndex: 0,
+                        },
+                    },
+                }
+            })
         },
-        [updateState, variants]
+        [resolveBucketKeyFromState, updateState, variants]
     )
 
     const setActiveVariantId = useCallback(
         (variantId: string | null) => {
-            updateState((previous) => ({
-                ...previous,
-                activeVariantId: variantId,
-            }))
+            updateState((previous) => {
+                const bucketKey = resolveBucketKeyFromState(previous)
+                const bucket = previous.bucketsBySize[bucketKey] ?? getDefaultBucket()
+                return {
+                    ...previous,
+                    bucketsBySize: {
+                        ...previous.bucketsBySize,
+                        [bucketKey]: {
+                            ...bucket,
+                            activeVariantId: variantId,
+                        },
+                    },
+                }
+            })
         },
-        [updateState]
+        [resolveBucketKeyFromState, updateState]
     )
 
     const setActiveImageIndex = useCallback(
         (value: SetStateAction<number>) => {
-            updateState((previous) => ({
-                ...previous,
-                activeImageIndex:
-                    typeof value === 'function'
-                        ? clampQuantity(value(previous.activeImageIndex))
-                        : clampQuantity(value),
-            }))
+            updateState((previous) => {
+                const bucketKey = resolveBucketKeyFromState(previous)
+                const bucket = previous.bucketsBySize[bucketKey] ?? getDefaultBucket()
+                return {
+                    ...previous,
+                    bucketsBySize: {
+                        ...previous.bucketsBySize,
+                        [bucketKey]: {
+                            ...bucket,
+                            activeImageIndex:
+                                typeof value === 'function'
+                                    ? clampQuantity(value(bucket.activeImageIndex))
+                                    : clampQuantity(value),
+                        },
+                    },
+                }
+            })
         },
-        [updateState]
+        [resolveBucketKeyFromState, updateState]
     )
 
     const setColorSearch = useCallback(
         (value: SetStateAction<string>) => {
-            updateState((previous) => ({
-                ...previous,
-                colorSearch: typeof value === 'function' ? value(previous.colorSearch) : value,
-            }))
+            updateState((previous) => {
+                const bucketKey = resolveBucketKeyFromState(previous)
+                const bucket = previous.bucketsBySize[bucketKey] ?? getDefaultBucket()
+                return {
+                    ...previous,
+                    bucketsBySize: {
+                        ...previous.bucketsBySize,
+                        [bucketKey]: {
+                            ...bucket,
+                            colorSearch:
+                                typeof value === 'function' ? value(bucket.colorSearch) : value,
+                        },
+                    },
+                }
+            })
         },
-        [updateState]
+        [resolveBucketKeyFromState, updateState]
     )
 
     const setShowFullDescription = useCallback(
@@ -184,9 +312,7 @@ export function useProductSelectionState({
             updateState((previous) => ({
                 ...previous,
                 showFullDescription:
-                    typeof value === 'function'
-                        ? value(previous.showFullDescription)
-                        : value,
+                    typeof value === 'function' ? value(previous.showFullDescription) : value,
             }))
         },
         [updateState]
@@ -195,11 +321,12 @@ export function useProductSelectionState({
     const setVariantQuantity = useCallback(
         (variantId: string, value: SetStateAction<number>) => {
             updateState((previous) => {
-                const currentQuantity = previous.quantities[variantId] ?? 0
-                const nextQuantity =
-                    typeof value === 'function' ? value(currentQuantity) : value
+                const bucketKey = resolveBucketKeyFromState(previous)
+                const bucket = previous.bucketsBySize[bucketKey] ?? getDefaultBucket()
+                const currentQuantity = bucket.quantities[variantId] ?? 0
+                const nextQuantity = typeof value === 'function' ? value(currentQuantity) : value
                 const normalizedQuantity = clampQuantity(nextQuantity)
-                const nextQuantities = { ...previous.quantities }
+                const nextQuantities = { ...bucket.quantities }
 
                 if (normalizedQuantity === 0) {
                     delete nextQuantities[variantId]
@@ -209,20 +336,36 @@ export function useProductSelectionState({
 
                 return {
                     ...previous,
-                    activeVariantId: variantId,
-                    quantities: nextQuantities,
+                    bucketsBySize: {
+                        ...previous.bucketsBySize,
+                        [bucketKey]: {
+                            ...bucket,
+                            activeVariantId: variantId,
+                            quantities: nextQuantities,
+                        },
+                    },
                 }
             })
         },
-        [updateState]
+        [resolveBucketKeyFromState, updateState]
     )
 
     const clearQuantities = useCallback(() => {
-        updateState((previous) => ({
-            ...previous,
-            quantities: {},
-        }))
-    }, [updateState])
+        updateState((previous) => {
+            const bucketKey = resolveBucketKeyFromState(previous)
+            const bucket = previous.bucketsBySize[bucketKey] ?? getDefaultBucket()
+            return {
+                ...previous,
+                bucketsBySize: {
+                    ...previous.bucketsBySize,
+                    [bucketKey]: {
+                        ...bucket,
+                        quantities: {},
+                    },
+                },
+            }
+        })
+    }, [resolveBucketKeyFromState, updateState])
 
     const resetSelection = useCallback(() => {
         setState({
@@ -239,6 +382,8 @@ export function useProductSelectionState({
         activeVariantId,
         activeVariant,
         quantities,
+        selectionBuckets,
+        currentSizeQuantity,
         totalQuantity,
         activeImageIndex,
         colorSearch,

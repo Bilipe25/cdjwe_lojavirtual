@@ -63,6 +63,8 @@ export function QuickViewContent({
         selectedFabricGroup,
         activeVariant,
         quantities,
+        selectionBuckets,
+        currentSizeQuantity,
         totalQuantity,
         activeImageIndex,
         colorSearch,
@@ -188,9 +190,42 @@ export function QuickViewContent({
         })
     }
 
-    const totalPrice = Object.entries(quantities).reduce((sum, [variantId, quantity]) => {
-        if (quantity <= 0) return sum
-        return sum + getVariantPricing(variantId).unitPrice * quantity
+    const getVariantPricingForSize = (variantId: string, sizeOptionId: string | null) => {
+        const sizeOption = sizeOptions.find((item) => item.id === sizeOptionId) || null
+        const variant = variants.find((item) => item.id === variantId)
+        if (!variant) {
+            return resolveVariantPricing({
+                basePrice: product.base_price ?? 0,
+                sizePriceMode: sizeOption?.price_mode ?? null,
+                sizePriceValue: sizeOption?.price_value ?? null,
+                priceTable,
+            })
+        }
+
+        const fabricModifier =
+            variant.fabric?.price_modifier ??
+            fabrics.find((fabric) => fabric.id === variant.fabric_id)?.price_modifier ??
+            0
+
+        return resolveVariantPricing({
+            basePrice: product.base_price ?? 0,
+            fabricModifier,
+            variantId: variant.id,
+            variantPriceOverride: variant.price_override ?? null,
+            sizePriceMode: sizeOption?.price_mode ?? null,
+            sizePriceValue: sizeOption?.price_value ?? null,
+            priceTable,
+        })
+    }
+
+    const totalPrice = selectionBuckets.reduce((sum, bucket) => {
+        return (
+            sum +
+            Object.entries(bucket.quantities).reduce((bucketSum, [variantId, quantity]) => {
+                if (quantity <= 0) return bucketSum
+                return bucketSum + getVariantPricingForSize(variantId, bucket.sizeOptionId).unitPrice * quantity
+            }, 0)
+        )
     }, 0)
 
     const handleActivateVariant = (variantId: string) => {
@@ -211,21 +246,30 @@ export function QuickViewContent({
             return
         }
 
-        const variantsToAdd = Object.entries(quantities).filter(([, quantity]) => quantity > 0)
+        const variantsToAdd = selectionBuckets.flatMap((bucket) =>
+            Object.entries(bucket.quantities)
+                .filter(([, quantity]) => quantity > 0)
+                .map(([variantId, quantity]) => ({
+                    variantId,
+                    quantity,
+                    sizeOptionId: bucket.sizeOptionId,
+                }))
+        )
         if (variantsToAdd.length === 0) return
 
         setAddingToCart(true)
 
         try {
-            variantsToAdd.forEach(([variantId, quantity]) => {
+            variantsToAdd.forEach(({ variantId, quantity, sizeOptionId }) => {
                 const matchedVariant = variants.find((variant) => variant.id === variantId)
                 if (!matchedVariant) return
 
                 const fabric = fabrics.find((item) => item.id === matchedVariant.fabric_id)
                 const color = fabric?.colors.find((item) => item.id === matchedVariant.fabric_color_id)
-                const priceBreakdown = getVariantPricing(matchedVariant.id)
-                const resolvedSizeName = selectedSizeOption?.name || product.size || null
-                const resolvedSizeOptionId = selectedSizeOption?.id || null
+                const priceBreakdown = getVariantPricingForSize(matchedVariant.id, sizeOptionId)
+                const selectedSize = sizeOptions.find((item) => item.id === sizeOptionId) || null
+                const resolvedSizeName = selectedSize?.name || product.size || null
+                const resolvedSizeOptionId = selectedSize?.id || null
 
                 addItem({
                     cartKey: buildCartKey(matchedVariant.id, resolvedSizeOptionId),
@@ -420,7 +464,7 @@ export function QuickViewContent({
                                         onClick={clearQuantities}
                                         className="text-[11px] font-medium text-destructive hover:underline"
                                     >
-                                        Zerar ({totalQuantity})
+                                        Zerar ({currentSizeQuantity})
                                     </button>
                                 )}
                             </div>
