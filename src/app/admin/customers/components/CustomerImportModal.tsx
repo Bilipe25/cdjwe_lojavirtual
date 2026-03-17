@@ -38,6 +38,17 @@ function isValidEmail(email: string) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
 }
 
+function normalizeCsvEmail(value: string) {
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+
+    const token = trimmed.toLowerCase()
+    const emptyTokens = new Set(['-', '--', 'n/a', 'na', 'null', 'none', 'sem email', 'sem e-mail', 's/email'])
+    if (emptyTokens.has(token)) return undefined
+
+    return trimmed
+}
+
 function normalizeHeader(header: string) {
     return header
         .trim()
@@ -147,7 +158,7 @@ function parseCSV(text: string): CSVRow[] {
         const parsed: CSVRow = {
             rowNumber: rowIndex + 1,
             fullName: getCell(nameIndex),
-            email: getCell(emailIndex) || undefined,
+            email: normalizeCsvEmail(getCell(emailIndex)),
             phone: getCell(phoneIndex) || undefined,
             companyName: getCell(companyIndex),
             cnpj: getCell(cnpjIndex),

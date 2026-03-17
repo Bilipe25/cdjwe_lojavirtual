@@ -145,6 +145,17 @@ function createPlaceholderEmail(cnpj: string, rowNumber: number) {
     return `importado+${token}@placeholder.invalid`
 }
 
+function normalizeOptionalImportEmail(email?: string | null) {
+    const trimmed = (email || '').trim()
+    if (!trimmed) return null
+
+    const token = trimmed.toLowerCase()
+    const emptyTokens = new Set(['-', '--', 'n/a', 'na', 'null', 'none', 'sem email', 'sem e-mail', 's/email'])
+    if (emptyTokens.has(token)) return null
+
+    return trimmed
+}
+
 function mapAuthCreateUserErrorMessage(rawMessage?: string) {
     if (!rawMessage) return 'Falha ao criar usuario no Auth.'
     const normalized = rawMessage.toLowerCase()
@@ -533,21 +544,21 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
                 const fullName = row.fullName?.trim() || ''
                 const companyName = row.companyName?.trim() || ''
                 const cnpj = row.cnpj?.trim() || ''
-                const rawEmail = row.email?.trim() || ''
-                const hasProvidedEmail = rawEmail.length > 0
+                const rawEmail = normalizeOptionalImportEmail(row.email)
+                const hasProvidedEmail = Boolean(rawEmail)
 
                 if (!fullName || !companyName || !cnpj) {
                     results.push({ row: rowRef, status: 'error', message: 'Campos obrigatorios faltando' })
                     continue
                 }
 
-                if (hasProvidedEmail && !isValidEmailFormat(rawEmail)) {
+                if (hasProvidedEmail && rawEmail && !isValidEmailFormat(rawEmail)) {
                     results.push({ row: rowRef, status: 'error', message: 'Email invalido na linha' })
                     continue
                 }
 
                 const fallbackEmail = createPlaceholderEmail(cnpj, i + 1)
-                const normalizedEmail = hasProvidedEmail ? normalizeEmail(rawEmail) : fallbackEmail
+                const normalizedEmail = hasProvidedEmail && rawEmail ? normalizeEmail(rawEmail) : fallbackEmail
                 const { data: existingProfileByEmail } = await supabaseAdmin
                     .from('profiles')
                     .select('id, role, email')
