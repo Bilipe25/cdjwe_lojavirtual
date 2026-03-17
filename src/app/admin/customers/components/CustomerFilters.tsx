@@ -31,6 +31,8 @@ export function CustomerFilters({
     onBulkBlock,
     onBulkDelete
 }: CustomerFiltersProps) {
+    const selectedType = customerTypes.find((type) => type.id === typeFilter);
+
     return (
         <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-white/60 p-4 rounded-xl border shadow-sm">
             <div className="flex flex-1 w-full gap-3 items-center flex-wrap">
@@ -61,8 +63,14 @@ export function CustomerFilters({
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Todos os Tipos</SelectItem>
+                        {typeFilter !== 'all' && !selectedType && (
+                            <SelectItem value={typeFilter}>Tipo vinculado (inativo)</SelectItem>
+                        )}
                         {customerTypes.map(t => (
-                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                            <SelectItem key={t.id} value={t.id}>
+                                {t.name}
+                                {!t.is_active ? ' (inativo)' : ''}
+                            </SelectItem>
                         ))}
                     </SelectContent>
                 </Select>

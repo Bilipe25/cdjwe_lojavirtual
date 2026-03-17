@@ -50,6 +50,7 @@ function CustomerDetailContent({ customer, onClose, onEdit, onManageAccess }: Cu
 
     const store = customer.stores?.[0]
     const config = statusConfig[customer.status] || statusConfig.pending
+    const customerTypeLabel = store?.customer_type?.name || (store?.customer_type_id ? 'Tipo vinculado (inativo)' : null)
 
     const loadAudit = useCallback(async () => {
         setLoadingAudit(true)
@@ -105,9 +106,9 @@ function CustomerDetailContent({ customer, onClose, onEdit, onManageAccess }: Cu
                             <SheetDescription className="truncate">{store?.company_name || customer.email}</SheetDescription>
                             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                 <Badge className={`text-[10px] border ${config.color}`}>{config.label}</Badge>
-                                {store?.customer_type?.name && (
+                                {customerTypeLabel && (
                                     <Badge variant="outline" className="text-[10px] border-bronze/30 text-bronze bg-bronze/5">
-                                        {store.customer_type.name}
+                                        {customerTypeLabel}
                                     </Badge>
                                 )}
                             </div>

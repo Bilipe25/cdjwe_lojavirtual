@@ -49,6 +49,16 @@ export function CustomerEditDrawer({
     const selectedCustomerTypeId = useWatch({ control: form.control, name: 'customerTypeId' }) || '';
     const selectedRepresentativeId = useWatch({ control: form.control, name: 'representativeId' }) || '';
     const selectedTagIds = useWatch({ control: form.control, name: 'tagIds' }) || [];
+    const selectedCustomerType = customerTypes.find((type) => type.id === selectedCustomerTypeId);
+    const selectedRepresentative = representatives.find((rep) => rep.id === selectedRepresentativeId);
+    const hasMissingCustomerTypeOption = Boolean(
+        selectedCustomerTypeId && selectedCustomerTypeId !== 'none' && !selectedCustomerType
+    );
+    const hasMissingRepresentativeOption = Boolean(
+        selectedRepresentativeId && selectedRepresentativeId !== 'none' && !selectedRepresentative
+    );
+    const fallbackCustomerTypeLabel = store?.customer_type?.name || 'Tipo vinculado (inativo)';
+    const fallbackRepresentativeLabel = store?.representative?.full_name || 'Representante vinculado (inativo)';
 
     useEffect(() => {
         if (isOpen && customer) {
@@ -150,8 +160,14 @@ export function CustomerEditDrawer({
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="none">Sem tipo</SelectItem>
+                                        {hasMissingCustomerTypeOption && (
+                                            <SelectItem value={selectedCustomerTypeId}>{fallbackCustomerTypeLabel}</SelectItem>
+                                        )}
                                         {customerTypes.map(t => (
-                                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                            <SelectItem key={t.id} value={t.id}>
+                                                {t.name}
+                                                {!t.is_active ? ' (inativo)' : ''}
+                                            </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -167,9 +183,16 @@ export function CustomerEditDrawer({
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="none">Nenhum</SelectItem>
-                                        {representatives.map(r => (
-                                            <SelectItem key={r.id as string} value={r.id as string}>{r.full_name}</SelectItem>
-                                        ))}
+                                        {hasMissingRepresentativeOption && (
+                                            <SelectItem value={selectedRepresentativeId}>{fallbackRepresentativeLabel}</SelectItem>
+                                        )}
+                                        {representatives
+                                            .filter((r) => Boolean(r.id))
+                                            .map(r => (
+                                                <SelectItem key={r.id as string} value={r.id as string}>
+                                                    {r.full_name || 'Representante sem nome'}
+                                                </SelectItem>
+                                            ))}
                                     </SelectContent>
                                 </Select>
                             </div>

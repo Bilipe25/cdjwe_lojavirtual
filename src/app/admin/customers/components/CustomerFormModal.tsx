@@ -59,6 +59,14 @@ export function CustomerFormModal({
     const selectedCustomerTypeId = useWatch({ control: form.control, name: 'customerTypeId' }) || '';
     const selectedRepresentativeId = useWatch({ control: form.control, name: 'representativeId' }) || '';
     const selectedTagIds = useWatch({ control: form.control, name: 'tagIds' }) || [];
+    const selectedCustomerType = customerTypes.find((type) => type.id === selectedCustomerTypeId);
+    const selectedRepresentative = representatives.find((rep) => rep.id === selectedRepresentativeId);
+    const hasMissingCustomerTypeOption = Boolean(
+        selectedCustomerTypeId && selectedCustomerTypeId !== 'none' && !selectedCustomerType
+    );
+    const hasMissingRepresentativeOption = Boolean(
+        selectedRepresentativeId && selectedRepresentativeId !== 'none' && !selectedRepresentative
+    );
 
     // Reset when opening modal fresh
     useEffect(() => {
@@ -171,8 +179,14 @@ export function CustomerFormModal({
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="none">Sem tipo</SelectItem>
+                                        {hasMissingCustomerTypeOption && (
+                                            <SelectItem value={selectedCustomerTypeId}>Tipo vinculado (inativo)</SelectItem>
+                                        )}
                                         {customerTypes.map(t => (
-                                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                            <SelectItem key={t.id} value={t.id}>
+                                                {t.name}
+                                                {!t.is_active ? ' (inativo)' : ''}
+                                            </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -188,9 +202,16 @@ export function CustomerFormModal({
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="none">Nenhum representante</SelectItem>
-                                        {representatives.map(r => (
-                                            <SelectItem key={r.id as string} value={r.id as string}>{r.full_name}</SelectItem>
-                                        ))}
+                                        {hasMissingRepresentativeOption && (
+                                            <SelectItem value={selectedRepresentativeId}>Representante vinculado (inativo)</SelectItem>
+                                        )}
+                                        {representatives
+                                            .filter((r) => Boolean(r.id))
+                                            .map(r => (
+                                                <SelectItem key={r.id as string} value={r.id as string}>
+                                                    {r.full_name || 'Representante sem nome'}
+                                                </SelectItem>
+                                            ))}
                                     </SelectContent>
                                 </Select>
                             </div>

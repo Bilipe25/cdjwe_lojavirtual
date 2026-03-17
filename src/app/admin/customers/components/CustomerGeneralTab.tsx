@@ -9,6 +9,8 @@ interface CustomerGeneralTabProps {
 
 export function CustomerGeneralTab({ customer }: CustomerGeneralTabProps) {
     const store = customer.stores?.[0]
+    const customerTypeLabel = store?.customer_type?.name || (store?.customer_type_id ? 'Tipo vinculado (inativo)' : null)
+    const representativeLabel = store?.representative?.full_name || (store?.representative_id ? 'Representante vinculado (inativo)' : null)
 
     return (
         <div className="space-y-5">
@@ -37,9 +39,8 @@ export function CustomerGeneralTab({ customer }: CustomerGeneralTabProps) {
                         <p><strong>Razão Social:</strong> {store.company_name}</p>
                         {store.trade_name && <p><strong>Nome Fantasia:</strong> {store.trade_name}</p>}
                         <p><strong>CNPJ:</strong> {store.cnpj}</p>
-                        {store.customer_type?.name && (
-                            <p><strong>Tipo:</strong> {store.customer_type.name}</p>
-                        )}
+                        {customerTypeLabel && <p><strong>Tipo:</strong> {customerTypeLabel}</p>}
+                        {representativeLabel && <p><strong>Representante:</strong> {representativeLabel}</p>}
                     </div>
                 </div>
             )}

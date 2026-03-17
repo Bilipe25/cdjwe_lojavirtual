@@ -73,7 +73,7 @@ export default function CustomersPage() {
             const { data: typesData } = await supabase
                 .from('customer_types')
                 .select('*')
-                .eq('is_active', true)
+                .order('is_active', { ascending: false })
                 .order('sort_order')
             if (typesData) setCustomerTypes(typesData)
 
