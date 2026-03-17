@@ -32,6 +32,20 @@ export function CustomerFilters({
     onBulkDelete
 }: CustomerFiltersProps) {
     const selectedType = customerTypes.find((type) => type.id === typeFilter);
+    const statusLabelMap: Record<string, string> = {
+        all: 'Todos',
+        pending: 'Pendentes',
+        approved: 'Ativos',
+        blocked: 'Bloqueados',
+        imported: 'Importados',
+    };
+    const selectedStatusLabel = statusLabelMap[statusFilter] || 'Status';
+    const selectedTypeLabel =
+        typeFilter === 'all'
+            ? 'Todos os Tipos'
+            : selectedType
+                ? `${selectedType.name}${!selectedType.is_active ? ' (inativo)' : ''}`
+                : 'Tipo vinculado (inativo)';
 
     return (
         <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-white/60 p-4 rounded-xl border shadow-sm">
@@ -47,7 +61,9 @@ export function CustomerFilters({
                 </div>
                 <Select value={statusFilter} onValueChange={(v) => v && onStatusChange(v)}>
                     <SelectTrigger className="w-full sm:w-40 h-11 bg-white">
-                        <SelectValue placeholder="Status" />
+                        <SelectValue placeholder="Status">
+                            {selectedStatusLabel}
+                        </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Todos</SelectItem>
@@ -59,7 +75,9 @@ export function CustomerFilters({
                 </Select>
                 <Select value={typeFilter} onValueChange={(v) => v && onTypeChange(v)}>
                     <SelectTrigger className="w-full sm:w-44 h-11 bg-white">
-                        <SelectValue placeholder="Tipo de Cliente" />
+                        <SelectValue placeholder="Tipo de Cliente">
+                            {selectedTypeLabel}
+                        </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Todos os Tipos</SelectItem>

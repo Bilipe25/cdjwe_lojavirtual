@@ -59,6 +59,14 @@ export function CustomerEditDrawer({
     );
     const fallbackCustomerTypeLabel = store?.customer_type?.name || 'Tipo vinculado (inativo)';
     const fallbackRepresentativeLabel = store?.representative?.full_name || 'Representante vinculado (inativo)';
+    const selectedCustomerTypeLabel =
+        selectedCustomerType
+            ? `${selectedCustomerType.name}${!selectedCustomerType.is_active ? ' (inativo)' : ''}`
+            : hasMissingCustomerTypeOption
+                ? fallbackCustomerTypeLabel
+                : '';
+    const selectedRepresentativeLabel =
+        selectedRepresentative?.full_name || (hasMissingRepresentativeOption ? fallbackRepresentativeLabel : '');
 
     useEffect(() => {
         if (isOpen && customer) {
@@ -156,7 +164,9 @@ export function CustomerEditDrawer({
                                     onValueChange={(v) => setValue('customerTypeId', !v || v === 'none' ? undefined : v)}
                                 >
                                     <SelectTrigger className="bg-white/60">
-                                        <SelectValue placeholder="Selecione..." />
+                                        <SelectValue placeholder="Selecione...">
+                                            {selectedCustomerTypeId && selectedCustomerTypeId !== 'none' ? selectedCustomerTypeLabel : undefined}
+                                        </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="none">Sem tipo</SelectItem>
@@ -179,7 +189,9 @@ export function CustomerEditDrawer({
                                     onValueChange={(v) => setValue('representativeId', !v || v === 'none' ? undefined : v)}
                                 >
                                     <SelectTrigger className="bg-white/60">
-                                        <SelectValue placeholder="Selecione..." />
+                                        <SelectValue placeholder="Selecione...">
+                                            {selectedRepresentativeId && selectedRepresentativeId !== 'none' ? selectedRepresentativeLabel : undefined}
+                                        </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="none">Nenhum</SelectItem>
