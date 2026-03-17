@@ -17,7 +17,7 @@ export default function PendingApprovalPage() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center gradient-hero p-4">
+        <div className="gradient-hero flex min-h-screen items-center justify-center p-4">
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -25,37 +25,34 @@ export default function PendingApprovalPage() {
                 className="w-full max-w-md"
             >
                 <Card className="glass-card border-0 shadow-xl">
-                    <CardHeader className="text-center space-y-4">
+                    <CardHeader className="space-y-4 text-center">
                         <motion.div
                             initial={{ scale: 0.8 }}
                             animate={{ scale: 1 }}
                             transition={{ delay: 0.2, type: 'spring' }}
-                            className="mx-auto h-20 w-20 rounded-2xl bg-amber-100 flex items-center justify-center"
+                            className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-amber-100"
                         >
                             <Clock className="h-10 w-10 text-amber-600" />
                         </motion.div>
                         <div>
-                            <CardTitle className="text-2xl font-bold font-[family-name:var(--font-heading)]">
-                                Cadastro em Análise
+                            <CardTitle className="font-[family-name:var(--font-heading)] text-2xl font-bold">
+                                Cadastro em analise
                             </CardTitle>
                             <CardDescription className="mt-2 text-base">
-                                Seu cadastro foi recebido e está aguardando aprovação da nossa equipe.
+                                Seu cadastro foi recebido e esta aguardando aprovacao da nossa equipe.
                             </CardDescription>
                         </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                             <p>
-                                Você receberá um email de confirmação assim que seu cadastro for aprovado.
-                                Esse processo pode levar até <strong>24 horas úteis</strong>.
+                                Voce recebera um email de confirmacao assim que seu cadastro for aprovado. Depois da liberacao,
+                                o acesso principal ao portal sera pelo <strong>CNPJ</strong> informado no cadastro. Esse processo
+                                pode levar ate <strong>24 horas uteis</strong>.
                             </p>
                         </div>
-                        <Button
-                            variant="outline"
-                            className="w-full"
-                            onClick={handleLogout}
-                        >
-                            <LogOut className="h-4 w-4 mr-2" />
+                        <Button variant="outline" className="w-full" onClick={handleLogout}>
+                            <LogOut className="mr-2 h-4 w-4" />
                             Sair
                         </Button>
                     </CardContent>

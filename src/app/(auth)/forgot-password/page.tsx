@@ -32,7 +32,7 @@ export default function ForgotPasswordPage() {
     const handleReset = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!identifier) {
-            toast.error('Informe seu E-mail ou CNPJ')
+            toast.error('Informe seu CNPJ ou e-mail')
             return
         }
 
@@ -64,35 +64,41 @@ export default function ForgotPasswordPage() {
             className="w-full max-w-md"
         >
             <Card className="glass-card border-0 shadow-xl">
-                <CardHeader className="text-center space-y-4 pb-2">
+                <CardHeader className="space-y-4 pb-2 text-center">
                     <motion.div
                         initial={{ scale: 0.8 }}
                         animate={{ scale: 1 }}
                         transition={{ delay: 0.2, type: 'spring' }}
-                        className="mx-auto flex justify-center w-full"
+                        className="mx-auto flex w-full justify-center"
                     >
                         {sent ? (
-                            <div className="h-16 w-16 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg shrink-0">
-                                <CheckCircle className="text-white h-8 w-8" />
+                            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-green-500 shadow-lg">
+                                <CheckCircle className="h-8 w-8 text-white" />
                             </div>
                         ) : settings?.logo_url ? (
-                            <div className="h-16 w-48 relative shrink-0">
-                                <Image priority src={settings.logo_url} alt={settings.system_name || 'Auth'} fill className="object-contain object-center" />
+                            <div className="relative h-16 w-48 shrink-0">
+                                <Image
+                                    priority
+                                    src={settings.logo_url}
+                                    alt={settings.system_name || 'Auth'}
+                                    fill
+                                    className="object-contain object-center"
+                                />
                             </div>
                         ) : (
-                            <div className="h-16 w-16 rounded-2xl gradient-bronze flex items-center justify-center shadow-lg shrink-0">
-                                <Mail className="text-white h-8 w-8" />
+                            <div className="gradient-bronze flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl shadow-lg">
+                                <Mail className="h-8 w-8 text-white" />
                             </div>
                         )}
                     </motion.div>
                     <div>
-                        <CardTitle className="text-2xl font-bold font-heading text-gradient-navy">
-                            {sent ? 'Email Enviado!' : (settings?.system_name || 'Recuperar Senha')}
+                        <CardTitle className="font-heading text-2xl font-bold text-gradient-navy">
+                            {sent ? 'Email enviado!' : settings?.system_name || 'Recuperar senha'}
                         </CardTitle>
                         <CardDescription className="mt-1">
                             {sent
-                                ? 'Verifique a caixa de entrada para seguir as instruções.'
-                                : 'Informe seu E-mail ou CNPJ para receber o link de recuperação.'}
+                                ? 'Verifique sua caixa de entrada para seguir as instrucoes.'
+                                : 'Informe seu CNPJ ou e-mail para receber o link de recuperacao.'}
                         </CardDescription>
                     </div>
                 </CardHeader>
@@ -100,53 +106,46 @@ export default function ForgotPasswordPage() {
                 <CardContent className="pt-4">
                     {sent ? (
                         <div className="space-y-4">
-                            <div className="rounded-lg bg-primary/5 p-4 text-sm text-center">
+                            <div className="rounded-lg bg-primary/5 p-4 text-center text-sm">
                                 <p className="text-muted-foreground">
-                                    Enviamos um link de recuperação{maskedEmail ? ` para o e-mail associado:` : '.'}
-                                    {maskedEmail && <span className="block font-medium text-foreground mt-1">{maskedEmail}</span>}
+                                    Enviamos um link de recuperacao{maskedEmail ? ' para o e-mail associado:' : '.'}
+                                    {maskedEmail && <span className="mt-1 block font-medium text-foreground">{maskedEmail}</span>}
                                 </p>
-                                <p className="text-muted-foreground text-xs mt-2">
-                                    Caso não encontre, verifique a pasta de spam.
-                                </p>
+                                <p className="mt-2 text-xs text-muted-foreground">Caso nao encontre, verifique a pasta de spam.</p>
                             </div>
                             <Link href="/login">
-                                <Button variant="outline" className="w-full h-11">
-                                    <ArrowLeft className="h-4 w-4 mr-2" />
-                                    Voltar ao Login
+                                <Button variant="outline" className="h-11 w-full">
+                                    <ArrowLeft className="mr-2 h-4 w-4" />
+                                    Voltar ao login
                                 </Button>
                             </Link>
                         </div>
                     ) : (
                         <form onSubmit={handleReset} className="space-y-4">
                             <div className="space-y-2">
-                                <Label htmlFor="identifier">E-mail ou CNPJ</Label>
+                                <Label htmlFor="identifier">CNPJ ou e-mail</Label>
                                 <Input
                                     id="identifier"
                                     type="text"
-                                    placeholder="seu@email.com ou 00.000.../0001-00"
+                                    placeholder="00.000.000/0001-00 ou seu@email.com"
                                     value={identifier}
                                     onChange={(e) => setIdentifier(e.target.value)}
                                     disabled={loading}
                                     className="h-11 bg-white/60"
                                 />
+                                <p className="text-xs text-muted-foreground">
+                                    Se a conta ainda estiver com e-mail provisório, o acesso continua sendo feito pelo CNPJ com a senha definida pelo admin.
+                                </p>
                             </div>
 
-                            <Button
-                                type="submit"
-                                className="w-full h-11 gradient-navy border-0 text-white text-base"
-                                disabled={loading}
-                            >
-                                {loading ? (
-                                    <Loader2 className="h-5 w-5 animate-spin" />
-                                ) : (
-                                    'Enviar Link'
-                                )}
+                            <Button type="submit" className="gradient-navy h-11 w-full border-0 text-base text-white" disabled={loading}>
+                                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Enviar link'}
                             </Button>
 
                             <Link href="/login" className="block">
                                 <Button variant="ghost" className="w-full" type="button">
-                                    <ArrowLeft className="h-4 w-4 mr-2" />
-                                    Voltar ao Login
+                                    <ArrowLeft className="mr-2 h-4 w-4" />
+                                    Voltar ao login
                                 </Button>
                             </Link>
                         </form>

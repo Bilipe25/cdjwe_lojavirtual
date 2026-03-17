@@ -3,6 +3,12 @@
 import { createServerClient } from '@supabase/ssr'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import {
+    getPrimaryCustomerAccessIdentifier,
+    hasRealCustomerEmail,
+    normalizeCnpj,
+    normalizeEmail,
+} from '@/lib/customers/access'
 
 // ==================== HELPER: Get Admin Supabase Client ====================
 
@@ -66,6 +72,10 @@ type UpsertCustomerDomainInput = {
 }
 
 async function sendAccountApprovedEmail(params: { email: string; fullName: string }) {
+    if (!hasRealCustomerEmail(params.email)) {
+        return
+    }
+
     try {
         const supabaseAdmin = await getAdminClient()
         const { sendEmail } = await import('@/lib/email')
@@ -82,11 +92,12 @@ async function sendAccountApprovedEmail(params: { email: string; fullName: strin
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
 
         await sendEmail({
-            to: params.email,
+            to: normalizeEmail(params.email),
             subject: `Sua conta foi aprovada - ${systemName}`,
             senderName: systemName,
             react: React.createElement(AccountApprovedEmail, {
                 clientName: params.fullName,
+                clientEmail: normalizeEmail(params.email),
                 systemName,
                 appUrl,
             }),
@@ -125,14 +136,6 @@ async function upsertCustomerDomainViaRpc(
 
     const firstRow = Array.isArray(data) ? data[0] : data
     return { storeId: firstRow?.store_id as string | undefined }
-}
-
-function normalizeEmail(email: string) {
-    return email.trim().toLowerCase()
-}
-
-function normalizeCnpj(cnpj: string) {
-    return cnpj.replace(/\D/g, '')
 }
 
 function isValidEmailFormat(email: string) {
@@ -570,6 +573,48 @@ export async function generateCustomerPassword(profileId: string) {
     return { success: true, password }
 }
 
+export async function getCustomerAccessSnapshot(profileId: string) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const [{ data: profile }, { data: store }, authResult] = await Promise.all([
+            supabaseAdmin
+                .from('profiles')
+                .select('email')
+                .eq('id', profileId)
+                .maybeSingle(),
+            supabaseAdmin
+                .from('stores')
+                .select('cnpj')
+                .eq('profile_id', profileId)
+                .limit(1)
+                .maybeSingle(),
+            supabaseAdmin.auth.admin.getUserById(profileId),
+        ])
+
+        const normalizedEmail = normalizeEmail(profile?.email || '')
+        const hasRealEmail = hasRealCustomerEmail(normalizedEmail)
+        const primaryIdentifier =
+            getPrimaryCustomerAccessIdentifier({
+                cnpj: store?.cnpj,
+                email: hasRealEmail ? normalizedEmail : null,
+            }) || null
+
+        return {
+            success: true,
+            data: {
+                primaryIdentifier,
+                alternateEmail: hasRealEmail ? normalizedEmail : null,
+                passwordDefined: Boolean(authResult.data?.user?.id),
+            },
+        }
+    } catch (err: unknown) {
+        console.error('Get Customer Access Snapshot Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao carregar o status de acesso do cliente.') }
+    }
+}
+
 // ==================== IMPORT CUSTOMERS FROM CSV ====================
 
 interface CSVCustomerRow {
@@ -841,13 +886,19 @@ export async function sendAccessLink(
         await verifyAdmin()
         const supabaseAdmin = await getAdminClient()
 
-        // Fetch customer data
         const { data: profile } = await supabaseAdmin.from('profiles')
             .select('full_name, email, phone')
             .eq('id', profileId)
             .single()
 
         if (!profile) return { error: 'Cliente nao encontrado' }
+
+        const { data: store } = await supabaseAdmin
+            .from('stores')
+            .select('cnpj, company_name')
+            .eq('profile_id', profileId)
+            .limit(1)
+            .maybeSingle()
 
         const { data: settings } = await supabaseAdmin
             .from('system_settings')
@@ -858,6 +909,12 @@ export async function sendAccessLink(
         const systemName = settings?.system_name || 'CDJWE'
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
         const loginUrl = `${appUrl}/login`
+        const primaryIdentifier =
+            getPrimaryCustomerAccessIdentifier({
+                cnpj: store?.cnpj,
+                email: hasRealCustomerEmail(profile.email) ? profile.email : null,
+            }) || profile.email
+        const canSendEmail = hasRealCustomerEmail(profile.email)
 
         if (channel === 'whatsapp') {
             const phone = profile.phone?.replace(/\D/g, '')
@@ -866,8 +923,10 @@ export async function sendAccessLink(
             const message = encodeURIComponent(
                 `Ola ${profile.full_name}!\n\n` +
                 `Seu acesso ao *${systemName}* esta liberado!\n\n` +
+                `Empresa: ${store?.company_name || profile.full_name}\n` +
                 `Link de acesso: ${loginUrl}\n` +
-                `Usuario: ${profile.email}\n` +
+                `Acesso principal: ${primaryIdentifier}\n` +
+                (canSendEmail ? `Acesso alternativo por e-mail: ${normalizeEmail(profile.email)}\n` : '') +
                 (password ? `Senha: ${password}\n` : '') +
                 `\nEm caso de duvidas, entre em contato conosco.`
             )
@@ -877,18 +936,23 @@ export async function sendAccessLink(
         }
 
         if (channel === 'email') {
+            if (!canSendEmail) {
+                return { error: 'Este cliente ainda nao possui um e-mail real cadastrado para envio.' }
+            }
+
             try {
                 const { sendEmail } = await import('@/lib/email')
                 const React = (await import('react')).default
                 const { default: AccountApprovedEmail } = await import('@/emails/AccountApprovedEmail')
 
                 await sendEmail({
-                    to: profile.email,
+                    to: normalizeEmail(profile.email),
                     subject: `Seus dados de acesso - ${systemName}`,
                     senderName: systemName,
                     react: React.createElement(AccountApprovedEmail, {
                         clientName: profile.full_name,
-                        clientEmail: profile.email,
+                        clientEmail: normalizeEmail(profile.email),
+                        clientDocument: store?.cnpj || undefined,
                         password: password || undefined,
                         systemName,
                         appUrl,

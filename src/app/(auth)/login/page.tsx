@@ -22,7 +22,24 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
-    const [lastLogin, setLastLogin] = useState<{ companyName: string, identifier: string } | null>(null)
+    const [lastLogin] = useState<{ companyName: string; identifier: string } | null>(() => {
+        if (typeof window === 'undefined') return null
+
+        const savedLogin = window.localStorage.getItem('last_b2b_login')
+        if (!savedLogin) return null
+
+        try {
+            const parsed = JSON.parse(savedLogin) as { companyName?: string; identifier?: string }
+            if (!parsed.identifier) return null
+
+            return {
+                companyName: parsed.companyName || 'Cliente',
+                identifier: parsed.identifier,
+            }
+        } catch {
+            return null
+        }
+    })
     const [useDifferentAccount, setUseDifferentAccount] = useState(false)
 
     useEffect(() => {
@@ -31,27 +48,20 @@ export default function LoginPage() {
                 const supabase = createClient()
                 const { data } = await supabase.from('system_settings').select('logo_url, system_name').limit(1).single()
                 if (data) setSettings(data)
-            } catch { /* silent */ }
+            } catch {
+                // silent
+            }
         }
-        loadSettings()
 
-        const savedLogin = localStorage.getItem('last_b2b_login')
-        if (savedLogin) {
-            try {
-                const parsed = JSON.parse(savedLogin)
-                if (parsed.identifier) {
-                    setLastLogin(parsed)
-                }
-            } catch (e) {}
-        }
+        loadSettings()
     }, [])
 
     const form = useForm<LoginFormData>({
-        resolver: zodResolver(loginSchema) as any,
+        resolver: zodResolver(loginSchema),
         defaultValues: {
             identifier: '',
-            password: ''
-        }
+            password: '',
+        },
     })
 
     useEffect(() => {
@@ -60,14 +70,18 @@ export default function LoginPage() {
         }
     }, [lastLogin, useDifferentAccount, form])
 
-    const { register, handleSubmit, formState: { errors } } = form
+    const {
+        register,
+        handleSubmit,
+        formState: { errors },
+    } = form
 
     const handleLogin = async (data: LoginFormData) => {
         setLoading(true)
-        
+
         try {
             const result = await loginAction(data)
-            
+
             if (result.error) {
                 toast.error(result.error)
                 setLoading(false)
@@ -76,17 +90,19 @@ export default function LoginPage() {
 
             if (result.success && result.redirectUrl) {
                 if (result.companyName && result.identifier) {
-                    localStorage.setItem('last_b2b_login', JSON.stringify({
-                        companyName: result.companyName,
-                        identifier: result.identifier
-                    }))
+                    localStorage.setItem(
+                        'last_b2b_login',
+                        JSON.stringify({
+                            companyName: result.companyName,
+                            identifier: result.identifier,
+                        })
+                    )
                 }
                 toast.success('Login realizado com sucesso!')
                 router.push(result.redirectUrl)
-                // Do not turn off loading here to prevent flickering while redirecting
             }
         } catch {
-            toast.error('Erro inesperado na conexão com o servidor. Tente novamente.')
+            toast.error('Erro inesperado na conexao com o servidor. Tente novamente.')
             setLoading(false)
         }
     }
@@ -99,32 +115,37 @@ export default function LoginPage() {
             className="w-full max-w-md"
         >
             <Card className="glass-card border-0 shadow-xl">
-                <CardHeader className="text-center space-y-4 pb-2">
-                    {/* Logo */}
+                <CardHeader className="space-y-4 pb-2 text-center">
                     <motion.div
                         initial={{ scale: 0.8 }}
                         animate={{ scale: 1 }}
                         transition={{ delay: 0.2, type: 'spring' }}
-                        className="mx-auto flex justify-center w-full"
+                        className="mx-auto flex w-full justify-center"
                     >
                         {settings?.logo_url ? (
-                            <div className="h-16 w-48 relative shrink-0">
-                                <Image priority src={settings.logo_url} alt={settings.system_name || 'Login'} fill className="object-contain object-center" />
+                            <div className="relative h-16 w-48 shrink-0">
+                                <Image
+                                    priority
+                                    src={settings.logo_url}
+                                    alt={settings.system_name || 'Login'}
+                                    fill
+                                    className="object-contain object-center"
+                                />
                             </div>
                         ) : (
-                            <div className="h-16 w-16 rounded-2xl gradient-bronze flex items-center justify-center shadow-lg shrink-0">
-                                <span className="text-white font-bold text-2xl font-heading">
+                            <div className="gradient-bronze flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl shadow-lg">
+                                <span className="font-heading text-2xl font-bold text-white">
                                     {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
                                 </span>
                             </div>
                         )}
                     </motion.div>
                     <div>
-                        <CardTitle className="text-2xl font-bold font-heading text-gradient-navy">
+                        <CardTitle className="font-heading text-2xl font-bold text-gradient-navy">
                             {settings?.system_name || 'CDJWE Estofados'}
                         </CardTitle>
                         <CardDescription className="mt-1">
-                            Portal B2B — Acesse sua conta
+                            Portal B2B - acesso principal via CNPJ, com suporte a e-mail
                         </CardDescription>
                     </div>
                 </CardHeader>
@@ -132,21 +153,25 @@ export default function LoginPage() {
                 <CardContent className="pt-4">
                     <form onSubmit={handleSubmit(handleLogin)} className="space-y-4">
                         {lastLogin && !useDifferentAccount ? (
-                            <div className="flex items-center justify-between p-3 rounded-xl border bg-slate-50 border-slate-200/60 shadow-sm mb-4">
+                            <div className="mb-4 flex items-center justify-between rounded-xl border border-slate-200/60 bg-slate-50 p-3 shadow-sm">
                                 <div className="flex items-center gap-3">
-                                    <div className="h-10 w-10 rounded-full gradient-navy flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-sm">
+                                    <div className="gradient-navy flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white shadow-sm">
                                         {lastLogin.companyName.substring(0, 2).toUpperCase()}
                                     </div>
                                     <div className="overflow-hidden">
-                                        <p className="font-semibold text-sm text-navy truncate" title={lastLogin.companyName}>{lastLogin.companyName}</p>
-                                        <p className="text-xs text-muted-foreground truncate" title={lastLogin.identifier}>{lastLogin.identifier}</p>
+                                        <p className="truncate text-sm font-semibold text-navy" title={lastLogin.companyName}>
+                                            {lastLogin.companyName}
+                                        </p>
+                                        <p className="truncate text-xs text-muted-foreground" title={lastLogin.identifier}>
+                                            Acesso principal: {lastLogin.identifier}
+                                        </p>
                                     </div>
                                 </div>
-                                <Button 
-                                    type="button" 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    className="text-xs h-8 text-muted-foreground hover:text-navy"
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 text-xs text-muted-foreground hover:text-navy"
                                     onClick={() => {
                                         setUseDifferentAccount(true)
                                         form.setValue('identifier', '')
@@ -157,28 +182,26 @@ export default function LoginPage() {
                             </div>
                         ) : (
                             <div className="space-y-2">
-                                <Label htmlFor="identifier">E-mail, CNPJ ou Nome da Empresa</Label>
+                                <Label htmlFor="identifier">CNPJ ou e-mail</Label>
                                 <Input
                                     id="identifier"
                                     type="text"
-                                    placeholder="joao@loja.com.br ou 00.000.000/0001-00"
+                                    placeholder="00.000.000/0001-00 ou joao@loja.com.br"
                                     disabled={loading}
                                     className={`h-11 bg-white/60 ${errors.identifier ? 'border-red-500' : ''}`}
                                     {...register('identifier')}
                                 />
-                                {errors.identifier && (
-                                    <p className="text-xs text-red-500 mt-1">{errors.identifier.message}</p>
-                                )}
+                                <p className="text-xs text-muted-foreground">
+                                    O acesso principal do cliente e pelo CNPJ. Quem ja possui e-mail real pode continuar entrando com ele.
+                                </p>
+                                {errors.identifier && <p className="mt-1 text-xs text-red-500">{errors.identifier.message}</p>}
                             </div>
                         )}
 
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
                                 <Label htmlFor="password">Senha</Label>
-                                <Link
-                                    href="/forgot-password"
-                                    className="text-xs text-bronze hover:text-bronze-dark transition-colors"
-                                >
+                                <Link href="/forgot-password" className="text-xs text-bronze transition-colors hover:text-bronze-dark">
                                     Esqueceu a senha?
                                 </Link>
                             </div>
@@ -199,21 +222,15 @@ export default function LoginPage() {
                                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                 </button>
                             </div>
-                            {errors.password && (
-                                <p className="text-xs text-red-500 mt-1">{errors.password.message}</p>
-                            )}
+                            {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password.message}</p>}
                         </div>
 
-                        <Button
-                            type="submit"
-                            className="w-full h-11 gradient-navy border-0 text-white text-base mt-2"
-                            disabled={loading}
-                        >
+                        <Button type="submit" className="gradient-navy mt-2 h-11 w-full border-0 text-base text-white" disabled={loading}>
                             {loading ? (
                                 <Loader2 className="h-5 w-5 animate-spin" />
                             ) : (
                                 <>
-                                    <LogIn className="h-5 w-5 mr-2" />
+                                    <LogIn className="mr-2 h-5 w-5" />
                                     Entrar
                                 </>
                             )}
@@ -222,11 +239,8 @@ export default function LoginPage() {
 
                     <div className="mt-6 text-center">
                         <p className="text-sm text-muted-foreground">
-                            Ainda não tem conta?{' '}
-                            <Link
-                                href="/register"
-                                className="font-medium text-primary hover:underline"
-                            >
+                            Ainda nao tem conta?{' '}
+                            <Link href="/register" className="font-medium text-primary hover:underline">
                                 Cadastre-se
                             </Link>
                         </p>

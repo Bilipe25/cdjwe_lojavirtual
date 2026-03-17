@@ -22,6 +22,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import type { Profile, Store, CustomerType, StoreTag, CustomerTag } from '@/lib/types';
+import { isPlaceholderEmail } from '@/lib/customers/access';
 
 export type CustomerWithStore = Profile & { 
     stores: (Store & { 
@@ -41,8 +42,7 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 };
 
 function hasPendingEmail(email?: string | null) {
-    const normalized = (email || '').trim().toLowerCase();
-    return normalized.endsWith('@placeholder.invalid') || normalized.startsWith('importado+');
+    return isPlaceholderEmail(email);
 }
 
 interface CustomerListProps {

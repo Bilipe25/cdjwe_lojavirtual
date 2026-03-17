@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { motion } from 'framer-motion'
-import { Eye, EyeOff, UserPlus, Loader2, Building2, MapPin, Phone } from 'lucide-react'
+import { Eye, EyeOff, UserPlus, Loader2, Building2, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -172,7 +172,7 @@ export default function RegisterPage() {
                             {settings?.system_name || 'Criar Conta'}
                         </CardTitle>
                         <CardDescription className="mt-1">
-                            {step === 1 ? 'Dados pessoais' : 'Dados da empresa'}
+                            {step === 1 ? 'Dados pessoais e de acesso' : 'Dados da empresa'}
                         </CardDescription>
                     </div>
 
@@ -192,6 +192,10 @@ export default function RegisterPage() {
                                 animate={{ opacity: 1, x: 0 }}
                                 className="space-y-4"
                             >
+                                <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs leading-5 text-muted-foreground">
+                                    O acesso principal da sua conta sera pelo <strong>CNPJ</strong> apos a aprovacao. O e-mail informado abaixo continuara como acesso alternativo e canal de comunicacao.
+                                </div>
+
                                 <div className="space-y-2">
                                     <Label htmlFor="fullName">Nome Completo *</Label>
                                     <Input
@@ -204,7 +208,7 @@ export default function RegisterPage() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="email">Email *</Label>
+                                    <Label htmlFor="email">Email de contato *</Label>
                                     <Input
                                         id="email"
                                         type="email"
@@ -286,16 +290,19 @@ export default function RegisterPage() {
                                         />
                                     </div>
 
-                                    <div className="space-y-2">
-                                        <Label htmlFor="cnpj">CNPJ *</Label>
-                                        <Input
-                                            id="cnpj"
-                                            placeholder="00.000.000/0000-00"
+                                <div className="space-y-2">
+                                    <Label htmlFor="cnpj">CNPJ *</Label>
+                                    <Input
+                                        id="cnpj"
+                                        placeholder="00.000.000/0000-00"
                                             value={cnpj}
-                                            onChange={(e) => setCnpj(e.target.value)}
-                                            className="h-11 bg-white/60"
-                                        />
-                                    </div>
+                                        onChange={(e) => setCnpj(e.target.value)}
+                                        className="h-11 bg-white/60"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Este sera o identificador principal para entrar no portal apos a aprovacao do cadastro.
+                                    </p>
+                                </div>
 
                                     <div className="space-y-2 sm:col-span-2">
                                         <Label htmlFor="stateReg">Inscrição Estadual</Label>

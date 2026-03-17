@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Save, Building2, Users, Tag } from 'lucide-react';
+import { Loader2, Save, Building2, Users, Tag, Mail, KeyRound, ShieldCheck } from 'lucide-react';
 import {
     Sheet,
     SheetContent,
@@ -14,10 +14,12 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { customerEditSchema, type CustomerEditFormData } from '../schema';
 import type { CustomerType, CustomerTag, Profile } from '@/lib/types';
 import type { CustomerWithStore } from './CustomerList';
 import { CustomerAddressManager } from './CustomerAddressManager';
+import { getCustomerAccessSnapshot } from '../actions';
 
 interface CustomerEditDrawerProps {
     customer: CustomerWithStore | null;
@@ -39,6 +41,12 @@ export function CustomerEditDrawer({
     onSave
 }: CustomerEditDrawerProps) {
     const [saving, setSaving] = useState(false);
+    const [accessLoading, setAccessLoading] = useState(false);
+    const [accessSnapshot, setAccessSnapshot] = useState<{
+        primaryIdentifier: string | null;
+        alternateEmail: string | null;
+        passwordDefined: boolean;
+    } | null>(null);
     const store = customer?.stores?.[0];
     const normalizedEmail = (customer?.email || '').trim().toLowerCase();
     const hasPlaceholderEmail =
@@ -94,6 +102,41 @@ export function CustomerEditDrawer({
         }
     }, [isOpen, customer, store, reset]);
 
+    useEffect(() => {
+        let active = true;
+
+        const loadAccessSnapshot = async () => {
+            if (!isOpen || !customer?.id) {
+                if (active) {
+                    setAccessSnapshot(null);
+                }
+                return;
+            }
+
+            setAccessLoading(true);
+            try {
+                const result = await getCustomerAccessSnapshot(customer.id);
+                if (!active) return;
+
+                if ('data' in result && result.data) {
+                    setAccessSnapshot(result.data);
+                } else {
+                    setAccessSnapshot(null);
+                }
+            } finally {
+                if (active) {
+                    setAccessLoading(false);
+                }
+            }
+        };
+
+        loadAccessSnapshot();
+
+        return () => {
+            active = false;
+        };
+    }, [isOpen, customer?.id]);
+
     const onSubmit = async (data: CustomerEditFormData) => {
         if (!customer || !store) return;
         setSaving(true);
@@ -118,6 +161,76 @@ export function CustomerEditDrawer({
                 </SheetHeader>
 
                 <form onSubmit={handleSubmit(onSubmit)} className="flex-1 overflow-y-auto p-6 space-y-6">
+                    <div className="space-y-4 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4">
+                        <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-muted-foreground">
+                            <ShieldCheck className="h-4 w-4" />
+                            <span className="text-sm font-medium">Status de Acesso</span>
+                        </div>
+
+                        {accessLoading ? (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Carregando status de acesso...
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                <div className="rounded-xl border bg-white p-3">
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        <Building2 className="h-3.5 w-3.5" />
+                                        CNPJ principal
+                                    </div>
+                                    <p className="mt-2 text-sm font-semibold text-navy">
+                                        {accessSnapshot?.primaryIdentifier || store?.cnpj || 'Nao informado'}
+                                    </p>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">
+                                        Identificador preferencial de login do cliente.
+                                    </p>
+                                </div>
+
+                                <div className="rounded-xl border bg-white p-3">
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        <Mail className="h-3.5 w-3.5" />
+                                        E-mail alternativo
+                                    </div>
+                                    <div className="mt-2">
+                                        {accessSnapshot?.alternateEmail ? (
+                                            <p className="break-all text-sm font-medium text-navy">{accessSnapshot.alternateEmail}</p>
+                                        ) : (
+                                            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                                                E-mail pendente
+                                            </Badge>
+                                        )}
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">
+                                        Disponivel somente quando houver e-mail real cadastrado.
+                                    </p>
+                                </div>
+
+                                <div className="rounded-xl border bg-white p-3">
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        <KeyRound className="h-3.5 w-3.5" />
+                                        Senha de acesso
+                                    </div>
+                                    <div className="mt-2">
+                                        <Badge
+                                            variant="outline"
+                                            className={
+                                                accessSnapshot?.passwordDefined
+                                                    ? 'border-green-200 bg-green-50 text-green-700'
+                                                    : 'border-slate-200 bg-slate-50 text-slate-600'
+                                            }
+                                        >
+                                            {accessSnapshot?.passwordDefined ? 'Definida' : 'Nao definida'}
+                                        </Badge>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">
+                                        O cliente acessa com senha vinculada ao cadastro no Auth.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     {/* Dados Pessoais */}
                     <div className="space-y-4">
                         <div className="flex items-center gap-2 text-muted-foreground border-b pb-2">
@@ -133,6 +246,11 @@ export function CustomerEditDrawer({
                             <div className="space-y-2">
                                 <Label>E-mail *</Label>
                                 <Input {...register('email')} type="email" className="bg-white/60" disabled={!canEditEmail} />
+                                {hasPlaceholderEmail && (
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Este cliente pode acessar pelo CNPJ enquanto o e-mail definitivo nao for informado.
+                                    </p>
+                                )}
                                 {!canEditEmail && (
                                     <p className="text-[11px] text-muted-foreground">
                                         E-mail bloqueado para cliente ja cadastrado.

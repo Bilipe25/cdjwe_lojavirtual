@@ -1,138 +1,161 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import {
+    getPrimaryCustomerAccessIdentifier,
+    hasRealCustomerEmail,
+    isCnpjIdentifier,
+    normalizeCnpj,
+    normalizeEmail,
+} from '@/lib/customers/access'
 import { cookies, headers } from 'next/headers'
 import { loginSchema, type LoginFormData } from './schema'
 
-export async function loginAction(data: LoginFormData) {
-    // 1. Zod Validation
-    const parsed = loginSchema.safeParse(data);
-    if (!parsed.success) {
-        return { error: 'Dados inválidos. Verifique o formulário.' };
+type StoreLoginRow = {
+    cnpj: string | null
+    profiles?: { email?: string | null } | { email?: string | null }[] | null
+}
+
+function readStoreProfileEmail(store?: StoreLoginRow | null) {
+    const profileData = store?.profiles
+    if (Array.isArray(profileData)) {
+        return normalizeEmail(profileData[0]?.email)
     }
 
-    const { identifier, password } = parsed.data;
+    return normalizeEmail(profileData?.email)
+}
+
+export async function loginAction(data: LoginFormData) {
+    const parsed = loginSchema.safeParse(data)
+    if (!parsed.success) {
+        return { error: 'Dados invalidos. Verifique o formulario.' }
+    }
+
+    const { identifier, password } = parsed.data
+    const trimmedIdentifier = identifier.trim()
 
     try {
         const supabase = await createClient()
 
-        let emailToAuthenticate = identifier.trim();
-        const isEmailOrSimilar = identifier.includes('@');
+        let emailToAuthenticate = normalizeEmail(trimmedIdentifier)
+        const isEmailIdentifier = trimmedIdentifier.includes('@')
 
-        // 2. Lookup email if identifier is not an email
-        if (!isEmailOrSimilar) {
-            const cleanIdentifier = identifier.replace(/[^\d]+/g, '');
-            const isCnpj = cleanIdentifier.length === 14;
-
-            let query = supabase.from('stores').select('profile_id, profiles!stores_profile_id_fkey!inner(email)');
-
-            if (isCnpj) {
-                query = query.or(`cnpj.eq.${identifier},cnpj.eq.${cleanIdentifier}`);
-            } else {
-                query = query.ilike('company_name', `%${identifier}%`);
+        if (!isEmailIdentifier) {
+            if (!isCnpjIdentifier(trimmedIdentifier)) {
+                return { error: 'Informe um CNPJ ou e-mail valido para acessar.' }
             }
 
-            const { data: storeData } = await query.limit(1).maybeSingle();
+            const cleanIdentifier = normalizeCnpj(trimmedIdentifier)
+            const { data: storeData } = await supabase
+                .from('stores')
+                .select('cnpj, profiles!stores_profile_id_fkey!inner(email)')
+                .or(`cnpj.eq.${trimmedIdentifier},cnpj.eq.${cleanIdentifier}`)
+                .limit(1)
+                .maybeSingle()
 
-            const profileData: any = storeData?.profiles;
-            const foundEmail = Array.isArray(profileData) ? profileData[0]?.email : profileData?.email;
+            const foundEmail = readStoreProfileEmail(storeData as StoreLoginRow | null)
 
-            if (storeData && foundEmail) {
-                emailToAuthenticate = foundEmail;
-            } else {
-                return { error: 'Nenhuma conta encontrada com este CNPJ ou Razão Social.' };
+            if (!storeData || !foundEmail) {
+                return { error: 'Nenhuma conta encontrada com este CNPJ.' }
             }
+
+            emailToAuthenticate = foundEmail
         }
 
-        // 3. SignIn with Supabase SSR
-        const { error: authError } = await supabase.auth.signInWithPassword({ 
-            email: emailToAuthenticate, 
-            password 
-        });
+        const { error: authError } = await supabase.auth.signInWithPassword({
+            email: emailToAuthenticate,
+            password,
+        })
 
         if (authError) {
             if (authError.message.includes('Invalid login credentials')) {
                 return { error: 'Credenciais incorretas. Tente novamente.' }
             }
+
             return { error: authError.message }
         }
 
-        // 4. Fetch user profile data to define the routing and metadata
-        const { data: { user } } = await supabase.auth.getUser()
-        
+        const {
+            data: { user },
+        } = await supabase.auth.getUser()
+
         if (!user) {
-            return { error: 'Usuário não encontrado após login' }
+            return { error: 'Usuario nao encontrado apos login.' }
         }
 
         const { data: profile } = await supabase
             .from('profiles')
-            .select('role, status, full_name, stores!stores_profile_id_fkey(company_name)')
+            .select('role, status, full_name, email, stores!stores_profile_id_fkey(company_name, cnpj)')
             .eq('id', user.id)
             .single()
 
-        const role = profile?.role || 'client';
-        const status = profile?.status || 'approved';
-        const companyName = profile?.stores?.[0]?.company_name || profile?.full_name || 'Usuário';
+        const role = profile?.role || 'client'
+        const status = profile?.status || 'approved'
+        const primaryStore = Array.isArray(profile?.stores) ? profile.stores[0] : undefined
+        const companyName = primaryStore?.company_name || profile?.full_name || 'Usuario'
+        const preferredIdentifier =
+            role === 'client'
+                ? getPrimaryCustomerAccessIdentifier({
+                    cnpj: primaryStore?.cnpj,
+                    email: hasRealCustomerEmail(profile?.email) ? profile?.email : null,
+                }) || trimmedIdentifier
+                : normalizeEmail(profile?.email) || trimmedIdentifier
 
-        // 4.5 Audit Logging for clients
         if (role === 'client') {
-            const reqHeaders = await headers();
-            const userAgent = reqHeaders.get('user-agent') || 'Unknown';
-            const ipAddress = reqHeaders.get('x-forwarded-for') || reqHeaders.get('x-real-ip') || 'Local';
+            const reqHeaders = await headers()
+            const userAgent = reqHeaders.get('user-agent') || 'Unknown'
+            const ipAddress = reqHeaders.get('x-forwarded-for') || reqHeaders.get('x-real-ip') || 'Local'
 
             try {
                 await supabase.from('customer_login_audit').insert({
                     profile_id: user.id,
                     ip_address: ipAddress.split(',')[0].trim(),
-                    user_agent: userAgent
-                });
+                    user_agent: userAgent,
+                })
             } catch (err) {
-                console.error(err);
+                console.error(err)
             }
         }
 
-        // 5. Set Enterprise Static State Cookies
-        const cookieStore = await cookies();
-        const cookieOptions = { 
-            httpOnly: true, 
+        const cookieStore = await cookies()
+        const cookieOptions = {
+            httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax' as const,
-            maxAge: 60 * 60 * 24 * 7 // 1 Week
-        };
-
-        cookieStore.set('jwt_role', role, cookieOptions);
-        cookieStore.set('jwt_status', status, cookieOptions);
-
-        // Resolve Destination URL safely
-        let redirectUrl = '/catalog';
-        if (role === 'admin') {
-            redirectUrl = '/admin/dashboard';
-        } else if (status === 'pending' || status === 'imported') {
-            redirectUrl = '/pending-approval';
-        } else if (status === 'blocked') {
-            redirectUrl = '/blocked';
+            maxAge: 60 * 60 * 24 * 7,
         }
 
-        return { success: true, redirectUrl, companyName, identifier: emailToAuthenticate };
+        cookieStore.set('jwt_role', role, cookieOptions)
+        cookieStore.set('jwt_status', status, cookieOptions)
 
-    } catch (err: any) {
-        console.error('Login action error:', err);
-        return { error: 'Ocorreu um erro inesperado no servidor.' };
+        let redirectUrl = '/catalog'
+        if (role === 'admin') {
+            redirectUrl = '/admin/dashboard'
+        } else if (status === 'pending' || status === 'imported') {
+            redirectUrl = '/pending-approval'
+        } else if (status === 'blocked') {
+            redirectUrl = '/blocked'
+        }
+
+        return { success: true, redirectUrl, companyName, identifier: preferredIdentifier }
+    } catch (err) {
+        console.error('Login action error:', err)
+        return { error: 'Ocorreu um erro inesperado no servidor.' }
     }
 }
 
 export async function logoutAction() {
     try {
-        const supabase = await createClient();
-        await supabase.auth.signOut();
+        const supabase = await createClient()
+        await supabase.auth.signOut()
 
-        const cookieStore = await cookies();
-        cookieStore.delete('jwt_role');
-        cookieStore.delete('jwt_status');
+        const cookieStore = await cookies()
+        cookieStore.delete('jwt_role')
+        cookieStore.delete('jwt_status')
 
-        return { success: true };
+        return { success: true }
     } catch (error) {
-        console.error('Logout error:', error);
-        return { error: 'Ocorreu um erro ao sair da conta.' };
+        console.error('Logout error:', error)
+        return { error: 'Ocorreu um erro ao sair da conta.' }
     }
 }

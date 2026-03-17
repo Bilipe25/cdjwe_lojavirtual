@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { customerSchema, type CustomerFormData } from '../schema';
 import type { CustomerType, CustomerTag, Profile } from '@/lib/types';
 
@@ -111,7 +112,7 @@ export function CustomerFormModal({
                         Novo Cliente
                     </DialogTitle>
                     <DialogDescription>
-                        Crie um novo acesso de lojista. A conta já será aprovada automaticamente.
+                        Crie um novo acesso de lojista. O login principal sera pelo CNPJ e a conta ja sera aprovada automaticamente.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -121,6 +122,19 @@ export function CustomerFormModal({
                         <div className="flex items-center gap-2 text-muted-foreground border-b pb-2">
                             <Users className="h-4 w-4" />
                             <span className="text-sm font-medium">Dados de Acesso (Login)</span>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline" className="border-navy/20 bg-white text-navy">
+                                    CNPJ = acesso principal
+                                </Badge>
+                                <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
+                                    E-mail = acesso alternativo
+                                </Badge>
+                            </div>
+                            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                                Mesmo que o cliente tenha e-mail, o fluxo principal de entrada no portal passa a ser pelo CNPJ. O e-mail continua como opcional e alternativo.
+                            </p>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
@@ -136,6 +150,9 @@ export function CustomerFormModal({
                             <div className="space-y-2">
                                 <Label>E-mail (Login) *</Label>
                                 <Input {...register('email')} type="email" placeholder="joao@loja.com.br" className="bg-white/60" />
+                                <p className="text-[11px] text-muted-foreground">
+                                    Usado como acesso alternativo e para comunicacoes com o cliente.
+                                </p>
                                 {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
                             </div>
                             <div className="space-y-2">
@@ -166,6 +183,9 @@ export function CustomerFormModal({
                             <div className="space-y-2">
                                 <Label>CNPJ *</Label>
                                 <Input {...register('cnpj')} placeholder="00.000.000/0001-00" className="bg-white/60" />
+                                <p className="text-[11px] text-muted-foreground">
+                                    Este sera o identificador principal de acesso do cliente no portal.
+                                </p>
                                 {errors.cnpj && <p className="text-xs text-red-500">{errors.cnpj.message}</p>}
                             </div>
                             <div className="space-y-2">

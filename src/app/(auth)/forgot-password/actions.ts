@@ -1,67 +1,89 @@
 'use server'
 
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import {
+    hasRealCustomerEmail,
+    isCnpjIdentifier,
+    isPlaceholderEmail,
+    normalizeCnpj,
+    normalizeEmail,
+} from '@/lib/customers/access'
 
 function getAdminClient() {
-    return createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        {
-            cookies: {
-                getAll() { return [] },
-                setAll() { }
-            }
-        }
-    )
+    return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+        cookies: {
+            getAll() {
+                return []
+            },
+            setAll() {},
+        },
+    })
 }
 
 function getAnonClient() {
-    return createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                getAll() { return [] },
-                setAll() { }
-            }
-        }
-    )
+    return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+        cookies: {
+            getAll() {
+                return []
+            },
+            setAll() {},
+        },
+    })
+}
+
+type StoreResetRow = {
+    cnpj: string | null
+    profiles?: { email?: string | null } | { email?: string | null }[] | null
+}
+
+function readStoreProfileEmail(store?: StoreResetRow | null) {
+    const profileData = store?.profiles
+    if (Array.isArray(profileData)) {
+        return normalizeEmail(profileData[0]?.email)
+    }
+
+    return normalizeEmail(profileData?.email)
 }
 
 export async function requestPasswordReset(identifier: string, origin: string) {
-    if (!identifier) return { error: 'Identificador obrigatório' }
-    
-    let emailToReset = identifier.trim()
-    const cleanIdentifier = identifier.trim()
-    
-    // Look up email by exact match on email or cnpj using admin privileges
-    const admin = getAdminClient()
-    const { data: store } = await admin
-        .from('stores')
-        .select('email')
-        .or(`email.eq.${cleanIdentifier},cnpj.eq.${cleanIdentifier}`)
-        .maybeSingle()
+    const trimmedIdentifier = identifier.trim()
+    if (!trimmedIdentifier) return { error: 'CNPJ ou e-mail obrigatorio.' }
 
-    if (store?.email) {
-        emailToReset = store.email
-    } else {
-        // Fallback: If no store was found but it looks like a CNPJ (mostly numbers, len >= 14)
-        // Let's strip punctuation and try to match again.
-        const numbersOnly = cleanIdentifier.replace(/\D/g, '')
-        if (numbersOnly.length === 14) {
-            // We can search for the CNPJ directly if we strip it, but since sql ilike exists:
-            // This is just a basic fallback, we can't easily query stripped text in standard exact query without RPC.
-            // If they provided CNPJ and it's not found exactly, we return success anyway to prevent enumeration.
-            // But we don't have an email to send to, so we just stop.
-            return { success: true }
-        }
-        
-        // If it doesn't look like a CNPJ, assume they typed an email that doesn't have a store record,
-        // but might still be a user profile. We keep emailToReset as is to let Supabase Auth handle it.
-    }
+    let emailToReset = trimmedIdentifier.includes('@') ? normalizeEmail(trimmedIdentifier) : ''
 
     try {
+        const admin = getAdminClient()
+
+        if (!trimmedIdentifier.includes('@')) {
+            if (!isCnpjIdentifier(trimmedIdentifier)) {
+                return { error: 'Informe um CNPJ ou e-mail valido.' }
+            }
+
+            const normalizedCnpj = normalizeCnpj(trimmedIdentifier)
+            const { data: store } = await admin
+                .from('stores')
+                .select('cnpj, profiles!stores_profile_id_fkey(email)')
+                .or(`cnpj.eq.${trimmedIdentifier},cnpj.eq.${normalizedCnpj}`)
+                .maybeSingle()
+
+            const resolvedEmail = readStoreProfileEmail(store as StoreResetRow | null)
+            if (!resolvedEmail) {
+                return { success: true }
+            }
+
+            emailToReset = resolvedEmail
+        }
+
+        if (!emailToReset) {
+            return { success: true }
+        }
+
+        if (isPlaceholderEmail(emailToReset) || !hasRealCustomerEmail(emailToReset)) {
+            return {
+                error: 'Esta conta ainda nao possui um e-mail real cadastrado. Acesse com o CNPJ e a senha definida pelo admin ou atualize o cadastro do cliente.',
+            }
+        }
+
         const supabase = getAnonClient()
         const { error } = await supabase.auth.resetPasswordForEmail(emailToReset, {
             redirectTo: `${origin}/reset-password`,
@@ -69,7 +91,7 @@ export async function requestPasswordReset(identifier: string, origin: string) {
 
         if (error) {
             console.error('Password reset auth error:', error)
-            return { error: 'Ocorreu um erro ao processar sua solicitação.' }
+            return { error: 'Ocorreu um erro ao processar sua solicitacao.' }
         }
 
         return { success: true, maskedEmail: maskEmail(emailToReset) }
