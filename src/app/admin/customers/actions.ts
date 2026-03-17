@@ -131,6 +131,20 @@ function normalizeEmail(email: string) {
     return email.trim().toLowerCase()
 }
 
+function normalizeCnpj(cnpj: string) {
+    return cnpj.replace(/\D/g, '')
+}
+
+function isValidEmailFormat(email: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+function createPlaceholderEmail(cnpj: string, rowNumber: number) {
+    const normalizedCnpj = normalizeCnpj(cnpj)
+    const token = normalizedCnpj || `linha${rowNumber}`
+    return `importado+${token}@placeholder.invalid`
+}
+
 function mapAuthCreateUserErrorMessage(rawMessage?: string) {
     if (!rawMessage) return 'Falha ao criar usuario no Auth.'
     const normalized = rawMessage.toLowerCase()
@@ -289,6 +303,40 @@ export async function updateCustomerAsAdminTx(
     try {
         await verifyAdmin()
         const supabaseAdmin = await getAdminClient()
+        const normalizedEmail = normalizeEmail(data.email)
+
+        const { data: currentProfile, error: currentProfileError } = await supabaseAdmin
+            .from('profiles')
+            .select('email')
+            .eq('id', profileId)
+            .single()
+
+        if (currentProfileError || !currentProfile) {
+            throw new Error('Cliente nao encontrado.')
+        }
+
+        if (normalizeEmail(currentProfile.email || '') !== normalizedEmail) {
+            const { data: existingProfileByEmail } = await supabaseAdmin
+                .from('profiles')
+                .select('id')
+                .eq('email', normalizedEmail)
+                .neq('id', profileId)
+                .limit(1)
+                .maybeSingle()
+
+            if (existingProfileByEmail?.id) {
+                throw new Error('Este email ja esta cadastrado.')
+            }
+
+            const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(profileId, {
+                email: normalizedEmail,
+                email_confirm: true,
+            })
+
+            if (authUpdateError) {
+                throw new Error(mapAuthCreateUserErrorMessage(authUpdateError.message))
+            }
+        }
 
         const upsertResult = await upsertCustomerDomainViaRpc(supabaseAdmin, {
             profileId,
@@ -298,7 +346,7 @@ export async function updateCustomerAsAdminTx(
             companyName: data.companyName,
             tradeName: data.tradeName || null,
             cnpj: data.cnpj,
-            email: data.email,
+            email: normalizedEmail,
             customerTypeId: data.customerTypeId || null,
             representativeId: data.representativeId || null,
             address: data.address || null,
@@ -445,7 +493,7 @@ export async function generateCustomerPassword(profileId: string) {
 
 interface CSVCustomerRow {
     fullName: string
-    email: string
+    email?: string
     phone?: string
     companyName: string
     cnpj: string
@@ -454,6 +502,7 @@ interface CSVCustomerRow {
     city?: string
     state?: string
     zipCode?: string
+    rowNumber?: number
 }
 
 export async function importCustomersFromCSV(rows: CSVCustomerRow[]) {
@@ -479,16 +528,29 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i]
+            const rowRef = Number.isFinite(Number(row.rowNumber)) ? Number(row.rowNumber) : i + 1
             try {
-                if (!row.email || !row.fullName || !row.companyName || !row.cnpj) {
-                    results.push({ row: i + 1, status: 'error', message: 'Campos obrigatorios faltando' })
+                const fullName = row.fullName?.trim() || ''
+                const companyName = row.companyName?.trim() || ''
+                const cnpj = row.cnpj?.trim() || ''
+                const rawEmail = row.email?.trim() || ''
+                const hasProvidedEmail = rawEmail.length > 0
+
+                if (!fullName || !companyName || !cnpj) {
+                    results.push({ row: rowRef, status: 'error', message: 'Campos obrigatorios faltando' })
                     continue
                 }
 
-                const normalizedEmail = normalizeEmail(row.email)
+                if (hasProvidedEmail && !isValidEmailFormat(rawEmail)) {
+                    results.push({ row: rowRef, status: 'error', message: 'Email invalido na linha' })
+                    continue
+                }
+
+                const fallbackEmail = createPlaceholderEmail(cnpj, i + 1)
+                const normalizedEmail = hasProvidedEmail ? normalizeEmail(rawEmail) : fallbackEmail
                 const { data: existingProfileByEmail } = await supabaseAdmin
                     .from('profiles')
-                    .select('id, role')
+                    .select('id, role, email')
                     .eq('email', normalizedEmail)
                     .limit(1)
                     .maybeSingle()
@@ -496,13 +558,40 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
                 let targetProfileId: string | null = null
                 let targetStoreId: string | null = null
                 let createdNow = false
+                let rowResolvedWithoutEmail = !hasProvidedEmail
+                let effectiveEmailForDomain = normalizedEmail
+
+                const { data: existingStoreByCnpj } = await supabaseAdmin
+                    .from('stores')
+                    .select('id, profile_id')
+                    .eq('cnpj', cnpj)
+                    .limit(1)
+                    .maybeSingle()
+
+                const existingProfileByCnpj = existingStoreByCnpj?.profile_id
+                    ? await supabaseAdmin
+                        .from('profiles')
+                        .select('id, role, email')
+                        .eq('id', existingStoreByCnpj.profile_id)
+                        .limit(1)
+                        .maybeSingle()
+                    : { data: null }
 
                 if (existingProfileByEmail?.id) {
                     if (existingProfileByEmail.role !== 'client') {
                         results.push({
-                            row: i + 1,
+                            row: rowRef,
                             status: 'error',
                             message: 'Email ja pertence a um usuario nao cliente',
+                        })
+                        continue
+                    }
+
+                    if (existingProfileByCnpj.data?.id && existingProfileByCnpj.data.id !== existingProfileByEmail.id) {
+                        results.push({
+                            row: rowRef,
+                            status: 'error',
+                            message: 'CNPJ pertence a outro cliente',
                         })
                         continue
                     }
@@ -516,6 +605,70 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
                         .maybeSingle()
 
                     targetStoreId = existingStore?.id ?? null
+                    if (!hasProvidedEmail && existingProfileByEmail.email) {
+                        effectiveEmailForDomain = normalizeEmail(existingProfileByEmail.email)
+                    }
+                } else if (existingProfileByCnpj.data?.id) {
+                    if (existingProfileByCnpj.data.role !== 'client') {
+                        results.push({
+                            row: rowRef,
+                            status: 'error',
+                            message: 'CNPJ pertence a um usuario nao cliente',
+                        })
+                        continue
+                    }
+
+                    targetProfileId = existingProfileByCnpj.data.id
+                    targetStoreId = existingStoreByCnpj?.id ?? null
+                    rowResolvedWithoutEmail = !hasProvidedEmail
+
+                    if (hasProvidedEmail) {
+                        const normalizedCurrentProfileEmail = normalizeEmail(existingProfileByCnpj.data.email || '')
+                        if (normalizedCurrentProfileEmail !== normalizedEmail) {
+                            const profileIdToUpdate = targetProfileId
+                            if (!profileIdToUpdate) {
+                                results.push({
+                                    row: rowRef,
+                                    status: 'error',
+                                    message: 'Falha ao resolver perfil para atualizar email',
+                                })
+                                continue
+                            }
+
+                            const { data: emailOwner } = await supabaseAdmin
+                                .from('profiles')
+                                .select('id')
+                                .eq('email', normalizedEmail)
+                                .neq('id', profileIdToUpdate)
+                                .limit(1)
+                                .maybeSingle()
+
+                            if (emailOwner?.id) {
+                                results.push({
+                                    row: rowRef,
+                                    status: 'error',
+                                    message: 'Email ja pertence a outro usuario',
+                                })
+                                continue
+                            }
+
+                            const { error: authEmailError } = await supabaseAdmin.auth.admin.updateUserById(profileIdToUpdate, {
+                                email: normalizedEmail,
+                                email_confirm: true,
+                            })
+                            if (authEmailError) {
+                                results.push({
+                                    row: rowRef,
+                                    status: 'error',
+                                    message: mapAuthCreateUserErrorMessage(authEmailError.message),
+                                })
+                                continue
+                            }
+                        }
+                        effectiveEmailForDomain = normalizedEmail
+                    } else {
+                        effectiveEmailForDomain = normalizeEmail(existingProfileByCnpj.data.email || fallbackEmail)
+                    }
                 } else {
                     const tempPassword = Math.random().toString(36).slice(-8) + 'A1!'
                     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -530,7 +683,7 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
 
                     if (authError || !authData?.user?.id) {
                         results.push({
-                            row: i + 1,
+                            row: rowRef,
                             status: 'error',
                             message: mapAuthCreateUserErrorMessage(authError?.message),
                         })
@@ -539,10 +692,11 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
 
                     targetProfileId = authData.user.id
                     createdNow = true
+                    effectiveEmailForDomain = normalizedEmail
                 }
 
                 if (!targetProfileId) {
-                    results.push({ row: i + 1, status: 'error', message: 'Falha ao resolver perfil do cliente' })
+                    results.push({ row: rowRef, status: 'error', message: 'Falha ao resolver perfil do cliente' })
                     continue
                 }
 
@@ -552,10 +706,10 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
                     fullName: row.fullName,
                     phone: row.phone || null,
                     status: 'imported',
-                    companyName: row.companyName,
+                    companyName,
                     tradeName: null,
-                    cnpj: row.cnpj,
-                    email: normalizedEmail,
+                    cnpj,
+                    email: effectiveEmailForDomain,
                     customerTypeId: row.customerType
                         ? typeMap.get(row.customerType.toLowerCase()) || null
                         : null,
@@ -571,17 +725,19 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
                     if (createdNow && targetProfileId) {
                         await supabaseAdmin.auth.admin.deleteUser(targetProfileId)
                     }
-                    results.push({ row: i + 1, status: 'error', message: upsertResult.error })
+                    results.push({ row: rowRef, status: 'error', message: upsertResult.error })
                     continue
                 }
 
                 results.push({
-                    row: i + 1,
+                    row: rowRef,
                     status: 'success',
-                    message: createdNow ? 'Importado com sucesso' : 'Cliente existente atualizado',
+                    message: rowResolvedWithoutEmail
+                        ? (createdNow ? 'Importado sem email (provisorio)' : 'Atualizado sem email (provisorio)')
+                        : (createdNow ? 'Importado com sucesso' : 'Cliente existente atualizado'),
                 })
             } catch (err: unknown) {
-                results.push({ row: i + 1, status: 'error', message: toErrorMessage(err, 'Erro desconhecido') })
+                results.push({ row: rowRef, status: 'error', message: toErrorMessage(err, 'Erro desconhecido') })
             }
         }
 

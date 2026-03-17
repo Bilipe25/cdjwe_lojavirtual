@@ -1,4 +1,4 @@
-﻿import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download } from 'lucide-react'
 import {
     Dialog,
@@ -13,8 +13,9 @@ import { importCustomersFromCSVTx } from '../actions'
 import { toast } from 'sonner'
 
 interface CSVRow {
+    rowNumber: number
     fullName: string
-    email: string
+    email?: string
     phone?: string
     companyName: string
     cnpj: string
@@ -32,6 +33,10 @@ interface CustomerImportModalProps {
 }
 
 const CSV_HEADERS = ['nome', 'email', 'telefone', 'razao_social', 'cnpj', 'tipo_cliente', 'endereco', 'cidade', 'estado', 'cep']
+
+function isValidEmail(email: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+}
 
 function normalizeHeader(header: string) {
     return header
@@ -140,8 +145,9 @@ function parseCSV(text: string): CSVRow[] {
         const getCell = (index: number) => (index >= 0 ? columns[index]?.trim() : '') || ''
 
         const parsed: CSVRow = {
+            rowNumber: rowIndex + 1,
             fullName: getCell(nameIndex),
-            email: getCell(emailIndex),
+            email: getCell(emailIndex) || undefined,
             phone: getCell(phoneIndex) || undefined,
             companyName: getCell(companyIndex),
             cnpj: getCell(cnpjIndex),
@@ -152,7 +158,7 @@ function parseCSV(text: string): CSVRow[] {
             zipCode: getCell(zipIndex) || undefined,
         }
 
-        if (parsed.fullName && parsed.email) {
+        if (parsed.fullName || parsed.companyName || parsed.cnpj || parsed.email) {
             rows.push(parsed)
         }
     }
@@ -166,6 +172,27 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
     const [importing, setImporting] = useState(false)
     const [importResults, setImportResults] = useState<{ row: number; status: string; message: string }[] | null>(null)
     const [fileName, setFileName] = useState('')
+
+    const previewRows = useMemo(() => {
+        return parsedRows.map((row) => {
+            const issues: string[] = []
+            if (!row.fullName?.trim()) issues.push('Nome ausente')
+            if (!row.companyName?.trim()) issues.push('Razao social ausente')
+            if (!row.cnpj?.trim()) issues.push('CNPJ ausente')
+            if (row.email && !isValidEmail(row.email)) issues.push('Email invalido')
+
+            return {
+                ...row,
+                issues,
+                isValid: issues.length === 0,
+                missingEmail: !row.email?.trim(),
+            }
+        })
+    }, [parsedRows])
+
+    const validRows = useMemo(() => previewRows.filter((row) => row.isValid), [previewRows])
+    const invalidRows = useMemo(() => previewRows.filter((row) => !row.isValid), [previewRows])
+    const rowsWithoutEmail = useMemo(() => previewRows.filter((row) => row.missingEmail && row.isValid), [previewRows])
 
     const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0]
@@ -188,11 +215,30 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
     }
 
     const handleImport = async () => {
-        if (parsedRows.length === 0) return
+        if (validRows.length === 0) {
+            toast.error('Nao ha linhas validas para importar.')
+            return
+        }
+
         setImporting(true)
 
         try {
-            const result = await importCustomersFromCSVTx(parsedRows)
+            const result = await importCustomersFromCSVTx(
+                validRows.map((row) => ({
+                    rowNumber: row.rowNumber,
+                    fullName: row.fullName,
+                    email: row.email,
+                    phone: row.phone,
+                    companyName: row.companyName,
+                    cnpj: row.cnpj,
+                    customerType: row.customerType,
+                    address: row.address,
+                    city: row.city,
+                    state: row.state,
+                    zipCode: row.zipCode,
+                }))
+            )
+
             if (result.error) {
                 toast.error(result.error)
                 return
@@ -219,8 +265,9 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
 
     const downloadTemplate = () => {
         const headers = CSV_HEADERS.join(';')
-        const example = 'Joao Silva;joao@empresa.com;11999999999;Empresa do Joao ME;12345678000100;Varejista;Rua das Flores 123;Sao Paulo;SP;01234567'
-        const blob = new Blob([`${headers}\n${example}`], { type: 'text/csv;charset=UTF-8' })
+        const exampleWithEmail = 'Joao Silva;joao@empresa.com;11999999999;Empresa do Joao ME;12345678000100;Varejista;Rua das Flores 123;Sao Paulo;SP;01234567'
+        const exampleWithoutEmail = 'Maria Souza;;11988888888;Moveis Maria LTDA;11222333000144;Revendedor;Av Brasil 900;Aracaju;SE;49000000'
+        const blob = new Blob([`${headers}\n${exampleWithEmail}\n${exampleWithoutEmail}`], { type: 'text/csv;charset=UTF-8' })
         const url = URL.createObjectURL(blob)
         const anchor = document.createElement('a')
         anchor.href = url
@@ -238,7 +285,7 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                         Importar Clientes via CSV
                     </DialogTitle>
                     <DialogDescription>
-                        Importe clientes em massa. Eles entrarao com status <strong>&quot;Importado&quot;</strong> e precisarao ser ativados manualmente.
+                        Importe clientes em massa. Eles entram com status <strong>&quot;Importado&quot;</strong>. Linhas sem email recebem email provisorio seguro para cadastro posterior.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -262,7 +309,7 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                         <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
                         {fileName ? (
                             <p className="text-sm font-medium text-navy">
-                                {fileName} - {parsedRows.length} linha(s) encontrada(s)
+                                {fileName} - {parsedRows.length} linha(s) processada(s)
                             </p>
                         ) : (
                             <>
@@ -274,9 +321,30 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
 
                     {parsedRows.length > 0 && !importResults && (
                         <div className="border rounded-lg overflow-hidden">
-                            <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-navy border-b">
-                                Preview - {parsedRows.length} clientes
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 border-b bg-slate-50/70 text-xs">
+                                <div className="rounded-md border bg-white px-2 py-1.5">
+                                    <p className="text-muted-foreground">Linhas lidas</p>
+                                    <p className="font-semibold text-navy">{previewRows.length}</p>
+                                </div>
+                                <div className="rounded-md border bg-white px-2 py-1.5">
+                                    <p className="text-muted-foreground">Validas</p>
+                                    <p className="font-semibold text-emerald-700">{validRows.length}</p>
+                                </div>
+                                <div className="rounded-md border bg-white px-2 py-1.5">
+                                    <p className="text-muted-foreground">Com erro</p>
+                                    <p className="font-semibold text-red-600">{invalidRows.length}</p>
+                                </div>
+                                <div className="rounded-md border bg-white px-2 py-1.5">
+                                    <p className="text-muted-foreground">Sem email</p>
+                                    <p className="font-semibold text-amber-700">{rowsWithoutEmail.length}</p>
+                                </div>
                             </div>
+                            <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-navy border-b">Preview da importacao</div>
+                            {rowsWithoutEmail.length > 0 && (
+                                <div className="px-3 py-2 text-xs border-b bg-amber-50 text-amber-900">
+                                    Clientes sem email serao importados com email provisorio seguro. Depois voce pode editar e definir o email real.
+                                </div>
+                            )}
                             <div className="max-h-[52vh] overflow-auto">
                                 <table className="w-full text-xs">
                                     <thead className="bg-slate-50 sticky top-0">
@@ -287,24 +355,34 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                                             <th className="px-3 py-2 text-left">Razao Social</th>
                                             <th className="px-3 py-2 text-left">CNPJ</th>
                                             <th className="px-3 py-2 text-left">Tipo</th>
+                                            <th className="px-3 py-2 text-left">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {parsedRows.slice(0, 20).map((row, index) => (
-                                            <tr key={`${row.email}-${index}`} className="border-t hover:bg-slate-50/50">
-                                                <td className="px-3 py-1.5 text-muted-foreground">{index + 1}</td>
-                                                <td className="px-3 py-1.5 truncate max-w-[120px]">{row.fullName}</td>
-                                                <td className="px-3 py-1.5 truncate max-w-[150px]">{row.email}</td>
-                                                <td className="px-3 py-1.5 truncate max-w-[120px]">{row.companyName}</td>
-                                                <td className="px-3 py-1.5">{row.cnpj}</td>
+                                        {previewRows.slice(0, 20).map((row, index) => (
+                                            <tr key={`${row.rowNumber}-${index}`} className="border-t hover:bg-slate-50/50">
+                                                <td className="px-3 py-1.5 text-muted-foreground">{row.rowNumber}</td>
+                                                <td className="px-3 py-1.5 truncate max-w-[140px]">{row.fullName || '-'}</td>
+                                                <td className="px-3 py-1.5 truncate max-w-[180px]">
+                                                    {row.email ? row.email : <span className="text-amber-700">Sem email (provisorio)</span>}
+                                                </td>
+                                                <td className="px-3 py-1.5 truncate max-w-[150px]">{row.companyName || '-'}</td>
+                                                <td className="px-3 py-1.5">{row.cnpj || '-'}</td>
                                                 <td className="px-3 py-1.5">{row.customerType || '-'}</td>
+                                                <td className="px-3 py-1.5">
+                                                    {row.isValid ? (
+                                                        <Badge variant="default" className="text-[10px]">Pronto</Badge>
+                                                    ) : (
+                                                        <Badge variant="destructive" className="text-[10px]">{row.issues.join(', ')}</Badge>
+                                                    )}
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
-                                {parsedRows.length > 20 && (
+                                {previewRows.length > 20 && (
                                     <div className="px-3 py-2 text-xs text-muted-foreground border-t">
-                                        ...e mais {parsedRows.length - 20} linhas
+                                        ...e mais {previewRows.length - 20} linhas
                                     </div>
                                 )}
                             </div>
@@ -340,11 +418,11 @@ export function CustomerImportModal({ isOpen, onOpenChange, onImportComplete }: 
                     {!importResults && (
                         <Button
                             onClick={handleImport}
-                            disabled={importing || parsedRows.length === 0}
+                            disabled={importing || validRows.length === 0}
                             className="gradient-navy border-0 text-white min-w-[160px]"
                         >
                             {importing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
-                            Importar {parsedRows.length} Cliente{parsedRows.length !== 1 ? 's' : ''}
+                            Importar {validRows.length} Cliente{validRows.length !== 1 ? 's' : ''}
                         </Button>
                     )}
                 </div>

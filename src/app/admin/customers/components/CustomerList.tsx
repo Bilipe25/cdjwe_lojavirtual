@@ -40,6 +40,11 @@ const statusConfig: Record<string, { label: string; color: string }> = {
     imported: { label: 'Importado', color: 'bg-blue-100 text-blue-800 border-blue-200' },
 };
 
+function hasPendingEmail(email?: string | null) {
+    const normalized = (email || '').trim().toLowerCase();
+    return normalized.endsWith('@placeholder.invalid') || normalized.startsWith('importado+');
+}
+
 interface CustomerListProps {
     customers: CustomerWithStore[];
     loading: boolean;
@@ -105,6 +110,7 @@ export function CustomerList({
                     const store = customer.stores?.[0];
                     const config = statusConfig[customer.status] || statusConfig.pending;
                     const isSelected = selectedIds.includes(customer.id);
+                    const isEmailPending = hasPendingEmail(customer.email);
                     const customerTypeName = store?.customer_type?.name;
                     const representativeName = store?.representative?.full_name;
                     const storeTags = store?.store_tags?.map(st => st.customer_tags).filter(Boolean) || [];
@@ -151,6 +157,11 @@ export function CustomerList({
                                                         {customerTypeName}
                                                     </Badge>
                                                 )}
+                                                {isEmailPending && (
+                                                    <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-800 bg-amber-50">
+                                                        E-mail pendente
+                                                    </Badge>
+                                                )}
                                                 {storeTags.map((t, idx) => (
                                                     <Badge key={idx} className={`text-[10px] font-normal border shadow-sm ${t?.color || 'bg-slate-100 text-slate-800'}`}>
                                                         {t?.name}
@@ -161,7 +172,7 @@ export function CustomerList({
                                                 {store?.company_name || 'Sem empresa'} <span className="text-xs opacity-70">• {store?.cnpj || 'S/ CNPJ'}</span>
                                             </p>
                                             <p className="text-xs text-muted-foreground mt-0.5 opacity-80 flex items-center gap-2">
-                                                <span>{customer.email}</span>
+                                                <span>{isEmailPending ? 'E-mail pendente de cadastro' : customer.email}</span>
                                                 {representativeName && (
                                                     <>
                                                         <span>•</span>
@@ -269,6 +280,7 @@ export function CustomerList({
                             const store = customer.stores?.[0];
                             const config = statusConfig[customer.status] || statusConfig.pending;
                             const isSelected = selectedIds.includes(customer.id);
+                            const isEmailPending = hasPendingEmail(customer.email);
                             const customerTypeName = store?.customer_type?.name;
                             const representativeName = store?.representative?.full_name;
                             const storeTags = store?.store_tags?.map(st => st.customer_tags).filter(Boolean) || [];
@@ -309,7 +321,16 @@ export function CustomerList({
                                     </TableCell>
                                     <TableCell className="py-3">
                                         <div className="flex flex-col">
-                                            <span className="text-sm font-medium">{customer.email}</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className={`text-sm font-medium ${isEmailPending ? 'text-amber-800' : ''}`}>
+                                                    {isEmailPending ? 'E-mail pendente de cadastro' : customer.email}
+                                                </span>
+                                                {isEmailPending && (
+                                                    <Badge variant="outline" className="text-[10px] h-5 border-amber-300 text-amber-800 bg-amber-50">
+                                                        E-mail pendente
+                                                    </Badge>
+                                                )}
+                                            </div>
                                             {customer.phone ? (
                                                 <span className="text-xs text-muted-foreground">{customer.phone}</span>
                                             ) : (
