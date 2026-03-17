@@ -1,7 +1,8 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 
 export interface ClientNotification {
     id: string
@@ -14,8 +15,23 @@ export interface ClientNotification {
     is_read: boolean
     campaign_id: string | null
     order_id: string | null
-    metadata: Record<string, any> | null
+    metadata: ({ status?: string } & Record<string, unknown>) | null
     created_at: string
+}
+
+interface LegacyStatusNotificationRow {
+    id: string
+    status: string
+    created_at: string
+    order_id: string
+    order:
+        | {
+              order_number: string | null
+          }
+        | Array<{
+              order_number: string | null
+          }>
+        | null
 }
 
 interface UseNotificationsReturn {
@@ -34,38 +50,6 @@ export function useNotifications(): UseNotificationsReturn {
     const [unreadCount, setUnreadCount] = useState(0)
     const [isLoading, setIsLoading] = useState(true)
 
-    const fetchNotifications = useCallback(async () => {
-        try {
-            const supabase = createClient()
-            const { data, error } = await supabase
-                .from('client_notifications')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(50)
-
-            if (error) {
-                // Fallback: if client_notifications table doesn't exist yet,
-                // fall back to the legacy order_status_history approach
-                if (error.code === '42P01' || error.message?.includes('does not exist')) {
-                    await fetchLegacyNotifications()
-                    return
-                }
-                throw error
-            }
-
-            if (data) {
-                setNotifications(data)
-                setUnreadCount(data.filter(n => !n.is_read).length)
-            }
-        } catch {
-            // Silent fallback to legacy
-            await fetchLegacyNotifications()
-        } finally {
-            setIsLoading(false)
-        }
-    }, [])
-
-    // Legacy fallback: fetch from order_status_history (existing behavior)
     const fetchLegacyNotifications = useCallback(async () => {
         try {
             const supabase = createClient()
@@ -76,66 +60,134 @@ export function useNotifications(): UseNotificationsReturn {
                 .limit(20)
 
             if (data) {
+                const rows = data as LegacyStatusNotificationRow[]
                 const statusLabels: Record<string, string> = {
-                    pending: 'Em Análise',
+                    pending: 'Em analise',
                     approved: 'Aprovado',
-                    in_production: 'Em Produção',
+                    in_production: 'Em producao',
                     shipped: 'Enviado',
                     delivered: 'Entregue',
                     cancelled: 'Cancelado',
                 }
-                const mapped: ClientNotification[] = data.map((n: any) => ({
-                    id: n.id,
-                    profile_id: '',
-                    type: 'order_status' as const,
-                    title: `Pedido ${n.order?.order_number || ''}`,
-                    message: `Status atualizado para ${statusLabels[n.status] || n.status}`,
-                    image_url: null,
-                    link: `/orders/${n.order_id}`,
-                    is_read: false,
-                    campaign_id: null,
-                    order_id: n.order_id,
-                    metadata: { status: n.status },
-                    created_at: n.created_at,
-                }))
+
+                const mapped: ClientNotification[] = rows.map((notification) => {
+                    const orderRelation = Array.isArray(notification.order)
+                        ? (notification.order[0] ?? null)
+                        : notification.order
+
+                    return {
+                        id: notification.id,
+                        profile_id: '',
+                        type: 'order_status',
+                        title: `Pedido ${orderRelation?.order_number || ''}`,
+                        message: `Status atualizado para ${statusLabels[notification.status] || notification.status}`,
+                        image_url: null,
+                        link: `/orders/${notification.order_id}`,
+                        is_read: false,
+                        campaign_id: null,
+                        order_id: notification.order_id,
+                        metadata: { status: notification.status },
+                        created_at: notification.created_at,
+                    }
+                })
+
                 setNotifications(mapped)
 
-                // Use localStorage to determine unread
                 const lastChecked = localStorage.getItem('notifications_last_checked')
                 if (lastChecked) {
-                    setUnreadCount(mapped.filter(n => n.created_at > lastChecked).length)
+                    setUnreadCount(mapped.filter((notification) => notification.created_at > lastChecked).length)
                 }
             }
-        } catch { /* silent */ }
+        } catch {
+            // silent
+        }
     }, [])
 
+    const fetchNotifications = useCallback(async () => {
+        try {
+            const supabase = createClient()
+            const { data, error } = await supabase
+                .from('client_notifications')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(50)
+
+            if (error) {
+                if (error.code === '42P01' || error.message?.includes('does not exist')) {
+                    await fetchLegacyNotifications()
+                    return
+                }
+                throw error
+            }
+
+            if (data) {
+                setNotifications(data)
+                setUnreadCount(data.filter((notification) => !notification.is_read).length)
+            }
+        } catch {
+            await fetchLegacyNotifications()
+        } finally {
+            setIsLoading(false)
+        }
+    }, [fetchLegacyNotifications])
+
     useEffect(() => {
-        fetchNotifications()
-        
-        // Only poll if the tab is currently visible to save database reads
+        const supabase = createClient()
+        let notificationsChannel: RealtimeChannel | null = null
+
+        void fetchNotifications()
+
         const interval = setInterval(() => {
             if (document.visibilityState === 'visible') {
-                fetchNotifications()
+                void fetchNotifications()
             }
         }, 30000)
-        
-        return () => clearInterval(interval)
+
+        const initRealtime = async () => {
+            const {
+                data: { user },
+            } = await supabase.auth.getUser()
+            if (!user) return
+
+            notificationsChannel = supabase
+                .channel(`client-notifications-${user.id}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'client_notifications',
+                        filter: `profile_id=eq.${user.id}`,
+                    },
+                    () => {
+                        void fetchNotifications()
+                    }
+                )
+                .subscribe()
+        }
+
+        void initRealtime()
+
+        return () => {
+            clearInterval(interval)
+            if (notificationsChannel) {
+                void supabase.removeChannel(notificationsChannel)
+            }
+        }
     }, [fetchNotifications])
 
     const markAsRead = useCallback(async (id: string) => {
         try {
             const supabase = createClient()
-            await supabase
-                .from('client_notifications')
-                .update({ is_read: true })
-                .eq('id', id)
+            await supabase.from('client_notifications').update({ is_read: true }).eq('id', id)
 
-            setNotifications(prev =>
-                prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+            setNotifications((previous) =>
+                previous.map((notification) =>
+                    notification.id === id ? { ...notification, is_read: true } : notification
+                )
             )
-            setUnreadCount(prev => Math.max(0, prev - 1))
+            setUnreadCount((previous) => Math.max(0, previous - 1))
         } catch {
-            // Fallback for legacy mode
             localStorage.setItem('notifications_last_checked', new Date().toISOString())
         }
     }, [])
@@ -143,15 +195,12 @@ export function useNotifications(): UseNotificationsReturn {
     const markAllAsRead = useCallback(async () => {
         try {
             const supabase = createClient()
-            const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id)
+            const unreadIds = notifications.filter((notification) => !notification.is_read).map((notification) => notification.id)
             if (unreadIds.length > 0) {
-                await supabase
-                    .from('client_notifications')
-                    .update({ is_read: true })
-                    .in('id', unreadIds)
+                await supabase.from('client_notifications').update({ is_read: true }).in('id', unreadIds)
             }
 
-            setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+            setNotifications((previous) => previous.map((notification) => ({ ...notification, is_read: true })))
             setUnreadCount(0)
         } catch {
             localStorage.setItem('notifications_last_checked', new Date().toISOString())
@@ -162,32 +211,30 @@ export function useNotifications(): UseNotificationsReturn {
     const removeNotification = useCallback(async (id: string) => {
         try {
             const supabase = createClient()
-            await supabase
-                .from('client_notifications')
-                .delete()
-                .eq('id', id)
-        } catch { /* silent */ }
+            await supabase.from('client_notifications').delete().eq('id', id)
+        } catch {
+            // silent
+        }
 
-        setNotifications(prev => {
-            const removed = prev.find(n => n.id === id)
+        setNotifications((previous) => {
+            const removed = previous.find((notification) => notification.id === id)
             if (removed && !removed.is_read) {
-                setUnreadCount(c => Math.max(0, c - 1))
+                setUnreadCount((count) => Math.max(0, count - 1))
             }
-            return prev.filter(n => n.id !== id)
+            return previous.filter((notification) => notification.id !== id)
         })
     }, [])
 
     const clearAll = useCallback(async () => {
         try {
             const supabase = createClient()
-            const ids = notifications.map(n => n.id)
+            const ids = notifications.map((notification) => notification.id)
             if (ids.length > 0) {
-                await supabase
-                    .from('client_notifications')
-                    .delete()
-                    .in('id', ids)
+                await supabase.from('client_notifications').delete().in('id', ids)
             }
-        } catch { /* silent */ }
+        } catch {
+            // silent
+        }
 
         setNotifications([])
         setUnreadCount(0)
