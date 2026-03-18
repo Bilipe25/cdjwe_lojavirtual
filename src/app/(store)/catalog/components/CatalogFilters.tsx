@@ -1,30 +1,41 @@
-import { SlidersHorizontal, ArrowUpDown, Tag, Package, X } from 'lucide-react'
+import { ArrowUpDown, Tag, Package, Ruler, X } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { Category, Fabric } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 
+interface CatalogSizeFilterOption {
+    slug: string
+    name: string
+}
+
 interface CatalogFiltersProps {
     categories: Category[]
     fabrics: Fabric[]
+    sizes: CatalogSizeFilterOption[]
     selectedCategory: string
     selectedFabric: string
+    selectedSize: string
     sortBy: string
     onSortChange: (value: string) => void
     onCategoryChange: (id: string) => void
     onFabricChange: (id: string) => void
+    onSizeChange: (slug: string) => void
     onClearAll?: () => void
 }
 
 export function CatalogFilters({
     categories,
     fabrics,
+    sizes,
     selectedCategory,
     selectedFabric,
+    selectedSize,
     sortBy,
     onSortChange,
     onCategoryChange,
     onFabricChange,
+    onSizeChange,
     onClearAll
 }: CatalogFiltersProps) {
     return (
@@ -97,6 +108,46 @@ export function CatalogFilters({
 
             <Separator className="opacity-40" />
 
+            {/* Sizes */}
+            <div>
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                        <Ruler className="h-4 w-4 text-primary" />
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">Tamanhos</h3>
+                    </div>
+                    {selectedSize !== 'all' && (
+                        <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.5)]" />
+                    )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <button
+                        onClick={() => onSizeChange('all')}
+                        className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all duration-200 border ${
+                            selectedSize === 'all'
+                                ? 'bg-primary/10 border-primary/20 text-primary font-bold shadow-sm'
+                                : 'bg-muted/20 border-transparent hover:bg-muted/40 text-muted-foreground'
+                        }`}
+                    >
+                        Todos os tamanhos
+                    </button>
+                    {sizes.map((size) => (
+                        <button
+                            key={size.slug}
+                            onClick={() => onSizeChange(size.slug)}
+                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all duration-200 border ${
+                                selectedSize === size.slug
+                                    ? 'bg-primary/10 border-primary/20 text-primary font-bold shadow-sm'
+                                    : 'bg-muted/20 border-transparent hover:bg-muted/40 text-muted-foreground'
+                            }`}
+                        >
+                            {size.name}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <Separator className="opacity-40" />
+
             {/* Fabrics */}
             <div>
                 <div className="flex items-center justify-between mb-3">
@@ -136,7 +187,7 @@ export function CatalogFilters({
             </div>
 
             {/* Clear filters trigger */}
-            {(selectedCategory !== 'all' || selectedFabric !== 'all') && (
+            {(selectedCategory !== 'all' || selectedFabric !== 'all' || selectedSize !== 'all') && (
                 <div className="pt-2">
                     <Button
                         variant="ghost"
@@ -147,6 +198,7 @@ export function CatalogFilters({
                             } else {
                                 onCategoryChange('all')
                                 onFabricChange('all')
+                                onSizeChange('all')
                             }
                         }}
                     >

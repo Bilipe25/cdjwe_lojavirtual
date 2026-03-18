@@ -27,6 +27,12 @@ import { useCartStore } from '@/lib/stores/cart-store'
 import { useSettings } from '@/components/providers/settings-provider'
 import type { Category, Fabric } from '@/lib/types'
 
+interface MobileCatalogSizeFilterOption {
+    slug: string
+    name: string
+    sort_order: number
+}
+
 const pageTitles: Record<string, string> = {
     '/dashboard': 'Dashboard',
     '/catalog': 'Catálogo',
@@ -50,6 +56,7 @@ export function MobileTopBar() {
     // Filters and Order data
     const [categories, setCategories] = useState<Category[]>([])
     const [fabrics, setFabrics] = useState<Fabric[]>([])
+    const [sizes, setSizes] = useState<MobileCatalogSizeFilterOption[]>([])
     const [nextOrderNumber, setNextOrderNumber] = useState<string>('')
 
     const isCatalogPage = pathname.startsWith('/catalog')
@@ -62,6 +69,7 @@ export function MobileTopBar() {
     // Read active filters from URL
     const activeCategory = searchParams.get('category') || 'all'
     const activeFabric = searchParams.get('fabric') || 'all'
+    const activeSize = searchParams.get('size') || 'all'
     const activeSort = searchParams.get('sort') || 'name'
     
     // Order filters
@@ -70,7 +78,7 @@ export function MobileTopBar() {
 
     const activeFiltersCount = isOrdersPage 
         ? [activeStatus !== 'all', activeDate !== 'all'].filter(Boolean).length
-        : [activeCategory !== 'all', activeFabric !== 'all', activeSort !== 'name'].filter(Boolean).length
+        : [activeCategory !== 'all', activeFabric !== 'all', activeSize !== 'all', activeSort !== 'name'].filter(Boolean).length
 
     // No longer need local setting fetch, provided by SettingsProvider
 
@@ -84,21 +92,50 @@ export function MobileTopBar() {
 
     // Load catalog filters (Once per mount if on catalog)
     useEffect(() => {
-        if (!isCatalogPage || categories.length > 0) return
+        if (!isCatalogPage || (categories.length > 0 && fabrics.length > 0 && sizes.length > 0)) return
         
         const loadCatalogFilters = async () => {
             const supabase = createClient()
             try {
-                const [catRes, fabRes] = await Promise.all([
+                const [catRes, fabRes, sizeRes] = await Promise.all([
                     supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
-                    supabase.from('fabrics').select('*').eq('is_active', true).order('sort_order')
+                    supabase.from('fabrics').select('*').eq('is_active', true).order('sort_order'),
+                    supabase
+                        .from('product_size_options')
+                        .select('slug, name, sort_order')
+                        .eq('is_active', true)
+                        .order('sort_order', { ascending: true })
+                        .order('name', { ascending: true }),
                 ])
                 if (catRes.data) setCategories(catRes.data)
                 if (fabRes.data) setFabrics(fabRes.data)
+                if (sizeRes.data) {
+                    const uniqueSizes = new Map<string, MobileCatalogSizeFilterOption>()
+                    sizeRes.data.forEach((sizeOption) => {
+                        if (!sizeOption.slug) return
+
+                        const current = uniqueSizes.get(sizeOption.slug)
+                        if (!current || (sizeOption.sort_order || 0) < current.sort_order) {
+                            uniqueSizes.set(sizeOption.slug, {
+                                slug: sizeOption.slug,
+                                name: sizeOption.name,
+                                sort_order: sizeOption.sort_order || 0,
+                            })
+                        }
+                    })
+
+                    setSizes(
+                        Array.from(uniqueSizes.values()).sort((a, b) => {
+                            const sortDelta = a.sort_order - b.sort_order
+                            if (sortDelta !== 0) return sortDelta
+                            return a.name.localeCompare(b.name, 'pt-BR')
+                        })
+                    )
+                }
             } catch { /* silent */ }
         }
         loadCatalogFilters()
-    }, [isCatalogPage, categories.length])
+    }, [isCatalogPage, categories.length, fabrics.length, sizes.length])
 
     // Load next order number (Only on relevant pages)
     useEffect(() => {
@@ -320,8 +357,10 @@ export function MobileTopBar() {
                                                     <CatalogFilters
                                                         categories={categories}
                                                         fabrics={fabrics}
+                                                        sizes={sizes}
                                                         selectedCategory={activeCategory}
                                                         selectedFabric={activeFabric}
+                                                        selectedSize={activeSize}
                                                         sortBy={activeSort}
                                                         onSortChange={(v) => {
                                                             const params = new URLSearchParams(searchParams)
@@ -340,10 +379,17 @@ export function MobileTopBar() {
                                                             else params.set('fabric', id)
                                                             router.push(`${pathname}?${params.toString()}`)
                                                         }}
+                                                        onSizeChange={(slug) => {
+                                                            const params = new URLSearchParams(searchParams)
+                                                            if (slug === 'all') params.delete('size')
+                                                            else params.set('size', slug)
+                                                            router.push(`${pathname}?${params.toString()}`)
+                                                        }}
                                                         onClearAll={() => {
                                                             const params = new URLSearchParams(searchParams)
                                                             params.delete('category')
                                                             params.delete('fabric')
+                                                            params.delete('size')
                                                             params.set('sort', 'name')
                                                             router.push(`${pathname}?${params.toString()}`)
                                                         }}

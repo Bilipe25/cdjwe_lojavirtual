@@ -28,6 +28,12 @@ import { useCustomerGreeting } from '@/lib/hooks/use-customer-greeting'
 
 const PAGE_SIZE = 12
 
+interface CatalogSizeFilterOption {
+    slug: string
+    name: string
+    sort_order: number
+}
+
 const CatalogContent = dynamic(() => Promise.resolve(CatalogContentInner), {
     ssr: false,
     loading: () => <div className="p-8"><ProductGridSkeleton count={12} /></div>
@@ -44,6 +50,7 @@ function CatalogContentInner() {
     })[]>([])
     const [categories, setCategories] = useState<Category[]>([])
     const [fabrics, setFabrics] = useState<Fabric[]>([])
+    const [sizes, setSizes] = useState<CatalogSizeFilterOption[]>([])
     
     // Pagination State
     const [loading, setLoading] = useState(true)
@@ -57,6 +64,7 @@ function CatalogContentInner() {
     const [debouncedSearch, setDebouncedSearch] = useState(initialSearch)
     const [selectedCategory, setSelectedCategory] = useState<string>('all')
     const [selectedFabric, setSelectedFabric] = useState<string>('all')
+    const [selectedSize, setSelectedSize] = useState<string>('all')
     const [sortBy, setSortBy] = useState<string>('name')
     const [filtersOpen, setFiltersOpen] = useState(false)
     const [quickViewId, setQuickViewId] = useState<string | null>(null)
@@ -71,11 +79,13 @@ function CatalogContentInner() {
         const urlSearch = searchParams.get('search') || ''
         const urlCategory = searchParams.get('category') || 'all'
         const urlFabric = searchParams.get('fabric') || 'all'
+        const urlSize = searchParams.get('size') || 'all'
 
         if (urlSearch !== search) setSearch(urlSearch)
         if (urlSearch !== debouncedSearch) setDebouncedSearch(urlSearch)
         if (urlCategory !== selectedCategory) setSelectedCategory(urlCategory)
         if (urlFabric !== selectedFabric) setSelectedFabric(urlFabric)
+        if (urlSize !== selectedSize) setSelectedSize(urlSize)
         
         // Reset to page 1 always on search/filter changes
         setCurrentPage(1)
@@ -85,12 +95,42 @@ function CatalogContentInner() {
     useEffect(() => {
         const loadFilters = async () => {
             const supabase = createClient()
-            const [categoriesRes, fabricsRes] = await Promise.all([
+            const [categoriesRes, fabricsRes, sizeOptionsRes] = await Promise.all([
                 supabase.from('categories').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
-                supabase.from('fabrics').select('*').eq('is_active', true).order('sort_order', { ascending: true })
+                supabase.from('fabrics').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+                supabase
+                    .from('product_size_options')
+                    .select('slug, name, sort_order')
+                    .eq('is_active', true)
+                    .order('sort_order', { ascending: true })
+                    .order('name', { ascending: true }),
             ])
             if (categoriesRes.data) setCategories(categoriesRes.data)
             if (fabricsRes.data) setFabrics(fabricsRes.data)
+            if (sizeOptionsRes.data) {
+                const uniqueSizes = new Map<string, CatalogSizeFilterOption>()
+
+                sizeOptionsRes.data.forEach((sizeOption) => {
+                    if (!sizeOption.slug) return
+
+                    const current = uniqueSizes.get(sizeOption.slug)
+                    if (!current || (sizeOption.sort_order || 0) < current.sort_order) {
+                        uniqueSizes.set(sizeOption.slug, {
+                            slug: sizeOption.slug,
+                            name: sizeOption.name,
+                            sort_order: sizeOption.sort_order || 0,
+                        })
+                    }
+                })
+
+                setSizes(
+                    Array.from(uniqueSizes.values()).sort((a, b) => {
+                        const sortDelta = a.sort_order - b.sort_order
+                        if (sortDelta !== 0) return sortDelta
+                        return a.name.localeCompare(b.name, 'pt-BR')
+                    })
+                )
+            }
         }
         loadFilters()
     }, [])
@@ -132,7 +172,7 @@ function CatalogContentInner() {
             
             // When fabric filter is active, pre-fetch matching product IDs server-side
             // This avoids the broken client-side filtering that destroyed pagination
-            let fabricProductIds: string[] | null = null
+            let filteredProductIds: string[] | null = null
             if (selectedFabric !== 'all') {
                 const { data: variantLinks } = await supabase
                     .from('product_variants')
@@ -142,9 +182,36 @@ function CatalogContentInner() {
                 
                 if (variantLinks && variantLinks.length > 0) {
                     // Deduplicate product IDs
-                    fabricProductIds = [...new Set(variantLinks.map(v => v.product_id))]
+                    filteredProductIds = [...new Set(variantLinks.map(v => v.product_id))]
                 } else {
                     // No products match this fabric — short-circuit
+                    setProducts([])
+                    setTotalCount(0)
+                    setLoading(false)
+                    return
+                }
+            }
+
+            if (selectedSize !== 'all') {
+                const { data: sizeLinks } = await supabase
+                    .from('product_size_options')
+                    .select('product_id')
+                    .eq('slug', selectedSize)
+                    .eq('is_active', true)
+
+                if (sizeLinks && sizeLinks.length > 0) {
+                    const sizeProductIds = [...new Set(sizeLinks.map((sizeLink) => sizeLink.product_id))]
+                    filteredProductIds = filteredProductIds
+                        ? filteredProductIds.filter((productId) => sizeProductIds.includes(productId))
+                        : sizeProductIds
+                } else {
+                    setProducts([])
+                    setTotalCount(0)
+                    setLoading(false)
+                    return
+                }
+
+                if (filteredProductIds && filteredProductIds.length === 0) {
                     setProducts([])
                     setTotalCount(0)
                     setLoading(false)
@@ -166,8 +233,8 @@ function CatalogContentInner() {
             }
             
             // Apply fabric filter server-side using pre-fetched IDs
-            if (fabricProductIds) {
-                query = query.in('id', fabricProductIds)
+            if (filteredProductIds) {
+                query = query.in('id', filteredProductIds)
             }
 
             // Sorting logic translation
@@ -191,16 +258,18 @@ function CatalogContentInner() {
         }
 
         fetchPaginatedProducts()
-    }, [debouncedSearch, selectedCategory, selectedFabric, sortBy, currentPage])
+    }, [debouncedSearch, selectedCategory, selectedFabric, selectedSize, sortBy, currentPage])
 
     const activeFilters = [
         selectedCategory !== 'all' && categories.find(c => c.id === selectedCategory)?.name,
+        selectedSize !== 'all' && sizes.find((size) => size.slug === selectedSize)?.name,
         selectedFabric !== 'all' && fabrics.find(f => f.id === selectedFabric)?.name,
     ].filter(Boolean)
 
     const clearFilters = () => {
         setSelectedCategory('all')
         setSelectedFabric('all')
+        setSelectedSize('all')
         setSearch('')
         setDebouncedSearch('')
         setCurrentPage(1)
@@ -276,15 +345,19 @@ function CatalogContentInner() {
                             <CatalogFilters 
                                 categories={categories}
                                 fabrics={fabrics}
+                                sizes={sizes}
                                 selectedCategory={selectedCategory}
                                 selectedFabric={selectedFabric}
+                                selectedSize={selectedSize}
                                 sortBy={sortBy}
                                 onSortChange={(v) => { setSortBy(v); setCurrentPage(1); }}
                                 onCategoryChange={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
                                 onFabricChange={(id) => { setSelectedFabric(id); setCurrentPage(1); }}
+                                onSizeChange={(slug) => { setSelectedSize(slug); setCurrentPage(1); }}
                                 onClearAll={() => {
                                     setSelectedCategory('all');
                                     setSelectedFabric('all');
+                                    setSelectedSize('all');
                                     setSortBy('name');
                                     setCurrentPage(1);
                                 }}
@@ -324,15 +397,19 @@ function CatalogContentInner() {
                         <CatalogFilters 
                             categories={categories}
                             fabrics={fabrics}
+                            sizes={sizes}
                             selectedCategory={selectedCategory}
                             selectedFabric={selectedFabric}
+                            selectedSize={selectedSize}
                             sortBy={sortBy}
                             onSortChange={(v) => { setSortBy(v); setCurrentPage(1); }}
                             onCategoryChange={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
                             onFabricChange={(id) => { setSelectedFabric(id); setCurrentPage(1); }}
+                            onSizeChange={(slug) => { setSelectedSize(slug); setCurrentPage(1); }}
                             onClearAll={() => {
                                 setSelectedCategory('all');
                                 setSelectedFabric('all');
+                                setSelectedSize('all');
                                 setSortBy('name');
                                 setCurrentPage(1);
                             }}
