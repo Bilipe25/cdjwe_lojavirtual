@@ -32,7 +32,7 @@ export default function ForgotPasswordPage() {
     const handleReset = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!identifier) {
-            toast.error('Informe seu CNPJ ou e-mail')
+            toast.error('Informe seu CPF, CNPJ ou e-mail')
             return
         }
 
@@ -98,7 +98,7 @@ export default function ForgotPasswordPage() {
                         <CardDescription className="mt-1">
                             {sent
                                 ? 'Verifique sua caixa de entrada para seguir as instrucoes.'
-                                : 'Informe seu CNPJ ou e-mail para receber o link de recuperacao.'}
+                                : 'Informe seu CPF, CNPJ ou e-mail para receber o link de recuperacao.'}
                         </CardDescription>
                     </div>
                 </CardHeader>
@@ -123,18 +123,18 @@ export default function ForgotPasswordPage() {
                     ) : (
                         <form onSubmit={handleReset} className="space-y-4">
                             <div className="space-y-2">
-                                <Label htmlFor="identifier">CNPJ ou e-mail</Label>
+                                <Label htmlFor="identifier">CPF/CNPJ ou e-mail</Label>
                                 <Input
                                     id="identifier"
                                     type="text"
-                                    placeholder="00.000.000/0001-00 ou seu@email.com"
+                                    placeholder="000.000.000-00, 00.000.000/0001-00 ou seu@email.com"
                                     value={identifier}
                                     onChange={(e) => setIdentifier(e.target.value)}
                                     disabled={loading}
                                     className="h-11 bg-white/60"
                                 />
                                 <p className="text-xs text-muted-foreground">
-                                    Se a conta ainda estiver com e-mail provisório, o acesso continua sendo feito pelo CNPJ com a senha definida pelo admin.
+                                    Se a conta ainda estiver com e-mail provisório, o acesso continua sendo feito pelo CPF/CNPJ com a senha definida pelo admin.
                                 </p>
                             </div>
 

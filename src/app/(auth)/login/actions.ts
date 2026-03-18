@@ -3,10 +3,10 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import {
+    getDocumentCandidates,
     getPrimaryCustomerAccessIdentifier,
     hasRealCustomerEmail,
-    isCnpjIdentifier,
-    normalizeCnpj,
+    isTaxDocumentIdentifier,
     normalizeEmail,
 } from '@/lib/customers/access'
 import { cookies, headers } from 'next/headers'
@@ -59,28 +59,28 @@ export async function loginAction(data: LoginFormData) {
         const isEmailIdentifier = trimmedIdentifier.includes('@')
 
         if (!isEmailIdentifier) {
-            if (!isCnpjIdentifier(trimmedIdentifier)) {
-                return { error: 'Informe um CNPJ ou e-mail valido para acessar.' }
+            if (!isTaxDocumentIdentifier(trimmedIdentifier)) {
+                return { error: 'Informe um CPF, CNPJ ou e-mail valido para acessar.' }
             }
 
-            const cleanIdentifier = normalizeCnpj(trimmedIdentifier)
+            const documentCandidates = getDocumentCandidates(trimmedIdentifier)
             const lookupClient = getLookupClient()
             const { data: storeData, error: lookupError } = await lookupClient
                 .from('stores')
                 .select('cnpj, profiles!stores_profile_id_fkey!inner(email)')
-                .or(`cnpj.eq.${trimmedIdentifier},cnpj.eq.${cleanIdentifier}`)
+                .in('cnpj', documentCandidates)
                 .limit(1)
                 .maybeSingle()
 
             if (lookupError) {
                 console.error('Login lookup error:', lookupError)
-                return { error: 'Nao foi possivel validar o CNPJ agora. Tente novamente.' }
+                return { error: 'Nao foi possivel validar o documento agora. Tente novamente.' }
             }
 
             const foundEmail = readStoreProfileEmail(storeData as StoreLoginRow | null)
 
             if (!storeData || !foundEmail) {
-                return { error: 'Nenhuma conta encontrada com este CNPJ.' }
+                return { error: 'Nenhuma conta encontrada com este CPF ou CNPJ.' }
             }
 
             emailToAuthenticate = foundEmail

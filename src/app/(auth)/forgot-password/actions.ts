@@ -2,10 +2,10 @@
 
 import { createServerClient } from '@supabase/ssr'
 import {
+    getDocumentCandidates,
     hasRealCustomerEmail,
-    isCnpjIdentifier,
+    isTaxDocumentIdentifier,
     isPlaceholderEmail,
-    normalizeCnpj,
     normalizeEmail,
 } from '@/lib/customers/access'
 
@@ -47,7 +47,7 @@ function readStoreProfileEmail(store?: StoreResetRow | null) {
 
 export async function requestPasswordReset(identifier: string, origin: string) {
     const trimmedIdentifier = identifier.trim()
-    if (!trimmedIdentifier) return { error: 'CNPJ ou e-mail obrigatorio.' }
+    if (!trimmedIdentifier) return { error: 'CPF, CNPJ ou e-mail obrigatorio.' }
 
     let emailToReset = trimmedIdentifier.includes('@') ? normalizeEmail(trimmedIdentifier) : ''
 
@@ -55,15 +55,15 @@ export async function requestPasswordReset(identifier: string, origin: string) {
         const admin = getAdminClient()
 
         if (!trimmedIdentifier.includes('@')) {
-            if (!isCnpjIdentifier(trimmedIdentifier)) {
-                return { error: 'Informe um CNPJ ou e-mail valido.' }
+            if (!isTaxDocumentIdentifier(trimmedIdentifier)) {
+                return { error: 'Informe um CPF, CNPJ ou e-mail valido.' }
             }
 
-            const normalizedCnpj = normalizeCnpj(trimmedIdentifier)
+            const documentCandidates = getDocumentCandidates(trimmedIdentifier)
             const { data: store } = await admin
                 .from('stores')
                 .select('cnpj, profiles!stores_profile_id_fkey(email)')
-                .or(`cnpj.eq.${trimmedIdentifier},cnpj.eq.${normalizedCnpj}`)
+                .in('cnpj', documentCandidates)
                 .maybeSingle()
 
             const resolvedEmail = readStoreProfileEmail(store as StoreResetRow | null)
@@ -79,8 +79,8 @@ export async function requestPasswordReset(identifier: string, origin: string) {
         }
 
         if (isPlaceholderEmail(emailToReset) || !hasRealCustomerEmail(emailToReset)) {
-            return {
-                error: 'Esta conta ainda nao possui um e-mail real cadastrado. Acesse com o CNPJ e a senha definida pelo admin ou atualize o cadastro do cliente.',
+                return {
+                error: 'Esta conta ainda nao possui um e-mail real cadastrado. Acesse com o CPF/CNPJ e a senha definida pelo admin ou atualize o cadastro do cliente.',
             }
         }
 

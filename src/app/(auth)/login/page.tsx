@@ -182,11 +182,11 @@ export default function LoginPage() {
                             </div>
                         ) : (
                             <div className="space-y-2">
-                                <Label htmlFor="identifier">CNPJ ou e-mail</Label>
+                                <Label htmlFor="identifier">CPF/CNPJ ou e-mail</Label>
                                 <Input
                                     id="identifier"
                                     type="text"
-                                    placeholder="00.000.000/0001-00 ou joao@loja.com.br"
+                                    placeholder="000.000.000-00, 00.000.000/0001-00 ou joao@loja.com.br"
                                     disabled={loading}
                                     className={`h-11 bg-white/60 ${errors.identifier ? 'border-red-500' : ''}`}
                                     {...register('identifier')}
