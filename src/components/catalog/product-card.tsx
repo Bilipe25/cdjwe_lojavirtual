@@ -29,8 +29,21 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
     const { calculateB2BPrice } = usePriceTableStore()
     const favorited = isFavorite(product.id)
     const imageBadgeBase = 'rounded-full border px-2 py-0.5 shadow-sm backdrop-blur-md'
+    const activeSizeOptions = [...(product.size_options || [])]
+        .filter((option) => option.is_active)
+        .sort((a, b) => {
+            const sortOrderDelta = (a.sort_order || 0) - (b.sort_order || 0)
+            if (sortOrderDelta !== 0) return sortOrderDelta
+            return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        })
+    const defaultSizeOption = activeSizeOptions.find((option) => option.is_default) || activeSizeOptions[0]
 
-    const basePriceCalc = calculateB2BPrice({ basePrice: product.base_price }) ?? product.base_price
+    const basePriceCalc =
+        calculateB2BPrice({
+            basePrice: product.base_price,
+            sizePriceMode: defaultSizeOption?.price_mode ?? null,
+            sizePriceValue: defaultSizeOption?.price_value ?? null,
+        }) ?? product.base_price
 
     const handleCardClick = () => {
         if (isMobile && onQuickView) {

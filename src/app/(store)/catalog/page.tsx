@@ -38,7 +38,10 @@ export default function CatalogPage() {
 }
 
 function CatalogContentInner() {
-    const [products, setProducts] = useState<(Product & { images: { url: string; is_primary: boolean }[] })[]>([])
+    const [products, setProducts] = useState<(Product & {
+        images: { url: string; is_primary: boolean }[]
+        size_options?: Product['size_options']
+    })[]>([])
     const [categories, setCategories] = useState<Category[]>([])
     const [fabrics, setFabrics] = useState<Fabric[]>([])
     
@@ -151,7 +154,7 @@ function CatalogContentInner() {
 
             let query = supabase
                 .from('products')
-                .select('*, category:categories(*), images:product_images(url, is_primary, sort_order)', { count: 'exact' })
+                .select('*, category:categories(*), images:product_images(url, is_primary, sort_order), size_options:product_size_options(*)', { count: 'exact' })
                 .eq('is_active', true)
 
             // Dynamic Queries to avoid Client Side Array.Filtering over 1000s of rows
