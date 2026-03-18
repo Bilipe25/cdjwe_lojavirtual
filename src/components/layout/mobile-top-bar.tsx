@@ -4,10 +4,8 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
-import { Search, X, ArrowLeft, SlidersHorizontal, Trash2, Filter } from 'lucide-react'
+import { Search, ArrowLeft, SlidersHorizontal, Trash2, Filter } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -47,9 +45,8 @@ export function MobileTopBar() {
     const searchParams = useSearchParams()
     const router = useRouter()
     const { settings } = useSettings()
-    const [searchQuery, setSearchQuery] = useState('')
-    const [showSearch, setShowSearch] = useState(false)
-    const [isMounted, setIsMounted] = useState(false)
+    const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '')
+    const [showSearch, setShowSearch] = useState(() => searchParams.get('search_active') === 'true')
     const inputRef = useRef<HTMLInputElement>(null)
     const { clearCart } = useCartStore()
 
@@ -81,14 +78,6 @@ export function MobileTopBar() {
         : [activeCategory !== 'all', activeFabric !== 'all', activeSize !== 'all', activeSort !== 'name'].filter(Boolean).length
 
     // No longer need local setting fetch, provided by SettingsProvider
-
-    // Hydration and Search Initialization
-    useEffect(() => {
-        setIsMounted(true)
-        if (searchParams.get('search_active') === 'true') {
-            setShowSearch(true)
-        }
-    }, [searchParams])
 
     // Load catalog filters (Once per mount if on catalog)
     useEffect(() => {
@@ -176,14 +165,12 @@ export function MobileTopBar() {
         loadOrderData()
     }, [isCartPage, isOrderDetailPage, pathname])
 
-    // Initialize search query from URL when opening search or on mount
+    // Focus search input when search mode is open
     useEffect(() => {
         if (showSearch) {
-            const urlSearch = searchParams.get('search') || ''
-            if (urlSearch !== searchQuery) setSearchQuery(urlSearch)
             setTimeout(() => inputRef.current?.focus(), 50)
         }
-    }, [showSearch, searchParams])
+    }, [showSearch])
 
     // Live search debounce logic
     useEffect(() => {
@@ -211,6 +198,7 @@ export function MobileTopBar() {
         setShowSearch(active)
         const params = new URLSearchParams(searchParams)
         if (active) {
+            setSearchQuery(searchParams.get('search') || '')
             params.set('search_active', 'true')
         } else {
             params.delete('search_active')
@@ -248,8 +236,6 @@ export function MobileTopBar() {
         }
     }
 
-    if (!isMounted) return null
-
     return (
         <header
             className="sticky top-0 z-50 w-full md:hidden glass-nav border-b border-border/30"
@@ -267,7 +253,7 @@ export function MobileTopBar() {
                     </button>
                 ) : (
                     <Link href="/dashboard" className="flex items-center shrink-0" aria-label="Página inicial">
-                        {isMounted && settings?.logo_url ? (
+                        {settings?.logo_url ? (
                             <div className="h-7 w-20 shrink-0 relative">
                                 <Image
                                     priority
@@ -288,7 +274,7 @@ export function MobileTopBar() {
                 )}
 
                 {/* Page title OR search input */}
-                {isMounted && showSearch && (isCatalogPage || isOrdersPage) ? (
+                {showSearch && (isCatalogPage || isOrdersPage) ? (
                     <div className="flex-1 flex items-center gap-2">
                         <div className="flex-1 relative">
                             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
