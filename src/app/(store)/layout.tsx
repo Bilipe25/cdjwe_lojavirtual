@@ -15,7 +15,7 @@ import { PWAInstallPrompt } from '@/components/pwa/PWAInstallPrompt'
 import { WifiOff } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePathname, useRouter } from 'next/navigation'
-import { ArrowUp, Instagram } from 'lucide-react'
+import { ArrowUp } from 'lucide-react'
 import { useSettings } from '@/components/providers/settings-provider'
 import { getWhatsAppLink } from '@/lib/utils'
 import { useState, useEffect } from 'react'
@@ -167,7 +167,6 @@ function GlobalFloatingActions() {
     }
 
     const whatsappLink = getWhatsAppLink(settings?.whatsapp)
-    const instagramUrl = settings?.instagram ? (settings.instagram.startsWith('http') ? settings.instagram : `https://instagram.com/${settings.instagram.replace('@', '')}`) : null
     const hideSocialActionsOnMobile = pathname === '/cart'
 
     return (
@@ -191,25 +190,6 @@ function GlobalFloatingActions() {
                                 <ArrowUp className="h-6 w-6" />
                             </Button>
                         </motion.div>
-                    </motion.div>
-                )}
-
-                {instagramUrl && (
-                    <motion.div
-                        key="instagram-float"
-                        initial={{ opacity: 0, y: 20, scale: 0.8 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        className={`pointer-events-auto ${hideSocialActionsOnMobile ? 'hidden md:block' : ''}`}
-                    >
-                        <a href={instagramUrl} target="_blank" rel="noopener noreferrer">
-                            <Button
-                                size="icon"
-                                className="h-12 w-12 rounded-full bg-linear-to-tr from-yellow-400 via-pink-500 to-purple-500 text-white shadow-xl hover:shadow-2xl hover:opacity-90 border-none transition-all duration-300"
-                                aria-label="Instagram"
-                            >
-                                <Instagram className="h-6 w-6" />
-                            </Button>
-                        </a>
                     </motion.div>
                 )}
 
