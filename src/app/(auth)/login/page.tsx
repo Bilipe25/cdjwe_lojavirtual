@@ -162,9 +162,6 @@ export default function LoginPage() {
                                         <p className="truncate text-sm font-semibold text-navy" title={lastLogin.companyName}>
                                             {lastLogin.companyName}
                                         </p>
-                                        <p className="truncate text-xs text-muted-foreground" title={lastLogin.identifier}>
-                                            Acesso principal: {lastLogin.identifier}
-                                        </p>
                                     </div>
                                 </div>
                                 <Button
