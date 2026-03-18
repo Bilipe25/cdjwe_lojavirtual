@@ -20,6 +20,26 @@ import { PricePresentation, getVariantPriceBadges } from './price-presentation'
 
 export type QuickViewData = ProductDetailData
 
+export interface QuickViewAddToCartSummaryItem {
+    id: string
+    productName: string
+    fabricName: string
+    colorName: string
+    sizeName: string | null
+    quantity: number
+    unitPrice: number
+    lineTotal: number
+    imageUrl: string | null
+}
+
+export interface QuickViewAddToCartSummary {
+    productId: string
+    productName: string
+    totalQuantity: number
+    totalPrice: number
+    items: QuickViewAddToCartSummaryItem[]
+}
+
 export function useQuickViewData(productId: string | null, open: boolean): QuickViewData {
     return useProductDetailData({
         productId,
@@ -31,6 +51,7 @@ interface QuickViewContentProps {
     data: QuickViewData
     onClose: () => void
     showTitle?: boolean
+    onAddedToCart?: (summary: QuickViewAddToCartSummary) => void
 }
 
 function buildCartKey(variantId: string, sizeOptionId: string | null) {
@@ -41,6 +62,7 @@ export function QuickViewContent({
     data,
     onClose,
     showTitle = true,
+    onAddedToCart,
 }: QuickViewContentProps) {
     const { product, images, fabrics, variants, sizeOptions, loading, error } = data
     const { addItem, openCart } = useCartStore()
@@ -260,6 +282,8 @@ export function QuickViewContent({
         setAddingToCart(true)
 
         try {
+            const addedItems: QuickViewAddToCartSummaryItem[] = []
+
             variantsToAdd.forEach(({ variantId, quantity, sizeOptionId }) => {
                 const matchedVariant = variants.find((variant) => variant.id === variantId)
                 if (!matchedVariant) return
@@ -285,9 +309,34 @@ export function QuickViewContent({
                     quantity,
                     unitPrice: priceBreakdown.unitPrice,
                 })
+
+                addedItems.push({
+                    id: matchedVariant.id,
+                    productName: product.name,
+                    fabricName: fabric?.name || '',
+                    colorName: color?.name || '',
+                    sizeName: resolvedSizeName,
+                    quantity,
+                    unitPrice: priceBreakdown.unitPrice,
+                    lineTotal: priceBreakdown.unitPrice * quantity,
+                    imageUrl: matchedVariant.image_url || baseImages[0]?.url || null,
+                })
             })
 
-            toast.success(`${totalQuantity} itens adicionados ao carrinho!`)
+            const addedSummary: QuickViewAddToCartSummary = {
+                productId: product.id,
+                productName: product.name,
+                totalQuantity,
+                totalPrice,
+                items: addedItems,
+            }
+
+            if (isMobile) {
+                onAddedToCart?.(addedSummary)
+            } else {
+                toast.success(`${totalQuantity} itens adicionados ao carrinho!`)
+            }
+
             resetSelection()
             onClose()
             if (!isMobile) {
