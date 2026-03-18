@@ -1,5 +1,6 @@
 'use server'
 
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import {
     getPrimaryCustomerAccessIdentifier,
@@ -14,6 +15,23 @@ import { loginSchema, type LoginFormData } from './schema'
 type StoreLoginRow = {
     cnpj: string | null
     profiles?: { email?: string | null } | { email?: string | null }[] | null
+}
+
+function getLookupClient() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+    if (!supabaseUrl || !serviceRoleKey) {
+        throw new Error('Credenciais de lookup do Supabase nao configuradas.')
+    }
+
+    return createSupabaseClient(supabaseUrl, serviceRoleKey, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+        },
+    })
 }
 
 function readStoreProfileEmail(store?: StoreLoginRow | null) {
@@ -46,12 +64,18 @@ export async function loginAction(data: LoginFormData) {
             }
 
             const cleanIdentifier = normalizeCnpj(trimmedIdentifier)
-            const { data: storeData } = await supabase
+            const lookupClient = getLookupClient()
+            const { data: storeData, error: lookupError } = await lookupClient
                 .from('stores')
                 .select('cnpj, profiles!stores_profile_id_fkey!inner(email)')
                 .or(`cnpj.eq.${trimmedIdentifier},cnpj.eq.${cleanIdentifier}`)
                 .limit(1)
                 .maybeSingle()
+
+            if (lookupError) {
+                console.error('Login lookup error:', lookupError)
+                return { error: 'Nao foi possivel validar o CNPJ agora. Tente novamente.' }
+            }
 
             const foundEmail = readStoreProfileEmail(storeData as StoreLoginRow | null)
 
