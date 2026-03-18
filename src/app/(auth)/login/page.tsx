@@ -145,7 +145,7 @@ export default function LoginPage() {
                             {settings?.system_name || 'CDJWE Estofados'}
                         </CardTitle>
                         <CardDescription className="mt-1">
-                            Portal B2B - acesso principal via CNPJ, com suporte a e-mail
+                            Portal B2B
                         </CardDescription>
                     </div>
                 </CardHeader>
@@ -191,9 +191,6 @@ export default function LoginPage() {
                                     className={`h-11 bg-white/60 ${errors.identifier ? 'border-red-500' : ''}`}
                                     {...register('identifier')}
                                 />
-                                <p className="text-xs text-muted-foreground">
-                                    O acesso principal do cliente e pelo CNPJ. Quem ja possui e-mail real pode continuar entrando com ele.
-                                </p>
                                 {errors.identifier && <p className="mt-1 text-xs text-red-500">{errors.identifier.message}</p>}
                             </div>
                         )}
