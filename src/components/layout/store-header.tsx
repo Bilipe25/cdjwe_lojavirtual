@@ -25,7 +25,6 @@ import {
     Factory,
     Truck,
     AlertCircle,
-    Monitor,
     type LucideIcon,
 } from 'lucide-react'
 import Image from 'next/image'
@@ -199,12 +198,6 @@ export function StoreHeader() {
                                     <span className="font-heading text-sm font-bold text-white">
                                         {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
                                     </span>
-                                </div>
-                            )}
-                            {isStandalone && (
-                                <div className="hidden items-center gap-2 rounded-full border border-primary/10 bg-primary/[0.04] px-3 py-1 text-[11px] font-semibold text-primary 2xl:flex">
-                                    <Monitor className="h-3.5 w-3.5" />
-                                    App instalado
                                 </div>
                             )}
                         </Link>

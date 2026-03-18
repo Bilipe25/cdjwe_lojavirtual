@@ -22,7 +22,6 @@ import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { ProductCard } from '@/components/catalog/product-card'
 import { QuickViewModal } from '@/components/catalog/quick-view-modal'
 import type { Product } from '@/lib/types'
-import { DesktopInstalledBadge } from '@/components/store/desktop-installed-badge'
 
 type FavoriteProduct = Product & {
     images: { url: string; is_primary: boolean }[]
@@ -71,7 +70,6 @@ export default function FavoritesPage() {
                             <Heart className="h-6 w-6 text-red-500 fill-red-500" />
                             Favoritos
                         </h1>
-                        <DesktopInstalledBadge detail="Lista pronta para consulta rapida" />
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
                         {favoriteIds.length} {favoriteIds.length === 1 ? 'produto salvo' : 'produtos salvos'}

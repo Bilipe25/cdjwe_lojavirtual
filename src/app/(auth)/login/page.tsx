@@ -186,7 +186,7 @@ export default function LoginPage() {
                                 <Input
                                     id="identifier"
                                     type="text"
-                                    placeholder="000.000.000-00, 00.000.000/0001-00 ou joao@loja.com.br"
+                                    placeholder="Digite seu acesso"
                                     disabled={loading}
                                     className={`h-11 bg-white/60 ${errors.identifier ? 'border-red-500' : ''}`}
                                     {...register('identifier')}

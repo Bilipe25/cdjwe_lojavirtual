@@ -25,7 +25,6 @@ import { useSettings } from '@/components/providers/settings-provider'
 import { PullToRefresh } from '@/components/ui/pull-to-refresh'
 import { NoticeCard } from '@/components/store/NoticeCard'
 import { useCustomerGreeting } from '@/lib/hooks/use-customer-greeting'
-import { DesktopInstalledBadge } from '@/components/store/desktop-installed-badge'
 
 const PAGE_SIZE = 12
 
@@ -317,7 +316,6 @@ function CatalogContentInner() {
                                 <h1 className="text-3xl font-bold font-heading text-gradient-navy">
                                     Bem-vindo(a), {greetingData.customerName || 'visitante'}
                                 </h1>
-                                <DesktopInstalledBadge detail="Catalogo otimizado para desktop" />
                             </div>
                             <p className="text-muted-foreground mt-1 text-balance">
                                 {greetingData.greetingMessage}

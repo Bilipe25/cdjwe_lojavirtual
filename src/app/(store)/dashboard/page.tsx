@@ -15,7 +15,6 @@ import { createClient } from '@/lib/supabase/client'
 import { NoticeCard } from '@/components/store/NoticeCard'
 import { useSettings } from '@/components/providers/settings-provider'
 import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
-import { DesktopInstalledBadge } from '@/components/store/desktop-installed-badge'
 
 interface DashboardCard {
     title: string
@@ -150,7 +149,6 @@ export default function DashboardPage() {
                                 <h1 className="text-3xl font-bold font-heading tracking-tight text-gradient-navy">
                                     Bem-vindo(a), {userName || 'visitante'}
                                 </h1>
-                                <DesktopInstalledBadge detail="Workspace desktop pronto" />
                             </div>
                             <p className="mt-1 text-balance text-muted-foreground">
                                 {greeting}. Escolha um atalho para continuar sua operacao.
