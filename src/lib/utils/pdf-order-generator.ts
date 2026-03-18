@@ -105,7 +105,10 @@ function buildRepresentative(order: ReceiptOrder) {
     return order.profile?.full_name || 'Nao informado'
 }
 
-function createSectionTitle(title: string): Content {
+function createSectionTitle(title: string, options?: { lineWidth?: number; marginBottom?: number }): Content {
+    const lineWidth = options?.lineWidth ?? 515
+    const marginBottom = options?.marginBottom ?? 10
+
     return {
         stack: [
             {
@@ -116,11 +119,11 @@ function createSectionTitle(title: string): Content {
                 characterSpacing: 0.8,
             },
             {
-                canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }],
+                canvas: [{ type: 'line', x1: 0, y1: 0, x2: lineWidth, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }],
                 margin: [0, 6, 0, 0],
             },
         ],
-        margin: [0, 0, 0, 10],
+        margin: [0, 0, 0, marginBottom],
     }
 }
 
@@ -322,7 +325,7 @@ export async function generateOrderReceiptPDF(
                 {
                     width: '*',
                     stack: [
-                        createSectionTitle('Condicao de pagamento'),
+                        createSectionTitle('Condicao de pagamento', { lineWidth: 320, marginBottom: 8 }),
                         {
                             table: {
                                 widths: ['*'],
@@ -341,7 +344,7 @@ export async function generateOrderReceiptPDF(
                         },
                         ...(order.notes
                             ? [
-                                  createSectionTitle('Observacoes'),
+                                  createSectionTitle('Observacoes', { lineWidth: 320, marginBottom: 8 }),
                                   {
                                       table: {
                                           widths: ['*'],
@@ -363,9 +366,9 @@ export async function generateOrderReceiptPDF(
                     ],
                 },
                 {
-                    width: 176,
+                    width: 162,
                     stack: [
-                        createSectionTitle('Resumo financeiro'),
+                        createSectionTitle('Resumo financeiro', { lineWidth: 162, marginBottom: 8 }),
                         {
                             table: {
                                 widths: ['*'],
@@ -373,7 +376,7 @@ export async function generateOrderReceiptPDF(
                                     stack: [
                                         createSummaryRow('Subtotal', formatOrderCurrency(order.subtotal)),
                                         createSummaryRow('Desconto', `- ${formatOrderCurrency(order.discount_amount)}`, { accent: true }),
-                                        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 176, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }], margin: [0, 2, 0, 10] },
+                                        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 162, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }], margin: [0, 2, 0, 10] },
                                         createSummaryRow('Total do pedido', formatOrderCurrency(order.total), { highlight: true }),
                                     ],
                                     fillColor: '#f8fafc',
