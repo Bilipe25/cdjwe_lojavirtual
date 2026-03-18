@@ -787,7 +787,7 @@ export default function CartPage() {
     }
 
     return (
-        <div className="mx-auto max-w-[1280px] px-4 py-4 pb-28 sm:px-6 lg:px-8 lg:py-6 lg:pb-8">
+        <div className="mx-auto max-w-[1280px] px-4 py-4 pb-44 sm:px-6 sm:pb-28 lg:px-8 lg:py-6 lg:pb-8">
             <div className="space-y-4 lg:space-y-5">
                 <div className="hidden md:block">
                     <CheckoutHeader
@@ -895,7 +895,7 @@ export default function CartPage() {
                                 ))}
                             </div>
 
-                            <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 sm:hidden">
+                            <div className="mt-3 space-y-2.5 border-t border-slate-200 pt-3 sm:hidden">
                                 <div className="flex items-center justify-between text-base text-slate-700">
                                     <span className="font-medium">Subtotal</span>
                                     <span className="text-lg font-semibold text-slate-950">
@@ -905,7 +905,7 @@ export default function CartPage() {
 
                                 <Button
                                     variant="outline"
-                                    className="h-11 w-full rounded-xl border-slate-300 bg-transparent text-sm font-medium text-slate-700 shadow-none"
+                                    className="h-10 w-full rounded-xl border-slate-200 bg-white text-sm font-medium text-slate-600 shadow-none"
                                     onClick={() => router.push('/catalog')}
                                 >
                                     Adicionar mais itens
@@ -913,25 +913,30 @@ export default function CartPage() {
                             </div>
                         </CheckoutSection>
 
-                        <section className="space-y-4 border-t border-slate-200 pt-4 sm:hidden">
-                            <div className="space-y-3">
+                        {/* ── Mobile: Entrega Card ──────────────────── */}
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
+                            <div className="border-b border-slate-100 px-4 py-3.5">
                                 <div className="flex items-center justify-between gap-3">
-                                    <div>
-                                        <h2 className="text-xl font-semibold text-slate-950">Entrega</h2>
-                                        <p className="mt-1 text-sm text-slate-500">
-                                            Escolha o endereco de recebimento.
-                                        </p>
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                                            <Truck className="h-4 w-4" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Endereco</p>
+                                            <h2 className="text-[15px] font-semibold text-slate-950">Entrega</h2>
+                                        </div>
                                     </div>
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="h-9 rounded-xl px-3 text-sm text-slate-600"
+                                        className="h-8 rounded-xl px-2.5 text-xs font-medium text-slate-500"
                                         onClick={() => setNewAddressDialogOpen(true)}
                                     >
-                                        Adicionar
+                                        + Novo
                                     </Button>
                                 </div>
-
+                            </div>
+                            <div className="px-4 py-3.5 space-y-3">
                                 {addressesLoading ? (
                                     <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
                                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -946,7 +951,7 @@ export default function CartPage() {
                                         Nenhum endereco cadastrado.
                                     </div>
                                 ) : (
-                                    <div className="overflow-hidden rounded-2xl bg-slate-50/70 ring-1 ring-slate-200/80">
+                                    <div className="overflow-hidden rounded-xl bg-slate-50/70 ring-1 ring-slate-200/80">
                                         {storeAddresses.map((address, index) => {
                                             const isSelected = address.id === selectedAddressId
 
@@ -965,7 +970,7 @@ export default function CartPage() {
                                                     <div className="flex items-start gap-3">
                                                         <span
                                                             className={cn(
-                                                                'mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors',
+                                                                'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
                                                                 isSelected
                                                                     ? 'border-slate-950 bg-slate-950 text-white'
                                                                     : 'border-slate-300 bg-white'
@@ -974,20 +979,20 @@ export default function CartPage() {
                                                             {isSelected && <Check className="h-3 w-3" />}
                                                         </span>
                                                         <div className="min-w-0">
-                                                            <div className="flex flex-wrap items-center gap-2">
+                                                            <div className="flex flex-wrap items-center gap-1.5">
                                                                 <p className="text-sm font-semibold text-slate-950">
                                                                     {address.title}
                                                                 </p>
                                                                 {address.is_main && (
-                                                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                                                    <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">
                                                                         Principal
                                                                     </span>
                                                                 )}
                                                             </div>
-                                                            <p className="mt-1 text-sm leading-5 text-slate-500">
+                                                            <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
                                                                 {address.address}, {address.number}
                                                             </p>
-                                                            <p className="text-sm leading-5 text-slate-500">
+                                                            <p className="text-[13px] leading-5 text-slate-500">
                                                                 {address.city}/{address.state} - CEP{' '}
                                                                 {address.zip_code}
                                                             </p>
@@ -995,7 +1000,7 @@ export default function CartPage() {
                                                     </div>
 
                                                     {index < storeAddresses.length - 1 && (
-                                                        <div className="mt-3 border-t border-slate-200/80" />
+                                                        <div className="mt-3 border-t border-slate-200/60" />
                                                     )}
                                                 </button>
                                             )
@@ -1004,18 +1009,35 @@ export default function CartPage() {
                                 )}
 
                                 {deliveryMessage && (
-                                    <p className="text-sm text-slate-500">{deliveryMessage}</p>
+                                    <div className="flex items-center gap-2 rounded-xl bg-blue-50/60 px-3 py-2.5 ring-1 ring-blue-100">
+                                        <Truck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                                        <p className="text-[13px] font-medium text-blue-700">{deliveryMessage}</p>
+                                    </div>
                                 )}
                             </div>
+                        </div>
 
-                            <div className="space-y-3 border-t border-slate-200 pt-4">
-                                <div>
-                                    <h2 className="text-xl font-semibold text-slate-950">Pagamento</h2>
-                                    <p className="mt-1 text-sm text-slate-500">
-                                        Escolha a condicao comercial deste pedido.
-                                    </p>
+                        {/* ── Mobile: Pagamento Card ────────────────── */}
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
+                            <div className="border-b border-slate-100 px-4 py-3.5">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                                        <CreditCard className="h-4 w-4" />
+                                    </div>
+                                    <div className="flex flex-1 items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Condicao</p>
+                                            <h2 className="text-[15px] font-semibold text-slate-950">Pagamento</h2>
+                                        </div>
+                                        {discountPercentage > 0 && (
+                                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200/80">
+                                                {discountPercentage.toFixed(0)}% off
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
-
+                            </div>
+                            <div className="px-4 py-3.5 space-y-3">
                                 {mobilePaymentOptions.length === 0 ? (
                                     <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
                                         Nenhuma condicao de pagamento disponivel.
@@ -1032,7 +1054,7 @@ export default function CartPage() {
                                                 )
                                             }}
                                         >
-                                            <SelectTrigger className="min-h-11 rounded-2xl border-slate-200 bg-slate-50 px-3 text-left shadow-none">
+                                            <SelectTrigger className="min-h-11 rounded-xl border-slate-200 bg-slate-50/80 px-3 text-left shadow-none">
                                                 <SelectValue placeholder="Selecione a condicao">
                                                     {selectedPaymentLabel}
                                                 </SelectValue>
@@ -1060,18 +1082,11 @@ export default function CartPage() {
                                         </Select>
 
                                         {(selectedCondition?.description || isTableRule) && (
-                                            <div className="rounded-2xl bg-slate-50/80 px-3 py-3 ring-1 ring-slate-200/70">
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <p className="text-sm font-semibold text-slate-950">
-                                                        {selectedPaymentLabel}
-                                                    </p>
-                                                    {discountPercentage > 0 && (
-                                                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                                                            {discountPercentage.toFixed(0)}% off
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <p className="mt-1 text-sm leading-5 text-slate-500">
+                                            <div className="rounded-xl bg-slate-50/80 px-3 py-2.5 ring-1 ring-slate-200/70">
+                                                <p className="text-sm font-medium text-slate-700">
+                                                    {selectedPaymentLabel}
+                                                </p>
+                                                <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
                                                     {selectedCondition?.description ||
                                                         'Regra comercial exclusiva da sua tabela B2B.'}
                                                 </p>
@@ -1080,31 +1095,48 @@ export default function CartPage() {
                                     </div>
                                 )}
                             </div>
-                        </section>
+                        </div>
 
-                        <CheckoutSection
-                            icon={MessageSquare}
-                            eyebrow="Contexto"
-                            title="Observacoes"
-                            className="-mx-4 rounded-none border-0 bg-transparent shadow-none sm:mx-0 sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm"
-                            headerClassName="hidden sm:block sm:px-5 sm:py-4"
-                            contentClassName="px-4 py-0 sm:px-5 sm:py-4"
-                        >
-                            <div className="space-y-3">
-                                <div className="sm:hidden">
-                                    <h2 className="text-xl font-semibold text-slate-950">Observacoes</h2>
-                                    <p className="mt-1 text-sm text-slate-500">
-                                        Inclua detalhes importantes para este pedido.
-                                    </p>
+                        {/* ── Mobile: Observações Card ──────────────── */}
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
+                            <div className="border-b border-slate-100 px-4 py-3.5">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                                        <MessageSquare className="h-4 w-4" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Contexto</p>
+                                        <h2 className="text-[15px] font-semibold text-slate-950">Observacoes</h2>
+                                    </div>
                                 </div>
+                            </div>
+                            <div className="px-4 py-3.5">
                                 <Textarea
                                     placeholder="Inclua aqui informacoes importantes para este pedido."
                                     value={notes}
                                     onChange={(event) => setNotes(event.target.value)}
-                                    rows={4}
-                                    className="min-h-[120px] rounded-2xl border-slate-200 bg-white resize-none"
+                                    rows={3}
+                                    className="min-h-[100px] rounded-xl border-slate-200 bg-slate-50/80 resize-none text-sm"
                                 />
                             </div>
+                        </div>
+
+                        {/* ── Desktop: Observações (unchanged) ──────── */}
+                        <CheckoutSection
+                            icon={MessageSquare}
+                            eyebrow="Contexto"
+                            title="Observacoes"
+                            className="hidden sm:block sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm"
+                            headerClassName="sm:px-5 sm:py-4"
+                            contentClassName="sm:px-5 sm:py-4"
+                        >
+                            <Textarea
+                                placeholder="Inclua aqui informacoes importantes para este pedido."
+                                value={notes}
+                                onChange={(event) => setNotes(event.target.value)}
+                                rows={4}
+                                className="min-h-[120px] rounded-2xl border-slate-200 bg-white resize-none"
+                            />
                         </CheckoutSection>
                     </div>
 
@@ -1377,7 +1409,7 @@ export default function CartPage() {
                         </p>
                     </div>
                     <Button
-                        className="h-11 min-w-[168px] rounded-xl bg-slate-950 px-5 text-white shadow-sm transition-colors hover:bg-slate-900"
+                        className="h-11 min-w-[168px] rounded-xl gradient-bronze border-0 px-5 text-white shadow-md transition-all hover:shadow-lg"
                         onClick={handlePlaceOrder}
                         disabled={loading || !minOrderMet}
                     >
@@ -1419,16 +1451,19 @@ export default function CartPage() {
             <Dialog open={confirmCheckoutOpen} onOpenChange={setConfirmCheckoutOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle className="text-xl font-bold">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 mb-2">
+                            <ShieldCheck className="h-6 w-6 text-emerald-600" />
+                        </div>
+                        <DialogTitle className="text-xl font-bold text-center">
                             Confirmar pedido
                         </DialogTitle>
-                        <DialogDescription>
-                            Revise o resumo do seu pedido antes de enviar para analise.
+                        <DialogDescription className="text-center">
+                            Revise o resumo antes de enviar para analise.
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-4 py-4">
-                        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="space-y-4 py-3">
+                        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                             <SummaryRow
                                 label={`Itens (${count})`}
                                 value={`R$ ${formatCurrency(total)}`}
@@ -1451,11 +1486,12 @@ export default function CartPage() {
                                 />
                             )}
                             <Separator />
-                            <SummaryRow
-                                label="Total a pagar"
-                                value={`R$ ${formatCurrency(finalTotal)}`}
-                                emphasis="strong"
-                            />
+                            <div className="flex items-center justify-between gap-3 text-sm">
+                                <span className="font-semibold text-slate-950">Total a pagar</span>
+                                <span className="text-lg font-bold text-slate-950">
+                                    R$ {formatCurrency(finalTotal)}
+                                </span>
+                            </div>
                         </div>
                     </div>
 
@@ -1463,13 +1499,13 @@ export default function CartPage() {
                         <Button
                             variant="outline"
                             onClick={() => setConfirmCheckoutOpen(false)}
-                            className="w-full sm:w-auto"
+                            className="w-full rounded-xl sm:w-auto"
                         >
                             Revisar checkout
                         </Button>
                         <Button
                             onClick={processOrder}
-                            className="w-full gap-2 gradient-bronze border-0 text-white sm:w-auto"
+                            className="w-full gap-2 rounded-xl gradient-bronze border-0 text-white shadow-md sm:w-auto"
                         >
                             <Check className="h-4 w-4" />
                             Confirmar e enviar
