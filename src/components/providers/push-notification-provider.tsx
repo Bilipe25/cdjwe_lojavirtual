@@ -5,8 +5,6 @@ import { createClient } from '@/lib/supabase/client'
 import { PushOptInModal } from '@/components/marketing/push-opt-in-modal'
 
 export function PushNotificationProvider() {
-    const [registered, setRegistered] = useState(false)
-    const [subscriptionStatus, setSubscriptionStatus] = useState<'pending' | 'granted' | 'denied' | 'default'>('pending')
     const [showOptIn, setShowOptIn] = useState(false)
 
     const syncSubscription = useCallback(async () => {
@@ -25,7 +23,7 @@ export function PushNotificationProvider() {
             if (!subscription) {
                 subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(vapidKey) as any,
+                    applicationServerKey: urlBase64ToUint8Array(vapidKey) as BufferSource,
                 })
             }
 
@@ -43,7 +41,6 @@ export function PushNotificationProvider() {
                 }),
             })
 
-            setRegistered(true)
         } catch (err) {
             console.warn('Failed to sync push subscription:', err)
         }
@@ -55,11 +52,6 @@ export function PushNotificationProvider() {
             
             // Allow notification permission to be read
             const permission = window.Notification.permission
-            setSubscriptionStatus(permission as any)
-
-            // Register service worker regardless of permission 
-            // (it does no harm and handles future subscriptions)
-            await navigator.serviceWorker.register('/sw.js')
 
             // If already granted, ensure subscription is synced to backend
             if (permission === 'granted') {
@@ -75,15 +67,17 @@ export function PushNotificationProvider() {
     }, [syncSubscription])
 
     useEffect(() => {
-        // Initial setup and check
-        checkAndRegisterExisting()
+        const timer = window.setTimeout(() => {
+            void checkAndRegisterExisting()
+        }, 0)
+
+        return () => window.clearTimeout(timer)
     }, [checkAndRegisterExisting])
 
     const handleRequestPermission = async () => {
         setShowOptIn(false)
         try {
             const permission = await Notification.requestPermission()
-            setSubscriptionStatus(permission as any)
             if (permission === 'granted') {
                 await syncSubscription()
             }

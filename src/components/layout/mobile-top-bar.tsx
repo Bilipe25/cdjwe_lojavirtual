@@ -23,6 +23,7 @@ import { CatalogFilters } from '@/app/(store)/catalog/components/CatalogFilters'
 import { OrderFilters } from '@/app/(store)/orders/components/OrderFilters'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { useSettings } from '@/components/providers/settings-provider'
+import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
 import type { Category, Fabric } from '@/lib/types'
 
 interface MobileCatalogSizeFilterOption {
@@ -45,6 +46,7 @@ export function MobileTopBar() {
     const searchParams = useSearchParams()
     const router = useRouter()
     const { settings } = useSettings()
+    const { isStandalone } = usePwaRuntime()
     const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '')
     const [showSearch, setShowSearch] = useState(() => searchParams.get('search_active') === 'true')
     const inputRef = useRef<HTMLInputElement>(null)
@@ -238,10 +240,15 @@ export function MobileTopBar() {
 
     return (
         <header
-            className="sticky top-0 z-50 w-full md:hidden glass-nav border-b border-border/30"
+            data-mobile-top-bar
+            className={`sticky top-0 z-50 w-full border-b border-border/30 md:hidden ${
+                isStandalone
+                    ? 'bg-background/92 shadow-[0_12px_32px_-28px_rgba(15,23,42,0.5)] backdrop-blur-xl'
+                    : 'glass-nav'
+            }`}
             role="banner"
         >
-            <div className="flex items-center h-12 px-4 gap-3">
+            <div className={`flex items-center gap-3 px-4 ${isStandalone ? 'min-h-14' : 'h-12'}`}>
                 {/* Back button or Logo */}
                 {isCartPage ? (
                     <button

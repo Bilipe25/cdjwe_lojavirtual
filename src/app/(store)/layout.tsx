@@ -22,6 +22,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
 import { PriceTableInitializer } from '@/components/store/PriceTableInitializer'
+import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
 
 export default function StoreLayout({
     children,
@@ -29,6 +30,7 @@ export default function StoreLayout({
     children: React.ReactNode
 }) {
     const { isOnline } = useNetworkStatus()
+    const { isStandalone } = usePwaRuntime()
     const pathname = usePathname()
     const router = useRouter()
     const [isViewingAsCustomer, setIsViewingAsCustomer] = useState(false)
@@ -53,7 +55,7 @@ export default function StoreLayout({
     return (
         <SettingsProvider>
             <ErrorBoundary>
-                <div className="min-h-screen flex flex-col relative">
+                <div className={`store-app-shell relative flex min-h-[100dvh] flex-col ${isStandalone ? 'app-installed-shell' : ''}`}>
                     {/* Sticky Header Group */}
                     <div className="sticky top-0 z-50 w-full">
                         <AnimatePresence>
@@ -104,7 +106,7 @@ export default function StoreLayout({
                         </Suspense>
                     </div>
 
-                    <main id="main-content" className="flex-1 pb-(--bottom-nav-height) md:pb-0">
+                    <main id="main-content" className="flex-1 safe-bottom md:pb-0">
                         <AnimatePresence mode="wait" initial={false}>
                             <motion.div
                                 key={pathname}

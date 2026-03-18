@@ -122,14 +122,21 @@
     @apply border-border outline-ring/50;
   }
 
-  body {
-    @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, sans-serif;
-  }
-
   html {
     @apply font-sans;
     scroll-behavior: smooth;
+    min-height: 100%;
+    color-scheme: light;
+    background: oklch(0.97 0.005 80);
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100dvh;
+    background:
+      radial-gradient(circle at top, rgba(255, 255, 255, 0.88), transparent 38%),
+      linear-gradient(180deg, rgba(245, 239, 229, 0.55) 0%, rgba(247, 244, 238, 0.92) 18%, rgba(247, 244, 238, 1) 100%);
   }
 
   h1,
@@ -272,12 +279,48 @@
 }
 
 /* ==================== PWA SAFE AREAS ==================== */
-@supports (padding-top: env(safe-area-inset-top)) {
-  body {
-    padding-top: env(safe-area-inset-top);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-  }
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+}
+
+.pwa-standalone body {
+  padding-top: var(--safe-area-top);
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
+  overscroll-behavior-y: contain;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  background:
+    radial-gradient(circle at top center, rgba(255, 255, 255, 0.92), transparent 32%),
+    linear-gradient(180deg, rgba(238, 231, 219, 0.85) 0%, rgba(247, 244, 238, 0.96) 18%, rgba(247, 244, 238, 1) 100%);
+}
+
+.pwa-standalone [data-sonner-toaster] {
+  top: calc(var(--safe-area-top) + 12px) !important;
+}
+
+.pwa-standalone .store-app-shell {
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at top center, rgba(255, 255, 255, 0.68), transparent 28%),
+    linear-gradient(180deg, rgba(248, 245, 239, 0.9) 0%, rgba(247, 244, 238, 0.98) 100%);
+}
+
+.pwa-standalone [data-mobile-top-bar] {
+  box-shadow: 0 10px 32px -28px rgba(15, 23, 42, 0.55);
+}
+
+.pwa-standalone [data-mobile-bottom-nav] {
+  padding-left: calc(var(--safe-area-left) + 8px);
+  padding-right: calc(var(--safe-area-right) + 8px);
+}
+
+.pwa-standalone [data-mobile-bottom-nav-inner] {
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
 }
 
 /* ==================== MOBILE UTILITIES ==================== */
@@ -336,7 +379,16 @@
 }
 
 .safe-bottom {
-  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom));
+}
+
+.safe-top {
+  padding-top: var(--safe-area-top);
+}
+
+.safe-x {
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
 }
 
 /* Glass effect for bottom nav */
