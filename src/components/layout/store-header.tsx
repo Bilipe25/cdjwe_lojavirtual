@@ -20,13 +20,12 @@ import {
     Gift,
     Info,
     CheckCheck,
-    Trash2,
     Clock,
     CheckCircle2,
     Factory,
     Truck,
     AlertCircle,
-    ExternalLink,
+    type LucideIcon,
 } from 'lucide-react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -44,10 +43,11 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { logoutAction } from '@/app/(auth)/login/actions'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { useNotifications, type ClientNotification } from '@/lib/hooks/use-notifications'
+import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
 
 const navItems = [
     { href: '/catalog', label: 'Catálogo', icon: Package },
@@ -56,14 +56,14 @@ const navItems = [
     { href: '/about', label: 'Sobre Nós', icon: Building2 },
 ]
 
-const typeConfig: Record<string, { icon: any; color: string; bg: string; label: string }> = {
+const typeConfig: Record<string, { icon: LucideIcon; color: string; bg: string; label: string }> = {
     order_status: { icon: Package, color: 'text-blue-600', bg: 'bg-blue-50', label: 'Pedido' },
     campaign: { icon: Megaphone, color: 'text-purple-600', bg: 'bg-purple-50', label: 'Campanha' },
     promo: { icon: Gift, color: 'text-amber-600', bg: 'bg-amber-50', label: 'Promoção' },
     system: { icon: Info, color: 'text-slate-600', bg: 'bg-slate-50', label: 'Sistema' },
 }
 
-const statusIcons: Record<string, any> = {
+const statusIcons: Record<string, LucideIcon> = {
     pending: Clock,
     approved: CheckCircle2,
     in_production: Factory,
@@ -88,6 +88,7 @@ export function StoreHeader() {
     const pathname = usePathname()
     const searchParams = useSearchParams()
     const router = useRouter()
+    const { isStandalone } = usePwaRuntime()
     const { totalItems, openCart } = useCartStore()
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
@@ -102,7 +103,6 @@ export function StoreHeader() {
         unreadCount,
         markAsRead,
         markAllAsRead,
-        removeNotification,
     } = useNotifications()
 
     useEffect(() => {
@@ -118,14 +118,19 @@ export function StoreHeader() {
         // Sync favorites from database on mount
         useFavoritesStore.getState().syncFromDb()
         
-        setIsMounted(true)
+        const frame = window.requestAnimationFrame(() => setIsMounted(true))
+
+        return () => window.cancelAnimationFrame(frame)
     }, [])
 
     // Live Search Sync with URL
     useEffect(() => {
         const query = searchParams.get('search') || ''
-        if (query !== searchQuery) setSearchQuery(query)
-    }, [searchParams])
+        if (query === searchQuery) return
+
+        const frame = window.requestAnimationFrame(() => setSearchQuery(query))
+        return () => window.cancelAnimationFrame(frame)
+    }, [searchParams, searchQuery])
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -174,13 +179,14 @@ export function StoreHeader() {
         <motion.header
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="sticky top-0 z-50 w-full hidden md:block"
+            data-store-header
+            className={`sticky top-0 z-50 hidden w-full md:block ${isStandalone ? 'px-4 pt-4 lg:px-6' : ''}`}
             role="banner"
         >
-            <div className="glass-card border-0 border-b">
-                <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                    <div className="flex items-center justify-between h-16">
-                    <Link href="/catalog" className="flex items-center shrink-0" aria-label={`${settings?.system_name || 'Loja'} - Página inicial`}>
+            <div className={isStandalone ? 'rounded-[24px] border border-white/70 bg-white/88 shadow-[0_20px_48px_-34px_rgba(15,23,42,0.45)] backdrop-blur-xl' : 'glass-card border-0 border-b'}>
+                <div className={`mx-auto ${isStandalone ? 'max-w-[1440px] px-5 lg:px-6' : 'max-w-7xl px-4 sm:px-6 lg:px-8'}`}>
+                    <div className={`flex items-center justify-between ${isStandalone ? 'h-[68px]' : 'h-16'}`}>
+                    <Link href="/catalog" className="flex items-center shrink-0 gap-3" aria-label={`${settings?.system_name || 'Loja'} - Página inicial`}>
                         {isMounted && settings?.logo_url ? (
                             <div className="h-10 w-24 sm:w-32 shrink-0 relative">
                                 <Image priority src={settings.logo_url} alt={settings.system_name || 'Loja'} fill className="object-contain object-left" />
@@ -195,7 +201,7 @@ export function StoreHeader() {
                     </Link>
 
                     {/* Desktop Nav */}
-                    <nav className="hidden md:flex items-center gap-1" aria-label="Navegação principal">
+                    <nav className={`hidden md:flex items-center ${isStandalone ? 'gap-1.5' : 'gap-1'}`} aria-label="Navegação principal">
                         {navItems.map((item) => {
                             const isActive = pathname.startsWith(item.href)
                             return (
@@ -203,7 +209,7 @@ export function StoreHeader() {
                                     <Button
                                         variant={isActive ? 'secondary' : 'ghost'}
                                         size="sm"
-                                        className={`gap-2 ${isActive ? 'bg-primary/10 text-primary' : ''}`}
+                                        className={`gap-2 ${isActive ? 'bg-primary/10 text-primary' : ''} ${isStandalone ? 'rounded-xl px-3.5' : ''}`}
                                     >
                                         <item.icon className="h-4 w-4" />
                                         {item.label}
@@ -214,12 +220,12 @@ export function StoreHeader() {
                     </nav>
 
                     {/* Search (Desktop) */}
-                    <div className="hidden lg:flex flex-1 max-w-md">
+                    <div className={`hidden lg:flex flex-1 ${isStandalone ? 'max-w-lg px-4' : 'max-w-md'}`}>
                         <div className="relative w-full">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input
                                 placeholder="Buscar produtos..."
-                                className="pl-9 bg-white/60 border-border/50 focus:bg-white"
+                                className={`pl-9 border-border/50 focus:bg-white ${isStandalone ? 'h-11 rounded-2xl bg-white/85 shadow-sm' : 'bg-white/60'}`}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={handleSearch}
@@ -228,7 +234,7 @@ export function StoreHeader() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-1">
+                    <div className={`flex items-center ${isStandalone ? 'gap-1.5' : 'gap-1'}`}>
                         {/* Favorites */}
                         <Link href="/favorites">
                             <Button variant="ghost" size="icon" className="relative">
@@ -506,3 +512,6 @@ export function StoreHeader() {
         </motion.header>
     )
 }
+
+
+

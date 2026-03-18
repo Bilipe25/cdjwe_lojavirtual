@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Download, X, Smartphone, Zap, Bell, Share, PlusSquare } from 'lucide-react'
+import { Download, X, Smartphone, Zap, Bell, Share, PlusSquare, Monitor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Image from 'next/image'
 import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
@@ -15,6 +15,8 @@ interface BeforeInstallPromptEvent extends Event {
     userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
+type InstallSurface = 'mobile' | 'desktop' | 'ios'
+
 function isIosInstallCandidate() {
     if (typeof window === 'undefined') return false
 
@@ -25,13 +27,26 @@ function isIosInstallCandidate() {
     return isiOS && !isStandalone
 }
 
+function detectPromptSurface(): InstallSurface {
+    if (typeof window === 'undefined') return 'mobile'
+
+    if (isIosInstallCandidate()) return 'ios'
+
+    const prefersDesktopLayout = window.matchMedia('(min-width: 1024px)').matches
+    const hasFinePointer = window.matchMedia('(pointer: fine)').matches
+
+    return prefersDesktopLayout && hasFinePointer ? 'desktop' : 'mobile'
+}
+
 export function PWAInstallPrompt() {
     const { isStandalone } = usePwaRuntime()
     const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
     const [showModal, setShowModal] = useState(false)
-    const [showIosGuide, setShowIosGuide] = useState(false)
     const [appInstalled, setAppInstalled] = useState(false)
+    const [installSurface, setInstallSurface] = useState<InstallSurface>('mobile')
     const isInstalled = isStandalone || appInstalled
+    const showIosGuide = installSurface === 'ios'
+    const isDesktopPrompt = installSurface === 'desktop'
 
     useEffect(() => {
         if (typeof window === 'undefined') return
@@ -44,6 +59,7 @@ export function PWAInstallPrompt() {
 
         const beforeInstallHandler = (event: Event) => {
             event.preventDefault()
+            setInstallSurface(detectPromptSurface())
             setDeferredPrompt(event as BeforeInstallPromptEvent)
             window.setTimeout(() => setShowModal(true), 1800)
         }
@@ -51,7 +67,7 @@ export function PWAInstallPrompt() {
         const installedHandler = () => {
             setAppInstalled(true)
             setShowModal(false)
-            setShowIosGuide(false)
+            setInstallSurface('mobile')
             setDeferredPrompt(null)
         }
 
@@ -60,7 +76,7 @@ export function PWAInstallPrompt() {
 
         if (isIosInstallCandidate()) {
             const timer = window.setTimeout(() => {
-                setShowIosGuide(true)
+                setInstallSurface('ios')
                 setShowModal(true)
             }, 2200)
 
@@ -93,18 +109,26 @@ export function PWAInstallPrompt() {
 
     const handleDismiss = useCallback(() => {
         setShowModal(false)
-        setShowIosGuide(false)
+        setInstallSurface('mobile')
         localStorage.setItem(DISMISS_KEY, Date.now().toString())
     }, [])
 
     const benefits = useMemo(
-        () => [
-            { icon: Zap, text: 'Abertura mais rapida' },
-            { icon: Bell, text: 'Notificacoes de pedidos' },
-            { icon: Smartphone, text: 'Tela cheia, sem navegador' },
-            { icon: Download, text: 'Acesso direto na tela inicial' },
-        ],
-        []
+        () =>
+            isDesktopPrompt
+                ? [
+                      { icon: Monitor, text: 'Janela propria para o portal' },
+                      { icon: Zap, text: 'Abertura mais rapida no escritorio' },
+                      { icon: Bell, text: 'Notificacoes sem depender da aba do navegador' },
+                      { icon: Download, text: 'Acesso fixo pelo computador' },
+                  ]
+                : [
+                      { icon: Zap, text: 'Abertura mais rapida' },
+                      { icon: Bell, text: 'Notificacoes de pedidos' },
+                      { icon: Smartphone, text: 'Tela cheia, sem navegador' },
+                      { icon: Download, text: 'Acesso direto na tela inicial' },
+                  ],
+        [isDesktopPrompt]
     )
 
     if (isInstalled || !showModal) return null
@@ -127,10 +151,11 @@ export function PWAInstallPrompt() {
                         exit={{ opacity: 0, y: 100, scale: 0.95 }}
                         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                         className="
-                            fixed z-9999
-                            bottom-0 left-0 right-0
+                            fixed z-9999 bottom-0 left-0 right-0
+                            w-full
                             sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                            w-full sm:max-w-md
+                            sm:max-w-md
+                            lg:max-w-xl
                             overflow-hidden rounded-t-3xl bg-white shadow-2xl shadow-navy/20
                             sm:rounded-2xl
                         "
@@ -154,9 +179,11 @@ export function PWAInstallPrompt() {
                                 </div>
                                 <div>
                                     <h2 className="text-xl font-bold text-[#1a2744]">
-                                        {showIosGuide ? 'Adicionar a tela inicial' : 'Instale nosso app'}
+                                        {showIosGuide ? 'Adicionar a tela inicial' : isDesktopPrompt ? 'Instale no computador' : 'Instale nosso app'}
                                     </h2>
-                                    <p className="mt-0.5 text-sm text-gray-500">JWE Centro de Distribuicao</p>
+                                    <p className="mt-0.5 text-sm text-gray-500">
+                                        {isDesktopPrompt ? 'Versao desktop do portal B2B' : 'JWE Centro de Distribuicao'}
+                                    </p>
                                 </div>
                             </div>
 
@@ -200,7 +227,7 @@ export function PWAInstallPrompt() {
                                 </div>
                             ) : (
                                 <>
-                                    <div className="mb-8 grid grid-cols-2 gap-3">
+                                    <div className={`mb-8 grid gap-3 ${isDesktopPrompt ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2'}`}>
                                         {benefits.map(({ icon: Icon, text }, index) => (
                                             <motion.div
                                                 key={text}
@@ -218,7 +245,9 @@ export function PWAInstallPrompt() {
                                     </div>
 
                                     <div className="rounded-xl bg-primary/5 p-3 text-xs leading-5 text-muted-foreground">
-                                        O aplicativo instalado melhora o acesso diario, as notificacoes e a navegacao em tela cheia.
+                                        {isDesktopPrompt
+                                            ? 'No desktop, o portal instalado abre em janela propria e reduz a dependencia do navegador no uso diario da equipe.'
+                                            : 'O aplicativo instalado melhora o acesso diario, as notificacoes e a navegacao em tela cheia.'}
                                     </div>
                                 </>
                             )}
@@ -235,7 +264,7 @@ export function PWAInstallPrompt() {
                                         }}
                                     >
                                         <Download className="h-5 w-5" />
-                                        Instalar aplicativo
+                                        {isDesktopPrompt ? 'Instalar no computador' : 'Instalar aplicativo'}
                                     </Button>
                                 )}
                                 <Button

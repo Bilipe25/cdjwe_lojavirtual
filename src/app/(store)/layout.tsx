@@ -106,7 +106,7 @@ export default function StoreLayout({
                         </Suspense>
                     </div>
 
-                    <main id="main-content" className="flex-1 safe-bottom md:pb-0">
+                    <main id="main-content" data-store-main className={`flex-1 safe-bottom md:pb-0 ${isStandalone ? 'md:px-4 md:pb-6 lg:px-6' : ''}`}>
                         <AnimatePresence mode="wait" initial={false}>
                             <motion.div
                                 key={pathname}
