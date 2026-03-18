@@ -130,11 +130,13 @@ export function StoreHeader() {
 
     useEffect(() => {
         const query = searchParams.get('search') || ''
-        if (query === searchQuery) return
 
-        const frame = window.requestAnimationFrame(() => setSearchQuery(query))
+        const frame = window.requestAnimationFrame(() => {
+            setSearchQuery((current) => (current === query ? current : query))
+        })
+
         return () => window.cancelAnimationFrame(frame)
-    }, [searchParams, searchQuery])
+    }, [searchParams])
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
