@@ -42,7 +42,7 @@ export default function AboutPage() {
     }
 
     const title = settings?.about_title || 'Sobre Nós'
-    const text = settings?.about_text || 'A CDJWE é dedicada a oferecer o melhor em tecidos e soluções têxteis, focando em qualidade, inovação e no sucesso dos nossos clientes.'
+    const text = settings?.about_text || 'A CDJWE e dedicada a oferecer uma operacao comercial confiavel, com qualidade, agilidade e foco no sucesso dos nossos clientes.'
     const imageUrl = settings?.about_image_url
 
     return (
@@ -79,7 +79,7 @@ export default function AboutPage() {
                         <div className="mt-12 pt-12 border-t border-slate-100 grid grid-cols-2 gap-8">
                             <div>
                                 <div className="text-bronze font-bold text-3xl mb-1 italic">CDJWE</div>
-                                <p className="text-sm text-slate-500 uppercase tracking-widest font-medium">Excelência Têxtil</p>
+                                <p className="text-sm text-slate-500 uppercase tracking-widest font-medium">Centro de Distribuicao</p>
                             </div>
                             <div className="flex items-center justify-end">
                                 <div className="text-right">
@@ -126,3 +126,4 @@ export default function AboutPage() {
         </main>
     )
 }
+
