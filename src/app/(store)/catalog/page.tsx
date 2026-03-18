@@ -25,6 +25,7 @@ import { useSettings } from '@/components/providers/settings-provider'
 import { PullToRefresh } from '@/components/ui/pull-to-refresh'
 import { NoticeCard } from '@/components/store/NoticeCard'
 import { useCustomerGreeting } from '@/lib/hooks/use-customer-greeting'
+import { DesktopInstalledBadge } from '@/components/store/desktop-installed-badge'
 
 const PAGE_SIZE = 12
 
@@ -32,6 +33,11 @@ interface CatalogSizeFilterOption {
     slug: string
     name: string
     sort_order: number
+}
+
+type CatalogProduct = Product & {
+    images: { url: string; is_primary: boolean }[]
+    size_options?: Product['size_options']
 }
 
 const CatalogContent = dynamic(() => Promise.resolve(CatalogContentInner), {
@@ -44,10 +50,7 @@ export default function CatalogPage() {
 }
 
 function CatalogContentInner() {
-    const [products, setProducts] = useState<(Product & {
-        images: { url: string; is_primary: boolean }[]
-        size_options?: Product['size_options']
-    })[]>([])
+    const [products, setProducts] = useState<CatalogProduct[]>([])
     const [categories, setCategories] = useState<Category[]>([])
     const [fabrics, setFabrics] = useState<Fabric[]>([])
     const [sizes, setSizes] = useState<CatalogSizeFilterOption[]>([])
@@ -81,15 +84,26 @@ function CatalogContentInner() {
         const urlFabric = searchParams.get('fabric') || 'all'
         const urlSize = searchParams.get('size') || 'all'
 
-        if (urlSearch !== search) setSearch(urlSearch)
-        if (urlSearch !== debouncedSearch) setDebouncedSearch(urlSearch)
-        if (urlCategory !== selectedCategory) setSelectedCategory(urlCategory)
-        if (urlFabric !== selectedFabric) setSelectedFabric(urlFabric)
-        if (urlSize !== selectedSize) setSelectedSize(urlSize)
-        
-        // Reset to page 1 always on search/filter changes
-        setCurrentPage(1)
-    }, [searchParams])
+        const needsSync =
+            urlSearch !== search ||
+            urlSearch !== debouncedSearch ||
+            urlCategory !== selectedCategory ||
+            urlFabric !== selectedFabric ||
+            urlSize !== selectedSize
+
+        if (!needsSync) return
+
+        const frame = window.requestAnimationFrame(() => {
+            if (urlSearch !== search) setSearch(urlSearch)
+            if (urlSearch !== debouncedSearch) setDebouncedSearch(urlSearch)
+            if (urlCategory !== selectedCategory) setSelectedCategory(urlCategory)
+            if (urlFabric !== selectedFabric) setSelectedFabric(urlFabric)
+            if (urlSize !== selectedSize) setSelectedSize(urlSize)
+            setCurrentPage(1)
+        })
+
+        return () => window.cancelAnimationFrame(frame)
+    }, [debouncedSearch, search, searchParams, selectedCategory, selectedFabric, selectedSize])
 
     // Load static filters once
     useEffect(() => {
@@ -251,7 +265,7 @@ function CatalogContentInner() {
             const { data, count, error } = await query
 
             if (!error && data) {
-                setProducts(data as any)
+                setProducts(data as CatalogProduct[])
                 setTotalCount(count || 0)
             }
             setLoading(false)
@@ -299,9 +313,12 @@ function CatalogContentInner() {
                         </>
                     ) : (
                         <>
-                            <h1 className="text-3xl font-bold font-heading text-gradient-navy">
-                                Bem-vindo(a), {greetingData.customerName || 'visitante'}
-                            </h1>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <h1 className="text-3xl font-bold font-heading text-gradient-navy">
+                                    Bem-vindo(a), {greetingData.customerName || 'visitante'}
+                                </h1>
+                                <DesktopInstalledBadge detail="Catalogo otimizado para desktop" />
+                            </div>
                             <p className="text-muted-foreground mt-1 text-balance">
                                 {greetingData.greetingMessage}
                             </p>

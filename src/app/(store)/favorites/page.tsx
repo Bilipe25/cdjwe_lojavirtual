@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Heart, Trash2, Package } from 'lucide-react'
+import { Heart, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
     AlertDialog,
@@ -22,19 +22,21 @@ import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { ProductCard } from '@/components/catalog/product-card'
 import { QuickViewModal } from '@/components/catalog/quick-view-modal'
 import type { Product } from '@/lib/types'
+import { DesktopInstalledBadge } from '@/components/store/desktop-installed-badge'
+
+type FavoriteProduct = Product & {
+    images: { url: string; is_primary: boolean }[]
+    category: { name: string }
+}
 
 export default function FavoritesPage() {
     const router = useRouter()
     const { favoriteIds, clear } = useFavoritesStore()
-    const [products, setProducts] = useState<(Product & { images: { url: string; is_primary: boolean }[]; category: { name: string } })[]>([])
+    const [products, setProducts] = useState<FavoriteProduct[]>([])
     const [loading, setLoading] = useState(true)
     const [quickViewId, setQuickViewId] = useState<string | null>(null)
 
-    useEffect(() => {
-        loadFavorites()
-    }, [favoriteIds])
-
-    const loadFavorites = async () => {
+    const loadFavorites = useCallback(async () => {
         if (favoriteIds.length === 0) {
             setProducts([])
             setLoading(false)
@@ -48,18 +50,29 @@ export default function FavoritesPage() {
             .in('id', favoriteIds)
             .eq('is_active', true)
             .order('name')
-        if (data) setProducts(data as any)
+        if (data) setProducts(data as FavoriteProduct[])
         setLoading(false)
-    }
+    }, [favoriteIds])
+
+    useEffect(() => {
+        const frame = window.requestAnimationFrame(() => {
+            void loadFavorites()
+        })
+
+        return () => window.cancelAnimationFrame(frame)
+    }, [loadFavorites])
 
     return (
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
             <div className="flex items-center justify-between mb-6">
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="hidden md:block">
-                    <h1 className="text-2xl font-bold font-heading text-gradient-navy flex items-center gap-2">
-                        <Heart className="h-6 w-6 text-red-500 fill-red-500" />
-                        Favoritos
-                    </h1>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <h1 className="text-2xl font-bold font-heading text-gradient-navy flex items-center gap-2">
+                            <Heart className="h-6 w-6 text-red-500 fill-red-500" />
+                            Favoritos
+                        </h1>
+                        <DesktopInstalledBadge detail="Lista pronta para consulta rapida" />
+                    </div>
                     <p className="text-sm text-muted-foreground mt-1">
                         {favoriteIds.length} {favoriteIds.length === 1 ? 'produto salvo' : 'produtos salvos'}
                     </p>

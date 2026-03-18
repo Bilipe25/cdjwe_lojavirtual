@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import type { Fabric, FabricColor } from '@/lib/types'
 import Image from 'next/image'
+import { DesktopInstalledBadge } from '@/components/store/desktop-installed-badge'
 
 type FabricWithColors = Fabric & { colors: FabricColor[] }
 
@@ -81,6 +82,7 @@ export function FabricCatalogClient({ initialFabrics, systemSettings }: FabricCa
                     <h1 className="text-4xl lg:text-5xl font-bold font-heading text-gradient-navy tracking-tight">
                         Catalogo de Tecidos
                     </h1>
+                    <DesktopInstalledBadge className="mt-1" detail="Colecao pronta para consulta ampliada" />
                     <p className="text-muted-foreground text-sm md:text-base max-w-3xl leading-relaxed">
                         Nossa curadoria exclusiva de tecidos e acabamentos. Clique em uma cor para uma previa ampliada e detalhes tecnicos.
                     </p>

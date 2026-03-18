@@ -14,6 +14,8 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { NoticeCard } from '@/components/store/NoticeCard'
 import { useSettings } from '@/components/providers/settings-provider'
+import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
+import { DesktopInstalledBadge } from '@/components/store/desktop-installed-badge'
 
 interface DashboardCard {
     title: string
@@ -93,6 +95,7 @@ const item = {
 
 export default function DashboardPage() {
     const { settings } = useSettings()
+    const { isStandalone } = usePwaRuntime()
     const [userName, setUserName] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
 
@@ -128,12 +131,12 @@ export default function DashboardPage() {
     }, [])
 
     return (
-        <div className="px-4 py-6 max-w-lg mx-auto">
+        <div className={`mx-auto px-4 py-6 ${isStandalone ? 'max-w-6xl lg:px-6 lg:py-8' : 'max-w-lg'}`}>
             {/* Greeting */}
             <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mb-8"
+                className={`mb-8 ${isStandalone ? 'lg:flex lg:items-start lg:justify-between lg:gap-6' : ''}`}
             >
                 {loading ? (
                     <div className="space-y-2">
@@ -141,14 +144,37 @@ export default function DashboardPage() {
                         <div className="h-5 w-72 rounded-md bg-muted animate-pulse" />
                     </div>
                 ) : (
-                    <>
-                        <h1 className="text-3xl font-bold font-heading tracking-tight text-gradient-navy">
-                            Bem-vindo(a), {userName || 'visitante'}
-                        </h1>
-                        <p className="mt-1 text-balance text-muted-foreground">
-                            {greeting}. Escolha um atalho para continuar sua operacao.
-                        </p>
-                    </>
+                    <div className={`space-y-4 ${isStandalone ? 'lg:flex lg:flex-1 lg:items-start lg:justify-between lg:gap-6 lg:space-y-0' : ''}`}>
+                        <div>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <h1 className="text-3xl font-bold font-heading tracking-tight text-gradient-navy">
+                                    Bem-vindo(a), {userName || 'visitante'}
+                                </h1>
+                                <DesktopInstalledBadge detail="Workspace desktop pronto" />
+                            </div>
+                            <p className="mt-1 text-balance text-muted-foreground">
+                                {greeting}. Escolha um atalho para continuar sua operacao.
+                            </p>
+                        </div>
+
+                        {isStandalone && (
+                            <div className="hidden min-w-[280px] rounded-3xl border border-white/70 bg-white/88 p-4 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.35)] backdrop-blur-xl lg:block">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                                    Workspace
+                                </p>
+                                <div className="mt-3 grid grid-cols-2 gap-3">
+                                    <div className="rounded-2xl bg-navy/[0.04] px-3 py-3">
+                                        <p className="text-2xl font-bold font-heading text-navy">{dashboardCards.length}</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">atalhos ativos</p>
+                                    </div>
+                                    <div className="rounded-2xl bg-bronze/[0.08] px-3 py-3">
+                                        <p className="text-sm font-semibold text-foreground">Fluxo rapido</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">catalogo, pedidos e perfil</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 )}
             </motion.div>
 
@@ -157,7 +183,7 @@ export default function DashboardPage() {
                 variants={container}
                 initial="hidden"
                 animate="show"
-                className="grid grid-cols-2 sm:grid-cols-3 gap-3"
+                className={`grid gap-3 ${isStandalone ? 'grid-cols-2 xl:grid-cols-3' : 'grid-cols-2 sm:grid-cols-3'}`}
             >
                 {dashboardCards.map((card) => (
                     <motion.div key={card.title} variants={item}>
