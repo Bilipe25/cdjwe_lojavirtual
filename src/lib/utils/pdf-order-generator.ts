@@ -6,7 +6,6 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getBase64ImageFromURL } from '@/lib/utils'
 import {
-    buildOrderSnapshotSummary,
     formatOrderCurrency,
     getOrderItemCommunicationPricing,
 } from '@/lib/orders/order-communication'
@@ -58,7 +57,12 @@ type ReceiptOrder = {
     } | null
 }
 
-function buildPricingLine(item: OrderItem) {
+function buildItemVariantLine(item: OrderItem) {
+    const parts = [item.fabric_name, item.color_name, item.size].filter(Boolean)
+    return parts.length > 0 ? parts.join(' / ') : 'Sem variacao informada'
+}
+
+function buildAppliedPriceLine(item: OrderItem) {
     const pricing = getOrderItemCommunicationPricing({
         productName: item.product_name,
         fabricName: item.fabric_name,
@@ -71,17 +75,90 @@ function buildPricingLine(item: OrderItem) {
         finalPrice: item.final_price,
     })
 
-    const parts = [pricing.appliedLabel, `Base ${formatOrderCurrency(pricing.basePrice)}`]
-
     if (pricing.variationPrice !== null) {
-        parts.push(`Cor ${formatOrderCurrency(pricing.variationPrice)}`)
+        return `Preco unitario com ajuste de cor: ${formatOrderCurrency(pricing.finalPrice)}`
     }
 
-    if (pricing.hasFrozenSnapshot) {
-        parts.push(`Final ${formatOrderCurrency(pricing.finalPrice)}`)
+    if (pricing.usesCommercialPolicy) {
+        return `Preco unitario pela politica comercial: ${formatOrderCurrency(pricing.finalPrice)}`
     }
 
-    return parts.join(' | ')
+    return `Preco unitario aplicado: ${formatOrderCurrency(pricing.finalPrice)}`
+}
+
+function buildCustomerAddress(order: ReceiptOrder) {
+    const parts = [
+        order.store?.address,
+        order.store?.city,
+        order.store?.state,
+        order.store?.zip_code ? `CEP ${order.store.zip_code}` : null,
+    ].filter(Boolean)
+
+    return parts.join(', ') || 'Endereco nao informado'
+}
+
+function buildCustomerPhone(order: ReceiptOrder) {
+    return order.store?.phone || order.profile?.phone || 'Nao informado'
+}
+
+function buildRepresentative(order: ReceiptOrder) {
+    return order.profile?.full_name || 'Nao informado'
+}
+
+function createSectionTitle(title: string): Content {
+    return {
+        stack: [
+            {
+                text: title.toUpperCase(),
+                fontSize: 8.5,
+                bold: true,
+                color: '#475569',
+                characterSpacing: 0.8,
+            },
+            {
+                canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }],
+                margin: [0, 6, 0, 0],
+            },
+        ],
+        margin: [0, 0, 0, 10],
+    }
+}
+
+function createInfoCell(label: string, value: string, options?: { colSpan?: number }) {
+    return {
+        stack: [
+            { text: label.toUpperCase(), fontSize: 7, color: '#94a3b8', bold: true, margin: [0, 0, 0, 3] },
+            { text: value || 'N/A', fontSize: 9.6, color: '#0f172a', bold: true, lineHeight: 1.15 },
+        ],
+        fillColor: '#f8fafc',
+        border: [false, false, false, false],
+        margin: [10, 8, 10, 8],
+        ...(options?.colSpan ? { colSpan: options.colSpan } : {}),
+    } as TableCell
+}
+
+function createSummaryRow(label: string, value: string, options?: { highlight?: boolean; accent?: boolean }) {
+    const isHighlight = options?.highlight ?? false
+    const isAccent = options?.accent ?? false
+
+    return {
+        columns: [
+            {
+                text: label,
+                fontSize: isHighlight ? 10.5 : 9.5,
+                bold: isHighlight,
+                color: isAccent ? '#16a34a' : '#64748b',
+            },
+            {
+                text: value,
+                fontSize: isHighlight ? 14 : 10,
+                bold: true,
+                alignment: 'right',
+                color: isHighlight ? '#c2410c' : isAccent ? '#16a34a' : '#0f172a',
+            },
+        ],
+        margin: [0, 0, 0, isHighlight ? 0 : 7],
+    } as Content
 }
 
 export async function generateOrderReceiptPDF(
@@ -90,34 +167,48 @@ export async function generateOrderReceiptPDF(
     settings?: SystemSettings | null
 ) {
     const logoBase64 = settings?.logo_url ? await getBase64ImageFromURL(settings.logo_url) : null
-    const snapshotSummary = buildOrderSnapshotSummary(
-        items.map((item) => ({
-            productName: item.product_name,
-            fabricName: item.fabric_name,
-            colorName: item.color_name,
-            quantity: item.quantity,
-            unitPrice: item.unit_price,
-            subtotal: item.subtotal,
-            productPrice: item.product_price,
-            variationPrice: item.variation_price,
-            finalPrice: item.final_price,
-        }))
-    )
 
-    const itemRows: TableCell[][] = items.map((item) => [
-        {
-            stack: [
-                { text: item.product_name, fontSize: 10, bold: true, color: '#0f172a' },
-                { text: `${item.fabric_name} - ${item.color_name}${item.size ? ` - ${item.size}` : ''}`, fontSize: 8, color: '#64748b', margin: [0, 2, 0, 0] },
-                { text: buildPricingLine(item), fontSize: 7, color: '#475569', margin: [0, 4, 0, 0] },
-            ],
-            margin: [0, 8, 0, 8],
-            border: [false, false, false, true],
-        },
-        { text: item.quantity.toString(), fontSize: 10, alignment: 'center', margin: [0, 8, 0, 8], border: [false, false, false, true] },
-        { text: formatOrderCurrency(item.unit_price), fontSize: 10, alignment: 'right', margin: [0, 8, 0, 8], border: [false, false, false, true] },
-        { text: formatOrderCurrency(item.subtotal), fontSize: 10, bold: true, alignment: 'right', margin: [0, 8, 0, 8], border: [false, false, false, true] },
-    ])
+    const itemRows: TableCell[][] = items.map((item) => {
+        const rowBorderColor: [string, string, string, string] = ['#ffffff', '#ffffff', '#ffffff', '#e2e8f0']
+
+        return [
+            {
+                stack: [
+                    { text: item.product_name, fontSize: 10.2, bold: true, color: '#0f172a', lineHeight: 1.1 },
+                    { text: buildItemVariantLine(item), fontSize: 8, color: '#64748b', margin: [0, 2, 0, 0], lineHeight: 1.15 },
+                    { text: buildAppliedPriceLine(item), fontSize: 7.4, color: '#475569', margin: [0, 3, 0, 0], lineHeight: 1.15 },
+                ],
+                margin: [0, 5, 0, 5],
+                border: [false, false, false, true],
+                borderColor: rowBorderColor,
+            },
+            {
+                text: item.quantity.toString(),
+                fontSize: 9.5,
+                alignment: 'center',
+                margin: [0, 9, 0, 0],
+                border: [false, false, false, true],
+                borderColor: rowBorderColor,
+            },
+            {
+                text: formatOrderCurrency(item.unit_price),
+                fontSize: 9.5,
+                alignment: 'right',
+                margin: [0, 9, 0, 0],
+                border: [false, false, false, true],
+                borderColor: rowBorderColor,
+            },
+            {
+                text: formatOrderCurrency(item.subtotal),
+                fontSize: 9.7,
+                bold: true,
+                alignment: 'right',
+                margin: [0, 9, 0, 0],
+                border: [false, false, false, true],
+                borderColor: rowBorderColor,
+            },
+        ]
+    })
 
     const content: Content[] = [
         {
@@ -126,7 +217,7 @@ export async function generateOrderReceiptPDF(
                     ? {
                           image: logoBase64,
                           width: 80,
-                          margin: [0, 0, 0, 10],
+                          margin: [0, 0, 0, 6],
                       }
                     : {
                           text: settings?.system_name || 'CDJWE',
@@ -137,193 +228,167 @@ export async function generateOrderReceiptPDF(
                       },
                 {
                     stack: [
-                        { text: settings?.system_name || 'CDJWE ESTOFADOS', bold: true, fontSize: 14, color: '#0f172a' },
-                        { text: settings?.cnpj ? `CNPJ: ${settings.cnpj}` : '', fontSize: 9, color: '#475569', margin: [0, 2, 0, 0] },
-                        { text: settings?.address || '', fontSize: 9, color: '#64748b', margin: [0, 2, 0, 0] },
-                        { text: `${settings?.city || ''} - ${settings?.state || ''}${settings?.zip_code ? ` (CEP: ${settings.zip_code})` : ''}`, fontSize: 9, color: '#64748b' },
+                        { text: settings?.system_name || 'CDJWE ESTOFADOS', bold: true, fontSize: 13.5, color: '#0f172a' },
+                        { text: [settings?.city, settings?.state].filter(Boolean).join(' / '), fontSize: 8.5, color: '#64748b', margin: [0, 2, 0, 0] },
+                        { text: settings?.cnpj ? `CNPJ ${settings.cnpj}` : '', fontSize: 8.5, color: '#94a3b8', margin: [0, 4, 0, 0] },
                     ],
                     alignment: 'right',
                 },
             ],
-            margin: [0, 0, 0, 20],
+            margin: [0, 0, 0, 14],
         },
-        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }], margin: [0, 0, 0, 20] },
+        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }], margin: [0, 0, 0, 16] },
         {
             columns: [
                 {
                     stack: [
-                        { text: 'COMPROVANTE DE PEDIDO', fontSize: 18, bold: true, color: '#0f172a' },
-                        { text: `Numero: ${order.order_number}`, fontSize: 12, bold: true, color: '#c2410c', margin: [0, 2, 0, 0] },
+                        { text: 'COMPROVANTE DE PEDIDO', fontSize: 16, bold: true, color: '#0f172a' },
+                        { text: `Numero ${order.order_number}`, fontSize: 10.5, bold: true, color: '#c2410c', margin: [0, 3, 0, 0] },
                     ],
                 },
                 {
                     stack: [
-                        { text: `Data: ${format(new Date(order.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR })}`, fontSize: 10, alignment: 'right', color: '#475569' },
-                        { text: `Status: ${getStatusLabel(order.status).toUpperCase()}`, fontSize: 10, bold: true, alignment: 'right', color: getStatusColor(order.status), margin: [0, 2, 0, 0] },
+                        { text: `Emitido em ${format(new Date(order.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR })}`, fontSize: 9.2, alignment: 'right', color: '#475569' },
+                        {
+                            table: {
+                                widths: ['auto'],
+                                body: [[{
+                                    text: getStatusLabel(order.status).toUpperCase(),
+                                    fontSize: 8.2,
+                                    bold: true,
+                                    color: getStatusColor(order.status),
+                                    fillColor: '#eff6ff',
+                                    border: [false, false, false, false],
+                                    margin: [10, 5, 10, 5],
+                                    alignment: 'center',
+                                }]],
+                            },
+                            layout: 'noBorders',
+                            alignment: 'right',
+                            margin: [0, 6, 0, 0],
+                        },
                     ],
                 },
             ],
-            margin: [0, 0, 0, 30],
+            margin: [0, 0, 0, 16],
         },
+        createSectionTitle('Dados do cliente'),
         {
             table: {
-                widths: ['*'],
+                widths: ['*', 120, 120],
                 body: [
-                    [{ text: 'DADOS DO CLIENTE', fillColor: '#f1f5f9', bold: true, fontSize: 10, margin: [10, 5, 10, 5], color: '#0f172a', border: [false, false, false, false] }],
-                    [{
-                        columns: [
-                            {
-                                stack: [
-                                    { text: 'Lojista / Razao Social:', fontSize: 8, color: '#64748b' },
-                                    { text: order.store?.company_name || 'N/A', fontSize: 10, bold: true },
-                                ],
-                                width: '65%',
-                            },
-                            {
-                                stack: [
-                                    { text: 'CNPJ:', fontSize: 8, color: '#64748b' },
-                                    { text: order.store?.cnpj || 'N/A', fontSize: 10, bold: true },
-                                ],
-                                width: '35%',
-                            },
-                        ],
-                        margin: [10, 10, 10, 5],
-                        border: [false, false, false, false],
-                    }],
-                    [{
-                        stack: [
-                            { text: 'Endereco:', fontSize: 8, color: '#64748b' },
-                            {
-                                text: [
-                                    order.store?.address,
-                                    order.store?.city,
-                                    order.store?.state,
-                                    order.store?.zip_code ? `CEP: ${order.store.zip_code}` : '',
-                                ]
-                                    .filter(Boolean)
-                                    .join(', ') || 'Endereco nao informado',
-                                fontSize: 9,
-                                bold: true,
-                            },
-                        ],
-                        margin: [10, 5, 10, 10],
-                        border: [false, false, false, false],
-                    }],
-                    [{
-                        columns: [
-                            {
-                                stack: [
-                                    { text: 'Representante:', fontSize: 8, color: '#64748b' },
-                                    { text: order.profile?.full_name || 'N/A', fontSize: 10, bold: true },
-                                ],
-                                width: '65%',
-                            },
-                            {
-                                stack: [
-                                    { text: 'Telefone:', fontSize: 8, color: '#64748b' },
-                                    { text: order.store?.phone || order.profile?.phone || 'N/A', fontSize: 10, bold: true },
-                                ],
-                                width: '35%',
-                            },
-                        ],
-                        margin: [10, 0, 10, 15],
-                        border: [false, false, false, false],
-                    }],
+                    [
+                        createInfoCell('Cliente', order.store?.company_name || 'N/A'),
+                        createInfoCell('CNPJ', order.store?.cnpj || 'N/A'),
+                        createInfoCell('Telefone', buildCustomerPhone(order)),
+                    ],
+                    [
+                        createInfoCell('Endereco', buildCustomerAddress(order), { colSpan: 2 }),
+                        {},
+                        createInfoCell('Representante', buildRepresentative(order)),
+                    ],
                 ],
             },
-            layout: 'noBorders',
-            margin: [0, 0, 0, 30],
+            layout: {
+                hLineWidth: () => 0,
+                vLineWidth: () => 0,
+                paddingLeft: () => 0,
+                paddingRight: () => 0,
+                paddingTop: () => 0,
+                paddingBottom: () => 6,
+            },
+            margin: [0, 0, 0, 14],
         },
-        { text: 'ITENS DO PEDIDO', fontSize: 10, bold: true, color: '#0f172a', margin: [0, 0, 0, 10] },
+        createSectionTitle('Itens do pedido'),
         {
             table: {
                 headerRows: 1,
-                widths: ['*', 'auto', 'auto', 'auto'],
+                widths: ['*', 42, 70, 74],
                 body: [
                     [
-                        { text: 'PRODUTO / DESCRICAO', bold: true, fontSize: 9, fillColor: '#f8fafc', border: [false, true, false, true], margin: [0, 8, 0, 8] },
-                        { text: 'QTD', bold: true, fontSize: 9, alignment: 'center', fillColor: '#f8fafc', border: [false, true, false, true], margin: [0, 8, 0, 8] },
-                        { text: 'UNID.', bold: true, fontSize: 9, alignment: 'right', fillColor: '#f8fafc', border: [false, true, false, true], margin: [0, 8, 0, 8] },
-                        { text: 'TOTAL', bold: true, fontSize: 9, alignment: 'right', fillColor: '#f8fafc', border: [false, true, false, true], margin: [0, 8, 0, 8] },
+                        { text: 'PRODUTO / DESCRICAO', bold: true, fontSize: 8.2, color: '#64748b', fillColor: '#f8fafc', border: [false, false, false, true], borderColor: ['#ffffff', '#ffffff', '#ffffff', '#e2e8f0'], margin: [0, 6, 0, 6] },
+                        { text: 'QTD', bold: true, fontSize: 8.2, alignment: 'center', color: '#64748b', fillColor: '#f8fafc', border: [false, false, false, true], borderColor: ['#ffffff', '#ffffff', '#ffffff', '#e2e8f0'], margin: [0, 6, 0, 6] },
+                        { text: 'UNIT.', bold: true, fontSize: 8.2, alignment: 'right', color: '#64748b', fillColor: '#f8fafc', border: [false, false, false, true], borderColor: ['#ffffff', '#ffffff', '#ffffff', '#e2e8f0'], margin: [0, 6, 0, 6] },
+                        { text: 'TOTAL', bold: true, fontSize: 8.2, alignment: 'right', color: '#64748b', fillColor: '#f8fafc', border: [false, false, false, true], borderColor: ['#ffffff', '#ffffff', '#ffffff', '#e2e8f0'], margin: [0, 6, 0, 6] },
                     ],
                     ...itemRows,
                 ],
             },
             layout: 'noBorders',
-            margin: [0, 0, 0, 16],
-        },
-        {
-            table: {
-                widths: ['*'],
-                body: [[{
-                    stack: [
-                        { text: 'SNAPSHOT FINANCEIRO', fontSize: 9, bold: true, color: '#0f172a' },
-                        { text: snapshotSummary, fontSize: 9, color: '#475569', margin: [0, 5, 0, 0], lineHeight: 1.3 },
-                    ],
-                    fillColor: '#f8fafc',
-                    border: [false, false, false, false],
-                    margin: [12, 10, 12, 10],
-                }]],
-            },
-            layout: 'noBorders',
-            margin: [0, 0, 0, 20],
+            margin: [0, 0, 0, 14],
         },
         {
             columns: [
                 {
                     width: '*',
                     stack: [
-                        { text: 'CONDICAO DE PAGAMENTO', fontSize: 9, bold: true, color: '#0f172a', margin: [0, 0, 0, 6] },
+                        createSectionTitle('Condicao de pagamento'),
                         {
-                            canvas: [{ type: 'rect', x: 0, y: 0, w: 200, h: 25, r: 4, color: '#f8fafc', lineColor: '#e2e8f0', lineWidth: 0.5 }],
-                            margin: [0, 0, 0, -25],
+                            table: {
+                                widths: ['*'],
+                                body: [[{
+                                    text: (order.payment_condition?.name || 'A COMBINAR').toUpperCase(),
+                                    fontSize: 10,
+                                    bold: true,
+                                    color: '#1e293b',
+                                    fillColor: '#f8fafc',
+                                    border: [false, false, false, false],
+                                    margin: [12, 9, 12, 9],
+                                }]],
+                            },
+                            layout: 'noBorders',
+                            margin: [0, -2, 0, 0],
                         },
-                        { text: (order.payment_condition?.name || 'A COMBINAR').toUpperCase(), fontSize: 10, bold: true, color: '#1e293b', margin: [10, 7, 0, 0] },
-                        order.notes
-                            ? {
-                                  stack: [
-                                      { text: 'OBSERVACOES', fontSize: 9, bold: true, color: '#0f172a', margin: [0, 20, 0, 6] },
-                                      { text: order.notes, fontSize: 9, color: '#475569', lineHeight: 1.2 },
-                                  ],
-                              }
-                            : null,
-                    ].filter(Boolean) as Content[],
+                        ...(order.notes
+                            ? [
+                                  createSectionTitle('Observacoes'),
+                                  {
+                                      table: {
+                                          widths: ['*'],
+                                          body: [[{
+                                              text: order.notes,
+                                              fontSize: 9,
+                                              color: '#475569',
+                                              lineHeight: 1.25,
+                                              fillColor: '#f8fafc',
+                                              border: [false, false, false, false],
+                                              margin: [12, 9, 12, 9],
+                                          }]],
+                                      },
+                                      layout: 'noBorders',
+                                      margin: [0, -2, 0, 0],
+                                  } as Content,
+                              ]
+                            : []),
+                    ],
                 },
                 {
-                    width: 170,
+                    width: 176,
                     stack: [
+                        createSectionTitle('Resumo financeiro'),
                         {
-                            columns: [
-                                { text: 'SUBTOTAL:', fontSize: 10, color: '#64748b' },
-                                { text: formatOrderCurrency(order.subtotal), fontSize: 10, alignment: 'right', bold: true },
-                            ],
-                            margin: [0, 0, 0, 6],
-                        },
-                        {
-                            columns: [
-                                { text: 'DESCONTO:', fontSize: 10, color: '#16a34a' },
-                                { text: `- ${formatOrderCurrency(order.discount_amount)}`, fontSize: 10, alignment: 'right', color: '#16a34a', bold: true },
-                            ],
-                            margin: [0, 0, 0, 10],
-                        },
-                        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 170, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }], margin: [0, 0, 0, 10] },
-                        {
-                            columns: [
-                                { text: 'TOTAL DO PEDIDO:', fontSize: 11, bold: true, color: '#0f172a' },
-                                { text: formatOrderCurrency(order.total), fontSize: 16, bold: true, alignment: 'right', color: '#c2410c' },
-                            ],
+                            table: {
+                                widths: ['*'],
+                                body: [[{
+                                    stack: [
+                                        createSummaryRow('Subtotal', formatOrderCurrency(order.subtotal)),
+                                        createSummaryRow('Desconto', `- ${formatOrderCurrency(order.discount_amount)}`, { accent: true }),
+                                        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 176, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }], margin: [0, 2, 0, 10] },
+                                        createSummaryRow('Total do pedido', formatOrderCurrency(order.total), { highlight: true }),
+                                    ],
+                                    fillColor: '#f8fafc',
+                                    border: [false, false, false, false],
+                                    margin: [12, 11, 12, 11],
+                                }]],
+                            },
+                            layout: 'noBorders',
+                            margin: [0, -2, 0, 0],
                         },
                     ],
                 },
             ],
-            margin: [0, 25, 0, 0],
-        },
-        {
-            text: 'Este documento registra o pedido com snapshot financeiro congelado. Alteracoes futuras em produto, cor ou tabela comercial nao alteram este historico.',
-            fontSize: 8,
-            color: '#94a3b8',
-            alignment: 'center',
-            margin: [40, 60, 40, 0],
+            columnGap: 18,
+            margin: [0, 2, 0, 0],
         },
     ]
 
@@ -385,3 +450,4 @@ function getStatusColor(status: string) {
     }
     return colors[status] || '#0f172a'
 }
+
