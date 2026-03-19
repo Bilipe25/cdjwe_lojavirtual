@@ -1266,7 +1266,97 @@ export default function CartPage() {
                             </div>
                         </div>
 
-                        {/* ── Desktop: Observações (unchanged) ──────── */}
+                        {/* ── Desktop: Endereço de entrega ─────────── */}
+                        <CheckoutSection
+                            icon={Truck}
+                            eyebrow="Endereco"
+                            title="Endereco de entrega"
+                            className="hidden sm:block sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm"
+                            headerClassName="sm:px-5 sm:py-4"
+                            contentClassName="sm:px-5 sm:py-4"
+                        >
+                            <div className="space-y-3">
+                                {addressesLoading ? (
+                                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-3 text-sm text-slate-500">
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Carregando enderecos...
+                                    </div>
+                                ) : addressError ? (
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                                        {addressError}
+                                    </div>
+                                ) : storeAddresses.length === 0 ? (
+                                    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-3 py-3 text-sm text-slate-500">
+                                        Nenhum endereco cadastrado.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <Select
+                                                value={selectedAddressId}
+                                                onValueChange={(value: string | null) => {
+                                                    if (value === 'add_new') {
+                                                        setNewAddressDialogOpen(true)
+                                                        return
+                                                    }
+                                                    if (value) {
+                                                        setSelectedAddressId(value)
+                                                    }
+                                                }}
+                                            >
+                                                <SelectTrigger className="min-h-10 flex-1 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
+                                                    <SelectValue placeholder="Selecione o endereco">
+                                                        {selectedAddress
+                                                            ? selectedAddress.title
+                                                            : 'Selecione o endereco'}
+                                                    </SelectValue>
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {storeAddresses.map((address) => (
+                                                        <SelectItem
+                                                            key={address.id}
+                                                            value={address.id}
+                                                        >
+                                                            {address.title}
+                                                            {address.is_main ? ' - principal' : ''}
+                                                        </SelectItem>
+                                                    ))}
+                                                    <Separator className="my-1" />
+                                                    <SelectItem value="add_new">
+                                                        Adicionar novo endereco
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            {selectedAddress?.is_main && (
+                                                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary border border-primary/20">
+                                                    Principal
+                                                </span>
+                                            )}
+                                        </div>
+                                        {selectedAddress && (
+                                            <div className="rounded-xl bg-slate-50/60 px-3 py-2.5 text-xs leading-5 text-slate-500 border border-slate-200/80">
+                                                <p className="font-medium text-slate-700">
+                                                    {selectedAddress.address}, {selectedAddress.number}
+                                                </p>
+                                                <p>
+                                                    {selectedAddress.city}/{selectedAddress.state}
+                                                    {' - '}CEP {selectedAddress.zip_code}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {deliveryMessage && (
+                                    <div className="flex items-center gap-2 rounded-xl bg-blue-50/60 px-3 py-2.5 ring-1 ring-blue-100">
+                                        <Truck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                                        <p className="text-[13px] font-medium text-blue-700">{deliveryMessage}</p>
+                                    </div>
+                                )}
+                            </div>
+                        </CheckoutSection>
+
+                        {/* ── Desktop: Observações ──────────────────── */}
                         <CheckoutSection
                             icon={MessageSquare}
                             eyebrow="Contexto"
@@ -1286,273 +1376,164 @@ export default function CartPage() {
                     </div>
 
                     <div className="hidden space-y-4 xl:sticky xl:top-24 xl:block">
-                        <CheckoutSection
-                            icon={Receipt}
-                            eyebrow="Resumo"
-                            title="Resumo e envio"
-                            className="border-slate-200/80 bg-white shadow-[0_20px_50px_-30px_rgba(15,23,42,0.18)]"
-                            headerClassName="px-5 py-4"
-                            contentClassName="px-5 pb-5 pt-4"
-                        >
-                            <div className="space-y-5">
-                                {priceValidationPending && (
-                                    <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2.5 text-xs text-slate-500">
-                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        Revalidando precos, variacoes e regras comerciais do pedido.
-                                    </div>
-                                )}
-
-                                {/* ── Endereço ─────────────────────────── */}
-                                <div className="space-y-2.5">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <Label className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                            Endereco
-                                            </Label>
-                                        {selectedAddress?.is_main && (
-                                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary border border-primary/20">
-                                                Principal
-                                            </span>
-                                        )}
-                                    </div>
-                                    {addressesLoading ? (
-                                        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-3 text-sm text-slate-500">
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                            Carregando enderecos...
-                                        </div>
-                                    ) : addressError ? (
-                                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                                            {addressError}
-                                        </div>
-                                    ) : storeAddresses.length === 0 ? (
-                                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-3 py-3 text-sm text-slate-500">
-                                            Nenhum endereco cadastrado.
-                                        </div>
-                                    ) : (
-                                            <Select
-                                                value={selectedAddressId}
-                                                onValueChange={(value: string | null) => {
-                                                    if (value === 'add_new') {
-                                                        setNewAddressDialogOpen(true)
-                                                        return
-                                                    }
-                                                    if (value) {
-                                                        setSelectedAddressId(value)
-                                                    }
-                                                }}
-                                        >
-                                        <SelectTrigger className="min-h-10 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
-                                            <SelectValue placeholder="Selecione o endereco">
-                                                {selectedAddress
-                                                    ? selectedAddress.title
-                                                    : 'Selecione o endereco'}
-                                            </SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {storeAddresses.map((address) => (
-                                                <SelectItem
-                                                    key={address.id}
-                                                    value={address.id}
-                                                >
-                                                    {address.title}
-                                                    {address.is_main ? ' - principal' : ''}
-                                                </SelectItem>
-                                            ))}
-                                            <Separator className="my-1" />
-                                            <SelectItem value="add_new">
-                                                Adicionar novo endereco
-                                            </SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    )}
-                                    {selectedAddress && (
-                                        <div className="rounded-xl bg-slate-50/60 px-3 py-2.5 text-xs leading-5 text-slate-500 border border-slate-200/80">
-                                            <p className="font-medium text-slate-700">
-                                                {selectedAddress.address}, {selectedAddress.number}
-                                            </p>
-                                            <p>
-                                                {selectedAddress.city}/{selectedAddress.state}
-                                                {' - '}CEP {selectedAddress.zip_code}
-                                            </p>
+                        <Card className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_20px_50px_-30px_rgba(15,23,42,0.18)]">
+                            <CardHeader className="border-b border-slate-100 px-5 py-4">
+                                <CardTitle className="font-[family-name:var(--font-heading)] text-lg font-bold text-slate-950">
+                                    Resumo
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="px-5 pb-5 pt-4">
+                                <div className="space-y-4">
+                                    {priceValidationPending && (
+                                        <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2.5 text-xs text-slate-500">
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            Revalidando precos e regras comerciais.
                                         </div>
                                     )}
-                                </div>
 
-                                <Separator className="!my-0" />
-
-                                {/* ── Pagamento ──────────────────────────── */}
-                                <div className="space-y-2.5">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <Label className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                            Pagamento
-                                        </Label>
-                                        {discountPercentage > 0 && (
-                                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200/80">
-                                                {discountPercentage.toFixed(0)}% off
-                                            </span>
-                                        )}
-                                    </div>
+                                    {/* ── Forma de Pagamento ──────────────── */}
                                     {paymentMethodGroups.length > 0 && (
-                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                            {paymentMethodGroups.map((group) => {
-                                                const isActive = group.method.id === selectedPaymentMethod
-                                                const hasOptions =
-                                                    group.rules.length > 0 || group.conditions.length > 0
+                                        <div className="space-y-2">
+                                            <Label className="text-sm font-semibold text-slate-800">
+                                                Forma de Pagamento
+                                            </Label>
+                                            <Select
+                                                value={selectedPaymentMethod}
+                                                onValueChange={(value: string | null) => {
+                                                    if (value) setSelectedPaymentMethod(value)
+                                                }}
+                                            >
+                                                <SelectTrigger className="min-h-11 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
+                                                    <SelectValue placeholder="Selecione...">
+                                                        {selectedMethodGroup?.method.name || 'Selecione...'}
+                                                    </SelectValue>
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {paymentMethodGroups.map((group) => {
+                                                        const hasOptions = group.rules.length > 0 || group.conditions.length > 0
+                                                        return (
+                                                            <SelectItem
+                                                                key={group.method.id}
+                                                                value={group.method.id}
+                                                                disabled={!hasOptions}
+                                                            >
+                                                                {group.method.name}
+                                                                {!hasOptions && ' (indisponível)'}
+                                                            </SelectItem>
+                                                        )
+                                                    })}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    )}
 
-                                                return (
-                                                    <button
-                                                        key={group.method.id}
-                                                        type="button"
-                                                        disabled={!hasOptions}
-                                                        onClick={() => setSelectedPaymentMethod(group.method.id)}
-                                                        className={cn(
-                                                            'rounded-2xl border px-3 py-3 text-left transition-all',
-                                                            isActive
-                                                                ? 'border-navy bg-navy/[0.04] shadow-sm'
-                                                                : 'border-slate-200 bg-white hover:border-slate-300',
-                                                            !hasOptions && 'cursor-not-allowed opacity-50'
-                                                        )}
+                                    {/* ── Tipo / Condição de Pagamento ────── */}
+                                    <div className="space-y-2">
+                                        <Label className="text-sm font-semibold text-slate-800">
+                                            Tipo de Pagamento
+                                        </Label>
+                                        <Select
+                                            value={selectedPayment}
+                                            onValueChange={(value: string | null) => {
+                                                if (!value) return
+                                                setSelectedPayment(value)
+                                            }}
+                                        >
+                                            <SelectTrigger className="min-h-11 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
+                                                <SelectValue placeholder="Selecione...">
+                                                    {selectedPaymentOption?.label || 'Selecione...'}
+                                                </SelectValue>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {paymentOptions.map((option) => (
+                                                    <SelectItem
+                                                        key={option.id}
+                                                        value={option.id}
                                                     >
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <div>
-                                                                <p className="text-sm font-semibold text-slate-900">
-                                                                    {group.method.name}
-                                                                </p>
-                                                                <p className="mt-0.5 text-xs text-slate-500">
-                                                                    {group.rules.length + group.conditions.length} opções disponíveis
-                                                                </p>
-                                                            </div>
-                                                            {isActive && (
-                                                                <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-navy">
-                                                                    Ativo
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </button>
-                                                )
-                                            })}
-                                        </div>
-                                    )}
-                                    <Select
-                                        value={selectedPayment}
-                                        onValueChange={(value: string | null) => {
-                                            if (!value) return
-                                            setSelectedPayment(value)
-                                        }}
-                                    >
-                                        <SelectTrigger className="min-h-10 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
-                                            <SelectValue placeholder="Selecione">
-                                                {selectedPaymentLabel}
-                                            </SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {paymentOptions.map((option) => (
-                                                <SelectItem
-                                                    key={option.id}
-                                                    value={option.id}
-                                                >
-                                                    {option.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    {selectedPaymentDescription && (
-                                        <p className="rounded-xl bg-slate-50/60 px-3 py-2.5 text-xs leading-5 text-slate-500 border border-slate-200/80">
-                                            {selectedPaymentDescription}
-                                        </p>
-                                    )}
-                                </div>
-
-                                <Separator className="!my-0" />
-
-                                {/* ── Resumo financeiro ───────────────────── */}
-                                <div className="space-y-3">
-                                    <SummaryRow
-                                        label={`Itens (${count})`}
-                                        value={`R$ ${formatCurrency(total)}`}
-                                    />
-                                    {paymentDiscount > 0 && (
-                                        <SummaryRow
-                                            label={`Desconto de pagamento (${discountPercentage}%)`}
-                                            value={`- R$ ${formatCurrency(paymentDiscount)}`}
-                                            emphasis="success"
-                                        />
-                                    )}
-                                    {paymentSurcharge > 0 && (
-                                        <SummaryRow
-                                            label={`Acrescimo de pagamento (${surchargePercentage}%)`}
-                                            value={`+ R$ ${formatCurrency(paymentSurcharge)}`}
-                                            emphasis="warning"
-                                        />
-                                    )}
-                                </div>
-
-                                {/* ── Total + Pedido ──────────────────────── */}
-                                <div className="rounded-2xl bg-slate-50/80 px-4 py-4 border border-slate-200/80">
-                                    <div className="flex items-end justify-between gap-4">
-                                        <div className="space-y-1">
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                                Total final
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {selectedPaymentDescription && (
+                                            <p className="rounded-xl bg-slate-50/60 px-3 py-2 text-xs leading-5 text-slate-500 border border-slate-200/80">
+                                                {selectedPaymentDescription}
                                             </p>
-                                            <p className="text-2xl font-bold tracking-tight text-slate-950">
-                                                R$ {formatCurrency(finalTotal)}
-                                            </p>
-                                        </div>
-                                        <div className="rounded-xl bg-white px-3 py-2 text-right border border-slate-200/80">
-                                            <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
-                                                Pedido
-                                            </p>
-                                            <p className="mt-0.5 text-sm font-semibold text-slate-950">
-                                                {nextOrderNumber || 'Em preparacao'}
-                                            </p>
-                                        </div>
+                                        )}
                                     </div>
-                                </div>
 
-                                {!minOrderMet && settings?.min_order_amount && (
-                                    <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 px-3 py-3 text-sm leading-6 text-amber-800">
-                                        Pedido minimo de R$ {formatCurrency(settings.min_order_amount)}{' '}
-                                        ainda nao atingido. Faltam R${' '}
-                                        {formatCurrency(settings.min_order_amount - total)} para
-                                        liberar o envio.
+                                    <Separator />
+
+                                    {/* ── Resumo financeiro ─────────────── */}
+                                    <div className="space-y-2.5">
+                                        <SummaryRow
+                                            label={`Itens (${count})`}
+                                            value={`R$ ${formatCurrency(total)}`}
+                                        />
+                                        {paymentDiscount > 0 && (
+                                            <SummaryRow
+                                                label={`Desconto de pagamento (${discountPercentage}%)`}
+                                                value={`- R$ ${formatCurrency(paymentDiscount)}`}
+                                                emphasis="success"
+                                            />
+                                        )}
+                                        {paymentSurcharge > 0 && (
+                                            <SummaryRow
+                                                label={`Acréscimo de pagamento (${surchargePercentage}%)`}
+                                                value={`+ R$ ${formatCurrency(paymentSurcharge)}`}
+                                                emphasis="warning"
+                                            />
+                                        )}
                                     </div>
-                                )}
 
-                                {/* ── Alertas / Info ──────────────────────── */}
-                                <div className="space-y-0 rounded-xl border border-slate-200/80 bg-slate-50/50 overflow-hidden">
-                                    {deliveryMessage && (
-                                        <div className="flex items-start gap-2.5 px-3 py-2.5 text-xs text-slate-600 border-b border-slate-200/60">
-                                            <Truck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
-                                            <div>
-                                                <p className="font-medium text-slate-700">Prazo estimado</p>
-                                                <p className="mt-0.5 text-slate-500">{deliveryMessage}</p>
+                                    {/* ── Total Final ──────────────────── */}
+                                    <div className="rounded-2xl gradient-navy px-4 py-4">
+                                        <div className="flex items-end justify-between gap-4">
+                                            <div className="space-y-1">
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+                                                    Total final
+                                                </p>
+                                                <p className="text-2xl font-bold tracking-tight text-white">
+                                                    R$ {formatCurrency(finalTotal)}
+                                                </p>
+                                            </div>
+                                            <div className="rounded-xl bg-white/10 px-3 py-2 text-right backdrop-blur-sm">
+                                                <p className="text-[9px] uppercase tracking-[0.14em] text-slate-300">
+                                                    Pedido
+                                                </p>
+                                                <p className="mt-0.5 text-sm font-semibold text-white">
+                                                    {nextOrderNumber || '...'}
+                                                </p>
                                             </div>
                                         </div>
-                                    )}
-                                    <div className="flex items-start gap-2.5 px-3 py-2.5 text-xs text-slate-600">
-                                        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                                        <div>
-                                            <p className="font-medium text-slate-700">Validacao automatica</p>
-                                            <p className="mt-0.5 text-slate-500">Precos revalidados antes do envio.</p>
-                                        </div>
                                     </div>
-                                </div>
 
-                                <Button
-                                    className="hidden h-12 w-full rounded-xl gradient-bronze border-0 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg md:inline-flex"
-                                    onClick={handlePlaceOrder}
-                                    disabled={loading || !minOrderMet}
-                                >
-                                    {loading ? (
-                                        <Loader2 className="h-5 w-5 animate-spin" />
-                                    ) : (
-                                        <>
-                                            <CreditCard className="mr-2 h-5 w-5" />
-                                            Finalizar pedido
-                                        </>
+                                    {!minOrderMet && settings?.min_order_amount && (
+                                        <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 px-3 py-3 text-sm leading-6 text-amber-800">
+                                            Pedido minimo de R$ {formatCurrency(settings.min_order_amount)}{' '}
+                                            ainda nao atingido. Faltam R${' '}
+                                            {formatCurrency(settings.min_order_amount - total)} para
+                                            liberar o envio.
+                                        </div>
                                     )}
-                                </Button>
-                            </div>
-                        </CheckoutSection>
+
+                                    <Button
+                                        className="h-12 w-full rounded-xl gradient-bronze border-0 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg"
+                                        onClick={handlePlaceOrder}
+                                        disabled={loading || !minOrderMet}
+                                    >
+                                        {loading ? (
+                                            <Loader2 className="h-5 w-5 animate-spin" />
+                                        ) : (
+                                            <>
+                                                <CreditCard className="mr-2 h-5 w-5" />
+                                                Finalizar pedido
+                                            </>
+                                        )}
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
                     </div>
                 </div>
             </div>
