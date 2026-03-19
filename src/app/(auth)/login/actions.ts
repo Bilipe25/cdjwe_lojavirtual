@@ -9,6 +9,7 @@ import {
     isTaxDocumentIdentifier,
     normalizeEmail,
 } from '@/lib/customers/access'
+import { getDefaultRouteByRole } from '@/lib/auth/role-routing'
 import { cookies, headers } from 'next/headers'
 import { loginSchema, type LoginFormData } from './schema'
 
@@ -113,7 +114,7 @@ export async function loginAction(data: LoginFormData) {
             .eq('id', user.id)
             .single()
 
-        const role = profile?.role || 'client'
+        const role = (profile?.role || 'client') as 'admin' | 'client' | 'representative'
         const status = profile?.status || 'approved'
         const primaryStore = Array.isArray(profile?.stores) ? profile.stores[0] : undefined
         const companyName = primaryStore?.company_name || profile?.full_name || 'Usuario'
@@ -152,14 +153,7 @@ export async function loginAction(data: LoginFormData) {
         cookieStore.set('jwt_role', role, cookieOptions)
         cookieStore.set('jwt_status', status, cookieOptions)
 
-        let redirectUrl = '/catalog'
-        if (role === 'admin') {
-            redirectUrl = '/admin/dashboard'
-        } else if (status === 'pending' || status === 'imported') {
-            redirectUrl = '/pending-approval'
-        } else if (status === 'blocked') {
-            redirectUrl = '/blocked'
-        }
+        const redirectUrl = getDefaultRouteByRole(role, status)
 
         return { success: true, redirectUrl, companyName, identifier: preferredIdentifier }
     } catch (err) {

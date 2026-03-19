@@ -29,6 +29,8 @@ export default async function OrderRedirectPage({
     // If the admin order dashboard supports a query param like ?order=id, we could use that. Let's use /admin/orders for now,
     // or if we have a specific /admin/orders/[id] route, we use that.
     redirect('/admin/orders')
+  } else if (role === 'representative') {
+    redirect(`/sales/orders/${params.id}`)
   } else {
     redirect(`/orders/${params.id}`)
   }

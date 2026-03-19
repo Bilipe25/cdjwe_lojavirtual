@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { getDefaultRouteByRole, requiresBlockedRedirect, requiresPendingRedirect } from '@/lib/auth/role-routing'
 
 export async function updateSession(request: NextRequest) {
     let supabaseResponse = NextResponse.next({
@@ -46,16 +47,12 @@ export async function updateSession(request: NextRequest) {
 
     if (user) {
         // Leitura rápida em memória dos cookies que nossa Server Action depositou (0ms latência)
-        const role = request.cookies.get('jwt_role')?.value || 'client';
-        const status = request.cookies.get('jwt_status')?.value || 'approved';
+        const role = (request.cookies.get('jwt_role')?.value || 'client') as 'admin' | 'client' | 'representative';
+        const status = (request.cookies.get('jwt_status')?.value || 'approved') as 'pending' | 'approved' | 'blocked' | 'imported';
 
         if (isPublicRoute) {
             const url = request.nextUrl.clone()
-            if (role === 'admin') {
-                url.pathname = '/admin/dashboard'
-            } else {
-                url.pathname = '/catalog'
-            }
+            url.pathname = getDefaultRouteByRole(role, status)
             return NextResponse.redirect(url)
         }
 
@@ -63,7 +60,15 @@ export async function updateSession(request: NextRequest) {
         if (request.nextUrl.pathname.startsWith('/admin')) {
             if (role !== 'admin') {
                 const url = request.nextUrl.clone()
-                url.pathname = '/catalog'
+                url.pathname = getDefaultRouteByRole(role, status)
+                return NextResponse.redirect(url)
+            }
+        }
+
+        if (request.nextUrl.pathname.startsWith('/sales')) {
+            if (role !== 'representative') {
+                const url = request.nextUrl.clone()
+                url.pathname = getDefaultRouteByRole(role, status)
                 return NextResponse.redirect(url)
             }
         }
@@ -73,17 +78,28 @@ export async function updateSession(request: NextRequest) {
             request.nextUrl.pathname.startsWith('/catalog') ||
             request.nextUrl.pathname.startsWith('/cart') ||
             request.nextUrl.pathname.startsWith('/orders') ||
-            request.nextUrl.pathname.startsWith('/order-confirmation')
+            request.nextUrl.pathname.startsWith('/order-confirmation') ||
+            request.nextUrl.pathname.startsWith('/favorites') ||
+            request.nextUrl.pathname.startsWith('/fabrics') ||
+            request.nextUrl.pathname.startsWith('/profile') ||
+            request.nextUrl.pathname.startsWith('/about') ||
+            request.nextUrl.pathname.startsWith('/dashboard')
         ) {
-            if (role === 'client' && (status === 'pending' || status === 'imported')) {
+            if (requiresPendingRedirect(role, status)) {
                 const url = request.nextUrl.clone()
                 url.pathname = '/pending-approval'
                 return NextResponse.redirect(url)
             }
 
-            if (role === 'client' && status === 'blocked') {
+            if (requiresBlockedRedirect(role, status)) {
                 const url = request.nextUrl.clone()
                 url.pathname = '/blocked'
+                return NextResponse.redirect(url)
+            }
+
+            if (role === 'representative') {
+                const url = request.nextUrl.clone()
+                url.pathname = '/sales/dashboard'
                 return NextResponse.redirect(url)
             }
         }

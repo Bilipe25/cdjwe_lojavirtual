@@ -2,7 +2,7 @@
 
 // ==================== AUTH & USERS ====================
 
-export type UserRole = 'admin' | 'client'
+export type UserRole = 'admin' | 'client' | 'representative'
 
 export type ApprovalStatus = 'pending' | 'approved' | 'blocked' | 'imported'
 
@@ -69,6 +69,7 @@ export interface StoreAddress {
 export interface Store {
   id: string
   profile_id: string
+  customer_code?: string | null
   company_name: string
   trade_name: string | null
   cnpj: string
@@ -290,6 +291,8 @@ export interface Order {
   order_number: string
   store_id: string
   profile_id: string
+  created_by_profile_id?: string | null
+  sales_channel?: 'customer_portal' | 'representative'
   status: OrderStatus
   payment_status: PaymentStatus
   payment_method_id?: string | null
@@ -303,6 +306,10 @@ export interface Order {
   payment_installments?: number | null
   payment_discount_percentage?: number | null
   payment_surcharge_percentage?: number | null
+  negotiation_discount_percentage?: number | null
+  negotiation_discount_amount?: number | null
+  negotiation_surcharge_amount?: number | null
+  negotiation_reason?: string | null
   subtotal: number
   discount_amount: number
   total: number
@@ -314,6 +321,7 @@ export interface Order {
   // Relations
   store?: Store
   profile?: Profile
+  created_by_profile?: Profile | null
   items?: OrderItem[]
   status_history?: OrderStatusHistory[]
   payment_method?: PaymentMethod
@@ -429,6 +437,121 @@ export interface CartItem {
   imageUrl: string | null
   quantity: number
   unitPrice: number
+}
+
+// ==================== REPRESENTATIVE SALES MODE ====================
+
+export type SalesQuoteStatus =
+  | 'draft'
+  | 'sent'
+  | 'approved'
+  | 'converted'
+  | 'cancelled'
+
+export interface SalesQuote {
+  id: string
+  quote_number: string
+  store_id: string
+  customer_profile_id: string
+  representative_id: string
+  price_table_id: string | null
+  status: SalesQuoteStatus
+  payment_method_id: string | null
+  payment_condition_id: string | null
+  payment_rule_id: string | null
+  payment_method_condition_id: string | null
+  payment_method_code: string | null
+  payment_method_name: string | null
+  payment_condition_name: string | null
+  payment_condition_description: string | null
+  payment_installments: number | null
+  payment_discount_percentage: number | null
+  payment_surcharge_percentage: number | null
+  subtotal: number
+  payment_discount_amount?: number | null
+  negotiation_discount_percentage?: number | null
+  negotiation_discount_amount?: number | null
+  negotiation_surcharge_amount?: number | null
+  total: number
+  notes: string | null
+  shipping_address: string | null
+  negotiation_reason: string | null
+  converted_order_id: string | null
+  customer_name_snapshot?: string | null
+  customer_code_snapshot?: string | null
+  company_name_snapshot?: string | null
+  price_table_name_snapshot?: string | null
+  created_at: string
+  updated_at: string
+  store?: Store
+  customer_profile?: Profile
+  representative?: Profile
+  items?: SalesQuoteItem[]
+}
+
+export interface SalesQuoteItem {
+  id: string
+  quote_id: string
+  product_variant_id: string
+  size_option_id?: string | null
+  product_name: string
+  fabric_name: string
+  color_name: string
+  size: string | null
+  size_name?: string | null
+  quantity: number
+  unit_price: number
+  product_price?: number | null
+  size_price?: number | null
+  variation_price?: number | null
+  final_price?: number | null
+  subtotal: number
+  created_at: string
+  product_variant?: ProductVariant
+}
+
+export type RepresentativeVisitOutcome =
+  | 'planned'
+  | 'completed'
+  | 'follow_up'
+  | 'converted_quote'
+  | 'converted_order'
+
+export interface RepresentativeVisit {
+  id: string
+  representative_id: string
+  store_id: string
+  customer_profile_id: string
+  visited_at: string
+  notes: string | null
+  result_summary: string | null
+  next_step: string | null
+  outcome: RepresentativeVisitOutcome
+  generated_quote_id: string | null
+  generated_order_id: string | null
+  created_at: string
+  updated_at: string
+  store?: Store
+  customer_profile?: Profile
+  representative?: Profile
+  generated_quote?: SalesQuote | null
+  generated_order?: Order | null
+}
+
+export interface RepresentativeDraftItem {
+  line_id: string
+  product_id: string
+  product_name: string
+  variant_id: string
+  fabric_id: string
+  fabric_name: string
+  color_id: string
+  color_name: string
+  size_option_id: string | null
+  size_name: string | null
+  image_url: string | null
+  quantity: number
+  unit_price: number
 }
 
 // ==================== CUSTOMER LOGIN AUDIT ====================

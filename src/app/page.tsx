@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getDefaultRouteByRole } from '@/lib/auth/role-routing'
 
 export default async function HomePage() {
   const supabase = await createClient()
@@ -15,17 +16,10 @@ export default async function HomePage() {
     .eq('id', user.id)
     .single()
 
-  if (profile?.role === 'admin') {
-    redirect('/admin/dashboard')
-  }
-
-  if (profile?.status === 'pending') {
-    redirect('/pending-approval')
-  }
-
-  if (profile?.status === 'blocked') {
-    redirect('/blocked')
-  }
-
-  redirect('/dashboard')
+  redirect(
+    getDefaultRouteByRole(
+      (profile?.role || 'client') as 'admin' | 'client' | 'representative',
+      (profile?.status || 'approved') as 'pending' | 'approved' | 'blocked' | 'imported'
+    )
+  )
 }
