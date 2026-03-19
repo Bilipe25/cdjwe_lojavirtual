@@ -26,7 +26,6 @@ import {
 } from '@/app/sales/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -123,7 +122,7 @@ function buildPaymentOptions(group: PaymentMethodGroup | null): PaymentOption[] 
       .filter((link) => link.is_active && link.payment_condition?.is_active)
       .map((link) => ({
         id: link.payment_condition_id,
-        label: link.payment_condition?.name || 'Condicao',
+        label: link.payment_condition?.name || 'Condição',
         description: link.payment_condition?.description || group.method.description || null,
         discountPercentage: link.payment_condition?.discount_percentage || 0,
         surchargePercentage: link.payment_condition?.surcharge_percentage || 0,
@@ -204,7 +203,6 @@ export function RepresentativeOrderBuilder({
     return matchesSearch && matchesCategory
   }), [products, search, selectedCategoryId])
   const pricingSignature = useMemo(() => JSON.stringify(items.map((item) => [item.variantId, item.sizeOptionId, item.quantity])), [items])
-  // Mantemos um snapshot estrutural para evitar loop de reprecificacao quando apenas o unitPrice muda.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const draftItems = useMemo(() => items, [pricingSignature])
 
@@ -366,7 +364,7 @@ export function RepresentativeOrderBuilder({
     })
 
     setDialogProductId(null)
-    toast.success('Item adicionado ao documento.')
+    toast.success('Item adicionado.')
   }
 
   const handleSubmit = (target: 'order' | 'quote') => {
@@ -418,86 +416,256 @@ export function RepresentativeOrderBuilder({
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="space-y-6">
-        <Card className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm">
-          <CardHeader className="border-b border-slate-100"><CardTitle>1. Cliente e contexto comercial</CardTitle><p className="text-sm text-slate-500">Defina cliente, tabela e entrega antes de montar os itens.</p></CardHeader>
-          <CardContent className="grid gap-4 pt-5 md:grid-cols-2">
-            <div className="space-y-2 md:col-span-2">
-              <Label>Cliente</Label>
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="space-y-5">
+        {/* Section 1: Customer & context */}
+        <section className="rounded-2xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-slate-950">1. Cliente e contexto</h2>
+          </div>
+          <div className="grid gap-3 p-4 md:grid-cols-2">
+            <div className="space-y-1.5 md:col-span-2">
+              <Label className="text-xs">Cliente</Label>
               <Select value={selectedStoreId} onValueChange={(value) => handleStoreChange(value || '')}>
-                <SelectTrigger className="rounded-2xl border-slate-200"><SelectValue placeholder="Selecione um cliente" /></SelectTrigger>
+                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Selecione um cliente" /></SelectTrigger>
                 <SelectContent>{customers.map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.customer_code ? `${customer.customer_code} - ` : ''}{customer.company_name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Tabela de preco</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Tabela de preço</Label>
               <Select value={selectedPriceTableId} onValueChange={(value) => setSelectedPriceTableId(value || '')}>
-                <SelectTrigger className="rounded-2xl border-slate-200"><SelectValue placeholder="Tabela" /></SelectTrigger>
+                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Tabela" /></SelectTrigger>
                 <SelectContent>{availablePriceTables.map((table) => <SelectItem key={table.id} value={table.id}>{table.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Entrega</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Entrega</Label>
               <Select value={selectedAddressId} onValueChange={(value) => setSelectedAddressId(value || '')}>
-                <SelectTrigger className="rounded-2xl border-slate-200"><SelectValue placeholder="Endereco" /></SelectTrigger>
+                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Endereço" /></SelectTrigger>
                 <SelectContent>{(selectedStore?.addresses || []).map((address) => <SelectItem key={address.id} value={address.id}>{address.title}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            {selectedStore && <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 md:col-span-2"><p className="text-sm font-semibold text-slate-950">{selectedStore.company_name}</p><p className="mt-1 text-xs text-slate-500">{selectedStore.customer_code || selectedStore.cnpj}</p></div>}
-          </CardContent>
-        </Card>
+            {selectedStore && (
+              <div className="rounded-xl bg-slate-50 px-3 py-2 md:col-span-2">
+                <p className="text-sm font-semibold text-slate-950">{selectedStore.company_name}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{selectedStore.customer_code || selectedStore.cnpj}</p>
+              </div>
+            )}
+          </div>
+        </section>
 
-        <Card className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm">
-          <CardHeader className="border-b border-slate-100"><CardTitle>2. Produtos e composicao</CardTitle><p className="text-sm text-slate-500">Busque rapido, configure variacoes e monte o documento com agilidade.</p></CardHeader>
-          <CardContent className="space-y-4 pt-5">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar produto" className="rounded-2xl border-slate-200 pl-10" /></div>
-              <Select value={selectedCategoryId} onValueChange={(value) => setSelectedCategoryId(value || 'all')}><SelectTrigger className="rounded-2xl border-slate-200"><SelectValue placeholder="Categoria" /></SelectTrigger><SelectContent><SelectItem value="all">Todas</SelectItem>{categories.map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent></Select>
+        {/* Section 2: Products */}
+        <section className="rounded-2xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-slate-950">2. Produtos</h2>
+          </div>
+          <div className="space-y-4 p-4">
+            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_200px]">
+              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar produto" className="h-9 rounded-xl border-slate-200 pl-10 text-sm" /></div>
+              <Select value={selectedCategoryId} onValueChange={(value) => setSelectedCategoryId(value || 'all')}><SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Categoria" /></SelectTrigger><SelectContent><SelectItem value="all">Todas</SelectItem>{categories.map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent></Select>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filteredProducts.slice(0, 18).map((product) => <button key={product.id} type="button" onClick={() => { if (!selectedStoreId) { toast.error('Selecione um cliente antes.') ; return } setDialogProductId(product.id) }} className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:border-slate-300 hover:shadow-md"><div className="relative h-32 bg-slate-100">{getPrimaryImage(product) ? <Image src={getPrimaryImage(product) || ''} alt={product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Package className="h-7 w-7" /></div>}</div><div className="space-y-2 p-4"><p className="line-clamp-1 text-sm font-semibold text-slate-950">{product.name}</p>{product.category?.name && <Badge variant="outline" className="rounded-full border-slate-200 bg-slate-50 text-[10px] text-slate-600">{product.category.name}</Badge>}</div></button>)}</div>
+
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredProducts.slice(0, 18).map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  onClick={() => { if (!selectedStoreId) { toast.error('Selecione um cliente antes.'); return } setDialogProductId(product.id) }}
+                  className="overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition hover:border-slate-300 hover:shadow-sm"
+                >
+                  <div className="relative h-28 bg-slate-100">
+                    {getPrimaryImage(product) ? <Image src={getPrimaryImage(product) || ''} alt={product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Package className="h-6 w-6" /></div>}
+                  </div>
+                  <div className="p-3">
+                    <p className="line-clamp-1 text-xs font-semibold text-slate-950">{product.name}</p>
+                    {product.category?.name && <Badge variant="outline" className="mt-1 rounded-md border-slate-200 bg-slate-50 text-[10px] text-slate-500">{product.category.name}</Badge>}
+                  </div>
+                </button>
+              ))}
+            </div>
+
             <Separator />
-            <div className="space-y-3">
-              <div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-950">Itens</h3><p className="text-xs text-slate-500">{pricingPending ? 'Revalidando precos do documento.' : 'Ajuste quantidade e remova itens quando necessario.'}</p></div></div>
-              {items.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">Nenhum item adicionado.</div> : <div className="space-y-3">{items.map((item) => <div key={item.cartKey} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:flex-row md:items-center"><div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-slate-100">{item.imageUrl ? <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Package className="h-5 w-5" /></div>}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-950">{item.productName}</p><p className="mt-1 text-xs text-slate-500">{item.fabricName} / {item.colorName}{item.sizeName ? ` / ${item.sizeName}` : ''}</p></div><div className="flex items-center gap-2"><Button type="button" variant="outline" size="icon" className="h-8 w-8 rounded-xl border-slate-200" onClick={() => setItems((current) => current.map((currentItem) => currentItem.cartKey === item.cartKey ? { ...currentItem, quantity: Math.max(1, currentItem.quantity - 1) } : currentItem))}><Minus className="h-4 w-4" /></Button><div className="min-w-[28px] text-center text-sm font-semibold text-slate-950">{item.quantity}</div><Button type="button" variant="outline" size="icon" className="h-8 w-8 rounded-xl border-slate-200" onClick={() => setItems((current) => current.map((currentItem) => currentItem.cartKey === item.cartKey ? { ...currentItem, quantity: currentItem.quantity + 1 } : currentItem))}><Plus className="h-4 w-4" /></Button></div><div className="w-full md:w-[130px] md:text-right"><p className="text-sm font-semibold text-slate-950">{formatCurrency(item.unitPrice * item.quantity)}</p><p className="mt-1 text-xs text-slate-500">Unit. {formatCurrency(item.unitPrice)}</p></div><Button type="button" variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => setItems((current) => current.filter((currentItem) => currentItem.cartKey !== item.cartKey))}><Trash2 className="h-4 w-4" /></Button></div>)}</div>}
+
+            {/* Items list */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-slate-950">Itens ({items.length})</h3>
+                {pricingPending && <span className="text-[10px] text-slate-400">Revalidando preços...</span>}
+              </div>
+              {items.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-xs text-slate-500">Nenhum item adicionado.</div>
+              ) : (
+                <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+                  {items.map((item) => (
+                    <div key={item.cartKey} className="flex items-center gap-3 px-3 py-2.5">
+                      <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                        {item.imageUrl ? <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Package className="h-4 w-4" /></div>}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-slate-950">{item.productName}</p>
+                        <p className="text-[10px] text-slate-500">{item.fabricName} / {item.colorName}{item.sizeName ? ` / ${item.sizeName}` : ''}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Button type="button" variant="outline" size="icon" className="h-7 w-7 rounded-lg border-slate-200" onClick={() => setItems((current) => current.map((i) => i.cartKey === item.cartKey ? { ...i, quantity: Math.max(1, i.quantity - 1) } : i))}><Minus className="h-3.5 w-3.5" /></Button>
+                        <span className="min-w-[24px] text-center text-xs font-semibold">{item.quantity}</span>
+                        <Button type="button" variant="outline" size="icon" className="h-7 w-7 rounded-lg border-slate-200" onClick={() => setItems((current) => current.map((i) => i.cartKey === item.cartKey ? { ...i, quantity: i.quantity + 1 } : i))}><Plus className="h-3.5 w-3.5" /></Button>
+                      </div>
+                      <div className="w-[100px] text-right">
+                        <p className="text-xs font-semibold text-slate-950">{formatCurrency(item.unitPrice * item.quantity)}</p>
+                        <p className="text-[10px] text-slate-500">{formatCurrency(item.unitPrice)} un.</p>
+                      </div>
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => setItems((current) => current.filter((i) => i.cartKey !== item.cartKey))}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <Card className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm">
-          <CardHeader className="border-b border-slate-100"><CardTitle>3. Pagamento e observacoes</CardTitle><p className="text-sm text-slate-500">Aplique negociacao, pagamento e notas do atendimento presencial.</p></CardHeader>
-          <CardContent className="grid gap-4 pt-5 md:grid-cols-2">
-            <div className="space-y-2"><Label>Meio</Label><Select value={effectivePaymentMethodId} onValueChange={(value) => { setSelectedPaymentMethodId(value || ''); setSelectedPaymentId('') }}><SelectTrigger className="rounded-2xl border-slate-200"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{paymentGroups.map((group) => <SelectItem key={group.method.id} value={group.method.id}>{group.method.name}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-2"><Label>Condicao</Label><Select value={effectivePaymentId} onValueChange={(value) => setSelectedPaymentId(value || '')}><SelectTrigger className="rounded-2xl border-slate-200"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{paymentOptions.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-2"><Label>Desconto negociado</Label><Select value={discountType} onValueChange={(value) => setDiscountType((value || 'none') as 'percent' | 'value' | 'none')}><SelectTrigger className="rounded-2xl border-slate-200"><SelectValue placeholder="Sem desconto" /></SelectTrigger><SelectContent><SelectItem value="none">Sem desconto</SelectItem><SelectItem value="percent">Percentual</SelectItem><SelectItem value="value">Valor</SelectItem></SelectContent></Select></div>
-            <div className="space-y-2"><Label>{discountType === 'percent' ? 'Percentual (%)' : 'Valor do desconto'}</Label><Input value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} className="rounded-2xl border-slate-200" /></div>
-            <div className="space-y-2"><Label>Acrescimo</Label><Input value={surchargeValue} onChange={(event) => setSurchargeValue(event.target.value)} className="rounded-2xl border-slate-200" /></div>
-            <div className="space-y-2"><Label>Motivo</Label><Textarea value={negotiationReason} onChange={(event) => setNegotiationReason(event.target.value)} className="min-h-[100px] rounded-2xl border-slate-200" /></div>
-            <div className="space-y-2 md:col-span-2"><Label>Observacoes</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-[110px] rounded-2xl border-slate-200" /></div>
-          </CardContent>
-        </Card>
+        {/* Section 3: Payment & notes */}
+        <section className="rounded-2xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-slate-950">3. Pagamento</h2>
+          </div>
+          <div className="grid gap-3 p-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Meio</Label>
+              <Select value={effectivePaymentMethodId} onValueChange={(value) => { setSelectedPaymentMethodId(value || ''); setSelectedPaymentId('') }}>
+                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{paymentGroups.map((group) => <SelectItem key={group.method.id} value={group.method.id}>{group.method.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Condição</Label>
+              <Select value={effectivePaymentId} onValueChange={(value) => setSelectedPaymentId(value || '')}>
+                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{paymentOptions.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Desconto negociado</Label>
+              <Select value={discountType} onValueChange={(value) => setDiscountType((value || 'none') as 'percent' | 'value' | 'none')}>
+                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Sem desconto" /></SelectTrigger>
+                <SelectContent><SelectItem value="none">Sem desconto</SelectItem><SelectItem value="percent">Percentual</SelectItem><SelectItem value="value">Valor</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{discountType === 'percent' ? '% desconto' : 'Valor desc.'}</Label>
+              <Input value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} className="h-9 rounded-xl border-slate-200 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Acréscimo</Label>
+              <Input value={surchargeValue} onChange={(event) => setSurchargeValue(event.target.value)} className="h-9 rounded-xl border-slate-200 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Motivo</Label>
+              <Input value={negotiationReason} onChange={(event) => setNegotiationReason(event.target.value)} className="h-9 rounded-xl border-slate-200 text-sm" />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label className="text-xs">Observações</Label>
+              <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-[80px] rounded-xl border-slate-200 text-sm" />
+            </div>
+          </div>
+        </section>
       </div>
 
-      <div className="space-y-6 xl:sticky xl:top-24 xl:self-start">
-        <Card className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <CardHeader className="border-b border-slate-100"><CardTitle>4. Resumo comercial</CardTitle><p className="text-sm text-slate-500">Revise o total estimado antes de confirmar o documento.</p></CardHeader>
-          <CardContent className="space-y-4 pt-5">
-            <div className="flex items-center justify-between text-sm"><span className="text-slate-500">Subtotal</span><span className="font-semibold text-slate-950">{formatCurrency(subtotal)}</span></div>
-            {negotiation.discountAmount > 0 && <div className="flex items-center justify-between text-sm text-emerald-700"><span>Desconto negociado</span><span className="font-semibold">- {formatCurrency(negotiation.discountAmount)}</span></div>}
-            {negotiation.surchargeAmount > 0 && <div className="flex items-center justify-between text-sm text-amber-700"><span>Acrescimo negociado</span><span className="font-semibold">+ {formatCurrency(negotiation.surchargeAmount)}</span></div>}
-            {paymentDiscountAmount > 0 && <div className="flex items-center justify-between text-sm text-emerald-700"><span>Desconto de pagamento</span><span className="font-semibold">- {formatCurrency(paymentDiscountAmount)}</span></div>}
-            {paymentSurchargeAmount > 0 && <div className="flex items-center justify-between text-sm text-amber-700"><span>Acrescimo de pagamento</span><span className="font-semibold">+ {formatCurrency(paymentSurchargeAmount)}</span></div>}
-            <div className="rounded-3xl bg-slate-950 px-4 py-4 text-white"><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">Total estimado</p><p className="mt-2 text-3xl font-bold tracking-tight">{formatCurrency(total)}</p><p className="mt-2 text-sm text-slate-300">{selectedPaymentOption?.label || 'Defina meio e condicao de pagamento.'}</p></div>
-            {mode === 'order' && <Button className="h-12 w-full rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800" disabled={submitting || !selectedStoreId || items.length === 0} onClick={() => handleSubmit('order')}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingBag className="mr-2 h-4 w-4" />}Confirmar pedido</Button>}
-            <Button variant={mode === 'quote' ? 'default' : 'outline'} className={mode === 'quote' ? 'h-12 w-full rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800' : 'h-12 w-full rounded-2xl border-slate-200 bg-white text-slate-950 hover:bg-slate-50'} disabled={submitting || !selectedStoreId || items.length === 0} onClick={() => handleSubmit('quote')}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}Salvar como orcamento</Button>
-          </CardContent>
-        </Card>
+      {/* Sidebar: Summary */}
+      <div className="space-y-4 xl:sticky xl:top-20 xl:self-start">
+        <div className="rounded-2xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-slate-950">Resumo</h2>
+          </div>
+          <div className="space-y-3 p-4">
+            <div className="flex items-center justify-between text-xs"><span className="text-slate-500">Subtotal</span><span className="font-semibold text-slate-950">{formatCurrency(subtotal)}</span></div>
+            {negotiation.discountAmount > 0 && <div className="flex items-center justify-between text-xs text-emerald-700"><span>Desc. negociado</span><span className="font-semibold">- {formatCurrency(negotiation.discountAmount)}</span></div>}
+            {negotiation.surchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>Acréscimo</span><span className="font-semibold">+ {formatCurrency(negotiation.surchargeAmount)}</span></div>}
+            {paymentDiscountAmount > 0 && <div className="flex items-center justify-between text-xs text-emerald-700"><span>Desc. pagamento</span><span className="font-semibold">- {formatCurrency(paymentDiscountAmount)}</span></div>}
+            {paymentSurchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>Acrésc. pagamento</span><span className="font-semibold">+ {formatCurrency(paymentSurchargeAmount)}</span></div>}
+
+            <div className="rounded-xl bg-slate-950 px-4 py-3 text-white">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-300">Total estimado</p>
+              <p className="mt-1 text-2xl font-bold tracking-tight">{formatCurrency(total)}</p>
+              <p className="mt-1 text-xs text-slate-300">{selectedPaymentOption?.label || 'Defina pagamento'}</p>
+            </div>
+
+            {mode === 'order' && (
+              <Button className="h-10 w-full rounded-xl border-0 bg-slate-950 text-sm text-white hover:bg-slate-800" disabled={submitting || !selectedStoreId || items.length === 0} onClick={() => handleSubmit('order')}>
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ShoppingBag className="mr-2 h-4 w-4" />Confirmar pedido</>}
+              </Button>
+            )}
+            <Button
+              variant={mode === 'quote' ? 'default' : 'outline'}
+              className={mode === 'quote' ? 'h-10 w-full rounded-xl border-0 bg-slate-950 text-sm text-white hover:bg-slate-800' : 'h-10 w-full rounded-xl border-slate-200 bg-white text-sm text-slate-950 hover:bg-slate-50'}
+              disabled={submitting || !selectedStoreId || items.length === 0}
+              onClick={() => handleSubmit('quote')}
+            >
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><FileText className="mr-2 h-4 w-4" />Salvar orçamento</>}
+            </Button>
+          </div>
+        </div>
       </div>
 
+      {/* Product configurator dialog */}
       <Dialog open={Boolean(dialogProductId)} onOpenChange={(open) => !open && setDialogProductId(null)}>
-        <DialogContent className="rounded-3xl border border-slate-200 bg-white sm:max-w-3xl">
-          <DialogHeader><DialogTitle>Configurar item</DialogTitle></DialogHeader>
-          {configLoading || !configData ? <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Carregando configuracao...</div> : <div className="grid gap-5 md:grid-cols-[220px_minmax(0,1fr)]"><div className="relative h-48 overflow-hidden rounded-2xl bg-slate-100">{configData.product.images?.find((image) => image.is_primary)?.url ? <Image src={configData.product.images.find((image) => image.is_primary)?.url || ''} alt={configData.product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Package className="h-8 w-8" /></div>}</div><div className="space-y-4"><div><p className="text-lg font-semibold text-slate-950">{configData.product.name}</p><p className="mt-1 text-sm text-slate-500">Escolha a combinacao ideal para este cliente.</p></div>{(configData.product.size_options || []).filter((option) => option.is_active).length > 0 && <div className="space-y-2"><Label>Tamanho</Label><div className="flex flex-wrap gap-2">{(configData.product.size_options || []).filter((option) => option.is_active).map((option) => <button key={option.id} type="button" onClick={() => setSelectedSizeOptionId(option.id)} className={cn('rounded-full border px-3 py-2 text-sm transition-all', selectedSizeOptionId === option.id ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700')}>{option.name}</button>)}</div></div>}<div className="space-y-2"><Label>Tecido</Label><div className="flex flex-wrap gap-2">{configData.fabrics.map((fabric) => <button key={fabric.id} type="button" onClick={() => { setSelectedFabricId(fabric.id); setSelectedColorId(fabric.colors[0]?.id || '') }} className={cn('rounded-full border px-3 py-2 text-sm transition-all', selectedFabricId === fabric.id ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700')}>{fabric.name}</button>)}</div></div><div className="space-y-2"><Label>Cor</Label><div className="flex flex-wrap gap-2">{(configData.fabrics.find((fabric) => fabric.id === selectedFabricId)?.colors || []).map((color) => <button key={color.id} type="button" onClick={() => setSelectedColorId(color.id)} className={cn('rounded-full border px-3 py-2 text-sm transition-all', selectedColorId === color.id ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700')}>{color.name}</button>)}</div></div><div className="grid gap-4 sm:grid-cols-[140px_minmax(0,1fr)]"><div className="space-y-2"><Label>Quantidade</Label><Input type="number" min={1} value={dialogQuantity} onChange={(event) => setDialogQuantity(Math.max(1, Number(event.target.value || 1)))} className="rounded-2xl border-slate-200" /></div><div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-4"><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Preco unitario</p><p className="mt-1 text-2xl font-bold text-slate-950">{formatCurrency(previewPrice)}</p></div></div><Button className="h-12 rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800" onClick={addConfiguredItem}><Plus className="mr-2 h-4 w-4" />Adicionar item</Button></div></div>}
+        <DialogContent className="rounded-2xl border border-slate-200 bg-white sm:max-w-2xl">
+          <DialogHeader><DialogTitle className="text-sm">Configurar item</DialogTitle></DialogHeader>
+          {configLoading || !configData ? (
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-5 text-xs text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Carregando...</div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-[180px_minmax(0,1fr)]">
+              <div className="relative h-40 overflow-hidden rounded-xl bg-slate-100">
+                {configData.product.images?.find((image) => image.is_primary)?.url ? <Image src={configData.product.images.find((image) => image.is_primary)?.url || ''} alt={configData.product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Package className="h-7 w-7" /></div>}
+              </div>
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-slate-950">{configData.product.name}</p>
+
+                {(configData.product.size_options || []).filter((option) => option.is_active).length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Tamanho</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(configData.product.size_options || []).filter((option) => option.is_active).map((option) => (
+                        <button key={option.id} type="button" onClick={() => setSelectedSizeOptionId(option.id)} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedSizeOptionId === option.id ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700')}>{option.name}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Tecido</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {configData.fabrics.map((fabric) => (
+                      <button key={fabric.id} type="button" onClick={() => { setSelectedFabricId(fabric.id); setSelectedColorId(fabric.colors[0]?.id || '') }} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedFabricId === fabric.id ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700')}>{fabric.name}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Cor</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(configData.fabrics.find((fabric) => fabric.id === selectedFabricId)?.colors || []).map((color) => (
+                      <button key={color.id} type="button" onClick={() => setSelectedColorId(color.id)} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedColorId === color.id ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700')}>{color.name}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-end gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Qtd.</Label>
+                    <Input type="number" min={1} value={dialogQuantity} onChange={(event) => setDialogQuantity(Math.max(1, Number(event.target.value || 1)))} className="h-9 w-20 rounded-xl border-slate-200 text-sm" />
+                  </div>
+                  <div className="rounded-xl bg-slate-50 px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Unitário</p>
+                    <p className="text-lg font-bold text-slate-950">{formatCurrency(previewPrice)}</p>
+                  </div>
+                </div>
+
+                <Button size="sm" className="h-9 rounded-xl border-0 bg-slate-950 text-xs text-white hover:bg-slate-800" onClick={addConfiguredItem}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar item
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

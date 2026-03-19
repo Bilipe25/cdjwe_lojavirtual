@@ -3,11 +3,10 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { CalendarClock, CalendarPlus, CheckCircle2, FileText, Loader2, ShoppingBag } from 'lucide-react'
+import { CalendarPlus, Loader2 } from 'lucide-react'
 import { createRepresentativeVisitAction } from '@/app/sales/actions'
-import { SalesEmptyState, SalesMetricCard } from '@/components/sales/sales-ui'
+import { SalesEmptyState } from '@/components/sales/sales-ui'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,10 +18,18 @@ type CustomerRow = Store
 
 const outcomeLabels: Record<RepresentativeVisit['outcome'], string> = {
   planned: 'Planejada',
-  completed: 'Concluida',
+  completed: 'Concluída',
   follow_up: 'Follow-up',
-  converted_quote: 'Gerou orcamento',
+  converted_quote: 'Gerou orçamento',
   converted_order: 'Gerou pedido',
+}
+
+const outcomeDot: Record<RepresentativeVisit['outcome'], string> = {
+  planned: 'bg-slate-400',
+  completed: 'bg-emerald-500',
+  follow_up: 'bg-amber-500',
+  converted_quote: 'bg-blue-500',
+  converted_order: 'bg-violet-500',
 }
 
 export function RepresentativeVisitsPage({ customers, visits }: { customers: CustomerRow[]; visits: RepresentativeVisit[] }) {
@@ -37,42 +44,31 @@ export function RepresentativeVisitsPage({ customers, visits }: { customers: Cus
   const [pending, startTransition] = useTransition()
 
   const sortedCustomers = useMemo(() => [...customers].sort((a, b) => a.company_name.localeCompare(b.company_name, 'pt-BR')), [customers])
-  const metrics = useMemo(() => ({
-    planned: visits.filter((visit) => visit.outcome === 'planned').length,
-    completed: visits.filter((visit) => visit.outcome === 'completed').length,
-    quote: visits.filter((visit) => visit.outcome === 'converted_quote').length,
-    order: visits.filter((visit) => visit.outcome === 'converted_order').length,
-  }), [visits])
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SalesMetricCard icon={CalendarClock} label="Visitas registradas" value={visits.length} helper="Linha do tempo comercial da carteira." tone="blue" />
-        <SalesMetricCard icon={CheckCircle2} label="Concluidas" value={metrics.completed} helper="Atendimentos finalizados com registro." tone="emerald" />
-        <SalesMetricCard icon={FileText} label="Geraram orcamento" value={metrics.quote} helper="Sinaliza proposta criada durante a visita." tone="amber" />
-        <SalesMetricCard icon={ShoppingBag} label="Geraram pedido" value={metrics.order} helper="Conversao direta durante o atendimento." tone="slate" />
-      </div>
-
-      <div className="flex justify-end">
+    <div className="space-y-4">
+      {/* Header with button */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-slate-500">{visits.length} visita(s)</span>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button className="h-11 rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800">
-              <CalendarPlus className="mr-2 h-4 w-4" />
+            <Button size="sm" className="h-8 rounded-xl border-0 bg-slate-950 text-xs text-white hover:bg-slate-800">
+              <CalendarPlus className="mr-1.5 h-3.5 w-3.5" />
               Nova visita
             </Button>
           </DialogTrigger>
 
-          <DialogContent className="rounded-[32px] border border-slate-200 bg-white sm:max-w-2xl">
+          <DialogContent className="rounded-2xl border border-slate-200 bg-white sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>Registrar visita comercial</DialogTitle>
+              <DialogTitle>Registrar visita</DialogTitle>
             </DialogHeader>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2 md:col-span-2">
-                <Label>Cliente</Label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-xs">Cliente</Label>
                 <Select value={customerId} onValueChange={(value) => setCustomerId(value || '')}>
-                  <SelectTrigger className="h-11 rounded-2xl border-slate-200">
-                    <SelectValue placeholder="Selecione um cliente da carteira" />
+                  <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm">
+                    <SelectValue placeholder="Selecione um cliente" />
                   </SelectTrigger>
                   <SelectContent>
                     {sortedCustomers.map((customer) => (
@@ -85,45 +81,46 @@ export function RepresentativeVisitsPage({ customers, visits }: { customers: Cus
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label>Data da visita</Label>
-                <Input type="datetime-local" value={visitedAt} onChange={(event) => setVisitedAt(event.target.value)} className="h-11 rounded-2xl border-slate-200" />
+              <div className="space-y-1.5">
+                <Label className="text-xs">Data</Label>
+                <Input type="datetime-local" value={visitedAt} onChange={(event) => setVisitedAt(event.target.value)} className="h-9 rounded-xl border-slate-200 text-sm" />
               </div>
 
-              <div className="space-y-2">
-                <Label>Resultado</Label>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Resultado</Label>
                 <Select value={outcome} onValueChange={(value) => setOutcome((value || 'planned') as typeof outcome)}>
-                  <SelectTrigger className="h-11 rounded-2xl border-slate-200">
+                  <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm">
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="planned">Planejada</SelectItem>
-                    <SelectItem value="completed">Concluida</SelectItem>
+                    <SelectItem value="completed">Concluída</SelectItem>
                     <SelectItem value="follow_up">Follow-up</SelectItem>
-                    <SelectItem value="converted_quote">Gerou orcamento</SelectItem>
+                    <SelectItem value="converted_quote">Gerou orçamento</SelectItem>
                     <SelectItem value="converted_order">Gerou pedido</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-2 md:col-span-2">
-                <Label>Resumo da conversa</Label>
-                <Input value={resultSummary} onChange={(event) => setResultSummary(event.target.value)} className="h-11 rounded-2xl border-slate-200" />
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-xs">Resumo da conversa</Label>
+                <Input value={resultSummary} onChange={(event) => setResultSummary(event.target.value)} className="h-9 rounded-xl border-slate-200 text-sm" />
               </div>
 
-              <div className="space-y-2 md:col-span-2">
-                <Label>Proximo passo</Label>
-                <Input value={nextStep} onChange={(event) => setNextStep(event.target.value)} className="h-11 rounded-2xl border-slate-200" />
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-xs">Próximo passo</Label>
+                <Input value={nextStep} onChange={(event) => setNextStep(event.target.value)} className="h-9 rounded-xl border-slate-200 text-sm" />
               </div>
 
-              <div className="space-y-2 md:col-span-2">
-                <Label>Observacoes</Label>
-                <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-[120px] rounded-2xl border-slate-200" />
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-xs">Observações</Label>
+                <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-[80px] rounded-xl border-slate-200 text-sm" />
               </div>
             </div>
 
             <Button
-              className="mt-2 h-11 rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800"
+              size="sm"
+              className="mt-1 h-9 rounded-xl border-0 bg-slate-950 text-xs text-white hover:bg-slate-800"
               disabled={pending}
               onClick={() =>
                 startTransition(async () => {
@@ -147,52 +144,52 @@ export function RepresentativeVisitsPage({ customers, visits }: { customers: Cus
                 })
               }
             >
-              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar visita'}
+              {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Salvar visita'}
             </Button>
           </DialogContent>
         </Dialog>
       </div>
 
+      {/* Visits list */}
       {visits.length === 0 ? (
         <SalesEmptyState
           title="Nenhuma visita registrada"
-          description="Comece registrando visitas para manter historico, follow-up e conversao ligados ao cliente certo."
+          description="Registre visitas para manter histórico e follow-up."
           action={
-            <Button onClick={() => setOpen(true)} className="rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800">
-              Registrar primeira visita
+            <Button onClick={() => setOpen(true)} size="sm" className="h-8 rounded-xl border-0 bg-slate-950 text-xs text-white hover:bg-slate-800">
+              Registrar visita
             </Button>
           }
         />
       ) : (
-        <div className="space-y-4">
+        <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
           {visits.map((visit) => (
-            <Card key={visit.id} className="rounded-[32px] border border-slate-200 bg-white/95 shadow-sm">
-              <CardContent className="space-y-4 p-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        {outcomeLabels[visit.outcome]}
-                      </span>
-                      <span className="text-xs text-slate-400">{new Date(visit.visited_at).toLocaleString('pt-BR')}</span>
-                    </div>
-                    <p className="mt-3 text-base font-semibold text-slate-950">{visit.store?.company_name || 'Cliente'}</p>
-                    {visit.result_summary ? <p className="mt-1 text-sm leading-6 text-slate-600">{visit.result_summary}</p> : null}
+            <div key={visit.id} className="px-4 py-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-block h-2 w-2 rounded-full ${outcomeDot[visit.outcome]}`} />
+                    <span className="text-xs font-medium text-slate-500">{outcomeLabels[visit.outcome]}</span>
+                    <span className="text-[11px] text-slate-400">{new Date(visit.visited_at).toLocaleString('pt-BR')}</span>
                   </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-right">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Proximo passo</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-950">{visit.next_step || 'Nao informado'}</p>
-                  </div>
+                  <p className="mt-1 text-sm font-semibold text-slate-950">{visit.store?.company_name || 'Cliente'}</p>
+                  {visit.result_summary && <p className="mt-0.5 text-xs leading-5 text-slate-600">{visit.result_summary}</p>}
                 </div>
 
-                {visit.notes ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm leading-6 text-slate-600">
-                    {visit.notes}
+                {visit.next_step && (
+                  <div className="shrink-0 text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Próximo</p>
+                    <p className="mt-0.5 text-xs font-medium text-slate-700">{visit.next_step}</p>
                   </div>
-                ) : null}
-              </CardContent>
-            </Card>
+                )}
+              </div>
+
+              {visit.notes && (
+                <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                  {visit.notes}
+                </p>
+              )}
+            </div>
           ))}
         </div>
       )}

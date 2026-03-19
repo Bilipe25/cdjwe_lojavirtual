@@ -2,12 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Building2, MapPinned, Search, ShoppingBag, Tags } from 'lucide-react'
+import { Search, ShoppingBag, FileText, MapPinned } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { SalesEmptyState, SalesMetricCard } from '@/components/sales/sales-ui'
+import { SalesEmptyState } from '@/components/sales/sales-ui'
 import type { PriceTable, Store, StoreAddress } from '@/lib/types'
 
 type CustomerRow = Store & {
@@ -33,108 +31,79 @@ export function RepresentativeCustomersPage({ customers }: { customers: Customer
     )
   }, [customers, search])
 
-  const metrics = useMemo(() => {
-    const withTable = customers.filter((customer) => (customer.assigned_price_tables?.length || 0) > 0).length
-    const withMainAddress = customers.filter((customer) => (customer.addresses?.length || 0) > 0).length
-    const withLastOrder = customers.filter((customer) => customer.last_order).length
-    return { withTable, withMainAddress, withLastOrder }
-  }, [customers])
-
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SalesMetricCard icon={Building2} label="Clientes na carteira" value={customers.length} helper="Base ativa para atendimento, proposta e pedido." tone="blue" />
-        <SalesMetricCard icon={Tags} label="Com tabela vinculada" value={metrics.withTable} helper="Clientes com regra comercial pronta para uso." tone="slate" />
-        <SalesMetricCard icon={MapPinned} label="Com endereco ativo" value={metrics.withMainAddress} helper="Entrega mais rapida no atendimento assistido." tone="emerald" />
-        <SalesMetricCard icon={ShoppingBag} label="Com historico recente" value={metrics.withLastOrder} helper="Ajuda a retomar negociaï¿½ï¿½es e reposicoes." tone="amber" />
+    <div className="space-y-4">
+      {/* Search bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Buscar por nome, CNPJ ou código"
+            className="h-10 rounded-xl border-slate-200 pl-10 text-sm"
+          />
+        </div>
+        <span className="shrink-0 text-xs font-medium text-slate-500">
+          {filtered.length} cliente(s)
+        </span>
       </div>
 
-      <Card className="rounded-[32px] border border-slate-200 bg-white/95 shadow-sm">
-        <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full lg:max-w-xl">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar por nome, CNPJ ou codigo"
-              className="h-12 rounded-2xl border-slate-200 pl-10"
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
-              {filtered.length} cliente(s)
-            </span>
-            <Button asChild variant="outline" className="h-11 rounded-2xl border-slate-200 bg-white">
-              <Link href="/sales/quotes/new">Novo orcamento</Link>
-            </Button>
-            <Button asChild className="h-11 rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800">
-              <Link href="/sales/orders/new">Novo pedido</Link>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
+      {/* Customer list */}
       {filtered.length === 0 ? (
         <SalesEmptyState
           title="Nenhum cliente encontrado"
-          description="Ajuste a busca por nome, CNPJ ou codigo para localizar rapidamente um cliente da sua carteira."
+          description="Ajuste a busca por nome, CNPJ ou código."
         />
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
           {filtered.map((customer) => {
-            const mainAddress = customer.addresses?.find((address) => address.is_main) || customer.addresses?.[0]
+            const tableName = customer.assigned_price_tables?.[0]?.name
+            const lastOrder = customer.last_order
+
             return (
-              <Card key={customer.id} className="rounded-[32px] border border-slate-200 bg-white/95 shadow-sm">
-                <CardContent className="space-y-4 p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          {customer.customer_code || 'Cliente'}
-                        </span>
-                        {customer.city ? (
-                          <Badge variant="outline" className="rounded-full border-slate-200 bg-white text-slate-600">
-                            {customer.city}
-                            {customer.state ? ` - ${customer.state}` : ''}
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <h3 className="mt-3 text-lg font-semibold leading-tight text-slate-950">{customer.company_name}</h3>
-                      <p className="mt-1 text-sm text-slate-500">{customer.trade_name || customer.cnpj}</p>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-right">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Tabela</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-950">{customer.assigned_price_tables?.[0]?.name || 'Padrao'}</p>
-                    </div>
+              <div key={customer.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                {/* Left — customer info */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-950">{customer.company_name}</span>
+                    {customer.customer_code && (
+                      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                        {customer.customer_code}
+                      </span>
+                    )}
                   </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Endereco principal</p>
-                      <p className="mt-1 text-sm font-medium text-slate-700">{mainAddress?.title || 'Nao informado'}</p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Ultimo pedido</p>
-                      <p className="mt-1 text-sm font-medium text-slate-700">
-                        {customer.last_order ? `${customer.last_order.order_number} ï¿½ ${formatCurrency(customer.last_order.total)}` : 'Sem historico recente'}
-                      </p>
-                    </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                    <span>{customer.trade_name || customer.cnpj}</span>
+                    {customer.city && (
+                      <span>{customer.city}{customer.state ? ` - ${customer.state}` : ''}</span>
+                    )}
+                    {tableName && <span>Tabela: {tableName}</span>}
+                    {lastOrder && <span>Últ. pedido: {lastOrder.order_number} · {formatCurrency(lastOrder.total)}</span>}
                   </div>
+                </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button asChild className="h-11 rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800">
-                      <Link href={`/sales/orders/new?customer=${customer.id}`}>Novo pedido</Link>
-                    </Button>
-                    <Button asChild variant="outline" className="h-11 rounded-2xl border-slate-200 bg-white">
-                      <Link href={`/sales/quotes/new?customer=${customer.id}`}>Novo orcamento</Link>
-                    </Button>
-                    <Button asChild variant="ghost" className="h-11 rounded-2xl text-slate-500 hover:bg-slate-100 hover:text-slate-950">
-                      <Link href="/sales/visits">Registrar visita</Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                {/* Right — actions */}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <Button asChild size="sm" className="h-8 rounded-lg border-0 bg-slate-950 px-3 text-xs text-white hover:bg-slate-800">
+                    <Link href={`/sales/orders/new?customer=${customer.id}`}>
+                      <ShoppingBag className="mr-1.5 h-3.5 w-3.5" />
+                      Pedido
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline" size="sm" className="h-8 rounded-lg border-slate-200 px-3 text-xs">
+                    <Link href={`/sales/quotes/new?customer=${customer.id}`}>
+                      <FileText className="mr-1.5 h-3.5 w-3.5" />
+                      Orçam.
+                    </Link>
+                  </Button>
+                  <Button asChild variant="ghost" size="sm" className="h-8 rounded-lg px-2.5 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-950">
+                    <Link href="/sales/visits">
+                      <MapPinned className="h-3.5 w-3.5" />
+                    </Link>
+                  </Button>
+                </div>
+              </div>
             )
           })}
         </div>
