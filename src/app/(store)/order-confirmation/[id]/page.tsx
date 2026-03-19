@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
     CheckCircle2,
     Package,
-    CreditCard,
     MapPin,
     Calendar,
     FileDown,
@@ -32,6 +31,8 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getWhatsAppLink } from '@/lib/utils'
 import { OrderItemPriceDetails } from '@/components/orders/order-item-price-details'
+import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
+import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
 
 type OrderConfirmationRecord = Order & {
     store?: Record<string, unknown> | null
@@ -41,6 +42,7 @@ type OrderConfirmationRecord = Order & {
         description?: string | null
         installments?: number | null
         discount_percentage?: number | null
+        surcharge_percentage?: number | null
     } | null
 }
 
@@ -131,7 +133,7 @@ export default function OrderConfirmationPage() {
                     *,
                     store:stores(*),
                     profile:profiles(*),
-                    payment_condition:payment_conditions(name, description, installments, discount_percentage)
+                    payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage)
                 `)
                 .eq('id', orderId)
                 .single()
@@ -217,7 +219,7 @@ export default function OrderConfirmationPage() {
             `━━━━━━━━━━━━━━━━━━━`,
             `💰 Subtotal: R$ ${order.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}${discountLine}`,
             `✅ *TOTAL: R$ ${order.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}*`,
-            order.payment_condition?.name ? `💳 Pagamento: ${order.payment_condition.name}` : null,
+            paymentDisplay.combinedLabel !== 'A combinar' ? `💳 Pagamento: ${paymentDisplay.combinedLabel}` : null,
             appUrl ? `\n🔗 Ver pedido: ${appUrl}/order/${order.id}` : null,
         ].filter(Boolean).join('\n')
 
@@ -258,6 +260,7 @@ export default function OrderConfirmationPage() {
     if (!order) return null
 
     const statusCfg = statusConfig[order.status as OrderStatus] ?? statusConfig.pending
+    const paymentDisplay = getOrderPaymentDisplay(order)
 
     return (
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 md:py-10 space-y-6">
@@ -370,7 +373,7 @@ export default function OrderConfirmationPage() {
                                     ))}
                                 </AnimatePresence>
                                 <div className="rounded-xl border border-border/60 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-                                    Os valores deste pedido foram congelados no momento da compra para preservar seu hist?rico financeiro.
+                                    Os valores e condicoes comerciais deste pedido foram preservados no momento da compra para manter o historico financeiro consistente.
                                 </div>
                             </CardContent>
                         </Card>
@@ -512,35 +515,20 @@ export default function OrderConfirmationPage() {
                                     </span>
                                 </div>
                                 <div className="rounded-xl border border-border/60 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                                    Valores unit?rios e totais permanecem congelados mesmo que a tabela de pre?os mude depois.
+                                    Valores, descontos e pagamento permanecem registrados como foram aprovados no checkout, mesmo que o cadastro comercial mude depois.
                                 </div>
                             </CardContent>
                         </Card>
                     </motion.div>
 
                     {/* Payment */}
-                    {order.payment_condition && (
+                    {paymentDisplay.hasSnapshot && (
                         <motion.div
                             initial={{ opacity: 0, x: 20 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: 0.7 }}
                         >
-                            <Card className="glass-card border-0">
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-sm flex items-center gap-2">
-                                        <CreditCard className="h-4 w-4 text-bronze" />
-                                        Forma de Pagamento
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="font-semibold text-sm">{order.payment_condition.name}</p>
-                                    {order.payment_condition.description && (
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            {order.payment_condition.description}
-                                        </p>
-                                    )}
-                                </CardContent>
-                            </Card>
+                            <OrderPaymentSummaryCard order={order} title="Pagamento" />
                         </motion.div>
                     )}
 

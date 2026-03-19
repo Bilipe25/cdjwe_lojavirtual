@@ -1,6 +1,6 @@
 'use client'
 
-import { type ComponentType, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ComponentType, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
@@ -50,7 +50,14 @@ import { useSettings } from '@/components/providers/settings-provider'
 import { cn } from '@/lib/utils'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { createClient } from '@/lib/supabase/client'
-import type { CartItem, PaymentCondition, PriceTablePaymentRule, StoreAddress } from '@/lib/types'
+import type {
+    CartItem,
+    PaymentCondition,
+    PaymentMethod,
+    PaymentMethodCondition,
+    PriceTablePaymentRule,
+    StoreAddress,
+} from '@/lib/types'
 import { toast } from 'sonner'
 import {
     checkoutAction,
@@ -73,6 +80,52 @@ function getRuleLabel(rule: PriceTablePaymentRule) {
 
 function getConditionLabel(condition: PaymentCondition) {
     return `${condition.name}${condition.discount_percentage > 0 ? ` -${condition.discount_percentage}%` : ''}`
+}
+
+type CheckoutPaymentMethodGroup = {
+    method: PaymentMethod
+    conditions: PaymentMethodCondition[]
+    rules: PriceTablePaymentRule[]
+}
+
+type CheckoutPaymentOption = {
+    id: string
+    label: string
+    description: string | null
+    discountPercentage: number
+    surchargePercentage: number
+    isTableRule: boolean
+    methodId: string | null
+}
+
+function buildPaymentOptionsFromMethodGroup(group: CheckoutPaymentMethodGroup): CheckoutPaymentOption[] {
+    const conditionOptions = group.conditions
+        .filter((link) => link.is_active && link.payment_condition?.is_active)
+        .map((link) => ({
+            id: link.payment_condition_id,
+            label: link.payment_condition ? getConditionLabel(link.payment_condition) : 'Condição comercial',
+            description: link.payment_condition?.description || group.method.description || null,
+            discountPercentage: link.payment_condition?.discount_percentage || 0,
+            surchargePercentage: link.payment_condition?.surcharge_percentage || 0,
+            isTableRule: false,
+            methodId: group.method.id,
+        }))
+
+    const ruleOptions = group.rules.map((rule) => ({
+        id: rule.id,
+        label:
+            rule.payment_method_condition?.payment_condition?.name ||
+            getRuleLabel(rule),
+        description:
+            rule.payment_method_condition?.payment_condition?.description ||
+            'Regra comercial exclusiva da sua tabela B2B.',
+        discountPercentage: rule.discount_percentage,
+        surchargePercentage: rule.surcharge_percentage || 0,
+        isTableRule: true,
+        methodId: group.method.id,
+    }))
+
+    return [...ruleOptions, ...conditionOptions]
 }
 
 function CheckoutSection({
@@ -474,9 +527,10 @@ export default function CartPage() {
     const { settings } = useSettings()
 
     const [loading, setLoading] = useState(false)
+    const [paymentMethodGroups, setPaymentMethodGroups] = useState<CheckoutPaymentMethodGroup[]>([])
     const [paymentConditions, setPaymentConditions] = useState<PaymentCondition[]>([])
     const [priceTableRules, setPriceTableRules] = useState<PriceTablePaymentRule[]>([])
-    const [isTableRule, setIsTableRule] = useState(false)
+    const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('')
     const [selectedPayment, setSelectedPayment] = useState('')
     const [storeAddresses, setStoreAddresses] = useState<StoreAddress[]>([])
     const [selectedAddressId, setSelectedAddressId] = useState('')
@@ -488,6 +542,7 @@ export default function CartPage() {
     const [newAddressDialogOpen, setNewAddressDialogOpen] = useState(false)
     const [priceValidationPending, setPriceValidationPending] = useState(false)
     const [lastValidatedKey, setLastValidatedKey] = useState('')
+    const selectedPaymentMethodRef = useRef(selectedPaymentMethod)
 
     const total = subtotal()
     const count = totalItems()
@@ -500,6 +555,50 @@ export default function CartPage() {
         () => storeAddresses.find((address) => address.id === selectedAddressId) || null,
         [selectedAddressId, storeAddresses]
     )
+
+    const selectedMethodGroup = useMemo(
+        () =>
+            paymentMethodGroups.find((group) => group.method.id === selectedPaymentMethod) || null,
+        [paymentMethodGroups, selectedPaymentMethod]
+    )
+
+    const selectedMethodOptions = useMemo(
+        () => (selectedMethodGroup ? buildPaymentOptionsFromMethodGroup(selectedMethodGroup) : []),
+        [selectedMethodGroup]
+    )
+
+    const fallbackPaymentOptions = useMemo(
+        () => [
+            ...priceTableRules.map((rule) => ({
+                id: rule.id,
+                label: getRuleLabel(rule),
+                description: 'Regra comercial exclusiva da sua tabela B2B.',
+                discountPercentage: rule.discount_percentage,
+                surchargePercentage: rule.surcharge_percentage || 0,
+                isTableRule: true,
+                methodId: null,
+            })),
+            ...paymentConditions.map((condition) => ({
+                id: condition.id,
+                label: getConditionLabel(condition),
+                description: condition.description || null,
+                discountPercentage: condition.discount_percentage,
+                surchargePercentage: condition.surcharge_percentage || 0,
+                isTableRule: false,
+                methodId: null,
+            })),
+        ],
+        [paymentConditions, priceTableRules]
+    )
+
+    const paymentOptions = selectedMethodOptions.length > 0 ? selectedMethodOptions : fallbackPaymentOptions
+
+    const selectedPaymentOption = useMemo(
+        () => paymentOptions.find((option) => option.id === selectedPayment) || null,
+        [paymentOptions, selectedPayment]
+    )
+
+    const isTableRule = Boolean(selectedPaymentOption?.isTableRule)
 
     const selectedRule = useMemo(
         () =>
@@ -517,40 +616,39 @@ export default function CartPage() {
         [isTableRule, paymentConditions, selectedPayment]
     )
 
-    const mobilePaymentOptions = useMemo(
-        () => [
-            ...priceTableRules.map((rule) => ({
-                id: rule.id,
-                label: getRuleLabel(rule),
-                description: 'Regra comercial exclusiva da sua tabela B2B.',
-                discountPercentage: rule.discount_percentage,
-                isTableRule: true,
-            })),
-            ...paymentConditions.map((condition) => ({
-                id: condition.id,
-                label: getConditionLabel(condition),
-                description: condition.description || null,
-                discountPercentage: condition.discount_percentage,
-                isTableRule: false,
-            })),
-        ],
-        [paymentConditions, priceTableRules]
-    )
-
     const discountPercentage =
         selectedRule?.discount_percentage || selectedCondition?.discount_percentage || 0
-    const surchargePercentage = selectedCondition?.surcharge_percentage || 0
+    const surchargePercentage =
+        selectedRule?.surcharge_percentage ||
+        selectedCondition?.surcharge_percentage ||
+        selectedPaymentOption?.surchargePercentage ||
+        0
     const paymentDiscount = total * (discountPercentage / 100)
     const discountedTotal = total - paymentDiscount
     const paymentSurcharge = discountedTotal * (surchargePercentage / 100)
     const finalTotal = discountedTotal + paymentSurcharge
     const minOrderMet = !settings?.min_order_amount || total >= settings.min_order_amount
 
-    const selectedPaymentLabel = selectedRule
-        ? getRuleLabel(selectedRule)
-        : selectedCondition
-          ? getConditionLabel(selectedCondition)
-          : 'Selecione uma condicao'
+    const selectedPaymentLabel = selectedPaymentOption
+        ? `${selectedMethodGroup?.method.name ? `${selectedMethodGroup.method.name} · ` : ''}${selectedPaymentOption.label}`
+        : 'Selecione uma condição'
+
+    const selectedPaymentDescription =
+        selectedPaymentOption?.description ||
+        (isTableRule ? 'Regra comercial exclusiva da sua tabela B2B.' : null)
+
+    useEffect(() => {
+        selectedPaymentMethodRef.current = selectedPaymentMethod
+    }, [selectedPaymentMethod])
+
+    useEffect(() => {
+        if (!selectedMethodGroup) return
+
+        const nextOptions = buildPaymentOptionsFromMethodGroup(selectedMethodGroup)
+        setSelectedPayment((previous) =>
+            nextOptions.some((option) => option.id === previous) ? previous : nextOptions[0]?.id || ''
+        )
+    }, [selectedMethodGroup])
 
     const deliveryMessage =
         settings?.default_delivery_days && settings.default_delivery_days > 0
@@ -661,14 +759,43 @@ export default function CartPage() {
     useEffect(() => {
         const loadPaymentRules = async () => {
             const rulesResponse = await getAvailablePaymentRules(total)
+            const nextMethodGroups = (rulesResponse.paymentMethods || []) as CheckoutPaymentMethodGroup[]
             const nextTableRules = rulesResponse.priceTableRules || []
             const nextConditions = rulesResponse.globalConditions || []
 
+            setPaymentMethodGroups(nextMethodGroups)
             setPriceTableRules(nextTableRules)
             setPaymentConditions(nextConditions)
 
+            const groupedMethods = nextMethodGroups.filter(
+                (group) => group.rules.length > 0 || group.conditions.length > 0
+            )
+
+            if (groupedMethods.length > 0) {
+                const nextMethodId = groupedMethods.some(
+                    (group) => group.method.id === selectedPaymentMethodRef.current
+                )
+                    ? selectedPaymentMethodRef.current
+                    : groupedMethods[0].method.id
+
+                const nextGroup =
+                    groupedMethods.find((group) => group.method.id === nextMethodId) ||
+                    groupedMethods[0]
+
+                const nextOptions = buildPaymentOptionsFromMethodGroup(nextGroup)
+
+                setSelectedPaymentMethod(nextMethodId)
+                setSelectedPayment((previous) =>
+                    nextOptions.some((option) => option.id === previous)
+                        ? previous
+                        : nextOptions[0]?.id || ''
+                )
+                return
+            }
+
+            setSelectedPaymentMethod('')
+
             if (nextTableRules.length > 0) {
-                setIsTableRule(true)
                 setSelectedPayment((previous) =>
                     nextTableRules.some((rule) => rule.id === previous)
                         ? previous
@@ -678,7 +805,6 @@ export default function CartPage() {
             }
 
             if (nextConditions.length > 0) {
-                setIsTableRule(false)
                 setSelectedPayment((previous) =>
                     nextConditions.some((condition) => condition.id === previous)
                         ? previous
@@ -724,7 +850,7 @@ export default function CartPage() {
         }
 
         if (!selectedPayment) {
-            toast.error('Selecione uma condicao de pagamento.')
+            toast.error('Selecione um meio e uma condição de pagamento.')
             return
         }
 
@@ -1038,57 +1164,76 @@ export default function CartPage() {
                                 </div>
                             </div>
                             <div className="px-4 py-3.5 space-y-3">
-                                {mobilePaymentOptions.length === 0 ? (
+                                {paymentOptions.length === 0 ? (
                                     <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
-                                        Nenhuma condicao de pagamento disponivel.
+                                        Nenhum meio de pagamento disponível.
                                     </div>
                                 ) : (
                                     <div className="space-y-3">
+                                        {paymentMethodGroups.length > 0 && (
+                                            <div className="space-y-2">
+                                                <Label className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                                    Meio de pagamento
+                                                </Label>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {paymentMethodGroups.map((group) => {
+                                                        const isActive = group.method.id === selectedPaymentMethod
+                                                        const hasOptions =
+                                                            group.rules.length > 0 || group.conditions.length > 0
+
+                                                        return (
+                                                            <button
+                                                                key={group.method.id}
+                                                                type="button"
+                                                                disabled={!hasOptions}
+                                                                onClick={() => setSelectedPaymentMethod(group.method.id)}
+                                                                className={cn(
+                                                                    'rounded-xl border px-3 py-2 text-left text-sm transition-all',
+                                                                    isActive
+                                                                        ? 'border-navy bg-navy/5 text-navy shadow-sm'
+                                                                        : 'border-slate-200 bg-white text-slate-600',
+                                                                    !hasOptions && 'cursor-not-allowed opacity-50'
+                                                                )}
+                                                            >
+                                                                <div className="font-medium">{group.method.name}</div>
+                                                                <div className="text-[11px] text-slate-400">
+                                                                    {group.rules.length + group.conditions.length} opções
+                                                                </div>
+                                                            </button>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <Select
                                             value={selectedPayment}
                                             onValueChange={(value: string | null) => {
                                                 if (!value) return
                                                 setSelectedPayment(value)
-                                                setIsTableRule(
-                                                    priceTableRules.some((rule) => rule.id === value)
-                                                )
                                             }}
                                         >
                                             <SelectTrigger className="min-h-11 rounded-xl border-slate-200 bg-slate-50/80 px-3 text-left shadow-none">
-                                                <SelectValue placeholder="Selecione a condicao">
+                                                <SelectValue placeholder="Selecione a condição">
                                                     {selectedPaymentLabel}
                                                 </SelectValue>
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {priceTableRules.length > 0 && (
-                                                    <>
-                                                        <div className="px-2 py-1.5 text-[10px] font-bold uppercase text-muted-foreground">
-                                                            Tabela
-                                                        </div>
-                                                        {priceTableRules.map((rule) => (
-                                                            <SelectItem key={rule.id} value={rule.id}>
-                                                                {getRuleLabel(rule)}
-                                                            </SelectItem>
-                                                        ))}
-                                                        <Separator className="my-1" />
-                                                    </>
-                                                )}
-                                                {paymentConditions.map((condition) => (
-                                                    <SelectItem key={condition.id} value={condition.id}>
-                                                        {getConditionLabel(condition)}
+                                                {paymentOptions.map((option) => (
+                                                    <SelectItem key={option.id} value={option.id}>
+                                                        {option.label}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
 
-                                        {(selectedCondition?.description || isTableRule) && (
+                                        {selectedPaymentDescription && (
                                             <div className="rounded-xl bg-slate-50/80 px-3 py-2.5 ring-1 ring-slate-200/70">
                                                 <p className="text-sm font-medium text-slate-700">
                                                     {selectedPaymentLabel}
                                                 </p>
                                                 <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
-                                                    {selectedCondition?.description ||
-                                                        'Regra comercial exclusiva da sua tabela B2B.'}
+                                                    {selectedPaymentDescription}
                                                 </p>
                                             </div>
                                         )}
@@ -1246,16 +1391,52 @@ export default function CartPage() {
                                             </span>
                                         )}
                                     </div>
+                                    {paymentMethodGroups.length > 0 && (
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                            {paymentMethodGroups.map((group) => {
+                                                const isActive = group.method.id === selectedPaymentMethod
+                                                const hasOptions =
+                                                    group.rules.length > 0 || group.conditions.length > 0
+
+                                                return (
+                                                    <button
+                                                        key={group.method.id}
+                                                        type="button"
+                                                        disabled={!hasOptions}
+                                                        onClick={() => setSelectedPaymentMethod(group.method.id)}
+                                                        className={cn(
+                                                            'rounded-2xl border px-3 py-3 text-left transition-all',
+                                                            isActive
+                                                                ? 'border-navy bg-navy/[0.04] shadow-sm'
+                                                                : 'border-slate-200 bg-white hover:border-slate-300',
+                                                            !hasOptions && 'cursor-not-allowed opacity-50'
+                                                        )}
+                                                    >
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <div>
+                                                                <p className="text-sm font-semibold text-slate-900">
+                                                                    {group.method.name}
+                                                                </p>
+                                                                <p className="mt-0.5 text-xs text-slate-500">
+                                                                    {group.rules.length + group.conditions.length} opções disponíveis
+                                                                </p>
+                                                            </div>
+                                                            {isActive && (
+                                                                <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-navy">
+                                                                    Ativo
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
                                     <Select
                                         value={selectedPayment}
                                         onValueChange={(value: string | null) => {
                                             if (!value) return
                                             setSelectedPayment(value)
-                                            setIsTableRule(
-                                                priceTableRules.some(
-                                                    (rule) => rule.id === value
-                                                )
-                                            )
                                         }}
                                     >
                                         <SelectTrigger className="min-h-10 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
@@ -1264,36 +1445,19 @@ export default function CartPage() {
                                             </SelectValue>
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {priceTableRules.length > 0 && (
-                                                <>
-                                                    <div className="px-2 py-1.5 text-[10px] font-bold uppercase text-muted-foreground">
-                                                        Tabela
-                                                    </div>
-                                                    {priceTableRules.map((rule) => (
-                                                        <SelectItem
-                                                            key={rule.id}
-                                                            value={rule.id}
-                                                        >
-                                                            {getRuleLabel(rule)}
-                                                        </SelectItem>
-                                                    ))}
-                                                    <Separator className="my-1" />
-                                                </>
-                                            )}
-                                            {paymentConditions.map((condition) => (
+                                            {paymentOptions.map((option) => (
                                                 <SelectItem
-                                                    key={condition.id}
-                                                    value={condition.id}
+                                                    key={option.id}
+                                                    value={option.id}
                                                 >
-                                                    {getConditionLabel(condition)}
+                                                    {option.label}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                    {(selectedCondition?.description || isTableRule) && (
+                                    {selectedPaymentDescription && (
                                         <p className="rounded-xl bg-slate-50/60 px-3 py-2.5 text-xs leading-5 text-slate-500 border border-slate-200/80">
-                                            {selectedCondition?.description ||
-                                                'Regra comercial exclusiva da sua tabela B2B.'}
+                                            {selectedPaymentDescription}
                                         </p>
                                     )}
                                 </div>

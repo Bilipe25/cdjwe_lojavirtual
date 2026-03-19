@@ -235,13 +235,42 @@ export interface StorePriceTable {
 export interface PriceTablePaymentRule {
   id: string
   price_table_id: string
+  payment_method_condition_id?: string | null
   min_order_value: number
   max_order_value: number | null
   number_of_installments: number
   installment_days: string | null // Ex: "30, 60, 90"
   discount_percentage: number
+  surcharge_percentage?: number
+  is_active?: boolean
   created_at: string
   updated_at: string
+  payment_method_condition?: PaymentMethodCondition | null
+}
+
+export interface PaymentMethod {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  icon: string | null
+  is_active: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+  conditions?: PaymentMethodCondition[]
+}
+
+export interface PaymentMethodCondition {
+  id: string
+  payment_method_id: string
+  payment_condition_id: string
+  is_active: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+  payment_method?: PaymentMethod | null
+  payment_condition?: PaymentCondition | null
 }
 
 // ==================== ORDERS ====================
@@ -263,8 +292,17 @@ export interface Order {
   profile_id: string
   status: OrderStatus
   payment_status: PaymentStatus
+  payment_method_id?: string | null
   payment_condition_id: string | null
   payment_rule_id: string | null
+  payment_method_condition_id?: string | null
+  payment_method_code?: string | null
+  payment_method_name?: string | null
+  payment_condition_name?: string | null
+  payment_condition_description?: string | null
+  payment_installments?: number | null
+  payment_discount_percentage?: number | null
+  payment_surcharge_percentage?: number | null
   subtotal: number
   discount_amount: number
   total: number
@@ -278,7 +316,9 @@ export interface Order {
   profile?: Profile
   items?: OrderItem[]
   status_history?: OrderStatusHistory[]
+  payment_method?: PaymentMethod
   payment_condition?: PaymentCondition
+  payment_method_condition?: PaymentMethodCondition
   payment_rule?: PriceTablePaymentRule
 }
 

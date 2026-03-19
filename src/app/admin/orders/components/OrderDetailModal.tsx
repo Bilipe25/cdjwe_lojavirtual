@@ -10,12 +10,13 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Building, User, CreditCard, Clock, History, Printer, Loader2, Trash2, AlertCircle } from 'lucide-react'
+import { Building, User, Clock, History, Printer, Loader2, Trash2, AlertCircle } from 'lucide-react'
 import { statusConfig } from './OrderFilters'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 import { OrderItemPriceDetails } from '@/components/orders/order-item-price-details'
+import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -55,8 +56,19 @@ export interface AdminOrderDetailRecord {
     profile?: {
         full_name?: string | null
     } | null
+    payment_method_name?: string | null
+    payment_method_code?: string | null
+    payment_condition_name?: string | null
+    payment_condition_description?: string | null
+    payment_installments?: number | null
+    payment_discount_percentage?: number | null
+    payment_surcharge_percentage?: number | null
     payment_condition?: {
         name?: string | null
+        description?: string | null
+        installments?: number | null
+        discount_percentage?: number | null
+        surcharge_percentage?: number | null
     } | null
     items?: OrderItem[]
 }
@@ -96,9 +108,16 @@ export function OrderDetailModal({
                 discount_amount,
                 created_at,
                 notes,
+                payment_method_name,
+                payment_method_code,
+                payment_condition_name,
+                payment_condition_description,
+                payment_installments,
+                payment_discount_percentage,
+                payment_surcharge_percentage,
                 store:stores(company_name, cnpj),
                 profile:profiles(full_name),
-                payment_condition:payment_conditions(name),
+                payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage),
                 items:order_items(*)
             `)
             .eq('id', orderId)
@@ -227,15 +246,11 @@ export function OrderDetailModal({
                             </div>
                         </div>
 
-                        <div className="bg-muted/30 p-4 rounded-xl space-y-3 border border-border/50">
-                            <h4 className="font-semibold text-sm flex items-center gap-2 text-navy">
-                                <CreditCard className="h-4 w-4" /> Dados de Pagamento
-                            </h4>
-                            <div className="space-y-1 text-sm">
-                                <p><span className="text-muted-foreground">Condição Comercial:</span> <span className="font-medium">{resolvedOrder.payment_condition?.name || 'Não Informada'}</span></p>
-                                <p className="text-muted-foreground">Este pedido será faturado de acordo com a condição atrelada no ato do carrinho.</p>
-                            </div>
-                        </div>
+                        <OrderPaymentSummaryCard
+                            order={resolvedOrder}
+                            title="Dados de Pagamento"
+                            variant="panel"
+                        />
                     </div>
 
                     <Separator />
@@ -391,3 +406,5 @@ export function OrderDetailModal({
         </Dialog>
     )
 }
+
+

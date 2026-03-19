@@ -50,7 +50,7 @@ const cadastrosNavItems = [
     { href: '/admin/products', label: 'Produtos', icon: Package },
     { href: '/admin/fabrics', label: 'Tecidos & Cores', icon: Palette },
     { href: '/admin/price-tables', label: 'Tabelas de Preço', icon: Tag },
-    { href: '/admin/payment-conditions', label: 'Pagamento', icon: CreditCard },
+    { href: '/admin/payment-conditions', label: 'Meios de Pagamento', icon: CreditCard },
 ]
 
 const marketingNavItems = [

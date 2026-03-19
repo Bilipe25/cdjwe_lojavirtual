@@ -1,8 +1,12 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import type { CartItem, PaymentCondition, PriceTablePaymentRule } from '@/lib/types'
+import type { CartItem } from '@/lib/types'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
+import {
+    getAvailableCheckoutPayments,
+    resolveCheckoutPaymentSelection,
+} from '@/lib/payments/checkout-payment'
 import {
     buildOrderCreatedAuditNote,
     buildOrderEmailItems,
@@ -130,7 +134,7 @@ function mapAtomicOrderErrorToUserMessage(errorMessage: string) {
     if (normalized.includes('itens do pedido sao obrigatorios')) return 'Seu carrinho ficou vazio durante a validacao. Revise e tente novamente.'
     if (isDuplicateOrderNumber(errorMessage)) return 'Conflito temporario na numeracao do pedido. Tente novamente em instantes.'
     if (isMissingExtendedAtomicSignature(errorMessage)) {
-        return 'Banco desatualizado para o checkout atomico. Aplique as migrations pendentes (013 e 023).'
+        return 'Banco desatualizado para o checkout atomico. Aplique as migrations pendentes de pedidos e pagamentos (013, 023, 025, 027 e 028).'
     }
     return `Erro ao criar pedido de forma atomica: ${errorMessage}`
 }
@@ -332,37 +336,15 @@ export async function getAvailablePaymentRules(cartTotal: number) {
         }
     }
 
-    let tableRules: PriceTablePaymentRule[] = []
-    if (priceTableId) {
-        const { data: rules } = await supabase
-            .from('price_table_payment_rules')
-            .select('*')
-            .eq('price_table_id', priceTableId)
-            .order('min_order_value', { ascending: true })
-
-        if (rules?.length) {
-            tableRules = (rules as PriceTablePaymentRule[]).filter(
-                (rule) =>
-                    cartTotal >= rule.min_order_value &&
-                    (!rule.max_order_value || cartTotal <= rule.max_order_value)
-            )
-        }
-    }
-
-    const { data: globals } = await supabase
-        .from('payment_conditions')
-        .select('*')
-        .eq('is_active', true)
-        .lte('min_order_value', cartTotal)
-        .order('sort_order')
-
-    const validGlobals = ((globals as PaymentCondition[]) || []).filter(
-        (rule) => !rule.max_order_value || cartTotal <= rule.max_order_value
-    )
+    const availability = await getAvailableCheckoutPayments(supabase, {
+        cartTotal,
+        priceTableId,
+    })
 
     return {
-        priceTableRules: tableRules,
-        globalConditions: validGlobals,
+        priceTableRules: availability.priceTableRules,
+        globalConditions: availability.globalConditions,
+        paymentMethods: availability.methodGroups,
     }
 }
 
@@ -654,49 +636,23 @@ export async function checkoutAction(
         return { error: `Pedido minimo obrigatorio de R$ ${settings.min_order_amount.toFixed(2)}.` }
     }
 
-    let discountPercentage = 0
-    let surchargePercentage = 0
-    let paymentRuleId: string | null = null
-    let paymentConditionId: string | null = null
+    const activePriceTableId = await resolveActivePriceTableId(supabase, store.id)
+    const resolvedPayment = await resolveCheckoutPaymentSelection(supabase, {
+        cartTotal: secureSubtotal,
+        selectedPaymentId,
+        isTableRule,
+        priceTableId: activePriceTableId,
+    })
 
-    if (isTableRule) {
-        const { data: rule } = await supabase
-            .from('price_table_payment_rules')
-            .select('*')
-            .eq('id', selectedPaymentId)
-            .single()
-
-        if (!rule) return { error: 'Regra de pagamento vinculada a tabela nao encontrada.' }
-
-        if (
-            secureSubtotal < rule.min_order_value ||
-            (rule.max_order_value && secureSubtotal > rule.max_order_value)
-        ) {
-            return { error: 'O valor do pedido nao e mais valido para esta regra de pagamento.' }
-        }
-
-        discountPercentage = rule.discount_percentage
-        paymentRuleId = rule.id
-    } else {
-        const { data: paymentCondition } = await supabase
-            .from('payment_conditions')
-            .select('*')
-            .eq('id', selectedPaymentId)
-            .single()
-
-        if (!paymentCondition) return { error: 'Condicao de pagamento global nao encontrada.' }
-
-        if (
-            secureSubtotal < paymentCondition.min_order_value ||
-            (paymentCondition.max_order_value && secureSubtotal > paymentCondition.max_order_value)
-        ) {
-            return { error: 'O valor do pedido nao e mais valido para esta condicao de pagamento.' }
-        }
-
-        discountPercentage = paymentCondition.discount_percentage
-        surchargePercentage = paymentCondition.surcharge_percentage || 0
-        paymentConditionId = paymentCondition.id
+    if (resolvedPayment.error || !resolvedPayment.data) {
+        return { error: resolvedPayment.error || 'Nao foi possivel validar o pagamento escolhido.' }
     }
+
+    const paymentSelection = resolvedPayment.data
+    const discountPercentage = paymentSelection.paymentDiscountPercentage
+    const surchargePercentage = paymentSelection.paymentSurchargePercentage
+    const paymentRuleId = paymentSelection.paymentRuleId
+    const paymentConditionId = paymentSelection.paymentConditionId
 
     const paymentDiscount = (secureSubtotal * discountPercentage) / 100
     let finalTotal = secureSubtotal - paymentDiscount
@@ -739,8 +695,17 @@ export async function checkoutAction(
     const atomicPayloadBase = {
         p_store_id: store.id,
         p_profile_id: user.id,
+        p_payment_method_id: paymentSelection.paymentMethodId,
         p_payment_condition_id: paymentConditionId,
         p_payment_rule_id: paymentRuleId,
+        p_payment_method_condition_id: paymentSelection.paymentMethodConditionId,
+        p_payment_method_code: paymentSelection.paymentMethodCode,
+        p_payment_method_name: paymentSelection.paymentMethodName,
+        p_payment_condition_name: paymentSelection.paymentConditionName,
+        p_payment_condition_description: paymentSelection.paymentConditionDescription,
+        p_payment_installments: paymentSelection.paymentInstallments,
+        p_payment_discount_percentage: paymentSelection.paymentDiscountPercentage,
+        p_payment_surcharge_percentage: paymentSelection.paymentSurchargePercentage,
         p_subtotal: secureSubtotal,
         p_discount_amount: paymentDiscount,
         p_total: finalTotal,

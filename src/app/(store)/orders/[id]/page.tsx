@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
     ArrowLeft, Package, Clock, CheckCircle2, Truck,
-    CreditCard, FileText, Loader2,
+    CreditCard, Loader2,
     XCircle, Printer
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -32,6 +32,8 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 import { OrderItemPriceDetails } from '@/components/orders/order-item-price-details'
+import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
+import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
 
 type OrderDetailRecord = Order & {
     store?: Record<string, unknown> | null
@@ -182,6 +184,7 @@ export default function OrderDetailPage() {
     const StatusIcon = config.icon
     const currentStepIndex = statusOrder.indexOf(order.status as OrderStatus)
     const isCancelled = order.status === 'cancelled'
+    const paymentDisplay = getOrderPaymentDisplay(order)
 
     return (
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 md:py-8">
@@ -379,7 +382,7 @@ export default function OrderDetailPage() {
                                 </motion.div>
                             ))}
                             <div className="rounded-xl border border-border/60 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-                                Este hist?rico usa o pre?o congelado no momento da compra, garantindo rastreabilidade financeira do pedido.
+                                Este pedido preserva o snapshot comercial da compra, incluindo valores, descontos e pagamento aplicados no checkout.
                             </div>
                         </CardContent>
                     </Card>
@@ -459,31 +462,14 @@ export default function OrderDetailPage() {
                                 </span>
                             </div>
                             <div className="rounded-xl border border-border/60 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                                O total deste pedido n?o muda com reajustes futuros de cor, produto ou tabela comercial.
+                                O total e a configuracao de pagamento permanecem registrados como foram fechados no momento da compra.
                             </div>
                         </CardContent>
                     </Card>
 
                     {/* Payment */}
-                    {order.payment_condition && (
-                        <Card className="glass-card border-0">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <FileText className="h-4 w-4 text-bronze" />
-                                    Pagamento
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <p className="font-medium text-sm">
-                                    {order.payment_condition.name}
-                                </p>
-                                {order.payment_condition.description && (
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                        {order.payment_condition.description}
-                                    </p>
-                                )}
-                            </CardContent>
-                        </Card>
+                    {paymentDisplay.hasSnapshot && (
+                        <OrderPaymentSummaryCard order={order} title="Pagamento" />
                     )}
 
                     {/* Notes */}

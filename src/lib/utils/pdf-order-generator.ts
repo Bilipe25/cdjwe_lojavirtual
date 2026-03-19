@@ -9,6 +9,7 @@ import {
     formatOrderCurrency,
     getOrderItemCommunicationPricing,
 } from '@/lib/orders/order-communication'
+import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
 
 const pdfFontsConfig = pdfFonts as unknown as { pdfMake?: { vfs?: unknown }; vfs?: unknown }
 const pdfMakeConfig = pdfMake as unknown as {
@@ -52,8 +53,19 @@ type ReceiptOrder = {
         full_name?: string | null
         phone?: string | null
     } | null
+    payment_method_name?: string | null
+    payment_method_code?: string | null
+    payment_condition_name?: string | null
+    payment_condition_description?: string | null
+    payment_installments?: number | null
+    payment_discount_percentage?: number | null
+    payment_surcharge_percentage?: number | null
     payment_condition?: {
         name?: string | null
+        description?: string | null
+        installments?: number | null
+        discount_percentage?: number | null
+        surcharge_percentage?: number | null
     } | null
 }
 
@@ -170,6 +182,75 @@ export async function generateOrderReceiptPDF(
     settings?: SystemSettings | null
 ) {
     const logoBase64 = settings?.logo_url ? await getBase64ImageFromURL(settings.logo_url) : null
+    const paymentDisplay = getOrderPaymentDisplay(order)
+    const showCombinedPaymentLabel =
+        !paymentDisplay.methodName ||
+        !paymentDisplay.conditionName ||
+        paymentDisplay.methodName === paymentDisplay.conditionName
+    const paymentDetailsRows: Content[] = []
+
+    if (paymentDisplay.methodName) {
+        paymentDetailsRows.push({
+            columns: [
+                { text: 'Meio', fontSize: 7.4, color: '#94a3b8', bold: true, width: 52 },
+                { text: paymentDisplay.methodName, fontSize: 8.4, color: '#0f172a', bold: true },
+            ],
+            margin: [0, 0, 0, 4],
+        })
+    }
+
+    if (paymentDisplay.conditionName && paymentDisplay.conditionName !== paymentDisplay.methodName) {
+        paymentDetailsRows.push({
+            columns: [
+                { text: 'Condicao', fontSize: 7.4, color: '#94a3b8', bold: true, width: 52 },
+                { text: paymentDisplay.conditionName, fontSize: 8.4, color: '#0f172a', bold: true },
+            ],
+            margin: [0, 0, 0, 4],
+        })
+    }
+
+    const paymentBoxStack: Content[] = [
+        {
+            text: 'CONFIRMADO NO CHECKOUT',
+            fontSize: 7.2,
+            bold: true,
+            color: '#64748b',
+            characterSpacing: 0.7,
+        },
+        {
+            text: (showCombinedPaymentLabel ? paymentDisplay.combinedLabel : 'PAGAMENTO PERSONALIZADO').toUpperCase(),
+            fontSize: 10,
+            bold: true,
+            color: '#1e293b',
+            margin: [0, 5, 0, 0],
+        },
+    ]
+
+    if (paymentDetailsRows.length > 0) {
+        paymentBoxStack.push({
+            stack: paymentDetailsRows,
+            margin: [0, 8, 0, 0],
+        })
+    }
+
+    if (paymentDisplay.adjustmentsLabel) {
+        paymentBoxStack.push({
+            text: paymentDisplay.adjustmentsLabel,
+            fontSize: 8,
+            color: '#047857',
+            margin: [0, 8, 0, 0],
+        })
+    }
+
+    if (paymentDisplay.description) {
+        paymentBoxStack.push({
+            text: paymentDisplay.description,
+            fontSize: 8,
+            color: '#64748b',
+            lineHeight: 1.2,
+            margin: [0, 4, 0, 0],
+        })
+    }
 
     const itemRows: TableCell[][] = items.map((item) => {
         const rowBorderColor: [string, string, string, string] = ['#ffffff', '#ffffff', '#ffffff', '#e2e8f0']
@@ -325,15 +406,12 @@ export async function generateOrderReceiptPDF(
                 {
                     width: '*',
                     stack: [
-                        createSectionTitle('Condicao de pagamento', { lineWidth: 320, marginBottom: 8 }),
+                        createSectionTitle('Pagamento', { lineWidth: 320, marginBottom: 8 }),
                         {
                             table: {
                                 widths: ['*'],
                                 body: [[{
-                                    text: (order.payment_condition?.name || 'A COMBINAR').toUpperCase(),
-                                    fontSize: 10,
-                                    bold: true,
-                                    color: '#1e293b',
+                                    stack: paymentBoxStack,
                                     fillColor: '#f8fafc',
                                     border: [false, false, false, false],
                                     margin: [12, 9, 12, 9],
