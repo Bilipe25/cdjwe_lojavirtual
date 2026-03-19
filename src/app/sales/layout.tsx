@@ -5,13 +5,15 @@ import { SalesShell } from '@/components/sales/sales-shell'
 
 export default async function SalesLayout({ children }: { children: ReactNode }) {
   let profile
+  let isAdminPreview = false
 
   try {
     const data = await getRepresentativeShellData()
     profile = data.profile
+    isAdminPreview = data.isAdminPreview
   } catch {
     redirect('/login')
   }
 
-  return <SalesShell profile={profile}>{children}</SalesShell>
+  return <SalesShell profile={profile} isAdminPreview={isAdminPreview}>{children}</SalesShell>
 }

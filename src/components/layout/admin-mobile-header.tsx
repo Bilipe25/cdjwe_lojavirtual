@@ -21,6 +21,7 @@ import {
     Send,
     Image as ImageIcon,
     History,
+    BriefcaseBusiness,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -30,7 +31,7 @@ import { cn } from '@/lib/utils'
 import { logoutAction } from '@/app/(auth)/login/actions'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
+import { setViewAsCustomerAction, setViewAsRepresentativeAction } from '@/app/admin/actions/view-as-customer'
 
 const adminNavItems = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -76,6 +77,12 @@ export function AdminMobileHeader() {
     const handleViewAsCustomer = async () => {
         await setViewAsCustomerAction(true)
         router.push('/catalog')
+    }
+
+    const handleViewAsRepresentative = async () => {
+        setOpen(false)
+        await setViewAsRepresentativeAction(true)
+        router.push('/sales/dashboard')
     }
 
     // Find active page title
@@ -164,6 +171,14 @@ export function AdminMobileHeader() {
                             >
                                 <Store className="h-5 w-5" />
                                 <span>Ver como Cliente</span>
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-foreground hover:bg-sidebar-accent"
+                                onClick={handleViewAsRepresentative}
+                            >
+                                <BriefcaseBusiness className="h-5 w-5" />
+                                <span>Modo Representante</span>
                             </Button>
                             <Button
                                 variant="ghost"

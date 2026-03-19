@@ -1,5 +1,6 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import {
@@ -89,6 +90,8 @@ function getAdminClient() {
 }
 
 async function requireRepresentativeContext() {
+    const cookieStore = await cookies()
+    const viewAsRepresentative = cookieStore.get('view_as_representative')?.value === 'true'
     const supabase = await createClient()
     const {
         data: { user },
@@ -104,11 +107,15 @@ async function requireRepresentativeContext() {
         .eq('id', user.id)
         .single()
 
-    if (!profile || profile.role !== 'representative') {
+    const normalizedProfile = profile as Profile | null
+    const isRepresentative = normalizedProfile?.role === 'representative'
+    const isAdminPreview = normalizedProfile?.role === 'admin' && viewAsRepresentative
+
+    if (!normalizedProfile || (!isRepresentative && !isAdminPreview)) {
         throw new Error('Acesso restrito ao modo representante.')
     }
 
-    if (profile.status !== 'approved') {
+    if (!isAdminPreview && normalizedProfile.status !== 'approved') {
         throw new Error('Representante sem aprovacao para operar.')
     }
 
@@ -116,7 +123,9 @@ async function requireRepresentativeContext() {
         supabase,
         admin: getAdminClient(),
         user,
-        profile: profile as Profile,
+        profile: normalizedProfile,
+        isAdminPreview,
+        scopeRepresentativeId: isRepresentative ? user.id : null,
     }
 }
 
@@ -161,12 +170,10 @@ function computeNegotiation(
     }
 }
 
-async function getRepresentativeCustomersInternal(representativeId: string) {
+async function getRepresentativeCustomersInternal(representativeId?: string | null) {
     const admin = getAdminClient()
 
-    const { data: stores } = await admin
-        .from('stores')
-        .select(`
+    const query = admin.from('stores').select(`
             *,
             profile:profiles!stores_profile_id_fkey(*),
             addresses:store_addresses(*),
@@ -174,8 +181,11 @@ async function getRepresentativeCustomersInternal(representativeId: string) {
                 price_table:price_tables(*)
             )
         `)
-        .eq('representative_id', representativeId)
-        .order('company_name')
+    if (representativeId) {
+        query.eq('representative_id', representativeId)
+    }
+
+    const { data: stores } = await query.order('company_name')
 
     const normalizedStores = ((stores || []) as Array<Store & {
         profile?: Profile | null
@@ -219,17 +229,16 @@ async function getRepresentativeCustomersInternal(representativeId: string) {
 }
 
 export async function getRepresentativeShellData() {
-    const { profile } = await requireRepresentativeContext()
-    return { profile }
+    const { profile, isAdminPreview } = await requireRepresentativeContext()
+    return { profile, isAdminPreview }
 }
 
 export async function getRepresentativeDashboardData() {
-    const { user, profile, admin } = await requireRepresentativeContext()
-    const [customers, recentOrdersRes, recentQuotesRes, visitsRes, ordersCountRes, quotesCountRes] = await Promise.all([
-        getRepresentativeCustomersInternal(user.id),
-        admin
-            .from('orders')
-            .select(`
+    const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+    const recentOrdersQuery = admin
+        .from('orders')
+        .select(`
                 id,
                 order_number,
                 created_at,
@@ -237,12 +246,12 @@ export async function getRepresentativeDashboardData() {
                 status,
                 store:stores(id, customer_code, company_name, trade_name)
             `)
-            .eq('created_by_profile_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(5),
-        admin
-            .from('sales_quotes')
-            .select(`
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+    const recentQuotesQuery = admin
+        .from('sales_quotes')
+        .select(`
                 id,
                 quote_number,
                 created_at,
@@ -250,21 +259,28 @@ export async function getRepresentativeDashboardData() {
                 status,
                 store:stores(id, customer_code, company_name, trade_name)
             `)
-            .eq('representative_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(5),
-        admin
-            .from('sales_visits')
-            .select('id', { count: 'exact', head: true })
-            .eq('representative_id', user.id),
-        admin
-            .from('orders')
-            .select('id', { count: 'exact', head: true })
-            .eq('created_by_profile_id', user.id),
-        admin
-            .from('sales_quotes')
-            .select('id', { count: 'exact', head: true })
-            .eq('representative_id', user.id),
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+    const visitsCountQuery = admin.from('sales_visits').select('id', { count: 'exact', head: true })
+    const ordersCountQuery = admin.from('orders').select('id', { count: 'exact', head: true })
+    const quotesCountQuery = admin.from('sales_quotes').select('id', { count: 'exact', head: true })
+
+    if (scopeRepresentativeId) {
+        recentOrdersQuery.eq('created_by_profile_id', scopeRepresentativeId)
+        recentQuotesQuery.eq('representative_id', scopeRepresentativeId)
+        visitsCountQuery.eq('representative_id', scopeRepresentativeId)
+        ordersCountQuery.eq('created_by_profile_id', scopeRepresentativeId)
+        quotesCountQuery.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const [customers, recentOrdersRes, recentQuotesRes, visitsRes, ordersCountRes, quotesCountRes] = await Promise.all([
+        getRepresentativeCustomersInternal(scopeRepresentativeId),
+        recentOrdersQuery,
+        recentQuotesQuery,
+        visitsCountQuery,
+        ordersCountQuery,
+        quotesCountQuery,
     ])
 
     return {
@@ -282,13 +298,13 @@ export async function getRepresentativeDashboardData() {
 }
 
 export async function getRepresentativeCustomersData() {
-    const { user } = await requireRepresentativeContext()
-    return getRepresentativeCustomersInternal(user.id)
+    const { scopeRepresentativeId } = await requireRepresentativeContext()
+    return getRepresentativeCustomersInternal(scopeRepresentativeId)
 }
 
 export async function getRepresentativeOrdersData() {
-    const { user, admin } = await requireRepresentativeContext()
-    const { data } = await admin
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
         .from('orders')
         .select(`
             *,
@@ -296,15 +312,19 @@ export async function getRepresentativeOrdersData() {
             profile:profiles!orders_profile_id_fkey(*),
             created_by_profile:profiles!orders_created_by_profile_id_fkey(id, full_name, role, email, phone, status, created_at, updated_at)
         `)
-        .eq('created_by_profile_id', user.id)
         .order('created_at', { ascending: false })
 
+    if (scopeRepresentativeId) {
+        query.eq('created_by_profile_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query
     return (data || []) as Order[]
 }
 
 export async function getRepresentativeOrderDetail(orderId: string) {
-    const { user, admin } = await requireRepresentativeContext()
-    const { data } = await admin
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
         .from('orders')
         .select(`
             *,
@@ -315,15 +335,18 @@ export async function getRepresentativeOrderDetail(orderId: string) {
             status_history:order_status_history(*, changed_by_profile:profiles!order_status_history_changed_by_fkey(id, full_name, role))
         `)
         .eq('id', orderId)
-        .eq('created_by_profile_id', user.id)
-        .single()
 
+    if (scopeRepresentativeId) {
+        query.eq('created_by_profile_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query.single()
     return (data || null) as Order | null
 }
 
 export async function getRepresentativeQuotesData() {
-    const { user, admin } = await requireRepresentativeContext()
-    const { data } = await admin
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
         .from('sales_quotes')
         .select(`
             *,
@@ -332,15 +355,19 @@ export async function getRepresentativeQuotesData() {
             representative:profiles!sales_quotes_representative_id_fkey(*),
             items:sales_quote_items(*)
         `)
-        .eq('representative_id', user.id)
         .order('created_at', { ascending: false })
 
+    if (scopeRepresentativeId) {
+        query.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query
     return (data || []) as SalesQuote[]
 }
 
 export async function getRepresentativeQuoteDetail(quoteId: string) {
-    const { user, admin } = await requireRepresentativeContext()
-    const { data } = await admin
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
         .from('sales_quotes')
         .select(`
             *,
@@ -350,15 +377,18 @@ export async function getRepresentativeQuoteDetail(quoteId: string) {
             items:sales_quote_items(*)
         `)
         .eq('id', quoteId)
-        .eq('representative_id', user.id)
-        .single()
 
+    if (scopeRepresentativeId) {
+        query.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query.single()
     return (data || null) as SalesQuote | null
 }
 
 export async function getRepresentativeVisitsData() {
-    const { user, admin } = await requireRepresentativeContext()
-    const { data } = await admin
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
         .from('sales_visits')
         .select(`
             *,
@@ -366,16 +396,20 @@ export async function getRepresentativeVisitsData() {
             customer_profile:profiles!sales_visits_customer_profile_id_fkey(*),
             representative:profiles!sales_visits_representative_id_fkey(*)
         `)
-        .eq('representative_id', user.id)
         .order('visited_at', { ascending: false })
 
+    if (scopeRepresentativeId) {
+        query.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query
     return (data || []) as RepresentativeVisit[]
 }
 
 export async function getRepresentativeOrderBuilderData() {
-    const { user, profile, admin } = await requireRepresentativeContext()
+    const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
     const [customers, productsRes, categoriesRes, priceTablesRes] = await Promise.all([
-        getRepresentativeCustomersInternal(user.id),
+        getRepresentativeCustomersInternal(scopeRepresentativeId),
         admin
             .from('products')
             .select('*, category:categories(*), images:product_images(url, is_primary, sort_order), size_options:product_size_options(*)')
@@ -399,14 +433,18 @@ export async function getRepresentativeProductConfiguratorData(input: {
     productId: string
     priceTableId?: string | null
 }) {
-    const { user, admin } = await requireRepresentativeContext()
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
 
-    const { data: store } = await admin
+    const storeQuery = admin
         .from('stores')
         .select('id, representative_id')
         .eq('id', input.storeId)
-        .eq('representative_id', user.id)
-        .single()
+
+    if (scopeRepresentativeId) {
+        storeQuery.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data: store } = await storeQuery.single()
 
     if (!store) {
         return { error: 'Cliente nao disponivel para este representante.' }
@@ -445,14 +483,18 @@ export async function getRepresentativePaymentOptions(input: {
     subtotal: number
     priceTableId?: string | null
 }) {
-    const { user, admin } = await requireRepresentativeContext()
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
 
-    const { data: store } = await admin
+    const storeQuery = admin
         .from('stores')
         .select('id, representative_id')
         .eq('id', input.storeId)
-        .eq('representative_id', user.id)
-        .single()
+
+    if (scopeRepresentativeId) {
+        storeQuery.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data: store } = await storeQuery.single()
 
     if (!store) {
         return { error: 'Cliente nao disponivel para este representante.' }
@@ -475,14 +517,18 @@ export async function validateRepresentativeDraftPricingAction(input: {
     priceTableId?: string | null
     lines: Array<{ cartKey?: string; variantId: string; sizeOptionId?: string | null }>
 }) {
-    const { user, admin } = await requireRepresentativeContext()
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
 
-    const { data: store } = await admin
+    const storeQuery = admin
         .from('stores')
         .select('id, representative_id')
         .eq('id', input.storeId)
-        .eq('representative_id', user.id)
-        .single()
+
+    if (scopeRepresentativeId) {
+        storeQuery.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data: store } = await storeQuery.single()
 
     if (!store) {
         return { error: 'Cliente nao disponivel para este representante.' }
@@ -511,14 +557,22 @@ export async function createRepresentativeVisitAction(payload: {
     generatedOrderId?: string | null
 }) {
     try {
-        const { user, admin } = await requireRepresentativeContext()
+        const { user, admin, isAdminPreview, scopeRepresentativeId } = await requireRepresentativeContext()
 
-        const { data: store } = await admin
+        if (isAdminPreview) {
+            return { error: 'O modo de visualizacao do representante nao permite gravacoes.' }
+        }
+
+        const storeQuery = admin
             .from('stores')
             .select('id, profile_id, representative_id')
             .eq('id', payload.storeId)
-            .eq('representative_id', user.id)
-            .single()
+
+        if (scopeRepresentativeId) {
+            storeQuery.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { data: store } = await storeQuery.single()
 
         if (!store) {
             return { error: 'Cliente nao disponivel para este representante.' }
@@ -556,14 +610,22 @@ async function persistRepresentativeDocument(
     payload: RepresentativeDocumentPayload
 ) {
     try {
-        const { user, admin, supabase } = await requireRepresentativeContext()
+        const { admin, supabase, isAdminPreview, scopeRepresentativeId } = await requireRepresentativeContext()
 
-        const { data: store } = await admin
+        if (isAdminPreview) {
+            return { error: 'O modo de visualizacao do representante nao permite gravacoes.' }
+        }
+
+        const storeQuery = admin
             .from('stores')
             .select('id, profile_id, representative_id')
             .eq('id', payload.storeId)
-            .eq('representative_id', user.id)
-            .single()
+
+        if (scopeRepresentativeId) {
+            storeQuery.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { data: store } = await storeQuery.single()
 
         if (!store) {
             return { error: 'Cliente nao disponivel para este representante.' }
@@ -761,7 +823,11 @@ export async function saveRepresentativeQuoteAction(payload: RepresentativeDocum
 
 export async function convertRepresentativeQuoteToOrderAction(quoteId: string) {
     try {
-        const { supabase } = await requireRepresentativeContext()
+        const { supabase, isAdminPreview } = await requireRepresentativeContext()
+
+        if (isAdminPreview) {
+            return { error: 'O modo de visualizacao do representante nao permite gravacoes.' }
+        }
         const { data, error } = await supabase.rpc('representative_convert_quote_to_order_atomic', {
             p_quote_id: quoteId,
             p_created_note: 'Pedido gerado a partir de orcamento no modo representante.',

@@ -1,9 +1,10 @@
-'use client'
+﻿'use client'
 
 import Link from 'next/link'
 import { useMemo, type ReactNode } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
+  ArrowLeft,
   BarChart3,
   ClipboardCheck,
   FileText,
@@ -15,11 +16,13 @@ import {
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { setViewAsRepresentativeAction } from '@/app/admin/actions/view-as-customer'
 import { cn } from '@/lib/utils'
 import type { Profile } from '@/lib/types'
 
 type SalesShellProps = {
   profile: Profile
+  isAdminPreview?: boolean
   children: ReactNode
 }
 
@@ -93,12 +96,18 @@ function matchPageMeta(pathname: string) {
   return pageMeta['/sales/dashboard']
 }
 
-export function SalesShell({ profile, children }: SalesShellProps) {
+export function SalesShell({ profile, isAdminPreview = false, children }: SalesShellProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const meta = useMemo(() => matchPageMeta(pathname), [pathname])
   const firstName = profile.full_name?.split(' ')[0] || 'Representante'
   const workspaceItems = navItems.filter((item) => item.group === 'workspace')
   const historyItems = navItems.filter((item) => item.group === 'history')
+
+  const handleBackToAdmin = async () => {
+    await setViewAsRepresentativeAction(false)
+    router.push('/admin/dashboard')
+  }
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,#eef4ff_0%,#f7f5ef_38%,#ffffff_100%)] text-slate-950">
@@ -116,6 +125,16 @@ export function SalesShell({ profile, children }: SalesShellProps) {
           </p>
 
           <div className="mt-5 grid gap-2">
+            {isAdminPreview && (
+              <Button
+                variant="outline"
+                className="h-11 rounded-2xl border-slate-200 bg-white"
+                onClick={handleBackToAdmin}
+              >
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Voltar ao admin
+              </Button>
+            )}
             <Button asChild className="h-11 rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800">
               <Link href="/sales/orders/new">Novo pedido</Link>
             </Button>
@@ -198,7 +217,7 @@ export function SalesShell({ profile, children }: SalesShellProps) {
           </div>
           <p className="mt-2 text-sm font-semibold text-slate-950">Tudo em poucos toques</p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            O fluxo foi separado para pedidos, orcamentos e visitas sem competir com a navegação do cliente final.
+            O fluxo foi separado para pedidos, orcamentos e visitas sem competir com a navegacao do cliente final.
           </p>
         </div>
       </div>
@@ -212,6 +231,16 @@ export function SalesShell({ profile, children }: SalesShellProps) {
                   <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">
                     Representante
                   </span>
+                  {isAdminPreview && (
+                    <button
+                      type="button"
+                      onClick={handleBackToAdmin}
+                      className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700 transition-colors hover:bg-amber-100"
+                    >
+                      <ArrowLeft className="mr-1.5 h-3 w-3" />
+                      Voltar ao admin
+                    </button>
+                  )}
                   <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
                     Campo ativo
                   </span>
@@ -223,6 +252,16 @@ export function SalesShell({ profile, children }: SalesShellProps) {
               </div>
 
               <div className="hidden shrink-0 items-center gap-2 md:flex">
+                {isAdminPreview && (
+                  <Button
+                    variant="outline"
+                    className="h-11 rounded-2xl border-slate-200 bg-white/90"
+                    onClick={handleBackToAdmin}
+                  >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Voltar ao admin
+                  </Button>
+                )}
                 <Button asChild variant="outline" className="h-11 rounded-2xl border-slate-200 bg-white/90">
                   <Link href="/sales/quotes/new">Novo orcamento</Link>
                 </Button>

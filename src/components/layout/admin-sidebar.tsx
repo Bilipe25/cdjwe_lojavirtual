@@ -24,13 +24,14 @@ import {
     Send,
     Image as ImageIcon,
     History,
+    BriefcaseBusiness,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { logoutAction } from '@/app/(auth)/login/actions'
-import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
+import { setViewAsCustomerAction, setViewAsRepresentativeAction } from '@/app/admin/actions/view-as-customer'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -78,15 +79,8 @@ export function AdminSidebar() {
 
     const isCadastroActive = cadastrosNavItems.some(item => pathname.startsWith(item.href))
     const isMarketingActive = marketingNavItems.some(item => pathname.startsWith(item.href))
-
-    useEffect(() => {
-        if (isCadastroActive && !collapsed) {
-            setCadastrosOpen(true)
-        }
-        if (isMarketingActive && !collapsed) {
-            setMarketingOpen(true)
-        }
-    }, [pathname, collapsed, isCadastroActive, isMarketingActive])
+    const effectiveCadastrosOpen = !collapsed && (cadastrosOpen || isCadastroActive)
+    const effectiveMarketingOpen = !collapsed && (marketingOpen || isMarketingActive)
 
     useEffect(() => {
         const loadSettings = async () => {
@@ -105,6 +99,11 @@ export function AdminSidebar() {
     const handleViewAsCustomer = async () => {
         await setViewAsCustomerAction(true)
         router.push('/catalog')
+    }
+
+    const handleViewAsRepresentative = async () => {
+        await setViewAsRepresentativeAction(true)
+        router.push('/sales/dashboard')
     }
 
     return (
@@ -230,11 +229,11 @@ export function AdminSidebar() {
                                 >
                                     <FolderClosed className="h-5 w-5 shrink-0" />
                                     <span className="flex-1 text-left truncate">Cadastros</span>
-                                    <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", cadastrosOpen && "rotate-180")} />
+                                    <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", effectiveCadastrosOpen && "rotate-180")} />
                                 </Button>
                                 <div className={cn(
                                     "grid transition-all duration-200 ease-in-out",
-                                    cadastrosOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                                    effectiveCadastrosOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
                                 )}>
                                     <div className="overflow-hidden">
                                         <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
@@ -319,11 +318,11 @@ export function AdminSidebar() {
                                 >
                                     <Megaphone className="h-5 w-5 shrink-0" />
                                     <span className="flex-1 text-left truncate">Marketing</span>
-                                    <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", marketingOpen && "rotate-180")} />
+                                    <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", effectiveMarketingOpen && "rotate-180")} />
                                 </Button>
                                 <div className={cn(
                                     "grid transition-all duration-200 ease-in-out",
-                                    marketingOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                                    effectiveMarketingOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
                                 )}>
                                     <div className="overflow-hidden">
                                         <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
@@ -409,6 +408,20 @@ export function AdminSidebar() {
                                 <TooltipContent side="right">Ver como Cliente</TooltipContent>
                             </Tooltip>
                             <Tooltip>
+                                <TooltipTrigger
+                                    render={(
+                                        <Button
+                                            variant="ghost"
+                                            className="w-full justify-center px-2 text-sidebar-foreground/70 hover:text-foreground hover:bg-sidebar-accent"
+                                            onClick={handleViewAsRepresentative}
+                                        />
+                                    )}
+                                >
+                                    <BriefcaseBusiness className="h-5 w-5" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right">Modo Representante</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
                                 <TooltipTrigger 
                                     render={(
                                         <Button
@@ -432,6 +445,14 @@ export function AdminSidebar() {
                             >
                                 <Store className="h-5 w-5" />
                                 <span>Ver como Cliente</span>
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-foreground hover:bg-sidebar-accent"
+                                onClick={handleViewAsRepresentative}
+                            >
+                                <BriefcaseBusiness className="h-5 w-5" />
+                                <span>Modo Representante</span>
                             </Button>
                             <Button
                                 variant="ghost"

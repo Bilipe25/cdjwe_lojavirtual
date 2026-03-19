@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr'
+﻿import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getDefaultRouteByRole, requiresBlockedRedirect, requiresPendingRedirect } from '@/lib/auth/role-routing'
 
@@ -16,9 +16,7 @@ export async function updateSession(request: NextRequest) {
                     return request.cookies.getAll()
                 },
                 setAll(cookiesToSet) {
-                    cookiesToSet.forEach(({ name, value }) =>
-                        request.cookies.set(name, value)
-                    )
+                    cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
                     supabaseResponse = NextResponse.next({
                         request,
                     })
@@ -30,15 +28,13 @@ export async function updateSession(request: NextRequest) {
         }
     )
 
-    // Apenas garante que o token refresh/auth cycle ocorra (sem chutar pro banco os metadados do perfil)
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
 
     const publicRoutes = ['/login', '/register', '/forgot-password']
-    const isPublicRoute = publicRoutes.some(route =>
-        request.nextUrl.pathname.startsWith(route)
-    )
+    const isPublicRoute = publicRoutes.some((route) => request.nextUrl.pathname.startsWith(route))
 
-    // Se estiver deslogado e tentando ir para área bloqueada
     if (!user && !isPublicRoute && request.nextUrl.pathname !== '/') {
         const url = request.nextUrl.clone()
         url.pathname = '/login'
@@ -46,9 +42,9 @@ export async function updateSession(request: NextRequest) {
     }
 
     if (user) {
-        // Leitura rápida em memória dos cookies que nossa Server Action depositou (0ms latência)
-        const role = (request.cookies.get('jwt_role')?.value || 'client') as 'admin' | 'client' | 'representative';
-        const status = (request.cookies.get('jwt_status')?.value || 'approved') as 'pending' | 'approved' | 'blocked' | 'imported';
+        const role = (request.cookies.get('jwt_role')?.value || 'client') as 'admin' | 'client' | 'representative'
+        const status = (request.cookies.get('jwt_status')?.value || 'approved') as 'pending' | 'approved' | 'blocked' | 'imported'
+        const viewAsRepresentative = request.cookies.get('view_as_representative')?.value === 'true'
 
         if (isPublicRoute) {
             const url = request.nextUrl.clone()
@@ -56,7 +52,6 @@ export async function updateSession(request: NextRequest) {
             return NextResponse.redirect(url)
         }
 
-        // Checando Barreira Admin
         if (request.nextUrl.pathname.startsWith('/admin')) {
             if (role !== 'admin') {
                 const url = request.nextUrl.clone()
@@ -66,14 +61,14 @@ export async function updateSession(request: NextRequest) {
         }
 
         if (request.nextUrl.pathname.startsWith('/sales')) {
-            if (role !== 'representative') {
+            const canAccessSales = role === 'representative' || (role === 'admin' && viewAsRepresentative)
+            if (!canAccessSales) {
                 const url = request.nextUrl.clone()
                 url.pathname = getDefaultRouteByRole(role, status)
                 return NextResponse.redirect(url)
             }
         }
 
-        // Checando Barreira do Lojista/Catalog/Carrinho
         if (
             request.nextUrl.pathname.startsWith('/catalog') ||
             request.nextUrl.pathname.startsWith('/cart') ||
