@@ -985,9 +985,10 @@ export default function CartPage() {
                                 </p>
                                 <Button
                                     variant="ghost"
-                                    className="h-8 rounded-lg px-2 text-sm text-slate-600"
+                                    className="group h-9 rounded-xl px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 flex items-center gap-2"
                                     onClick={() => router.push('/catalog')}
                                 >
+                                    <ArrowLeft className="h-4 w-4 text-slate-400 group-hover:text-slate-600 transition-colors" />
                                     Continuar comprando
                                 </Button>
                             </div>
@@ -1021,21 +1022,21 @@ export default function CartPage() {
                                 ))}
                             </div>
 
-                            <div className="mt-3 space-y-2.5 border-t border-slate-200 pt-3 sm:hidden">
-                                <div className="flex items-center justify-between text-base text-slate-700">
-                                    <span className="font-medium">Subtotal</span>
-                                    <span className="text-lg font-semibold text-slate-950">
+                            <div className="mt-4 flex flex-col gap-4 border-t border-slate-100 pt-4 sm:mt-5 sm:flex-row sm:items-center sm:justify-between sm:pt-5">
+                                <Button
+                                    variant="outline"
+                                    className="order-2 h-11 w-full rounded-xl border-slate-200 bg-white text-sm font-medium text-slate-600 shadow-none hover:bg-slate-50 sm:order-1 sm:h-10 sm:w-auto"
+                                    onClick={() => router.push('/catalog')}
+                                >
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Adicionar mais itens
+                                </Button>
+                                <div className="order-1 flex items-center justify-between text-base sm:order-2 sm:justify-end sm:gap-4">
+                                    <span className="text-sm font-medium text-slate-500">Subtotal dos itens</span>
+                                    <span className="text-lg font-bold tracking-tight text-slate-950">
                                         R$ {formatCurrency(total)}
                                     </span>
                                 </div>
-
-                                <Button
-                                    variant="outline"
-                                    className="h-10 w-full rounded-xl border-slate-200 bg-white text-sm font-medium text-slate-600 shadow-none"
-                                    onClick={() => router.push('/catalog')}
-                                >
-                                    Adicionar mais itens
-                                </Button>
                             </div>
                         </CheckoutSection>
 
@@ -1429,9 +1430,16 @@ export default function CartPage() {
 
                                     {/* ── Tipo / Condição de Pagamento ────── */}
                                     <div className="space-y-2">
-                                        <Label className="text-sm font-semibold text-slate-800">
-                                            Tipo de Pagamento
-                                        </Label>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <Label className="text-sm font-semibold text-slate-800">
+                                                Tipo de Pagamento
+                                            </Label>
+                                            {discountPercentage > 0 && (
+                                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200/80">
+                                                    {discountPercentage.toFixed(0)}% off
+                                                </span>
+                                            )}
+                                        </div>
                                         <Select
                                             value={selectedPayment}
                                             onValueChange={(value: string | null) => {
