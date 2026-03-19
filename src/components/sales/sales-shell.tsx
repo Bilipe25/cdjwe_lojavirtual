@@ -198,7 +198,7 @@ export function SalesShell({ profile, children }: SalesShellProps) {
           </div>
           <p className="mt-2 text-sm font-semibold text-slate-950">Tudo em poucos toques</p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            O fluxo foi separado para pedidos, orcamentos e visitas sem competir com a navegação do cliente final.
+            O fluxo foi separado para pedidos, orcamentos e visitas sem competir com a navegaÃ§Ã£o do cliente final.
           </p>
         </div>
       </div>

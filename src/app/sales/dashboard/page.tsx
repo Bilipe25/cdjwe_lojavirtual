@@ -146,7 +146,7 @@ export default async function SalesDashboardPage() {
             {recentOrders.length === 0 ? (
               <SalesEmptyState
                 title="Nenhum pedido criado ainda"
-                description="Os pedidos gerados pelo representante passam a aparecer aqui com leitura r�pida de cliente, total e status."
+                description="Os pedidos gerados pelo representante passam a aparecer aqui com leitura rï¿½pida de cliente, total e status."
                 action={
                   <Button asChild className="rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800">
                     <Link href="/sales/orders/new">Criar pedido</Link>

@@ -46,7 +46,7 @@ export function RepresentativeCustomersPage({ customers }: { customers: Customer
         <SalesMetricCard icon={Building2} label="Clientes na carteira" value={customers.length} helper="Base ativa para atendimento, proposta e pedido." tone="blue" />
         <SalesMetricCard icon={Tags} label="Com tabela vinculada" value={metrics.withTable} helper="Clientes com regra comercial pronta para uso." tone="slate" />
         <SalesMetricCard icon={MapPinned} label="Com endereco ativo" value={metrics.withMainAddress} helper="Entrega mais rapida no atendimento assistido." tone="emerald" />
-        <SalesMetricCard icon={ShoppingBag} label="Com historico recente" value={metrics.withLastOrder} helper="Ajuda a retomar negocia��es e reposicoes." tone="amber" />
+        <SalesMetricCard icon={ShoppingBag} label="Com historico recente" value={metrics.withLastOrder} helper="Ajuda a retomar negociaï¿½ï¿½es e reposicoes." tone="amber" />
       </div>
 
       <Card className="rounded-[32px] border border-slate-200 bg-white/95 shadow-sm">
@@ -117,7 +117,7 @@ export function RepresentativeCustomersPage({ customers }: { customers: Customer
                     <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Ultimo pedido</p>
                       <p className="mt-1 text-sm font-medium text-slate-700">
-                        {customer.last_order ? `${customer.last_order.order_number} � ${formatCurrency(customer.last_order.total)}` : 'Sem historico recente'}
+                        {customer.last_order ? `${customer.last_order.order_number} ï¿½ ${formatCurrency(customer.last_order.total)}` : 'Sem historico recente'}
                       </p>
                     </div>
                   </div>
