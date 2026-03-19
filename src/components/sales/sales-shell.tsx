@@ -4,201 +4,262 @@ import Link from 'next/link'
 import { useMemo, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import {
-    BarChart3,
-    ClipboardCheck,
-    FileText,
-    LayoutDashboard,
-    MapPinned,
-    ShoppingBag,
-    Users,
+  BarChart3,
+  ClipboardCheck,
+  FileText,
+  LayoutDashboard,
+  MapPinned,
+  ShoppingBag,
+  Sparkles,
+  Target,
+  Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { Profile } from '@/lib/types'
 
 type SalesShellProps = {
-    profile: Profile
-    children: ReactNode
+  profile: Profile
+  children: ReactNode
 }
 
 type NavItem = {
-    href: string
-    label: string
-    shortLabel: string
-    icon: typeof LayoutDashboard
+  href: string
+  label: string
+  shortLabel: string
+  icon: typeof LayoutDashboard
+  group: 'workspace' | 'history'
 }
 
 const navItems: NavItem[] = [
-    { href: '/sales/dashboard', label: 'Dashboard', shortLabel: 'Inicio', icon: LayoutDashboard },
-    { href: '/sales/orders/new', label: 'Novo pedido', shortLabel: 'Pedido', icon: ShoppingBag },
-    { href: '/sales/quotes/new', label: 'Novo orcamento', shortLabel: 'Orcamento', icon: FileText },
-    { href: '/sales/customers', label: 'Clientes', shortLabel: 'Clientes', icon: Users },
-    { href: '/sales/visits', label: 'Visitas', shortLabel: 'Visitas', icon: MapPinned },
-    { href: '/sales/orders', label: 'Pedidos realizados', shortLabel: 'Pedidos', icon: ClipboardCheck },
-    { href: '/sales/quotes', label: 'Orcamentos realizados', shortLabel: 'Orc.', icon: BarChart3 },
+  { href: '/sales/dashboard', label: 'Dashboard', shortLabel: 'Inicio', icon: LayoutDashboard, group: 'workspace' },
+  { href: '/sales/orders/new', label: 'Novo pedido', shortLabel: 'Pedido', icon: ShoppingBag, group: 'workspace' },
+  { href: '/sales/quotes/new', label: 'Novo orcamento', shortLabel: 'Orcamento', icon: FileText, group: 'workspace' },
+  { href: '/sales/customers', label: 'Clientes', shortLabel: 'Clientes', icon: Users, group: 'workspace' },
+  { href: '/sales/visits', label: 'Visitas', shortLabel: 'Visitas', icon: MapPinned, group: 'workspace' },
+  { href: '/sales/orders', label: 'Pedidos realizados', shortLabel: 'Pedidos', icon: ClipboardCheck, group: 'history' },
+  { href: '/sales/quotes', label: 'Orcamentos realizados', shortLabel: 'Orc.', icon: BarChart3, group: 'history' },
 ]
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
-    '/sales/dashboard': {
-        title: 'Operacao comercial',
-        subtitle: 'Acompanhe clientes, visitas e documentos em um fluxo rapido de campo.',
-    },
-    '/sales/orders/new': {
-        title: 'Novo pedido assistido',
-        subtitle: 'Monte um pedido em nome do cliente com contexto comercial e negociacao.',
-    },
-    '/sales/quotes/new': {
-        title: 'Novo orcamento',
-        subtitle: 'Registre uma proposta comercial completa e converta em pedido depois.',
-    },
-    '/sales/customers': {
-        title: 'Clientes da carteira',
-        subtitle: 'Consulte clientes, tabela de preco, historico rapido e inicie novas acoes.',
-    },
-    '/sales/visits': {
-        title: 'Visitas comerciais',
-        subtitle: 'Registre visitas, resultado da conversa e proximos passos da negociacao.',
-    },
-    '/sales/orders': {
-        title: 'Pedidos realizados',
-        subtitle: 'Acompanhe os pedidos criados em campo pelo representante.',
-    },
-    '/sales/quotes': {
-        title: 'Orcamentos realizados',
-        subtitle: 'Gerencie orcamentos, acompanhe status e converta em pedido com agilidade.',
-    },
+  '/sales/dashboard': {
+    title: 'Operacao comercial',
+    subtitle: 'Carteira, visitas e documentos em um workspace rapido para atendimento presencial.',
+  },
+  '/sales/orders/new': {
+    title: 'Novo pedido assistido',
+    subtitle: 'Selecione o cliente, monte os itens e feche o pedido com contexto comercial completo.',
+  },
+  '/sales/quotes/new': {
+    title: 'Novo orcamento',
+    subtitle: 'Registre uma proposta comercial em campo e converta em pedido quando a negociacao amadurecer.',
+  },
+  '/sales/customers': {
+    title: 'Clientes da carteira',
+    subtitle: 'Busca rapida, contexto comercial e atalhos diretos para pedido, orcamento e relacionamento.',
+  },
+  '/sales/visits': {
+    title: 'Visitas comerciais',
+    subtitle: 'Documente cada contato com clareza, resultado e proximos passos da rotina em campo.',
+  },
+  '/sales/orders': {
+    title: 'Pedidos realizados',
+    subtitle: 'Acompanhe tudo o que foi gerado no atendimento presencial com leitura mais executiva.',
+  },
+  '/sales/quotes': {
+    title: 'Orcamentos realizados',
+    subtitle: 'Gerencie propostas em aberto e converta em pedido com agilidade quando o cliente aprovar.',
+  },
 }
 
 function matchPageMeta(pathname: string) {
-    const exact = pageMeta[pathname]
-    if (exact) return exact
+  const exact = pageMeta[pathname]
+  if (exact) return exact
 
-    if (pathname.startsWith('/sales/orders/')) {
-        return {
-            title: 'Detalhe do pedido',
-            subtitle: 'Consulte o documento comercial com contexto, itens e historico.',
-        }
+  if (pathname.startsWith('/sales/orders/')) {
+    return {
+      title: 'Detalhe do pedido',
+      subtitle: 'Visao consolidada do documento, cliente, itens e fechamento comercial.',
     }
+  }
 
-    if (pathname.startsWith('/sales/quotes/')) {
-        return {
-            title: 'Detalhe do orcamento',
-            subtitle: 'Revise o orcamento salvo, condicoes e proximos passos da negociacao.',
-        }
+  if (pathname.startsWith('/sales/quotes/')) {
+    return {
+      title: 'Detalhe do orcamento',
+      subtitle: 'Revise proposta, condicoes e proxima acao de conversao de forma objetiva.',
     }
+  }
 
-    return pageMeta['/sales/dashboard']
+  return pageMeta['/sales/dashboard']
 }
 
 export function SalesShell({ profile, children }: SalesShellProps) {
-    const pathname = usePathname()
-    const meta = useMemo(() => matchPageMeta(pathname), [pathname])
-    const firstName = profile.full_name?.split(' ')[0] || 'Representante'
+  const pathname = usePathname()
+  const meta = useMemo(() => matchPageMeta(pathname), [pathname])
+  const firstName = profile.full_name?.split(' ')[0] || 'Representante'
+  const workspaceItems = navItems.filter((item) => item.group === 'workspace')
+  const historyItems = navItems.filter((item) => item.group === 'history')
 
-    return (
-        <div className="min-h-screen bg-[linear-gradient(180deg,#f7f4ee_0%,#f5f7fb_48%,#ffffff_100%)] text-slate-950">
-            <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:flex lg:w-[260px] lg:flex-col lg:border-r lg:border-slate-200/80 lg:bg-white/88 lg:px-5 lg:py-6 lg:backdrop-blur-xl">
-                <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
-                        Modo representante
-                    </p>
-                    <h1 className="mt-2 font-[family-name:var(--font-heading)] text-2xl font-bold text-slate-950">
-                        Vendas presenciais
-                    </h1>
-                    <p className="mt-2 text-sm leading-6 text-slate-500">
-                        Operacao comercial assistida para pedidos, orcamentos e visitas em campo.
-                    </p>
-                </div>
+  return (
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#eef4ff_0%,#f7f5ef_38%,#ffffff_100%)] text-slate-950">
+      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:flex lg:w-[286px] lg:flex-col lg:border-r lg:border-slate-200/80 lg:bg-white/88 lg:px-5 lg:py-5 lg:backdrop-blur-xl">
+        <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-5 shadow-sm">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            <Sparkles className="h-3.5 w-3.5" />
+            Modo representante
+          </div>
+          <h1 className="mt-3 font-[family-name:var(--font-heading)] text-[28px] font-bold leading-tight text-slate-950">
+            Vendas presenciais
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-slate-500">
+            Workspace comercial para atendimento, negociacao e fechamento em campo sem depender do fluxo do cliente.
+          </p>
 
-                <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Representante
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-slate-950">{profile.full_name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{profile.email}</p>
-                </div>
-
-                <nav className="mt-8 space-y-1.5">
-                    {navItems.map((item) => {
-                        const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
-                        const Icon = item.icon
-                        return (
-                            <Link
-                                key={item.href}
-                                href={item.href}
-                                className={cn(
-                                    'flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all',
-                                    active
-                                        ? 'bg-slate-950 text-white shadow-[0_14px_30px_-20px_rgba(15,23,42,0.8)]'
-                                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-                                )}
-                            >
-                                <Icon className="h-4 w-4" />
-                                {item.label}
-                            </Link>
-                        )
-                    })}
-                </nav>
-            </div>
-
-            <div className="lg:pl-[260px]">
-                <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/88 backdrop-blur-xl">
-                    <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-                        <div className="min-w-0">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 lg:hidden">
-                                Representante
-                            </p>
-                            <h1 className="truncate font-[family-name:var(--font-heading)] text-xl font-bold text-slate-950 sm:text-2xl">
-                                {meta.title}
-                            </h1>
-                            <p className="mt-1 hidden text-sm leading-6 text-slate-500 md:block">
-                                {meta.subtitle}
-                            </p>
-                        </div>
-
-                        <div className="hidden items-center gap-2 md:flex">
-                            <Button asChild variant="outline" className="rounded-xl border-slate-200 bg-white/90">
-                                <Link href="/sales/quotes/new">Novo orcamento</Link>
-                            </Button>
-                            <Button asChild className="rounded-xl border-0 bg-slate-950 text-white hover:bg-slate-800">
-                                <Link href="/sales/orders/new">Novo pedido</Link>
-                            </Button>
-                        </div>
-
-                        <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 md:hidden">
-                            {firstName}
-                        </div>
-                    </div>
-                </header>
-
-                <main className="mx-auto max-w-7xl px-4 pb-[96px] pt-5 sm:px-6 lg:px-8 lg:pb-8 lg:pt-8">
-                    {children}
-                </main>
-            </div>
-
-            <nav className="fixed inset-x-3 bottom-3 z-30 rounded-2xl border border-slate-200 bg-white/96 p-2 shadow-[0_20px_40px_-24px_rgba(15,23,42,0.35)] backdrop-blur-xl lg:hidden">
-                <div className="grid grid-cols-5 gap-1">
-                    {navItems.slice(0, 5).map((item) => {
-                        const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
-                        const Icon = item.icon
-                        return (
-                            <Link
-                                key={item.href}
-                                href={item.href}
-                                className={cn(
-                                    'flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition-all',
-                                    active
-                                        ? 'bg-slate-950 text-white'
-                                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
-                                )}
-                            >
-                                <Icon className="h-4 w-4" />
-                                <span className="text-center leading-tight">{item.shortLabel}</span>
-                            </Link>
-                        )
-                    })}
-                </div>
-            </nav>
+          <div className="mt-5 grid gap-2">
+            <Button asChild className="h-11 rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800">
+              <Link href="/sales/orders/new">Novo pedido</Link>
+            </Button>
+            <Button asChild variant="outline" className="h-11 rounded-2xl border-slate-200 bg-white">
+              <Link href="/sales/quotes/new">Novo orcamento</Link>
+            </Button>
+          </div>
         </div>
-    )
+
+        <div className="mt-5 rounded-[28px] border border-slate-200 bg-white/92 p-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-sm font-semibold text-white">
+              {firstName.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-950">{profile.full_name}</p>
+              <p className="truncate text-xs text-slate-500">{profile.email}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 flex-1 overflow-y-auto pr-1">
+          <div className="space-y-5">
+            <div>
+              <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Operacao</p>
+              <nav className="space-y-1.5">
+                {workspaceItems.map((item) => {
+                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
+                  const Icon = item.icon
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        'flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all',
+                        active
+                          ? 'bg-slate-950 text-white shadow-[0_18px_32px_-22px_rgba(15,23,42,0.95)]'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {item.label}
+                    </Link>
+                  )
+                })}
+              </nav>
+            </div>
+
+            <div>
+              <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Historico</p>
+              <nav className="space-y-1.5">
+                {historyItems.map((item) => {
+                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
+                  const Icon = item.icon
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        'flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all',
+                        active
+                          ? 'bg-slate-950 text-white shadow-[0_18px_32px_-22px_rgba(15,23,42,0.95)]'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {item.label}
+                    </Link>
+                  )
+                })}
+              </nav>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50/90 p-4">
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+            <Target className="h-3.5 w-3.5" />
+            Ritmo comercial
+          </div>
+          <p className="mt-2 text-sm font-semibold text-slate-950">Tudo em poucos toques</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            O fluxo foi separado para pedidos, orcamentos e visitas sem competir com a navegação do cliente final.
+          </p>
+        </div>
+      </div>
+
+      <div className="lg:pl-[286px]">
+        <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/84 backdrop-blur-xl">
+          <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">
+                    Representante
+                  </span>
+                  <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                    Campo ativo
+                  </span>
+                </div>
+                <h1 className="mt-3 truncate font-[family-name:var(--font-heading)] text-2xl font-bold tracking-tight text-slate-950 sm:text-[32px]">
+                  {meta.title}
+                </h1>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">{meta.subtitle}</p>
+              </div>
+
+              <div className="hidden shrink-0 items-center gap-2 md:flex">
+                <Button asChild variant="outline" className="h-11 rounded-2xl border-slate-200 bg-white/90">
+                  <Link href="/sales/quotes/new">Novo orcamento</Link>
+                </Button>
+                <Button asChild className="h-11 rounded-2xl border-0 bg-slate-950 text-white hover:bg-slate-800">
+                  <Link href="/sales/orders/new">Novo pedido</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-7xl px-4 pb-[100px] pt-5 sm:px-6 lg:px-8 lg:pb-8 lg:pt-8">
+          {children}
+        </main>
+      </div>
+
+      <nav className="fixed inset-x-3 bottom-3 z-30 rounded-2xl border border-slate-200 bg-white/96 p-2 shadow-[0_20px_40px_-24px_rgba(15,23,42,0.35)] backdrop-blur-xl lg:hidden">
+        <div className="grid grid-cols-5 gap-1">
+          {workspaceItems.map((item) => {
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
+            const Icon = item.icon
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  'flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition-all',
+                  active ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="text-center leading-tight">{item.shortLabel}</span>
+              </Link>
+            )
+          })}
+        </div>
+      </nav>
+    </div>
+  )
 }

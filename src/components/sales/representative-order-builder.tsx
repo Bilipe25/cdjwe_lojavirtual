@@ -421,7 +421,7 @@ export function RepresentativeOrderBuilder({
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="space-y-6">
         <Card className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm">
-          <CardHeader className="border-b border-slate-100"><CardTitle>Cliente e contexto comercial</CardTitle></CardHeader>
+          <CardHeader className="border-b border-slate-100"><CardTitle>1. Cliente e contexto comercial</CardTitle><p className="text-sm text-slate-500">Defina cliente, tabela e entrega antes de montar os itens.</p></CardHeader>
           <CardContent className="grid gap-4 pt-5 md:grid-cols-2">
             <div className="space-y-2 md:col-span-2">
               <Label>Cliente</Label>
@@ -449,7 +449,7 @@ export function RepresentativeOrderBuilder({
         </Card>
 
         <Card className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm">
-          <CardHeader className="border-b border-slate-100"><CardTitle>Produtos</CardTitle></CardHeader>
+          <CardHeader className="border-b border-slate-100"><CardTitle>2. Produtos e composicao</CardTitle><p className="text-sm text-slate-500">Busque rapido, configure variacoes e monte o documento com agilidade.</p></CardHeader>
           <CardContent className="space-y-4 pt-5">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
               <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar produto" className="rounded-2xl border-slate-200 pl-10" /></div>
@@ -465,7 +465,7 @@ export function RepresentativeOrderBuilder({
         </Card>
 
         <Card className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm">
-          <CardHeader className="border-b border-slate-100"><CardTitle>Pagamento e observacoes</CardTitle></CardHeader>
+          <CardHeader className="border-b border-slate-100"><CardTitle>3. Pagamento e observacoes</CardTitle><p className="text-sm text-slate-500">Aplique negociacao, pagamento e notas do atendimento presencial.</p></CardHeader>
           <CardContent className="grid gap-4 pt-5 md:grid-cols-2">
             <div className="space-y-2"><Label>Meio</Label><Select value={effectivePaymentMethodId} onValueChange={(value) => { setSelectedPaymentMethodId(value || ''); setSelectedPaymentId('') }}><SelectTrigger className="rounded-2xl border-slate-200"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{paymentGroups.map((group) => <SelectItem key={group.method.id} value={group.method.id}>{group.method.name}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><Label>Condicao</Label><Select value={effectivePaymentId} onValueChange={(value) => setSelectedPaymentId(value || '')}><SelectTrigger className="rounded-2xl border-slate-200"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{paymentOptions.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}</SelectContent></Select></div>
@@ -480,7 +480,7 @@ export function RepresentativeOrderBuilder({
 
       <div className="space-y-6 xl:sticky xl:top-24 xl:self-start">
         <Card className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <CardHeader className="border-b border-slate-100"><CardTitle>Resumo comercial</CardTitle></CardHeader>
+          <CardHeader className="border-b border-slate-100"><CardTitle>4. Resumo comercial</CardTitle><p className="text-sm text-slate-500">Revise o total estimado antes de confirmar o documento.</p></CardHeader>
           <CardContent className="space-y-4 pt-5">
             <div className="flex items-center justify-between text-sm"><span className="text-slate-500">Subtotal</span><span className="font-semibold text-slate-950">{formatCurrency(subtotal)}</span></div>
             {negotiation.discountAmount > 0 && <div className="flex items-center justify-between text-sm text-emerald-700"><span>Desconto negociado</span><span className="font-semibold">- {formatCurrency(negotiation.discountAmount)}</span></div>}

@@ -1,6 +1,10 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { ClipboardCheck, FileText, MapPinned, UserRound } from 'lucide-react'
 import { getRepresentativeOrderDetail } from '@/app/sales/actions'
 import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
+import { SalesInfoPill } from '@/components/sales/sales-ui'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 function formatCurrency(value: number) {
@@ -15,32 +19,99 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Pedido presencial
+            </span>
+            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              {order.status}
+            </span>
+          </div>
+          <div>
+            <h2 className="font-[family-name:var(--font-heading)] text-3xl font-bold tracking-tight text-slate-950">{order.order_number}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Documento comercial criado no modo representante com snapshot de cliente, pagamento e negociacao.
+            </p>
+          </div>
+        </div>
+        <Button asChild variant="outline" className="h-11 rounded-2xl border-slate-200 bg-white">
+          <Link href="/sales/orders">Voltar aos pedidos</Link>
+        </Button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SalesInfoPill label="Cliente" value={order.store?.company_name || 'Nao informado'} />
+        <SalesInfoPill label="Criado em" value={new Date(order.created_at).toLocaleString('pt-BR')} />
+        <SalesInfoPill label="Pagamento" value={order.payment_method_name || 'Pendente'} />
+        <SalesInfoPill label="Total" value={formatCurrency(order.total)} />
+      </div>
+
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-6">
-          <Card className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm">
-            <CardHeader><CardTitle>Cliente e pedido</CardTitle></CardHeader>
+          <Card className="rounded-[32px] border border-slate-200 bg-white/95 shadow-sm">
+            <CardHeader>
+              <CardTitle>Contexto comercial</CardTitle>
+            </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2">
-              <p><span className="font-medium text-slate-950">Numero:</span> {order.order_number}</p>
-              <p><span className="font-medium text-slate-950">Status:</span> {order.status}</p>
-              <p><span className="font-medium text-slate-950">Cliente:</span> {order.store?.company_name}</p>
-              <p><span className="font-medium text-slate-950">Criado em:</span> {new Date(order.created_at).toLocaleString('pt-BR')}</p>
-              {order.shipping_address && <p className="md:col-span-2"><span className="font-medium text-slate-950">Entrega:</span> {order.shipping_address}</p>}
-              {order.notes && <p className="md:col-span-2"><span className="font-medium text-slate-950">Observacoes:</span> {order.notes}</p>}
-              {order.negotiation_reason && <p className="md:col-span-2"><span className="font-medium text-slate-950">Negociacao:</span> {order.negotiation_reason}</p>}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                <div className="flex items-center gap-2 text-slate-500">
+                  <UserRound className="h-4 w-4" />
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em]">Cliente</p>
+                </div>
+                <p className="mt-2 text-sm font-semibold text-slate-950">{order.store?.company_name}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                <div className="flex items-center gap-2 text-slate-500">
+                  <ClipboardCheck className="h-4 w-4" />
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em]">Status</p>
+                </div>
+                <p className="mt-2 text-sm font-semibold text-slate-950">{order.status}</p>
+              </div>
+              {order.shipping_address ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 md:col-span-2">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <MapPinned className="h-4 w-4" />
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em]">Entrega</p>
+                  </div>
+                  <p className="mt-2 text-sm font-medium leading-6 text-slate-700">{order.shipping_address}</p>
+                </div>
+              ) : null}
+              {order.notes ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 md:col-span-2">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <FileText className="h-4 w-4" />
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em]">Observacoes</p>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">{order.notes}</p>
+                </div>
+              ) : null}
+              {order.negotiation_reason ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/60 px-4 py-3 md:col-span-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">Motivo da negociacao</p>
+                  <p className="mt-2 text-sm leading-6 text-amber-900">{order.negotiation_reason}</p>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
-          <Card className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm">
-            <CardHeader><CardTitle>Itens</CardTitle></CardHeader>
+          <Card className="rounded-[32px] border border-slate-200 bg-white/95 shadow-sm">
+            <CardHeader>
+              <CardTitle>Itens do pedido</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-3">
               {order.items?.map((item) => (
-                <div key={item.id} className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 px-4 py-3">
-                  <div>
-                    <p className="font-semibold text-slate-950">{item.product_name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{item.fabric_name} / {item.color_name}{item.size_name ? ` / ${item.size_name}` : ''}</p>
+                <div key={item.id} className="flex flex-col gap-4 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-950">{item.product_name}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      {item.fabric_name} / {item.color_name}
+                      {item.size_name ? ` / ${item.size_name}` : ''}
+                    </p>
                   </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-slate-950">{formatCurrency(item.subtotal)}</p>
+                  <div className="text-left sm:text-right">
+                    <p className="text-sm font-semibold text-slate-950">{formatCurrency(item.subtotal)}</p>
                     <p className="mt-1 text-xs text-slate-500">{item.quantity} x {formatCurrency(item.unit_price)}</p>
                   </div>
                 </div>
@@ -49,15 +120,20 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
           </Card>
         </div>
 
-        <div className="space-y-6">
-          <OrderPaymentSummaryCard order={order} className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm" />
-          <Card className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm">
-            <CardHeader><CardTitle>Resumo</CardTitle></CardHeader>
+        <div className="space-y-6 xl:sticky xl:top-24 xl:self-start">
+          <OrderPaymentSummaryCard order={order} className="rounded-[32px] border border-slate-200 bg-white/95 shadow-sm" />
+          <Card className="rounded-[32px] border border-slate-200 bg-white/95 shadow-sm">
+            <CardHeader>
+              <CardTitle>Resumo financeiro</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><span>{formatCurrency(order.subtotal)}</span></div>
               {order.negotiation_discount_amount ? <div className="flex justify-between text-sm text-emerald-700"><span>Desconto negociado</span><span>- {formatCurrency(order.negotiation_discount_amount)}</span></div> : null}
               {order.negotiation_surcharge_amount ? <div className="flex justify-between text-sm text-amber-700"><span>Acrescimo negociado</span><span>+ {formatCurrency(order.negotiation_surcharge_amount)}</span></div> : null}
-              <div className="flex justify-between text-lg font-semibold text-slate-950"><span>Total</span><span>{formatCurrency(order.total)}</span></div>
+              <div className="rounded-2xl bg-slate-950 px-4 py-4 text-white">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">Total final</p>
+                <p className="mt-2 text-3xl font-bold tracking-tight">{formatCurrency(order.total)}</p>
+              </div>
             </CardContent>
           </Card>
         </div>
