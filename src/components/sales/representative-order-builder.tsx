@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { FileText, Loader2, Minus, Package, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react'
+import { ChevronRight, FileText, Loader2, Minus, Package, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 import type {
@@ -75,23 +75,13 @@ type PaymentOption = {
 }
 
 type PricingValidationResult =
-  | {
-      prices: Record<string, PriceSnapshot>
-      missingKeys: string[]
-      missingVariantIds: string[]
-    }
-  | {
-      error: string
-    }
+  | { prices: Record<string, PriceSnapshot>; missingKeys: string[]; missingVariantIds: string[] }
+  | { error: string }
 
 type ProductConfiguratorData = {
   product: Product & { images?: { url: string; is_primary: boolean }[]; size_options?: ProductSizeOption[] }
   variants: Array<{
-    id: string
-    fabric_id: string
-    fabric_color_id: string
-    price_override: number | null
-    image_url: string | null
+    id: string; fabric_id: string; fabric_color_id: string; price_override: number | null; image_url: string | null
     fabric?: { id: string; name: string; price_modifier: number | null } | null
     fabric_color?: { id: string; name: string } | null
   }>
@@ -142,15 +132,35 @@ function computeNegotiation(subtotal: number, discountType: 'percent' | 'value' 
 }
 
 function getPrimaryImage(product: BuilderProduct) {
-  return product.images?.find((image) => image.is_primary)?.url || product.images?.[0]?.url || null
+  return product.images?.find((img) => img.is_primary)?.url || product.images?.[0]?.url || null
 }
 
 function getDefaultAddressId(store: BuilderCustomer | null) {
-  return store?.addresses?.find((address) => address.is_main)?.id || store?.addresses?.[0]?.id || ''
+  return store?.addresses?.find((a) => a.is_main)?.id || store?.addresses?.[0]?.id || ''
 }
 
 function getDefaultPriceTableId(store: BuilderCustomer | null, fallbackTables: PriceTable[]) {
   return (store?.assigned_price_tables?.[0] || fallbackTables[0])?.id || ''
+}
+
+/* ─── Section row (mobile native style — label + chevron) ─── */
+function SectionRow({ label, value, highlight, onClick }: { label: string; value?: string; highlight?: boolean; onClick?: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex w-full items-center justify-between gap-3 border-b border-border/30 px-4 py-3.5 text-left transition-colors hover:bg-muted/40',
+        highlight && 'bg-primary/5'
+      )}
+    >
+      <div className="min-w-0">
+        <p className="text-[11px] text-muted-foreground">{label}</p>
+        {value && <p className={cn('mt-0.5 text-sm font-semibold', highlight ? 'text-primary' : 'text-foreground')}>{value}</p>}
+      </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+    </button>
+  )
 }
 
 export function RepresentativeOrderBuilder({
@@ -169,7 +179,7 @@ export function RepresentativeOrderBuilder({
   priceTables: PriceTable[]
 }) {
   const router = useRouter()
-  const initialStore = customers.find((customer) => customer.id === initialCustomerId) || null
+  const initialStore = customers.find((c) => c.id === initialCustomerId) || null
   const [selectedStoreId, setSelectedStoreId] = useState(initialCustomerId || '')
   const [selectedAddressId, setSelectedAddressId] = useState(() => getDefaultAddressId(initialStore))
   const [selectedPriceTableId, setSelectedPriceTableId] = useState(() => getDefaultPriceTableId(initialStore, priceTables))
@@ -194,20 +204,23 @@ export function RepresentativeOrderBuilder({
   const [dialogQuantity, setDialogQuantity] = useState(1)
   const [submitting, startSubmitting] = useTransition()
 
-  const selectedStore = useMemo(() => customers.find((customer) => customer.id === selectedStoreId) || null, [customers, selectedStoreId])
+  /* ─── Mobile section visibility ─── */
+  const [openSection, setOpenSection] = useState<'customer' | 'products' | 'negotiation' | 'payment' | 'notes' | null>(null)
+
+  const selectedStore = useMemo(() => customers.find((c) => c.id === selectedStoreId) || null, [customers, selectedStoreId])
   const availablePriceTables = useMemo(() => selectedStore?.assigned_price_tables?.length ? selectedStore.assigned_price_tables : priceTables, [priceTables, selectedStore])
-  const filteredProducts = useMemo(() => products.filter((product) => {
+  const filteredProducts = useMemo(() => products.filter((p) => {
     const term = search.trim().toLowerCase()
-    const matchesSearch = !term || product.name.toLowerCase().includes(term) || product.category?.name?.toLowerCase().includes(term)
-    const matchesCategory = selectedCategoryId === 'all' || product.category_id === selectedCategoryId
+    const matchesSearch = !term || p.name.toLowerCase().includes(term) || p.category?.name?.toLowerCase().includes(term)
+    const matchesCategory = selectedCategoryId === 'all' || p.category_id === selectedCategoryId
     return matchesSearch && matchesCategory
   }), [products, search, selectedCategoryId])
-  const pricingSignature = useMemo(() => JSON.stringify(items.map((item) => [item.variantId, item.sizeOptionId, item.quantity])), [items])
+  const pricingSignature = useMemo(() => JSON.stringify(items.map((i) => [i.variantId, i.sizeOptionId, i.quantity])), [items])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const draftItems = useMemo(() => items, [pricingSignature])
 
   const handleStoreChange = (nextStoreId: string) => {
-    const nextStore = customers.find((customer) => customer.id === nextStoreId) || null
+    const nextStore = customers.find((c) => c.id === nextStoreId) || null
     setSelectedStoreId(nextStoreId)
     setSelectedAddressId(getDefaultAddressId(nextStore))
     setSelectedPriceTableId(getDefaultPriceTableId(nextStore, priceTables))
@@ -215,388 +228,352 @@ export function RepresentativeOrderBuilder({
     setSelectedPaymentId('')
   }
 
+  /* ─── Pricing revalidation ─── */
   useEffect(() => {
     let cancelled = false
-
     const revalidate = async () => {
-      if (!selectedStoreId || draftItems.length === 0) {
-        setPaymentGroups([])
-        setSelectedPaymentMethodId('')
-        setSelectedPaymentId('')
-        return
-      }
-
+      if (!selectedStoreId || draftItems.length === 0) { setPaymentGroups([]); setSelectedPaymentMethodId(''); setSelectedPaymentId(''); return }
       setPricingPending(true)
-      const pricing = (await validateRepresentativeDraftPricingAction({
-        storeId: selectedStoreId,
-        priceTableId: selectedPriceTableId || null,
-        lines: draftItems.map((item) => ({ cartKey: item.cartKey, variantId: item.variantId, sizeOptionId: item.sizeOptionId })),
-      })) as PricingValidationResult
-
+      const pricing = (await validateRepresentativeDraftPricingAction({ storeId: selectedStoreId, priceTableId: selectedPriceTableId || null, lines: draftItems.map((i) => ({ cartKey: i.cartKey, variantId: i.variantId, sizeOptionId: i.sizeOptionId })) })) as PricingValidationResult
       if (cancelled) return
-      if ('error' in pricing) {
-        setPricingPending(false)
-        toast.error(pricing.error)
-        return
-      }
-
-      const repricedItems = draftItems.map((item) => {
-        const price = pricing.prices[item.cartKey]
-        return price ? { ...item, unitPrice: price.unitPrice, sizeName: price.sizeName ?? item.sizeName } : item
-      })
+      if ('error' in pricing) { setPricingPending(false); toast.error(pricing.error); return }
+      const repricedItems = draftItems.map((i) => { const p = pricing.prices[i.cartKey]; return p ? { ...i, unitPrice: p.unitPrice, sizeName: p.sizeName ?? i.sizeName } : i })
       setItems(repricedItems)
-
-      const subtotal = repricedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
+      const subtotal = repricedItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
       const payments = await getRepresentativePaymentOptions({ storeId: selectedStoreId, subtotal, priceTableId: selectedPriceTableId || null })
       if (cancelled) return
-      if ('error' in payments && payments.error) {
-        setPricingPending(false)
-        toast.error(payments.error)
-        return
-      }
-
+      if ('error' in payments && payments.error) { setPricingPending(false); toast.error(payments.error); return }
       setPaymentGroups((payments.paymentMethods || []) as PaymentMethodGroup[])
       setPricingPending(false)
     }
-
     void revalidate()
     return () => { cancelled = true }
   }, [draftItems, pricingSignature, selectedPriceTableId, selectedStoreId])
 
-  const effectivePaymentMethodId = paymentGroups.some((group) => group.method.id === selectedPaymentMethodId)
-    ? selectedPaymentMethodId
-    : paymentGroups[0]?.method.id || ''
-
-  const selectedMethodGroup = useMemo(
-    () => paymentGroups.find((group) => group.method.id === effectivePaymentMethodId) || null,
-    [effectivePaymentMethodId, paymentGroups]
-  )
+  const effectivePaymentMethodId = paymentGroups.some((g) => g.method.id === selectedPaymentMethodId) ? selectedPaymentMethodId : paymentGroups[0]?.method.id || ''
+  const selectedMethodGroup = useMemo(() => paymentGroups.find((g) => g.method.id === effectivePaymentMethodId) || null, [effectivePaymentMethodId, paymentGroups])
   const paymentOptions = useMemo(() => buildPaymentOptions(selectedMethodGroup), [selectedMethodGroup])
-  const effectivePaymentId = paymentOptions.some((option) => option.id === selectedPaymentId)
-    ? selectedPaymentId
-    : paymentOptions[0]?.id || ''
-  const selectedPaymentOption = paymentOptions.find((option) => option.id === effectivePaymentId) || null
+  const effectivePaymentId = paymentOptions.some((o) => o.id === selectedPaymentId) ? selectedPaymentId : paymentOptions[0]?.id || ''
+  const selectedPaymentOption = paymentOptions.find((o) => o.id === effectivePaymentId) || null
 
-  const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
+  const subtotal = useMemo(() => items.reduce((s, i) => s + i.quantity * i.unitPrice, 0), [items])
   const negotiation = useMemo(() => computeNegotiation(subtotal, discountType, Number(discountValue || 0), Number(surchargeValue || 0)), [discountType, discountValue, subtotal, surchargeValue])
   const paymentDiscountAmount = negotiation.adjustedSubtotal * ((selectedPaymentOption?.discountPercentage || 0) / 100)
   const afterPaymentDiscount = Math.max(0, negotiation.adjustedSubtotal - paymentDiscountAmount)
   const paymentSurchargeAmount = afterPaymentDiscount * ((selectedPaymentOption?.surchargePercentage || 0) / 100)
   const total = Math.max(0, afterPaymentDiscount + paymentSurchargeAmount)
 
+  /* ─── Product configurator ─── */
   useEffect(() => {
     let cancelled = false
-
     const loadConfig = async () => {
-      if (!dialogProductId || !selectedStoreId) {
-        setConfigData(null)
-        return
-      }
-
+      if (!dialogProductId || !selectedStoreId) { setConfigData(null); return }
       setConfigLoading(true)
       const result = await getRepresentativeProductConfiguratorData({ storeId: selectedStoreId, productId: dialogProductId, priceTableId: selectedPriceTableId || null })
       if (cancelled) return
-      if ('error' in result && result.error) {
-        setConfigLoading(false)
-        toast.error(result.error)
-        setConfigData(null)
-        return
-      }
-
+      if ('error' in result && result.error) { setConfigLoading(false); toast.error(result.error); setConfigData(null); return }
       const data = result as ProductConfiguratorData
       setConfigData(data)
-      setSelectedSizeOptionId(data.product.size_options?.find((option) => option.is_default && option.is_active)?.id || data.product.size_options?.find((option) => option.is_active)?.id || '')
+      setSelectedSizeOptionId(data.product.size_options?.find((o) => o.is_default && o.is_active)?.id || data.product.size_options?.find((o) => o.is_active)?.id || '')
       setSelectedFabricId(data.fabrics[0]?.id || '')
       setSelectedColorId(data.fabrics[0]?.colors[0]?.id || '')
       setDialogQuantity(1)
       setConfigLoading(false)
     }
-
     void loadConfig()
     return () => { cancelled = true }
   }, [dialogProductId, selectedPriceTableId, selectedStoreId])
 
-  const selectedSizeOption = (configData?.product.size_options || []).find((option) => option.id === selectedSizeOptionId) || null
-  const selectedVariant = useMemo(() => configData?.variants.find((variant) => variant.fabric_id === selectedFabricId && variant.fabric_color_id === selectedColorId) || null, [configData, selectedColorId, selectedFabricId])
+  const selectedSizeOption = (configData?.product.size_options || []).find((o) => o.id === selectedSizeOptionId) || null
+  const selectedVariant = useMemo(() => configData?.variants.find((v) => v.fabric_id === selectedFabricId && v.fabric_color_id === selectedColorId) || null, [configData, selectedColorId, selectedFabricId])
   const previewPrice = useMemo(() => {
     if (!configData || !selectedVariant) return 0
-    return calculateProductPrice({
-      basePrice: configData.product.base_price,
-      fabricModifier: selectedVariant.fabric?.price_modifier ?? 0,
-      variantPriceOverride: selectedVariant.price_override,
-      variantId: selectedVariant.id,
-      sizePriceMode: selectedSizeOption?.price_mode ?? null,
-      sizePriceValue: selectedSizeOption?.price_value ?? null,
-      priceTable: configData.priceTableContext,
-    }).finalPrice
+    return calculateProductPrice({ basePrice: configData.product.base_price, fabricModifier: selectedVariant.fabric?.price_modifier ?? 0, variantPriceOverride: selectedVariant.price_override, variantId: selectedVariant.id, sizePriceMode: selectedSizeOption?.price_mode ?? null, sizePriceValue: selectedSizeOption?.price_value ?? null, priceTable: configData.priceTableContext }).finalPrice
   }, [configData, selectedSizeOption, selectedVariant])
 
   const addConfiguredItem = () => {
-    if (!configData || !selectedVariant) {
-      toast.error('Selecione tecido e cor antes de adicionar.')
-      return
-    }
-
-    if (configData.product.has_size_variants && !selectedSizeOption) {
-      toast.error('Selecione um tamanho para continuar.')
-      return
-    }
-
+    if (!configData || !selectedVariant) { toast.error('Selecione tecido e cor.'); return }
+    if (configData.product.has_size_variants && !selectedSizeOption) { toast.error('Selecione um tamanho.'); return }
     const cartKey = buildCartKey(selectedVariant.id, selectedSizeOption?.id || null)
-    const nextItem: DraftItem = {
-      cartKey,
-      productId: configData.product.id,
-      productName: configData.product.name,
-      variantId: selectedVariant.id,
-      fabricName: selectedVariant.fabric?.name || 'Tecido',
-      colorName: selectedVariant.fabric_color?.name || 'Cor',
-      sizeName: selectedSizeOption?.name || configData.product.size || null,
-      sizeOptionId: selectedSizeOption?.id || null,
-      imageUrl: selectedVariant.image_url || configData.product.images?.find((image) => image.is_primary)?.url || configData.product.images?.[0]?.url || null,
-      quantity: dialogQuantity,
-      unitPrice: previewPrice,
-    }
-
-    setItems((current) => {
-      const existing = current.find((item) => item.cartKey === nextItem.cartKey)
-      if (!existing) return [...current, nextItem]
-      return current.map((item) => item.cartKey === nextItem.cartKey ? { ...item, quantity: item.quantity + nextItem.quantity, unitPrice: nextItem.unitPrice } : item)
-    })
-
+    const nextItem: DraftItem = { cartKey, productId: configData.product.id, productName: configData.product.name, variantId: selectedVariant.id, fabricName: selectedVariant.fabric?.name || 'Tecido', colorName: selectedVariant.fabric_color?.name || 'Cor', sizeName: selectedSizeOption?.name || configData.product.size || null, sizeOptionId: selectedSizeOption?.id || null, imageUrl: selectedVariant.image_url || configData.product.images?.find((i) => i.is_primary)?.url || configData.product.images?.[0]?.url || null, quantity: dialogQuantity, unitPrice: previewPrice }
+    setItems((cur) => { const ex = cur.find((i) => i.cartKey === nextItem.cartKey); if (!ex) return [...cur, nextItem]; return cur.map((i) => i.cartKey === nextItem.cartKey ? { ...i, quantity: i.quantity + nextItem.quantity, unitPrice: nextItem.unitPrice } : i) })
     setDialogProductId(null)
     toast.success('Item adicionado.')
   }
 
   const handleSubmit = (target: 'order' | 'quote') => {
-    if (!selectedStoreId) {
-      toast.error('Selecione um cliente antes de continuar.')
-      return
-    }
-    if (items.length === 0) {
-      toast.error('Adicione pelo menos um item.')
-      return
-    }
-
+    if (!selectedStoreId) { toast.error('Selecione um cliente.'); return }
+    if (items.length === 0) { toast.error('Adicione pelo menos um item.'); return }
     startSubmitting(async () => {
-      const response = target === 'order'
-        ? await createRepresentativeOrderAction({
-            storeId: selectedStoreId,
-            priceTableId: selectedPriceTableId || null,
-            selectedPaymentId: effectivePaymentId || null,
-            isTableRule: Boolean(selectedPaymentOption?.isTableRule),
-            selectedAddressId: selectedAddressId || null,
-            notes,
-            negotiationDiscountType: discountType === 'none' ? null : discountType,
-            negotiationDiscountValue: Number(discountValue || 0),
-            negotiationSurchargeAmount: Number(surchargeValue || 0),
-            negotiationReason,
-            items,
-          })
-        : await saveRepresentativeQuoteAction({
-            storeId: selectedStoreId,
-            priceTableId: selectedPriceTableId || null,
-            selectedPaymentId: effectivePaymentId || null,
-            isTableRule: Boolean(selectedPaymentOption?.isTableRule),
-            selectedAddressId: selectedAddressId || null,
-            notes,
-            negotiationDiscountType: discountType === 'none' ? null : discountType,
-            negotiationDiscountValue: Number(discountValue || 0),
-            negotiationSurchargeAmount: Number(surchargeValue || 0),
-            negotiationReason,
-            items,
-          })
-
-      if (!response.success) {
-        toast.error(response.error || 'Falha ao salvar o documento.')
-        return
-      }
-
+      const payload = { storeId: selectedStoreId, priceTableId: selectedPriceTableId || null, selectedPaymentId: effectivePaymentId || null, isTableRule: Boolean(selectedPaymentOption?.isTableRule), selectedAddressId: selectedAddressId || null, notes, negotiationDiscountType: discountType === 'none' ? null : discountType, negotiationDiscountValue: Number(discountValue || 0), negotiationSurchargeAmount: Number(surchargeValue || 0), negotiationReason, items }
+      const response = target === 'order' ? await createRepresentativeOrderAction(payload) : await saveRepresentativeQuoteAction(payload)
+      if (!response.success) { toast.error(response.error || 'Falha ao salvar.'); return }
       router.push(target === 'order' ? `/sales/orders/${response.orderId}` : `/sales/quotes/${response.quoteId}`)
     })
   }
 
-  return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <div className="space-y-5">
-        {/* Section 1: Customer & context */}
-        <section className="rounded-2xl border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-4 py-3">
-            <h2 className="text-sm font-semibold text-slate-950">1. Cliente e contexto</h2>
+  /* ─── Mobile view (list of sections with chevrons) ─── */
+  const mobileContent = (
+    <div className="flex flex-col min-h-[calc(100dvh-140px)] xl:hidden">
+      <div className="flex-1 divide-y divide-border/30 rounded-2xl border border-border/40 bg-card">
+        {/* Customer */}
+        <SectionRow
+          label="Cliente"
+          value={selectedStore?.company_name || 'Selecione'}
+          onClick={() => setOpenSection(openSection === 'customer' ? null : 'customer')}
+        />
+        {openSection === 'customer' && (
+          <div className="space-y-3 bg-muted/20 px-4 py-4">
+            <Select value={selectedStoreId} onValueChange={(v) => handleStoreChange(v || '')}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Selecione um cliente">
+                  {selectedStore?.company_name}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.company_name}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Tabela">
+                  {availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Endereço">
+                  {selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
-          <div className="grid gap-3 p-4 md:grid-cols-2">
-            <div className="space-y-1.5 md:col-span-2">
-              <Label className="text-xs">Cliente</Label>
-              <Select value={selectedStoreId} onValueChange={(value) => handleStoreChange(value || '')}>
-                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Selecione um cliente" /></SelectTrigger>
-                <SelectContent>{customers.map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.customer_code ? `${customer.customer_code} - ` : ''}{customer.company_name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Tabela de preço</Label>
-              <Select value={selectedPriceTableId} onValueChange={(value) => setSelectedPriceTableId(value || '')}>
-                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Tabela" /></SelectTrigger>
-                <SelectContent>{availablePriceTables.map((table) => <SelectItem key={table.id} value={table.id}>{table.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Entrega</Label>
-              <Select value={selectedAddressId} onValueChange={(value) => setSelectedAddressId(value || '')}>
-                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Endereço" /></SelectTrigger>
-                <SelectContent>{(selectedStore?.addresses || []).map((address) => <SelectItem key={address.id} value={address.id}>{address.title}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            {selectedStore && (
-              <div className="rounded-xl bg-slate-50 px-3 py-2 md:col-span-2">
-                <p className="text-sm font-semibold text-slate-950">{selectedStore.company_name}</p>
-                <p className="mt-0.5 text-xs text-slate-500">{selectedStore.customer_code || selectedStore.cnpj}</p>
-              </div>
-            )}
-          </div>
-        </section>
+        )}
 
-        {/* Section 2: Products */}
-        <section className="rounded-2xl border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-4 py-3">
-            <h2 className="text-sm font-semibold text-slate-950">2. Produtos</h2>
-          </div>
-          <div className="space-y-4 p-4">
-            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_200px]">
-              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar produto" className="h-9 rounded-xl border-slate-200 pl-10 text-sm" /></div>
-              <Select value={selectedCategoryId} onValueChange={(value) => setSelectedCategoryId(value || 'all')}><SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Categoria" /></SelectTrigger><SelectContent><SelectItem value="all">Todas</SelectItem>{categories.map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent></Select>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredProducts.slice(0, 18).map((product) => (
-                <button
-                  key={product.id}
-                  type="button"
-                  onClick={() => { if (!selectedStoreId) { toast.error('Selecione um cliente antes.'); return } setDialogProductId(product.id) }}
-                  className="overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition hover:border-slate-300 hover:shadow-sm"
-                >
-                  <div className="relative h-28 bg-slate-100">
-                    {getPrimaryImage(product) ? <Image src={getPrimaryImage(product) || ''} alt={product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Package className="h-6 w-6" /></div>}
-                  </div>
-                  <div className="p-3">
-                    <p className="line-clamp-1 text-xs font-semibold text-slate-950">{product.name}</p>
-                    {product.category?.name && <Badge variant="outline" className="mt-1 rounded-md border-slate-200 bg-slate-50 text-[10px] text-slate-500">{product.category.name}</Badge>}
-                  </div>
+        {/* Products */}
+        <SectionRow
+          label="Produtos"
+          value={items.length ? `${items.length} item(ns)` : 'Nenhum produto escolhido'}
+          onClick={() => setOpenSection(openSection === 'products' ? null : 'products')}
+        />
+        {openSection === 'products' && (
+          <div className="space-y-3 bg-muted/20 px-4 py-4">
+            <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar produto" className="h-9 rounded-xl border-border pl-10 text-sm" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              {filteredProducts.slice(0, 12).map((product) => (
+                <button key={product.id} type="button" onClick={() => { if (!selectedStoreId) { toast.error('Selecione um cliente antes.'); return } setDialogProductId(product.id) }} className="overflow-hidden rounded-xl border border-border/40 bg-card text-left transition hover:shadow-sm">
+                  <div className="relative h-24 bg-muted/40">{getPrimaryImage(product) ? <Image src={getPrimaryImage(product) || ''} alt={product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-5 w-5" /></div>}</div>
+                  <div className="p-2"><p className="line-clamp-1 text-[11px] font-semibold text-foreground">{product.name}</p></div>
                 </button>
               ))}
             </div>
+            {items.length > 0 && (
+              <>
+                <Separator />
+                <ItemsList items={items} setItems={setItems} pricingPending={pricingPending} />
+              </>
+            )}
+          </div>
+        )}
 
-            <Separator />
+        {/* Negotiation */}
+        <SectionRow
+          label="Negociação"
+          value={discountType !== 'none' ? `${discountType === 'percent' ? `${discountValue}%` : formatCurrency(Number(discountValue || 0))} desc.` : undefined}
+          onClick={() => setOpenSection(openSection === 'negotiation' ? null : 'negotiation')}
+        />
+        {openSection === 'negotiation' && (
+          <div className="grid gap-3 bg-muted/20 px-4 py-4 md:grid-cols-2">
+            <div className="space-y-1.5"><Label className="text-xs">Tipo desconto</Label><Select value={discountType} onValueChange={(v) => setDiscountType((v || 'none') as typeof discountType)}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue>
+                  {discountType === 'none' ? 'Sem desconto' : discountType === 'percent' ? 'Percentual' : 'Valor'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent><SelectItem value="none">Sem desconto</SelectItem><SelectItem value="percent">Percentual</SelectItem><SelectItem value="value">Valor</SelectItem></SelectContent></Select></div>
+            <div className="space-y-1.5"><Label className="text-xs">{discountType === 'percent' ? '% desc.' : 'Valor desc.'}</Label><Input value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">Acréscimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">Motivo</Label><Input value={negotiationReason} onChange={(e) => setNegotiationReason(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+          </div>
+        )}
 
-            {/* Items list */}
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-slate-950">Itens ({items.length})</h3>
-                {pricingPending && <span className="text-[10px] text-slate-400">Revalidando preços...</span>}
-              </div>
-              {items.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-xs text-slate-500">Nenhum item adicionado.</div>
-              ) : (
-                <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-                  {items.map((item) => (
-                    <div key={item.cartKey} className="flex items-center gap-3 px-3 py-2.5">
-                      <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-slate-100">
-                        {item.imageUrl ? <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Package className="h-4 w-4" /></div>}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-semibold text-slate-950">{item.productName}</p>
-                        <p className="text-[10px] text-slate-500">{item.fabricName} / {item.colorName}{item.sizeName ? ` / ${item.sizeName}` : ''}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Button type="button" variant="outline" size="icon" className="h-7 w-7 rounded-lg border-slate-200" onClick={() => setItems((current) => current.map((i) => i.cartKey === item.cartKey ? { ...i, quantity: Math.max(1, i.quantity - 1) } : i))}><Minus className="h-3.5 w-3.5" /></Button>
-                        <span className="min-w-[24px] text-center text-xs font-semibold">{item.quantity}</span>
-                        <Button type="button" variant="outline" size="icon" className="h-7 w-7 rounded-lg border-slate-200" onClick={() => setItems((current) => current.map((i) => i.cartKey === item.cartKey ? { ...i, quantity: i.quantity + 1 } : i))}><Plus className="h-3.5 w-3.5" /></Button>
-                      </div>
-                      <div className="w-[100px] text-right">
-                        <p className="text-xs font-semibold text-slate-950">{formatCurrency(item.unitPrice * item.quantity)}</p>
-                        <p className="text-[10px] text-slate-500">{formatCurrency(item.unitPrice)} un.</p>
-                      </div>
-                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => setItems((current) => current.filter((i) => i.cartKey !== item.cartKey))}><Trash2 className="h-3.5 w-3.5" /></Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+        {/* Payment */}
+        <SectionRow
+          label="Dados de pagamento"
+          value={selectedPaymentOption?.label || 'Selecione'}
+          highlight={Boolean(selectedPaymentOption?.discountPercentage)}
+          onClick={() => setOpenSection(openSection === 'payment' ? null : 'payment')}
+        />
+        {openSection === 'payment' && (
+          <div className="grid gap-3 bg-muted/20 px-4 py-4 md:grid-cols-2">
+            <div className="space-y-1.5"><Label className="text-xs">Meio</Label><Select value={effectivePaymentMethodId} onValueChange={(v) => { setSelectedPaymentMethodId(v || ''); setSelectedPaymentId('') }}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Selecione">
+                  {selectedMethodGroup?.method.name}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{paymentGroups.map((g) => <SelectItem key={g.method.id} value={g.method.id}>{g.method.name}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-1.5"><Label className="text-xs">Condição</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Selecione">
+                  {selectedPaymentOption?.label}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{paymentOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}</SelectContent></Select></div>
+          </div>
+        )}
+
+        {/* Notes */}
+        <SectionRow
+          label="Observações"
+          value={notes ? notes.substring(0, 40) + (notes.length > 40 ? '...' : '') : undefined}
+          onClick={() => setOpenSection(openSection === 'notes' ? null : 'notes')}
+        />
+        {openSection === 'notes' && (
+          <div className="bg-muted/20 px-4 py-4">
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" placeholder="Observações do pedido..." />
+          </div>
+        )}
+      </div>
+
+      {/* Fixed bottom: total + CTA */}
+      <div className="sticky bottom-[var(--bottom-nav-height)] z-10 border-t border-border/30 bg-card px-4 py-3 shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.06)]">
+        <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+          <span>Total do atendimento</span>
+          <span className="text-lg font-bold font-heading text-foreground">{formatCurrency(total)}</span>
+        </div>
+        <Button
+          className="h-12 w-full rounded-xl border-0 text-sm font-bold gradient-navy text-white hover:opacity-90"
+          disabled={submitting || !selectedStoreId || items.length === 0}
+          onClick={() => handleSubmit(mode)}
+        >
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'order' ? (
+            <><ShoppingBag className="mr-2 h-4 w-4" />CONFIRMAR PEDIDO</>
+          ) : (
+            <><FileText className="mr-2 h-4 w-4" />SALVAR ORÇAMENTO</>
+          )}
+        </Button>
+      </div>
+    </div>
+  )
+
+  /* ─── Desktop view (two-column) ─── */
+  const desktopContent = (
+    <div className="hidden xl:grid xl:grid-cols-[minmax(0,1fr)_340px] xl:gap-5">
+      <div className="space-y-5">
+        {/* Customer & context */}
+        <section className="rounded-2xl border border-border/40 bg-card">
+          <div className="border-b border-border/30 px-4 py-3"><h2 className="text-sm font-semibold font-heading text-foreground">1. Cliente e contexto</h2></div>
+          <div className="grid gap-3 p-4 md:grid-cols-2">
+            <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">Cliente</Label><Select value={selectedStoreId} onValueChange={(v) => handleStoreChange(v || '')}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Selecione um cliente">
+                  {selectedStore?.company_name}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.company_name}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-1.5"><Label className="text-xs">Tabela de preço</Label><Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Tabela">
+                  {availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-1.5"><Label className="text-xs">Entrega</Label><Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Endereço">
+                  {selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select></div>
           </div>
         </section>
 
-        {/* Section 3: Payment & notes */}
-        <section className="rounded-2xl border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-4 py-3">
-            <h2 className="text-sm font-semibold text-slate-950">3. Pagamento</h2>
+        {/* Products */}
+        <section className="rounded-2xl border border-border/40 bg-card">
+          <div className="border-b border-border/30 px-4 py-3"><h2 className="text-sm font-semibold font-heading text-foreground">2. Produtos</h2></div>
+          <div className="space-y-4 p-4">
+            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_200px]">
+              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar produto" className="h-9 rounded-xl border-border pl-10 text-sm" /></div>
+              <Select value={selectedCategoryId} onValueChange={(v) => setSelectedCategoryId(v || 'all')}>
+                <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                  <SelectValue placeholder="Categoria">
+                    {selectedCategoryId === 'all' ? 'Todas' : categories.find(c => c.id === selectedCategoryId)?.name}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent><SelectItem value="all">Todas</SelectItem>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredProducts.slice(0, 18).map((product) => (
+                <button key={product.id} type="button" onClick={() => { if (!selectedStoreId) { toast.error('Selecione um cliente antes.'); return } setDialogProductId(product.id) }} className="overflow-hidden rounded-xl border border-border/40 bg-card text-left transition hover:border-border hover:shadow-sm">
+                  <div className="relative h-28 bg-muted/40">{getPrimaryImage(product) ? <Image src={getPrimaryImage(product) || ''} alt={product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-6 w-6" /></div>}</div>
+                  <div className="p-3"><p className="line-clamp-1 text-xs font-semibold text-foreground">{product.name}</p>{product.category?.name && <Badge variant="outline" className="mt-1 rounded-md border-border bg-muted text-[10px] text-muted-foreground">{product.category.name}</Badge>}</div>
+                </button>
+              ))}
+            </div>
+            <Separator />
+            <ItemsList items={items} setItems={setItems} pricingPending={pricingPending} />
           </div>
+        </section>
+
+        {/* Payment & negotiation */}
+        <section className="rounded-2xl border border-border/40 bg-card">
+          <div className="border-b border-border/30 px-4 py-3"><h2 className="text-sm font-semibold font-heading text-foreground">3. Pagamento</h2></div>
           <div className="grid gap-3 p-4 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Meio</Label>
-              <Select value={effectivePaymentMethodId} onValueChange={(value) => { setSelectedPaymentMethodId(value || ''); setSelectedPaymentId('') }}>
-                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{paymentGroups.map((group) => <SelectItem key={group.method.id} value={group.method.id}>{group.method.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Condição</Label>
-              <Select value={effectivePaymentId} onValueChange={(value) => setSelectedPaymentId(value || '')}>
-                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{paymentOptions.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Desconto negociado</Label>
-              <Select value={discountType} onValueChange={(value) => setDiscountType((value || 'none') as 'percent' | 'value' | 'none')}>
-                <SelectTrigger className="h-9 rounded-xl border-slate-200 text-sm"><SelectValue placeholder="Sem desconto" /></SelectTrigger>
-                <SelectContent><SelectItem value="none">Sem desconto</SelectItem><SelectItem value="percent">Percentual</SelectItem><SelectItem value="value">Valor</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">{discountType === 'percent' ? '% desconto' : 'Valor desc.'}</Label>
-              <Input value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} className="h-9 rounded-xl border-slate-200 text-sm" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Acréscimo</Label>
-              <Input value={surchargeValue} onChange={(event) => setSurchargeValue(event.target.value)} className="h-9 rounded-xl border-slate-200 text-sm" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Motivo</Label>
-              <Input value={negotiationReason} onChange={(event) => setNegotiationReason(event.target.value)} className="h-9 rounded-xl border-slate-200 text-sm" />
-            </div>
-            <div className="space-y-1.5 md:col-span-2">
-              <Label className="text-xs">Observações</Label>
-              <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-[80px] rounded-xl border-slate-200 text-sm" />
-            </div>
+            <div className="space-y-1.5"><Label className="text-xs">Meio</Label><Select value={effectivePaymentMethodId} onValueChange={(v) => { setSelectedPaymentMethodId(v || ''); setSelectedPaymentId('') }}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Selecione">
+                  {selectedMethodGroup?.method.name}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{paymentGroups.map((g) => <SelectItem key={g.method.id} value={g.method.id}>{g.method.name}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-1.5"><Label className="text-xs">Condição</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue placeholder="Selecione">
+                  {selectedPaymentOption?.label}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>{paymentOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-1.5"><Label className="text-xs">Desconto</Label><Select value={discountType} onValueChange={(v) => setDiscountType((v || 'none') as typeof discountType)}>
+              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
+                <SelectValue>
+                  {discountType === 'none' ? 'Sem desconto' : discountType === 'percent' ? 'Percentual' : 'Valor'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent><SelectItem value="none">Sem desconto</SelectItem><SelectItem value="percent">Percentual</SelectItem><SelectItem value="value">Valor</SelectItem></SelectContent></Select></div>
+            <div className="space-y-1.5"><Label className="text-xs">{discountType === 'percent' ? '% desc.' : 'Valor desc.'}</Label><Input value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">Acréscimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">Motivo</Label><Input value={negotiationReason} onChange={(e) => setNegotiationReason(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">Observações</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" /></div>
           </div>
         </section>
       </div>
 
-      {/* Sidebar: Summary */}
+      {/* Summary sidebar */}
       <div className="space-y-4 xl:sticky xl:top-20 xl:self-start">
-        <div className="rounded-2xl border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-4 py-3">
-            <h2 className="text-sm font-semibold text-slate-950">Resumo</h2>
-          </div>
+        <div className="rounded-2xl border border-border/40 bg-card">
+          <div className="border-b border-border/30 px-4 py-3"><h2 className="text-sm font-semibold font-heading text-foreground">Resumo</h2></div>
           <div className="space-y-3 p-4">
-            <div className="flex items-center justify-between text-xs"><span className="text-slate-500">Subtotal</span><span className="font-semibold text-slate-950">{formatCurrency(subtotal)}</span></div>
+            <div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">Subtotal</span><span className="font-semibold text-foreground">{formatCurrency(subtotal)}</span></div>
             {negotiation.discountAmount > 0 && <div className="flex items-center justify-between text-xs text-emerald-700"><span>Desc. negociado</span><span className="font-semibold">- {formatCurrency(negotiation.discountAmount)}</span></div>}
             {negotiation.surchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>Acréscimo</span><span className="font-semibold">+ {formatCurrency(negotiation.surchargeAmount)}</span></div>}
             {paymentDiscountAmount > 0 && <div className="flex items-center justify-between text-xs text-emerald-700"><span>Desc. pagamento</span><span className="font-semibold">- {formatCurrency(paymentDiscountAmount)}</span></div>}
             {paymentSurchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>Acrésc. pagamento</span><span className="font-semibold">+ {formatCurrency(paymentSurchargeAmount)}</span></div>}
-
-            <div className="rounded-xl bg-slate-950 px-4 py-3 text-white">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-300">Total estimado</p>
-              <p className="mt-1 text-2xl font-bold tracking-tight">{formatCurrency(total)}</p>
-              <p className="mt-1 text-xs text-slate-300">{selectedPaymentOption?.label || 'Defina pagamento'}</p>
+            <div className="rounded-xl gradient-navy px-4 py-3 text-white">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-white/70">Total estimado</p>
+              <p className="mt-1 text-2xl font-bold font-heading tracking-tight">{formatCurrency(total)}</p>
+              <p className="mt-1 text-xs text-white/60">{selectedPaymentOption?.label || 'Defina pagamento'}</p>
             </div>
-
             {mode === 'order' && (
-              <Button className="h-10 w-full rounded-xl border-0 bg-slate-950 text-sm text-white hover:bg-slate-800" disabled={submitting || !selectedStoreId || items.length === 0} onClick={() => handleSubmit('order')}>
+              <Button className="h-10 w-full rounded-xl border-0 text-sm font-bold gradient-bronze text-white hover:opacity-90" disabled={submitting || !selectedStoreId || items.length === 0} onClick={() => handleSubmit('order')}>
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ShoppingBag className="mr-2 h-4 w-4" />Confirmar pedido</>}
               </Button>
             )}
             <Button
               variant={mode === 'quote' ? 'default' : 'outline'}
-              className={mode === 'quote' ? 'h-10 w-full rounded-xl border-0 bg-slate-950 text-sm text-white hover:bg-slate-800' : 'h-10 w-full rounded-xl border-slate-200 bg-white text-sm text-slate-950 hover:bg-slate-50'}
+              className={mode === 'quote' ? 'h-10 w-full rounded-xl border-0 text-sm font-bold gradient-navy text-white hover:opacity-90' : 'h-10 w-full rounded-xl border-border bg-card text-sm text-foreground hover:bg-muted/60'}
               disabled={submitting || !selectedStoreId || items.length === 0}
               onClick={() => handleSubmit('quote')}
             >
@@ -605,69 +582,78 @@ export function RepresentativeOrderBuilder({
           </div>
         </div>
       </div>
+    </div>
+  )
+
+  return (
+    <>
+      {mobileContent}
+      {desktopContent}
 
       {/* Product configurator dialog */}
       <Dialog open={Boolean(dialogProductId)} onOpenChange={(open) => !open && setDialogProductId(null)}>
-        <DialogContent className="rounded-2xl border border-slate-200 bg-white sm:max-w-2xl">
-          <DialogHeader><DialogTitle className="text-sm">Configurar item</DialogTitle></DialogHeader>
+        <DialogContent className="rounded-2xl border-border bg-card sm:max-w-2xl">
+          <DialogHeader><DialogTitle className="text-sm font-heading">Configurar item</DialogTitle></DialogHeader>
           {configLoading || !configData ? (
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-5 text-xs text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Carregando...</div>
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-5 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Carregando...</div>
           ) : (
             <div className="grid gap-4 md:grid-cols-[180px_minmax(0,1fr)]">
-              <div className="relative h-40 overflow-hidden rounded-xl bg-slate-100">
-                {configData.product.images?.find((image) => image.is_primary)?.url ? <Image src={configData.product.images.find((image) => image.is_primary)?.url || ''} alt={configData.product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400"><Package className="h-7 w-7" /></div>}
-              </div>
+              <div className="relative h-40 overflow-hidden rounded-xl bg-muted/40">{configData.product.images?.find((i) => i.is_primary)?.url ? <Image src={configData.product.images.find((i) => i.is_primary)?.url || ''} alt={configData.product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-7 w-7" /></div>}</div>
               <div className="space-y-3">
-                <p className="text-sm font-semibold text-slate-950">{configData.product.name}</p>
-
-                {(configData.product.size_options || []).filter((option) => option.is_active).length > 0 && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Tamanho</Label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(configData.product.size_options || []).filter((option) => option.is_active).map((option) => (
-                        <button key={option.id} type="button" onClick={() => setSelectedSizeOptionId(option.id)} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedSizeOptionId === option.id ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700')}>{option.name}</button>
-                      ))}
-                    </div>
-                  </div>
+                <p className="text-sm font-semibold font-heading text-foreground">{configData.product.name}</p>
+                {(configData.product.size_options || []).filter((o) => o.is_active).length > 0 && (
+                  <div className="space-y-1.5"><Label className="text-xs">Tamanho</Label><div className="flex flex-wrap gap-1.5">{(configData.product.size_options || []).filter((o) => o.is_active).map((o) => (<button key={o.id} type="button" onClick={() => setSelectedSizeOptionId(o.id)} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedSizeOptionId === o.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}>{o.name}</button>))}</div></div>
                 )}
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Tecido</Label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {configData.fabrics.map((fabric) => (
-                      <button key={fabric.id} type="button" onClick={() => { setSelectedFabricId(fabric.id); setSelectedColorId(fabric.colors[0]?.id || '') }} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedFabricId === fabric.id ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700')}>{fabric.name}</button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Cor</Label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(configData.fabrics.find((fabric) => fabric.id === selectedFabricId)?.colors || []).map((color) => (
-                      <button key={color.id} type="button" onClick={() => setSelectedColorId(color.id)} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedColorId === color.id ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-700')}>{color.name}</button>
-                    ))}
-                  </div>
-                </div>
-
+                <div className="space-y-1.5"><Label className="text-xs">Tecido</Label><div className="flex flex-wrap gap-1.5">{configData.fabrics.map((f) => (<button key={f.id} type="button" onClick={() => { setSelectedFabricId(f.id); setSelectedColorId(f.colors[0]?.id || '') }} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedFabricId === f.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}>{f.name}</button>))}</div></div>
+                <div className="space-y-1.5"><Label className="text-xs">Cor</Label><div className="flex flex-wrap gap-1.5">{(configData.fabrics.find((f) => f.id === selectedFabricId)?.colors || []).map((c) => (<button key={c.id} type="button" onClick={() => setSelectedColorId(c.id)} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedColorId === c.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}>{c.name}</button>))}</div></div>
                 <div className="flex items-end gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Qtd.</Label>
-                    <Input type="number" min={1} value={dialogQuantity} onChange={(event) => setDialogQuantity(Math.max(1, Number(event.target.value || 1)))} className="h-9 w-20 rounded-xl border-slate-200 text-sm" />
-                  </div>
-                  <div className="rounded-xl bg-slate-50 px-3 py-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Unitário</p>
-                    <p className="text-lg font-bold text-slate-950">{formatCurrency(previewPrice)}</p>
-                  </div>
+                  <div className="space-y-1.5"><Label className="text-xs">Qtd.</Label><Input type="number" min={1} value={dialogQuantity} onChange={(e) => setDialogQuantity(Math.max(1, Number(e.target.value || 1)))} className="h-9 w-20 rounded-xl border-border text-sm" /></div>
+                  <div className="rounded-xl bg-muted/40 px-3 py-2"><p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Unitário</p><p className="text-lg font-bold font-heading text-foreground">{formatCurrency(previewPrice)}</p></div>
                 </div>
-
-                <Button size="sm" className="h-9 rounded-xl border-0 bg-slate-950 text-xs text-white hover:bg-slate-800" onClick={addConfiguredItem}>
-                  <Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar item
-                </Button>
+                <Button size="sm" className="h-9 rounded-xl border-0 text-xs font-semibold gradient-bronze text-white hover:opacity-90" onClick={addConfiguredItem}><Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar item</Button>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+    </>
+  )
+}
+
+/* ─── Shared items list ─── */
+function ItemsList({ items, setItems, pricingPending }: { items: DraftItem[]; setItems: React.Dispatch<React.SetStateAction<DraftItem[]>>; pricingPending: boolean }) {
+  function formatCurrency(value: number) {
+    return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-xs font-semibold text-foreground">Itens ({items.length})</h3>
+        {pricingPending && <span className="text-[10px] text-muted-foreground">Revalidando...</span>}
+      </div>
+      {items.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border/50 bg-muted/30 px-4 py-6 text-center text-xs text-muted-foreground">Nenhum item adicionado.</div>
+      ) : (
+        <div className="divide-y divide-border/30 rounded-xl border border-border/40">
+          {items.map((item) => (
+            <div key={item.cartKey} className="flex items-center gap-3 px-3 py-2.5">
+              <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted/40">{item.imageUrl ? <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-4 w-4" /></div>}</div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold text-foreground">{item.productName}</p>
+                <p className="text-[10px] text-muted-foreground">{item.fabricName} / {item.colorName}{item.sizeName ? ` / ${item.sizeName}` : ''}</p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button type="button" variant="outline" size="icon" className="h-7 w-7 rounded-lg border-border" onClick={() => setItems((cur) => cur.map((i) => i.cartKey === item.cartKey ? { ...i, quantity: Math.max(1, i.quantity - 1) } : i))}><Minus className="h-3.5 w-3.5" /></Button>
+                <span className="min-w-[24px] text-center text-xs font-semibold">{item.quantity}</span>
+                <Button type="button" variant="outline" size="icon" className="h-7 w-7 rounded-lg border-border" onClick={() => setItems((cur) => cur.map((i) => i.cartKey === item.cartKey ? { ...i, quantity: i.quantity + 1 } : i))}><Plus className="h-3.5 w-3.5" /></Button>
+              </div>
+              <div className="w-[90px] text-right"><p className="text-xs font-semibold text-foreground">{formatCurrency(item.unitPrice * item.quantity)}</p><p className="text-[10px] text-muted-foreground">{formatCurrency(item.unitPrice)} un.</p></div>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => setItems((cur) => cur.filter((i) => i.cartKey !== item.cartKey))}><Trash2 className="h-3.5 w-3.5" /></Button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

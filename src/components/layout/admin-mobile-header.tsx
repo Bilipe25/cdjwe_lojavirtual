@@ -22,6 +22,8 @@ import {
     Image as ImageIcon,
     History,
     BriefcaseBusiness,
+    ChevronDown,
+    FolderClosed,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -33,17 +35,16 @@ import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { setViewAsCustomerAction, setViewAsRepresentativeAction } from '@/app/admin/actions/view-as-customer'
 
-const adminNavItems = [
+const topNavItems = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+]
+
+const cadastrosNavItems = [
     { href: '/admin/categories', label: 'Categorias', icon: Layers },
     { href: '/admin/products', label: 'Produtos', icon: Package },
     { href: '/admin/fabrics', label: 'Tecidos & Cores', icon: Palette },
-    { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
-    { href: '/admin/customers', label: 'Clientes', icon: Users },
     { href: '/admin/price-tables', label: 'Tabelas de Preço', icon: Tag },
     { href: '/admin/payment-conditions', label: 'Meios de Pagamento', icon: CreditCard },
-    { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
-    { href: '/admin/settings', label: 'Configurações', icon: Settings },
 ]
 
 const marketingNavItems = [
@@ -54,11 +55,25 @@ const marketingNavItems = [
     { href: '/admin/marketing/history', label: 'Histórico', icon: History },
 ]
 
+const bottomNavItems = [
+    { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
+    { href: '/admin/customers', label: 'Clientes', icon: Users },
+    { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
+    { href: '/admin/settings', label: 'Configurações', icon: Settings },
+]
+
 export function AdminMobileHeader() {
     const pathname = usePathname()
     const router = useRouter()
     const [open, setOpen] = useState(false)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
+    const [cadastrosOpen, setCadastrosOpen] = useState(false)
+    const [marketingOpen, setMarketingOpen] = useState(false)
+
+    const isCadastroActive = cadastrosNavItems.some(item => pathname.startsWith(item.href))
+    const isMarketingActive = marketingNavItems.some(item => pathname.startsWith(item.href))
+    const effectiveCadastrosOpen = cadastrosOpen || isCadastroActive
+    const effectiveMarketingOpen = marketingOpen || isMarketingActive
 
     useEffect(() => {
         const loadSettings = async () => {
@@ -86,18 +101,20 @@ export function AdminMobileHeader() {
     }
 
     // Find active page title
-    const activeItem = [...adminNavItems, ...marketingNavItems].find(item => pathname.startsWith(item.href))
+    const activeItem = [...topNavItems, ...cadastrosNavItems, ...marketingNavItems, ...bottomNavItems].find(item => pathname.startsWith(item.href))
 
     return (
         <header className="md:hidden sticky top-0 z-50 glass border-b px-4 h-14 flex items-center justify-between">
             <Sheet open={open} onOpenChange={setOpen}>
-                <SheetTrigger render={<Button variant="ghost" size="icon" />}>
-                    <Menu className="h-5 w-5" />
+                <SheetTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                        <Menu className="h-5 w-5" />
+                    </Button>
                 </SheetTrigger>
                 <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground">
                     <div className="flex flex-col h-full">
                         {/* Logo */}
-                        <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border">
+                        <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border shrink-0">
                             {settings?.logo_url ? (
                                 <div className="h-10 w-24 shrink-0 relative">
                                     <Image priority src={settings.logo_url} alt={settings.system_name || 'Admin'} fill className="object-contain object-left" />
@@ -119,7 +136,8 @@ export function AdminMobileHeader() {
 
                         {/* Nav */}
                         <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
-                            {adminNavItems.map((item) => {
+                            {/* Top Items */}
+                            {topNavItems.map((item) => {
                                 const isActive = pathname.startsWith(item.href)
                                 return (
                                     <Link key={item.href} href={item.href} onClick={() => setOpen(false)}>
@@ -130,19 +148,106 @@ export function AdminMobileHeader() {
                                                 isActive && 'bg-sidebar-accent text-sidebar-primary font-medium'
                                             )}
                                         >
-                                            <item.icon className="h-5 w-5" />
+                                            <item.icon className="h-5 w-5 shrink-0" />
                                             {item.label}
                                         </Button>
                                     </Link>
                                 )
                             })}
 
-                            {/* Marketing Section */}
-                            <div className="pt-3 mt-3 border-t border-sidebar-border">
-                                <div className="px-3 pb-2">
-                                    <span className="text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider">Marketing</span>
+                            {/* Cadastros Group */}
+                            <div className="pt-1">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setCadastrosOpen(!cadastrosOpen)}
+                                    className={cn(
+                                        'w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                        isCadastroActive && !cadastrosOpen && 'text-sidebar-foreground font-medium'
+                                    )}
+                                >
+                                    <FolderClosed className="h-5 w-5 shrink-0" />
+                                    <span className="flex-1 text-left truncate">Cadastros</span>
+                                    <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", effectiveCadastrosOpen && "rotate-180")} />
+                                </Button>
+                                <div className={cn(
+                                    "grid transition-all duration-200 ease-in-out",
+                                    effectiveCadastrosOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                                )}>
+                                    <div className="overflow-hidden">
+                                        <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
+                                            {cadastrosNavItems.map((item) => {
+                                                const isActive = pathname.startsWith(item.href)
+                                                return (
+                                                    <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className="block relative">
+                                                        {isActive && (
+                                                            <div className="absolute -left-[17px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                        )}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className={cn(
+                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                            )}
+                                                        >
+                                                            <span className="truncate">{item.label}</span>
+                                                        </Button>
+                                                    </Link>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
                                 </div>
-                                {marketingNavItems.map((item) => {
+                            </div>
+
+                            {/* Marketing Group */}
+                            <div className="pt-1">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setMarketingOpen(!marketingOpen)}
+                                    className={cn(
+                                        'w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                        isMarketingActive && !marketingOpen && 'text-sidebar-foreground font-medium'
+                                    )}
+                                >
+                                    <Megaphone className="h-5 w-5 shrink-0" />
+                                    <span className="flex-1 text-left truncate">Marketing</span>
+                                    <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", effectiveMarketingOpen && "rotate-180")} />
+                                </Button>
+                                <div className={cn(
+                                    "grid transition-all duration-200 ease-in-out",
+                                    effectiveMarketingOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                                )}>
+                                    <div className="overflow-hidden">
+                                        <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
+                                            {marketingNavItems.map((item) => {
+                                                const isActive = pathname.startsWith(item.href)
+                                                return (
+                                                    <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className="block relative">
+                                                        {isActive && (
+                                                            <div className="absolute -left-[17px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                        )}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className={cn(
+                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                            )}
+                                                        >
+                                                            <span className="truncate">{item.label}</span>
+                                                        </Button>
+                                                    </Link>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Bottom Items */}
+                            <div className="pt-1">
+                                {bottomNavItems.map((item) => {
                                     const isActive = pathname.startsWith(item.href)
                                     return (
                                         <Link key={item.href} href={item.href} onClick={() => setOpen(false)}>
@@ -153,7 +258,7 @@ export function AdminMobileHeader() {
                                                     isActive && 'bg-sidebar-accent text-sidebar-primary font-medium'
                                                 )}
                                             >
-                                                <item.icon className="h-5 w-5" />
+                                                <item.icon className="h-5 w-5 shrink-0" />
                                                 {item.label}
                                             </Button>
                                         </Link>
@@ -163,13 +268,13 @@ export function AdminMobileHeader() {
                         </nav>
 
                         {/* Bottom Actions */}
-                        <div className="border-t border-sidebar-border p-2 space-y-1">
+                        <div className="border-t border-sidebar-border p-2 space-y-1 shrink-0">
                             <Button
                                 variant="ghost"
                                 className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-foreground hover:bg-sidebar-accent"
                                 onClick={handleViewAsCustomer}
                             >
-                                <Store className="h-5 w-5" />
+                                <Store className="h-5 w-5 shrink-0" />
                                 <span>Ver como Cliente</span>
                             </Button>
                             <Button
@@ -177,7 +282,7 @@ export function AdminMobileHeader() {
                                 className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-foreground hover:bg-sidebar-accent"
                                 onClick={handleViewAsRepresentative}
                             >
-                                <BriefcaseBusiness className="h-5 w-5" />
+                                <BriefcaseBusiness className="h-5 w-5 shrink-0" />
                                 <span>Modo Representante</span>
                             </Button>
                             <Button
@@ -185,7 +290,7 @@ export function AdminMobileHeader() {
                                 className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-destructive"
                                 onClick={handleLogout}
                             >
-                                <LogOut className="h-5 w-5" />
+                                <LogOut className="h-5 w-5 shrink-0" />
                                 <span>Sair</span>
                             </Button>
                         </div>
@@ -202,7 +307,7 @@ export function AdminMobileHeader() {
                     <Image priority src={settings.logo_url} alt={settings.system_name || 'Admin'} fill className="object-contain" />
                 </div>
             ) : (
-                <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center">
+                <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center shrink-0">
                     <span className="text-white font-bold text-xs">
                         {settings?.system_name ? settings.system_name.substring(0, 2).toUpperCase() : 'CJ'}
                     </span>

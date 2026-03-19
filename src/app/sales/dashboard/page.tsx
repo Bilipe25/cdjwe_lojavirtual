@@ -1,5 +1,10 @@
+'use client'
+
 import Link from 'next/link'
+import { motion } from 'framer-motion'
 import {
+  BarChart3,
+  ClipboardCheck,
   FileText,
   MapPinned,
   ShoppingBag,
@@ -33,66 +38,66 @@ function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
 
+const dashboardActions = [
+  { label: 'Venda', href: '/sales/orders/new', icon: ShoppingBag, color: 'bg-primary/5 hover:bg-primary/10', iconColor: 'text-primary' },
+  { label: 'Orçamento', href: '/sales/quotes/new', icon: FileText, color: 'bg-bronze/10 hover:bg-bronze/20', iconColor: 'text-bronze' },
+  { label: 'Visita', href: '/sales/visits', icon: MapPinned, color: 'bg-primary/5 hover:bg-primary/10', iconColor: 'text-primary' },
+  { label: 'Clientes', href: '/sales/customers', icon: Users, color: 'bg-primary/5 hover:bg-primary/10', iconColor: 'text-primary' },
+  { label: 'Pedidos', href: '/sales/orders', icon: ClipboardCheck, color: 'bg-bronze/10 hover:bg-bronze/20', iconColor: 'text-bronze' },
+  { label: 'Orçamentos', href: '/sales/quotes', icon: BarChart3, color: 'bg-primary/5 hover:bg-primary/10', iconColor: 'text-primary' },
+]
+
+const container = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.06 },
+  },
+}
+
+const item = {
+  hidden: { opacity: 0, y: 20, scale: 0.95 },
+  show: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring' as const, stiffness: 300, damping: 24 } },
+}
+
 export default async function SalesDashboardPage() {
   const data = await getRepresentativeDashboardData()
-
-  const quickActions = [
-    { label: 'Novo pedido', href: '/sales/orders/new', icon: ShoppingBag },
-    { label: 'Novo orçamento', href: '/sales/quotes/new', icon: FileText },
-    { label: 'Clientes', href: '/sales/customers', icon: Users },
-    { label: 'Visitas', href: '/sales/visits', icon: MapPinned },
-  ]
-
   const recentOrders = data.recentOrders as RecentRepresentativeOrder[]
   const recentQuotes = data.recentQuotes as RecentRepresentativeQuote[]
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* KPI strip */}
       <SalesKpiStrip
         items={[
           { label: 'Clientes', value: data.metrics.customers },
           { label: 'Pedidos', value: data.metrics.orders },
-          { label: 'Orçamentos', value: data.metrics.quotes },
+          { label: 'Orçam.', value: data.metrics.quotes },
           { label: 'Visitas', value: data.metrics.visits },
         ]}
       />
 
-      {/* Quick actions — compact button grid */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {quickActions.map((action) => {
-          const Icon = action.icon
-          return (
-            <Link
-              key={action.href}
-              href={action.href}
-              className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              <Icon className="h-4 w-4 shrink-0 text-slate-500" />
-              {action.label}
-            </Link>
-          )
-        })}
-      </div>
+      {/* Quick Access Grid — native app style */}
+      <DashboardGrid />
 
-      {/* Recent orders + quotes — side by side */}
+      {/* Recent orders + quotes */}
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Recent orders */}
-        <div className="rounded-2xl border border-slate-200 bg-white">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <h2 className="text-sm font-semibold text-slate-950">Pedidos recentes</h2>
-            <Link href="/sales/orders" className="text-xs font-medium text-slate-500 hover:text-slate-950">
+        <div className="rounded-2xl border border-border/40 bg-card">
+          <div className="flex items-center justify-between border-b border-border/30 px-4 py-3">
+            <h2 className="text-sm font-semibold font-heading text-foreground">Pedidos recentes</h2>
+            <Link href="/sales/orders" className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
               Ver todos
             </Link>
           </div>
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-border/30">
             {recentOrders.length === 0 ? (
               <div className="p-4">
                 <SalesEmptyState
                   title="Nenhum pedido criado"
-                  description="Os pedidos gerados pelo representante aparecem aqui."
+                  description="Os pedidos gerados aparecem aqui."
                   action={
-                    <Button asChild size="sm" className="h-8 rounded-xl border-0 bg-slate-950 text-xs text-white hover:bg-slate-800">
+                    <Button asChild size="sm" className="h-8 rounded-xl border-0 text-xs font-semibold gradient-bronze text-white hover:opacity-90">
                       <Link href="/sales/orders/new">Criar pedido</Link>
                     </Button>
                   }
@@ -103,15 +108,15 @@ export default async function SalesDashboardPage() {
                 <Link
                   key={order.id}
                   href={`/sales/orders/${order.id}`}
-                  className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50"
+                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/40"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-950">{order.order_number}</p>
-                    <p className="truncate text-xs text-slate-500">{order.store?.company_name}</p>
+                    <p className="text-sm font-semibold text-foreground">{order.order_number}</p>
+                    <p className="truncate text-xs text-muted-foreground">{order.store?.company_name}</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-slate-950">{formatCurrency(order.total)}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-slate-400">{order.status}</p>
+                    <p className="text-sm font-semibold font-heading text-foreground">{formatCurrency(order.total)}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{order.status}</p>
                   </div>
                 </Link>
               ))
@@ -120,21 +125,21 @@ export default async function SalesDashboardPage() {
         </div>
 
         {/* Recent quotes */}
-        <div className="rounded-2xl border border-slate-200 bg-white">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <h2 className="text-sm font-semibold text-slate-950">Orçamentos recentes</h2>
-            <Link href="/sales/quotes" className="text-xs font-medium text-slate-500 hover:text-slate-950">
+        <div className="rounded-2xl border border-border/40 bg-card">
+          <div className="flex items-center justify-between border-b border-border/30 px-4 py-3">
+            <h2 className="text-sm font-semibold font-heading text-foreground">Orçamentos recentes</h2>
+            <Link href="/sales/quotes" className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
               Ver todos
             </Link>
           </div>
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-border/30">
             {recentQuotes.length === 0 ? (
               <div className="p-4">
                 <SalesEmptyState
                   title="Nenhum orçamento salvo"
-                  description="Use o fluxo de orçamento para registrar propostas de campo."
+                  description="Registre propostas de campo aqui."
                   action={
-                    <Button asChild variant="outline" size="sm" className="h-8 rounded-xl border-slate-200 bg-white text-xs">
+                    <Button asChild variant="outline" size="sm" className="h-8 rounded-xl border-border text-xs">
                       <Link href="/sales/quotes/new">Criar orçamento</Link>
                     </Button>
                   }
@@ -145,15 +150,15 @@ export default async function SalesDashboardPage() {
                 <Link
                   key={quote.id}
                   href={`/sales/quotes/${quote.id}`}
-                  className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50"
+                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/40"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-950">{quote.quote_number}</p>
-                    <p className="truncate text-xs text-slate-500">{quote.store?.company_name}</p>
+                    <p className="text-sm font-semibold text-foreground">{quote.quote_number}</p>
+                    <p className="truncate text-xs text-muted-foreground">{quote.store?.company_name}</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-slate-950">{formatCurrency(quote.total)}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-slate-400">{quote.status}</p>
+                    <p className="text-sm font-semibold font-heading text-foreground">{formatCurrency(quote.total)}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{quote.status}</p>
                   </div>
                 </Link>
               ))
@@ -162,5 +167,30 @@ export default async function SalesDashboardPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+function DashboardGrid() {
+  return (
+    <motion.div
+      variants={container}
+      initial="hidden"
+      animate="show"
+      className="grid grid-cols-3 gap-3 sm:grid-cols-3 lg:grid-cols-6"
+    >
+      {dashboardActions.map((action) => (
+        <motion.div key={action.href} variants={item}>
+          <Link href={action.href}>
+            <motion.div
+              whileTap={{ scale: 0.95 }}
+              className={`relative flex flex-col items-center justify-center gap-2.5 p-4 rounded-2xl border border-border/40 transition-all duration-200 ${action.color} min-h-[100px] shadow-sm`}
+            >
+              <action.icon className={`h-7 w-7 ${action.iconColor}`} />
+              <span className="text-xs font-semibold text-foreground text-center leading-tight">{action.label}</span>
+            </motion.div>
+          </Link>
+        </motion.div>
+      ))}
+    </motion.div>
   )
 }
