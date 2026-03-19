@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { ChevronRight, FileText, Loader2, Minus, Package, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react'
+import { ChevronRight, FileText, Loader2, Minus, Package, Plus, Search, ShoppingBag, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 import type {
   Category,
@@ -191,7 +192,10 @@ export function RepresentativeOrderBuilder({
   const [surchargeValue, setSurchargeValue] = useState('')
   const [negotiationReason, setNegotiationReason] = useState('')
   const [items, setItems] = useState<DraftItem[]>([])
-  const [search, setSearch] = useState('')
+  const [productSearch, setProductSearch] = useState('')
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [isCustomerSheetOpen, setIsCustomerSheetOpen] = useState(false)
+  const [isProductSheetOpen, setIsProductSheetOpen] = useState(false)
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
   const [paymentGroups, setPaymentGroups] = useState<PaymentMethodGroup[]>([])
   const [pricingPending, setPricingPending] = useState(false)
@@ -209,12 +213,19 @@ export function RepresentativeOrderBuilder({
 
   const selectedStore = useMemo(() => customers.find((c) => c.id === selectedStoreId) || null, [customers, selectedStoreId])
   const availablePriceTables = useMemo(() => selectedStore?.assigned_price_tables?.length ? selectedStore.assigned_price_tables : priceTables, [priceTables, selectedStore])
+  
+  const filteredCustomers = useMemo(() => customers.filter((c) => {
+    const term = customerSearch.trim().toLowerCase()
+    if (!term) return true
+    return c.company_name.toLowerCase().includes(term) || (c.customer_code && c.customer_code.toLowerCase().includes(term))
+  }), [customers, customerSearch])
+
   const filteredProducts = useMemo(() => products.filter((p) => {
-    const term = search.trim().toLowerCase()
+    const term = productSearch.trim().toLowerCase()
     const matchesSearch = !term || p.name.toLowerCase().includes(term) || p.category?.name?.toLowerCase().includes(term)
     const matchesCategory = selectedCategoryId === 'all' || p.category_id === selectedCategoryId
     return matchesSearch && matchesCategory
-  }), [products, search, selectedCategoryId])
+  }), [products, productSearch, selectedCategoryId])
   const pricingSignature = useMemo(() => JSON.stringify(items.map((i) => [i.variantId, i.sizeOptionId, i.quantity])), [items])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const draftItems = useMemo(() => items, [pricingSignature])
@@ -317,63 +328,20 @@ export function RepresentativeOrderBuilder({
     <div className="flex flex-col min-h-[calc(100dvh-140px)] xl:hidden">
       <div className="flex-1 divide-y divide-border/30 rounded-2xl border border-border/40 bg-card">
         {/* Customer */}
-        <SectionRow
-          label="Cliente"
-          value={selectedStore?.company_name || 'Selecione'}
-          onClick={() => setOpenSection(openSection === 'customer' ? null : 'customer')}
-        />
-        {openSection === 'customer' && (
-          <div className="space-y-3 bg-muted/20 px-4 py-4">
-            <Select value={selectedStoreId} onValueChange={(v) => handleStoreChange(v || '')}>
-              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
-                <SelectValue placeholder="Selecione um cliente">
-                  {selectedStore?.company_name}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>{customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.company_name}</SelectItem>)}</SelectContent>
-            </Select>
-            <Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}>
-              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
-                <SelectValue placeholder="Tabela">
-                  {availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}>
-              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
-                <SelectValue placeholder="Endereço">
-                  {selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent>
-            </Select>
+        <SectionRow label="Cliente Selecionado" value={selectedStore?.company_name || 'Tocar para selecionar...'} highlight={!selectedStoreId} onClick={() => setIsCustomerSheetOpen(true)} />
+        {selectedStoreId && (
+          <div className="space-y-3 bg-muted/10 px-4 py-3 border-b border-border/30">
+            <Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}><SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm"><SelectValue placeholder="Tabela">{availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}</SelectValue></SelectTrigger><SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select>
+            <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm"><SelectValue placeholder="Endereço">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select>
           </div>
         )}
 
         {/* Products */}
-        <SectionRow
-          label="Produtos"
-          value={items.length ? `${items.length} item(ns)` : 'Nenhum produto escolhido'}
-          onClick={() => setOpenSection(openSection === 'products' ? null : 'products')}
-        />
-        {openSection === 'products' && (
-          <div className="space-y-3 bg-muted/20 px-4 py-4">
-            <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar produto" className="h-9 rounded-xl border-border pl-10 text-sm" /></div>
-            <div className="grid grid-cols-2 gap-2">
-              {filteredProducts.slice(0, 12).map((product) => (
-                <button key={product.id} type="button" onClick={() => { if (!selectedStoreId) { toast.error('Selecione um cliente antes.'); return } setDialogProductId(product.id) }} className="overflow-hidden rounded-xl border border-border/40 bg-card text-left transition hover:shadow-sm">
-                  <div className="relative h-24 bg-muted/40">{getPrimaryImage(product) ? <Image src={getPrimaryImage(product) || ''} alt={product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-5 w-5" /></div>}</div>
-                  <div className="p-2"><p className="line-clamp-1 text-[11px] font-semibold text-foreground">{product.name}</p></div>
-                </button>
-              ))}
-            </div>
-            {items.length > 0 && (
-              <>
-                <Separator />
-                <ItemsList items={items} setItems={setItems} pricingPending={pricingPending} />
-              </>
-            )}
+        <SectionRow label="Itens do Carrinho" value={items.length ? `${items.length} item(ns)` : 'Vazio'} highlight={items.length === 0 && selectedStoreId ? true : false} onClick={() => setIsProductSheetOpen(true)} />
+        {items.length > 0 && (
+          <div className="bg-muted/10 px-4 py-4 border-b border-border/30">
+            <ItemsList items={items} setItems={setItems} pricingPending={pricingPending} />
+            <Button onClick={() => setIsProductSheetOpen(true)} variant="outline" className="w-full mt-3 h-10 border-dashed border-border text-primary hover:bg-primary/5 rounded-xl"><Plus className="mr-2 h-4 w-4" /> Buscar mais produtos</Button>
           </div>
         )}
 
@@ -464,56 +432,28 @@ export function RepresentativeOrderBuilder({
       <div className="space-y-5">
         {/* Customer & context */}
         <section className="rounded-2xl border border-border/40 bg-card">
-          <div className="border-b border-border/30 px-4 py-3"><h2 className="text-sm font-semibold font-heading text-foreground">1. Cliente e contexto</h2></div>
-          <div className="grid gap-3 p-4 md:grid-cols-2">
-            <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">Cliente</Label><Select value={selectedStoreId} onValueChange={(v) => handleStoreChange(v || '')}>
-              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
-                <SelectValue placeholder="Selecione um cliente">
-                  {selectedStore?.company_name}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>{customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.company_name}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-1.5"><Label className="text-xs">Tabela de preço</Label><Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}>
-              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
-                <SelectValue placeholder="Tabela">
-                  {availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-1.5"><Label className="text-xs">Entrega</Label><Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}>
-              <SelectTrigger className="h-9 rounded-xl border-border text-sm">
-                <SelectValue placeholder="Endereço">
-                  {selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select></div>
+          <div className="border-b border-border/30 px-4 py-3 flex items-center justify-between"><h2 className="text-sm font-semibold font-heading text-foreground">1. Cliente e contexto</h2>{selectedStoreId && <Button variant="ghost" size="sm" onClick={() => setIsCustomerSheetOpen(true)} className="h-7 text-xs text-primary px-2">Trocar cliente</Button>}</div>
+          <div className="p-4">
+            {!selectedStoreId ? (
+               <div className="rounded-xl p-6 text-center border bg-muted/20">
+                  <Users className="h-8 w-8 mx-auto text-muted-foreground/50 mb-3" />
+                  <p className="text-sm text-muted-foreground mb-4">Nenhum cliente selecionado</p>
+                  <Button onClick={() => setIsCustomerSheetOpen(true)} className="gradient-bronze text-white font-semibold rounded-xl h-10 px-6 shadow-md transition hover:opacity-90">Selecionar Cliente</Button>
+               </div>
+            ) : (
+               <div className="grid gap-4 md:grid-cols-2">
+                 <div className="space-y-1.5 md:col-span-2"><Label className="text-xs text-muted-foreground">Cliente Vínculado</Label><div className="h-10 px-3 border border-border bg-muted/30 rounded-xl flex items-center cursor-pointer hover:bg-muted/50 transition"><span className="font-semibold text-foreground text-sm">{selectedStore?.company_name}</span></div></div>
+                 <div className="space-y-1.5"><Label className="text-xs">Tabela de preço</Label><Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Tabela">{availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}</SelectValue></SelectTrigger><SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
+                 <div className="space-y-1.5"><Label className="text-xs">Entrega</Label><Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Endereço">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select></div>
+               </div>
+            )}
           </div>
         </section>
 
         {/* Products */}
-        <section className="rounded-2xl border border-border/40 bg-card">
-          <div className="border-b border-border/30 px-4 py-3"><h2 className="text-sm font-semibold font-heading text-foreground">2. Produtos</h2></div>
-          <div className="space-y-4 p-4">
-            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_200px]">
-              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar produto" className="h-9 rounded-xl border-border pl-10 text-sm" /></div>
-              <Select value={selectedCategoryId} onValueChange={(v) => setSelectedCategoryId(v || 'all')}>
-                <SelectTrigger className="h-9 rounded-xl border-border text-sm">
-                  <SelectValue placeholder="Categoria">
-                    {selectedCategoryId === 'all' ? 'Todas' : categories.find(c => c.id === selectedCategoryId)?.name}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent><SelectItem value="all">Todas</SelectItem>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredProducts.slice(0, 18).map((product) => (
-                <button key={product.id} type="button" onClick={() => { if (!selectedStoreId) { toast.error('Selecione um cliente antes.'); return } setDialogProductId(product.id) }} className="overflow-hidden rounded-xl border border-border/40 bg-card text-left transition hover:border-border hover:shadow-sm">
-                  <div className="relative h-28 bg-muted/40">{getPrimaryImage(product) ? <Image src={getPrimaryImage(product) || ''} alt={product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-6 w-6" /></div>}</div>
-                  <div className="p-3"><p className="line-clamp-1 text-xs font-semibold text-foreground">{product.name}</p>{product.category?.name && <Badge variant="outline" className="mt-1 rounded-md border-border bg-muted text-[10px] text-muted-foreground">{product.category.name}</Badge>}</div>
-                </button>
-              ))}
-            </div>
-            <Separator />
+        <section className={cn("rounded-2xl border bg-card transition-all duration-300", !selectedStoreId ? "opacity-50 pointer-events-none border-border/40" : "border-border/40 shadow-sm")}>
+          <div className="border-b border-border/30 px-4 py-3 flex items-center justify-between"><h2 className="text-sm font-semibold font-heading text-foreground">2. Produtos do Pedido</h2><Button size="sm" onClick={() => setIsProductSheetOpen(true)} className="h-8 rounded-lg gradient-navy font-semibold px-4 text-white hover:opacity-90 shadow-sm"><Plus className="mr-1.5 h-3.5 w-3.5" /> Buscar Produtos</Button></div>
+          <div className="p-4">
             <ItemsList items={items} setItems={setItems} pricingPending={pricingPending} />
           </div>
         </section>
@@ -589,6 +529,49 @@ export function RepresentativeOrderBuilder({
     <>
       {mobileContent}
       {desktopContent}
+
+      {/* Modals de Seleção UX Native */}
+      <Sheet open={isCustomerSheetOpen} onOpenChange={setIsCustomerSheetOpen}>
+        <SheetContent side="bottom" className="h-[90dvh] rounded-t-3xl border-border bg-card p-0 flex flex-col sm:max-w-md sm:mx-auto sm:right-auto sm:left-1/2 sm:-translate-x-1/2">
+          <div className="border-b border-border/40 px-6 py-4">
+            <SheetHeader className="text-left mb-3"><SheetTitle className="font-heading text-lg">Selecionar Cliente</SheetTitle></SheetHeader>
+            <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input autoFocus value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Buscar por nome corporativo..." className="h-10 rounded-xl border-border pl-10 bg-muted/20" /></div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {filteredCustomers.length === 0 ? <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">Nenhum cliente encontrado.</div> : filteredCustomers.map(c => (
+              <button key={c.id} onClick={() => { handleStoreChange(c.id); setIsCustomerSheetOpen(false) }} className="w-full text-left p-3 rounded-xl border border-border/40 bg-card hover:bg-muted/40 transition flex items-center justify-between">
+                <div><p className="font-semibold text-sm">{c.company_name}</p></div>
+                {selectedStoreId === c.id && <span className="bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-md text-[10px] font-bold">Selecionado</span>}
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={isProductSheetOpen} onOpenChange={setIsProductSheetOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md border-l border-border bg-card p-0 flex flex-col">
+          <div className="border-b border-border/40 px-4 py-4 glass z-20">
+            <SheetHeader className="text-left mb-3"><SheetTitle className="font-heading text-lg">Catálogo de Produtos</SheetTitle></SheetHeader>
+            <div className="flex gap-2">
+              <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Buscar produto..." className="h-9 rounded-xl border-border pl-10 bg-muted/20 text-sm" /></div>
+              <Select value={selectedCategoryId} onValueChange={(v) => setSelectedCategoryId(v || 'all')}><SelectTrigger className="w-[120px] h-9 rounded-xl border-border text-xs"><SelectValue placeholder="Categoria">{selectedCategoryId === 'all' ? 'Todas' : categories.find(c => c.id === selectedCategoryId)?.name}</SelectValue></SelectTrigger><SelectContent><SelectItem value="all">Todas</SelectItem>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 bg-muted/10">
+            <div className="grid grid-cols-2 gap-3">
+              {filteredProducts.slice(0, 30).map((product) => (
+                <button key={product.id} type="button" onClick={() => { setDialogProductId(product.id) }} className="overflow-hidden rounded-xl border border-border/50 bg-card text-left transition hover:border-primary/50 hover:shadow-md group flex flex-col h-full">
+                  <div className="relative h-28 w-full bg-muted/40 shrink-0">{getPrimaryImage(product) ? <Image src={getPrimaryImage(product) || ''} alt={product.name} fill className="object-cover transition-transform group-hover:scale-105" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-6 w-6" /></div>}</div>
+                  <div className="p-3 flex-1 flex flex-col justify-start">
+                    <p className="line-clamp-2 text-xs font-semibold text-foreground leading-tight">{product.name}</p>
+                    {product.category?.name && <span className="mt-1.5 inline-flex w-fit rounded-md bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">{product.category.name}</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Product configurator dialog */}
       <Dialog open={Boolean(dialogProductId)} onOpenChange={(open) => !open && setDialogProductId(null)}>

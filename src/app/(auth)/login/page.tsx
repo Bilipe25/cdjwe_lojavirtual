@@ -22,25 +22,24 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
-    const [lastLogin] = useState<{ companyName: string; identifier: string } | null>(() => {
-        if (typeof window === 'undefined') return null
-
-        const savedLogin = window.localStorage.getItem('last_b2b_login')
-        if (!savedLogin) return null
-
-        try {
-            const parsed = JSON.parse(savedLogin) as { companyName?: string; identifier?: string }
-            if (!parsed.identifier) return null
-
-            return {
-                companyName: parsed.companyName || 'Cliente',
-                identifier: parsed.identifier,
-            }
-        } catch {
-            return null
-        }
-    })
+    const [lastLogin, setLastLogin] = useState<{ companyName: string; identifier: string } | null>(null)
     const [useDifferentAccount, setUseDifferentAccount] = useState(false)
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const savedLogin = window.localStorage.getItem('last_b2b_login')
+            if (savedLogin) {
+                try {
+                    const parsed = JSON.parse(savedLogin) as { companyName?: string; identifier?: string }
+                    if (parsed.identifier) {
+                        setLastLogin({ companyName: parsed.companyName || 'Cliente', identifier: parsed.identifier })
+                    }
+                } catch {
+                    // silent
+                }
+            }
+        }
+    }, [])
 
     useEffect(() => {
         const loadSettings = async () => {
