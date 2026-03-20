@@ -1,21 +1,20 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Filter, X, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
-import { Input } from '@/components/ui/input'
+import { motion } from 'framer-motion'
+import { Search, Filter, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ProductGridSkeleton } from '@/components/ui/skeletons'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ProductGridSkeleton, ProductListSkeleton } from '@/components/ui/skeletons'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
-import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { createClient } from '@/lib/supabase/client'
 import type { Product, Category, Fabric } from '@/lib/types'
 import { ProductCard } from '@/components/catalog/product-card'
+import { ProductListItem } from '@/components/catalog/product-list-item'
+import { CatalogViewToggle, type CatalogViewMode } from '@/components/catalog/catalog-view-toggle'
 import { QuickViewModal } from '@/components/catalog/quick-view-modal'
 import { QuickViewBottomSheet } from '@/components/catalog/quick-view-bottom-sheet'
 import { CatalogFilters } from './components/CatalogFilters'
@@ -27,6 +26,7 @@ import { NoticeCard } from '@/components/store/NoticeCard'
 import { useCustomerGreeting } from '@/lib/hooks/use-customer-greeting'
 
 const PAGE_SIZE = 12
+const CATALOG_VIEW_STORAGE_KEY = 'catalog:view-mode'
 
 interface CatalogSizeFilterOption {
     slug: string
@@ -68,10 +68,14 @@ function CatalogContentInner() {
     const [selectedFabric, setSelectedFabric] = useState<string>('all')
     const [selectedSize, setSelectedSize] = useState<string>('all')
     const [sortBy, setSortBy] = useState<string>('name')
+    const [viewMode, setViewMode] = useState<CatalogViewMode>(() => {
+        if (typeof window === 'undefined') return 'grid'
+        const saved = window.localStorage.getItem(CATALOG_VIEW_STORAGE_KEY)
+        return saved === 'grid' || saved === 'list' ? saved : 'grid'
+    })
     const [filtersOpen, setFiltersOpen] = useState(false)
     const [quickViewId, setQuickViewId] = useState<string | null>(null)
     const [hidePrices, setHidePrices] = useState(false)
-    const [socialUrls, setSocialUrls] = useState<{ whatsapp: string | null; instagram: string | null }>({ whatsapp: null, instagram: null })
     const isMobile = useIsMobile()
     const greetingData = useCustomerGreeting()
 
@@ -103,6 +107,10 @@ function CatalogContentInner() {
 
         return () => window.cancelAnimationFrame(frame)
     }, [debouncedSearch, search, searchParams, selectedCategory, selectedFabric, selectedSize])
+
+    useEffect(() => {
+        window.localStorage.setItem(CATALOG_VIEW_STORAGE_KEY, viewMode)
+    }, [viewMode])
 
     // Load static filters once
     useEffect(() => {
@@ -156,10 +164,6 @@ function CatalogContentInner() {
             if (!settings) return
             
             const supabase = createClient()
-            setSocialUrls({
-                whatsapp: settings.whatsapp,
-                instagram: settings.instagram,
-            })
 
             const { data: userRes } = await supabase.auth.getUser()
             if (userRes?.user) {
@@ -292,7 +296,6 @@ function CatalogContentInner() {
 
     return (
         <PullToRefresh onRefresh={async () => {
-            const supabase = createClient()
             setProducts([])
             setCurrentPage(1)
             // The useEffect will trigger fetchPaginatedProducts automatically due to setCurrentPage(1) and setProducts([])
@@ -434,8 +437,18 @@ function CatalogContentInner() {
 
                 {/* Products Grid & Pagination */}
                 <div className="flex-1 flex flex-col pt-2 md:pt-0">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm text-muted-foreground">
+                            Exibindo {products.length} de {totalCount} produtos
+                        </p>
+                        <CatalogViewToggle
+                            value={viewMode}
+                            onChange={setViewMode}
+                            compact={isMobile}
+                        />
+                    </div>
                     {loading ? (
-                        <ProductGridSkeleton count={9} />
+                        viewMode === 'grid' ? <ProductGridSkeleton count={9} /> : <ProductListSkeleton count={9} />
                     ) : products.length === 0 ? (
                         <div className="text-center py-16 flex-1">
                             <div className="mx-auto h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -451,18 +464,27 @@ function CatalogContentInner() {
                         </div>
                     ) : (
                         <>
-                            <p className="text-sm text-muted-foreground mb-4">
-                                Exibindo {products.length} de {totalCount} produtos
-                            </p>
-                            <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-6 mb-8">
+                            <div className={viewMode === 'grid' ? 'mb-8 grid grid-cols-2 gap-3 md:gap-6 xl:grid-cols-3' : 'mb-8 space-y-2.5'}>
                                 {products.map((product, i) => (
                                     <motion.div
                                         key={product.id}
-                                        initial={{ opacity: 0, y: 20 }}
+                                        initial={{ opacity: 0, y: 16 }}
                                         animate={{ opacity: 1, y: 0 }}
-                                        transition={{ delay: i * 0.05 }}
+                                        transition={{ delay: Math.min(i * 0.04, 0.24) }}
                                     >
-                                        <ProductCard product={product} onQuickView={(id) => setQuickViewId(id)} hidePrices={hidePrices} />
+                                        {viewMode === 'grid' ? (
+                                            <ProductCard
+                                                product={product}
+                                                onQuickView={(id) => setQuickViewId(id)}
+                                                hidePrices={hidePrices}
+                                            />
+                                        ) : (
+                                            <ProductListItem
+                                                product={product}
+                                                onQuickView={(id) => setQuickViewId(id)}
+                                                hidePrices={hidePrices}
+                                            />
+                                        )}
                                     </motion.div>
                                 ))}
                             </div>
