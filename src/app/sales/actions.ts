@@ -32,6 +32,7 @@ import type {
     SalesQuote,
     Store,
     StoreAddress,
+    CustomerType,
 } from '@/lib/types'
 
 type RepresentativeBootstrapCustomer = Store & {
@@ -415,7 +416,7 @@ export async function getRepresentativeVisitsData() {
 
 export async function getRepresentativeOrderBuilderData() {
     const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
-    const [customers, productsRes, categoriesRes, priceTablesRes] = await Promise.all([
+    const [customers, productsRes, categoriesRes, priceTablesRes, customerTypesRes] = await Promise.all([
         getRepresentativeCustomersInternal(scopeRepresentativeId),
         admin
             .from('products')
@@ -424,6 +425,7 @@ export async function getRepresentativeOrderBuilderData() {
             .order('name', { ascending: true }),
         admin.from('categories').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
         admin.from('price_tables').select('*').eq('is_active', true).order('name', { ascending: true }),
+        admin.from('customer_types').select('*').order('is_active', { ascending: false }).order('sort_order', { ascending: true }),
     ])
 
     return {
@@ -432,6 +434,7 @@ export async function getRepresentativeOrderBuilderData() {
         products: (productsRes.data || []) as RepresentativeCatalogProduct[],
         categories: categoriesRes.data || [],
         priceTables: (priceTablesRes.data || []) as PriceTable[],
+        customerTypes: (customerTypesRes.data || []) as CustomerType[],
     }
 }
 
@@ -574,11 +577,8 @@ export async function createRepresentativeVisitAction(payload: {
     generatedOrderId?: string | null
 }) {
     try {
-        const { user, admin, isAdminPreview, scopeRepresentativeId } = await requireRepresentativeContext()
+        const { user, admin, scopeRepresentativeId } = await requireRepresentativeContext()
 
-        if (isAdminPreview) {
-            return { error: 'O modo de visualizacao do representante nao permite gravacoes.' }
-        }
 
         const storeQuery = admin
             .from('stores')
@@ -595,10 +595,12 @@ export async function createRepresentativeVisitAction(payload: {
             return { error: 'Cliente nao disponivel para este representante.' }
         }
 
+        const representativeActorId = scopeRepresentativeId || store.representative_id || user.id
+
         const { data, error } = await admin
             .from('sales_visits')
             .insert({
-                representative_id: user.id,
+                representative_id: representativeActorId,
                 store_id: store.id,
                 customer_profile_id: store.profile_id,
                 visited_at: payload.visitedAt || new Date().toISOString(),
@@ -627,11 +629,8 @@ async function persistRepresentativeDocument(
     payload: RepresentativeDocumentPayload
 ) {
     try {
-        const { admin, supabase, isAdminPreview, scopeRepresentativeId } = await requireRepresentativeContext()
+        const { admin, supabase, scopeRepresentativeId } = await requireRepresentativeContext()
 
-        if (isAdminPreview) {
-            return { error: 'O modo de visualizacao do representante nao permite gravacoes.' }
-        }
 
         const storeQuery = admin
             .from('stores')
@@ -877,11 +876,8 @@ export async function saveRepresentativeQuoteAction(payload: RepresentativeDocum
 
 export async function convertRepresentativeQuoteToOrderAction(quoteId: string) {
     try {
-        const { supabase, isAdminPreview } = await requireRepresentativeContext()
+        const { supabase } = await requireRepresentativeContext()
 
-        if (isAdminPreview) {
-            return { error: 'O modo de visualizacao do representante nao permite gravacoes.' }
-        }
         const { data, error } = await supabase.rpc('representative_convert_quote_to_order_atomic', {
             p_quote_id: quoteId,
             p_created_note: 'Pedido gerado a partir de orcamento no modo representante.',
@@ -897,3 +893,257 @@ export async function convertRepresentativeQuoteToOrderAction(quoteId: string) {
         return { error: error instanceof Error ? error.message : 'Falha ao converter orcamento.' }
     }
 }
+
+// ==================== REPRESENTATIVE CUSTOMER CREATION ====================
+
+export async function createCustomerAsRepresentativeTx(data: {
+    fullName: string
+    email: string
+    password?: string
+    phone?: string
+    companyName: string
+    cnpj: string
+    tradeName?: string
+    customerTypeId?: string
+    address?: string
+    city?: string
+    state?: string
+    zipCode?: string
+}) {
+    const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    
+    // Representative can only register under their own scope initially
+    const targetRepresentativeId = scopeRepresentativeId || profile.id
+
+    const { 
+        email, 
+        password, 
+        fullName, 
+        phone, 
+        companyName, 
+        cnpj, 
+        tradeName, 
+        customerTypeId, 
+        address, 
+        city, 
+        state, 
+        zipCode 
+    } = data
+
+    if (!email || !password || !fullName || !companyName || !cnpj) {
+        return { error: 'Campos obrigatórios faltando.' }
+    }
+
+    try {
+        const normalizedEmail = email.trim().toLowerCase()
+
+        // 1. Check if email already exists
+        const { data: existingProfileByEmail } = await admin
+            .from('profiles')
+            .select('id')
+            .eq('email', normalizedEmail)
+            .limit(1)
+            .maybeSingle()
+
+        if (existingProfileByEmail?.id) {
+            return { error: 'Este email já está cadastrado.' }
+        }
+
+        // 2. Create user in Auth
+        const { data: authData, error: authError } = await admin.auth.admin.createUser({
+            email: normalizedEmail,
+            password,
+            email_confirm: true,
+            user_metadata: {
+                full_name: fullName,
+                role: 'client',
+            },
+        })
+
+        if (authError || !authData?.user?.id) {
+            let errorMsg = 'Falha ao criar usuário.'
+            if (authError?.message?.toLowerCase().includes('already registered')) {
+                errorMsg = 'Este email já está cadastrado.'
+            }
+            throw new Error(errorMsg)
+        }
+
+        // 3. Insert domain records using the same RPC the admin uses
+        const { data: rpcData, error: rpcError } = await admin.rpc('admin_upsert_customer_domain', {
+            p_profile_id: authData.user.id,
+            p_full_name: fullName,
+            p_phone: phone || null,
+            p_status: 'approved',
+            p_store_id: null,
+            p_company_name: companyName,
+            p_trade_name: tradeName || null,
+            p_cnpj: cnpj.replace(/\D/g, ''),
+            p_email: normalizedEmail,
+            p_customer_type_id: customerTypeId || null,
+            p_representative_id: targetRepresentativeId,
+            p_address: address || null,
+            p_city: city || null,
+            p_state: state || null,
+            p_zip_code: zipCode || null,
+            p_tag_ids: [],
+        })
+
+        if (rpcError) {
+            // Clean up auth user on complete failure
+            await admin.auth.admin.deleteUser(authData.user.id)
+            throw new Error(rpcError.message)
+        }
+
+        const firstRow = Array.isArray(rpcData) ? rpcData[0] : rpcData
+        return { success: true, storeId: firstRow?.store_id as string | undefined }
+    } catch (err: unknown) {
+        console.error('Representative Customer Creation TX Error:', err)
+        let msg = 'Erro ao criar o cliente.'
+        if (err instanceof Error && err.message) msg = err.message
+        return { error: msg }
+    }
+}
+
+export async function updateCustomerAsRepresentativeTx(data: {
+    id: string
+    profileId?: string
+    fullName: string
+    email: string
+    phone?: string
+    companyName: string
+    cnpj: string
+    tradeName?: string
+    customerTypeId?: string
+    address?: string
+    city?: string
+    state?: string
+    zipCode?: string
+}) {
+    const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    
+    // Representative can only register/edit under their own scope initially
+    const targetRepresentativeId = scopeRepresentativeId || profile.id
+
+    const { 
+        id: storeId, 
+        profileId: inputProfileId, 
+        email, 
+        fullName, 
+        phone, 
+        companyName, 
+        cnpj, 
+        tradeName, 
+        customerTypeId, 
+        address, 
+        city, 
+        state, 
+        zipCode 
+    } = data
+
+    if (!email || !fullName || !companyName || !cnpj) {
+        return { error: 'Campos obrigatórios faltando.' }
+    }
+
+    try {
+        const normalizedEmail = email.trim().toLowerCase()
+
+        // 1. Determine profileId if not provided
+        let profileId = inputProfileId
+        if (!profileId) {
+            const { data: storeData } = await admin
+                .from('stores')
+                .select('profile_id')
+                .eq('id', storeId)
+                .single()
+            profileId = storeData?.profile_id
+        }
+
+        if (!profileId) {
+            return { error: 'Cadastro base do cliente não encontrado.' }
+        }
+
+        // 2. Verify if it belongs to representative
+        const { data: storeToUpdate, error: loadError } = await admin
+            .from('stores')
+            .select('id, representative_id')
+            .eq('id', storeId)
+            .eq('profile_id', profileId)
+            .single()
+
+        if (loadError || !storeToUpdate) {
+            return { error: 'Cliente não encontrado.' }
+        }
+
+        if (storeToUpdate.representative_id && storeToUpdate.representative_id !== targetRepresentativeId) {
+            return { error: 'Acesso negado. Cliente pertence a outro representante.' }
+        }
+
+        // Email collision check
+        const { data: currentProfile, error: currentProfileError } = await admin
+            .from('profiles')
+            .select('email')
+            .eq('id', profileId)
+            .single()
+
+        if (currentProfileError || !currentProfile) {
+            return { error: 'Cadastro base do cliente não encontrado.' }
+        }
+
+        if ((currentProfile.email || '').toLowerCase() !== normalizedEmail) {
+            const { data: existingProfileByEmail } = await admin
+                .from('profiles')
+                .select('id')
+                .eq('email', normalizedEmail)
+                .neq('id', profileId)
+                .limit(1)
+                .maybeSingle()
+
+            if (existingProfileByEmail?.id) {
+                return { error: 'Este email já está sendo utilizado por outro cadastro.' }
+            }
+
+            const { error: authUpdateError } = await admin.auth.admin.updateUserById(profileId, {
+                email: normalizedEmail,
+                email_confirm: true,
+            })
+
+            if (authUpdateError) {
+                return { error: 'Falha ao atualizar o e-mail no provedor de acesso.' }
+            }
+        }
+
+        // 3. Upsert using RPC
+        const { data: rpcData, error: rpcError } = await admin.rpc('admin_upsert_customer_domain', {
+            p_profile_id: profileId,
+            p_full_name: fullName,
+            p_phone: phone || null,
+            p_status: 'approved',
+            p_store_id: storeId,
+            p_company_name: companyName,
+            p_trade_name: tradeName || null,
+            p_cnpj: cnpj.replace(/\D/g, ''),
+            p_email: normalizedEmail,
+            p_customer_type_id: customerTypeId || null,
+            p_representative_id: targetRepresentativeId,
+            p_address: address || null,
+            p_city: city || null,
+            p_state: state || null,
+            p_zip_code: zipCode || null,
+            p_tag_ids: [],
+        })
+
+        if (rpcError) {
+            throw new Error(rpcError.message)
+        }
+
+        return { success: true, storeId }
+    } catch (err: unknown) {
+        console.error('Representative Customer Edit TX Error:', err)
+        let msg = 'Erro ao atualizar o cliente.'
+        if (err instanceof Error && err.message) msg = err.message
+        return { error: msg }
+    }
+}
+
+
+

@@ -3,30 +3,36 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { ChevronRight, FileText, Loader2, Minus, Package, Plus, Search, ShoppingBag, Trash2, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileText, Loader2, Minus, Package, Plus, Search, ShoppingBag, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 import type {
   Category,
+  Order,
   PaymentMethod,
   PaymentMethodCondition,
   PriceTable,
   PriceTablePaymentRule,
   Product,
   ProductSizeOption,
+  Profile,
   Store,
   StoreAddress,
+  CustomerType,
 } from '@/lib/types'
 import {
   createRepresentativeOrderAction,
   getRepresentativePaymentOptions,
-  getRepresentativeProductConfiguratorData,
-  saveRepresentativeQuoteAction,
+  createCustomerAsRepresentativeTx,
+  updateCustomerAsRepresentativeTx,
   validateRepresentativeDraftPricingAction,
+  saveRepresentativeQuoteAction,
 } from '@/app/sales/actions'
+import { RepresentativeProductCatalogOverlay, type CatalogOverlayConfirmPayload } from './representative-product-catalog-overlay'
+import { RepresentativeCustomerForm, type RepCustomerFormData } from './representative-customer-form'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -79,16 +85,7 @@ type PricingValidationResult =
   | { prices: Record<string, PriceSnapshot>; missingKeys: string[]; missingVariantIds: string[] }
   | { error: string }
 
-type ProductConfiguratorData = {
-  product: Product & { images?: { url: string; is_primary: boolean }[]; size_options?: ProductSizeOption[] }
-  variants: Array<{
-    id: string; fabric_id: string; fabric_color_id: string; price_override: number | null; image_url: string | null
-    fabric?: { id: string; name: string; price_modifier: number | null } | null
-    fabric_color?: { id: string; name: string } | null
-  }>
-  fabrics: Array<{ id: string; name: string; colors: Array<{ id: string; name: string }> }>
-  priceTableContext: { discountPercentage: number; overrides: Record<string, number> }
-}
+
 
 function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
@@ -171,6 +168,7 @@ export function RepresentativeOrderBuilder({
   products,
   categories,
   priceTables,
+  customerTypes,
 }: {
   mode: 'order' | 'quote'
   initialCustomerId?: string
@@ -178,6 +176,7 @@ export function RepresentativeOrderBuilder({
   products: BuilderProduct[]
   categories: Category[]
   priceTables: PriceTable[]
+  customerTypes: CustomerType[]
 }) {
   const router = useRouter()
   const initialStore = customers.find((c) => c.id === initialCustomerId) || null
@@ -192,21 +191,16 @@ export function RepresentativeOrderBuilder({
   const [surchargeValue, setSurchargeValue] = useState('')
   const [negotiationReason, setNegotiationReason] = useState('')
   const [items, setItems] = useState<DraftItem[]>([])
-  const [productSearch, setProductSearch] = useState('')
   const [customerSearch, setCustomerSearch] = useState('')
+  const [isCustomerSearchActive, setIsCustomerSearchActive] = useState(false)
   const [isCustomerSheetOpen, setIsCustomerSheetOpen] = useState(false)
-  const [isProductSheetOpen, setIsProductSheetOpen] = useState(false)
-  const [selectedCategoryId, setSelectedCategoryId] = useState('all')
+  const [isProductOverlayOpen, setIsProductOverlayOpen] = useState(false)
+  const [isCustomerFormOpen, setIsCustomerFormOpen] = useState(false)
+  const [editingStore, setEditingStore] = useState<BuilderCustomer | null>(null)
   const [paymentGroups, setPaymentGroups] = useState<PaymentMethodGroup[]>([])
   const [pricingPending, setPricingPending] = useState(false)
-  const [dialogProductId, setDialogProductId] = useState<string | null>(null)
-  const [configData, setConfigData] = useState<ProductConfiguratorData | null>(null)
-  const [configLoading, setConfigLoading] = useState(false)
-  const [selectedSizeOptionId, setSelectedSizeOptionId] = useState('')
-  const [selectedFabricId, setSelectedFabricId] = useState('')
-  const [selectedColorId, setSelectedColorId] = useState('')
-  const [dialogQuantity, setDialogQuantity] = useState(1)
   const [submitting, startSubmitting] = useTransition()
+  const [customerSaving, setCustomerSaving] = useState(false)
 
   /* ─── Mobile section visibility ─── */
   const [openSection, setOpenSection] = useState<'customer' | 'products' | 'negotiation' | 'payment' | 'notes' | null>(null)
@@ -220,15 +214,14 @@ export function RepresentativeOrderBuilder({
     return c.company_name.toLowerCase().includes(term) || (c.customer_code && c.customer_code.toLowerCase().includes(term))
   }), [customers, customerSearch])
 
-  const filteredProducts = useMemo(() => products.filter((p) => {
-    const term = productSearch.trim().toLowerCase()
-    const matchesSearch = !term || p.name.toLowerCase().includes(term) || p.category?.name?.toLowerCase().includes(term)
-    const matchesCategory = selectedCategoryId === 'all' || p.category_id === selectedCategoryId
-    return matchesSearch && matchesCategory
-  }), [products, productSearch, selectedCategoryId])
   const pricingSignature = useMemo(() => JSON.stringify(items.map((i) => [i.variantId, i.sizeOptionId, i.quantity])), [items])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const draftItems = useMemo(() => items, [pricingSignature])
+
+  const openCustomerSheet = () => {
+    setIsCustomerSearchActive(false)
+    setIsCustomerSheetOpen(true)
+  }
 
   const handleStoreChange = (nextStoreId: string) => {
     const nextStore = customers.find((c) => c.id === nextStoreId) || null
@@ -274,42 +267,64 @@ export function RepresentativeOrderBuilder({
   const paymentSurchargeAmount = afterPaymentDiscount * ((selectedPaymentOption?.surchargePercentage || 0) / 100)
   const total = Math.max(0, afterPaymentDiscount + paymentSurchargeAmount)
 
-  /* ─── Product configurator ─── */
-  useEffect(() => {
-    let cancelled = false
-    const loadConfig = async () => {
-      if (!dialogProductId || !selectedStoreId) { setConfigData(null); return }
-      setConfigLoading(true)
-      const result = await getRepresentativeProductConfiguratorData({ storeId: selectedStoreId, productId: dialogProductId, priceTableId: selectedPriceTableId || null })
-      if (cancelled) return
-      if ('error' in result && result.error) { setConfigLoading(false); toast.error(result.error); setConfigData(null); return }
-      const data = result as ProductConfiguratorData
-      setConfigData(data)
-      setSelectedSizeOptionId(data.product.size_options?.find((o) => o.is_default && o.is_active)?.id || data.product.size_options?.find((o) => o.is_active)?.id || '')
-      setSelectedFabricId(data.fabrics[0]?.id || '')
-      setSelectedColorId(data.fabrics[0]?.colors[0]?.id || '')
-      setDialogQuantity(1)
-      setConfigLoading(false)
+  const handleCatalogConfirm = (payload: CatalogOverlayConfirmPayload) => {
+    setItems((cur) => {
+      let updated = [...cur]
+      payload.forEach((staged) => {
+        const cartKey = staged.id
+        const existing = updated.find((i) => i.cartKey === cartKey)
+        if (existing) {
+          updated = updated.map((i) =>
+            i.cartKey === cartKey ? { ...i, quantity: i.quantity + staged.quantity, unitPrice: staged.unitPrice } : i
+          )
+        } else {
+          updated.push({
+            cartKey,
+            productId: staged.productId,
+            productName: staged.productName,
+            variantId: cartKey.split('::')[0],
+            fabricName: staged.fabricName,
+            colorName: staged.colorName,
+            sizeName: staged.sizeName,
+            sizeOptionId: cartKey.split('::')[1] === 'legacy' ? null : cartKey.split('::')[1],
+            imageUrl: staged.imageUrl,
+            quantity: staged.quantity,
+            unitPrice: staged.unitPrice,
+          })
+        }
+      })
+      return updated
+    })
+    setIsProductOverlayOpen(false)
+    toast.success(`${payload.reduce((s, i) => s + i.quantity, 0)} item(ns) adicionados ao pedido!`)
+  }
+
+  const handleSaveCustomer = async (data: RepCustomerFormData) => {
+    setCustomerSaving(true)
+    try {
+      const result = editingStore 
+        ? await updateCustomerAsRepresentativeTx({ id: editingStore.id, ...data }) 
+        : await createCustomerAsRepresentativeTx(data)
+      
+      if (result.success) {
+        toast.success(editingStore ? 'Cliente atualizado!' : 'Cliente cadastrado e selecionado!')
+        // Ideally we should re-fetch customers here, but for now we can rely on router refresh
+        // or the user manually refreshing. However, to select it immediately:
+        if (!editingStore && result.storeId) {
+          handleStoreChange(result.storeId)
+        }
+        setIsCustomerFormOpen(false)
+        setEditingStore(null)
+        setIsCustomerSheetOpen(false)
+        router.refresh()
+      } else {
+        toast.error(result.error || 'Erro ao salvar cliente.')
+      }
+    } catch (e) {
+      toast.error('Erro de conexão ao salvar cliente.')
+    } finally {
+      setCustomerSaving(false)
     }
-    void loadConfig()
-    return () => { cancelled = true }
-  }, [dialogProductId, selectedPriceTableId, selectedStoreId])
-
-  const selectedSizeOption = (configData?.product.size_options || []).find((o) => o.id === selectedSizeOptionId) || null
-  const selectedVariant = useMemo(() => configData?.variants.find((v) => v.fabric_id === selectedFabricId && v.fabric_color_id === selectedColorId) || null, [configData, selectedColorId, selectedFabricId])
-  const previewPrice = useMemo(() => {
-    if (!configData || !selectedVariant) return 0
-    return calculateProductPrice({ basePrice: configData.product.base_price, fabricModifier: selectedVariant.fabric?.price_modifier ?? 0, variantPriceOverride: selectedVariant.price_override, variantId: selectedVariant.id, sizePriceMode: selectedSizeOption?.price_mode ?? null, sizePriceValue: selectedSizeOption?.price_value ?? null, priceTable: configData.priceTableContext }).finalPrice
-  }, [configData, selectedSizeOption, selectedVariant])
-
-  const addConfiguredItem = () => {
-    if (!configData || !selectedVariant) { toast.error('Selecione tecido e cor.'); return }
-    if (configData.product.has_size_variants && !selectedSizeOption) { toast.error('Selecione um tamanho.'); return }
-    const cartKey = buildCartKey(selectedVariant.id, selectedSizeOption?.id || null)
-    const nextItem: DraftItem = { cartKey, productId: configData.product.id, productName: configData.product.name, variantId: selectedVariant.id, fabricName: selectedVariant.fabric?.name || 'Tecido', colorName: selectedVariant.fabric_color?.name || 'Cor', sizeName: selectedSizeOption?.name || configData.product.size || null, sizeOptionId: selectedSizeOption?.id || null, imageUrl: selectedVariant.image_url || configData.product.images?.find((i) => i.is_primary)?.url || configData.product.images?.[0]?.url || null, quantity: dialogQuantity, unitPrice: previewPrice }
-    setItems((cur) => { const ex = cur.find((i) => i.cartKey === nextItem.cartKey); if (!ex) return [...cur, nextItem]; return cur.map((i) => i.cartKey === nextItem.cartKey ? { ...i, quantity: i.quantity + nextItem.quantity, unitPrice: nextItem.unitPrice } : i) })
-    setDialogProductId(null)
-    toast.success('Item adicionado.')
   }
 
   const handleSubmit = (target: 'order' | 'quote') => {
@@ -328,20 +343,30 @@ export function RepresentativeOrderBuilder({
     <div className="flex flex-col min-h-[calc(100dvh-140px)] xl:hidden">
       <div className="flex-1 divide-y divide-border/30 rounded-2xl border border-border/40 bg-card">
         {/* Customer */}
-        <SectionRow label="Cliente Selecionado" value={selectedStore?.company_name || 'Tocar para selecionar...'} highlight={!selectedStoreId} onClick={() => setIsCustomerSheetOpen(true)} />
+        <SectionRow label="Cliente Selecionado" value={selectedStore?.company_name || 'Tocar para selecionar...'} highlight={!selectedStoreId} onClick={openCustomerSheet} />
         {selectedStoreId && (
           <div className="space-y-3 bg-muted/10 px-4 py-3 border-b border-border/30">
-            <Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}><SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm"><SelectValue placeholder="Tabela">{availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}</SelectValue></SelectTrigger><SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}>
+                  <SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm">
+                    <SelectValue placeholder="Tabela">{availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => { setEditingStore(selectedStore); setIsCustomerFormOpen(true) }} className="h-9 rounded-xl border-border bg-card text-primary font-semibold">Editar</Button>
+            </div>
             <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm"><SelectValue placeholder="Endereço">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select>
           </div>
         )}
 
         {/* Products */}
-        <SectionRow label="Itens do Carrinho" value={items.length ? `${items.length} item(ns)` : 'Vazio'} highlight={items.length === 0 && selectedStoreId ? true : false} onClick={() => setIsProductSheetOpen(true)} />
+        <SectionRow label="Itens do Carrinho" value={items.length ? `${items.length} item(ns)` : 'Vazio'} highlight={items.length === 0 && selectedStoreId ? true : false} onClick={() => setIsProductOverlayOpen(true)} />
         {items.length > 0 && (
           <div className="bg-muted/10 px-4 py-4 border-b border-border/30">
             <ItemsList items={items} setItems={setItems} pricingPending={pricingPending} />
-            <Button onClick={() => setIsProductSheetOpen(true)} variant="outline" className="w-full mt-3 h-10 border-dashed border-border text-primary hover:bg-primary/5 rounded-xl"><Plus className="mr-2 h-4 w-4" /> Buscar mais produtos</Button>
+            <Button onClick={() => setIsProductOverlayOpen(true)} variant="outline" className="w-full mt-3 h-10 border-dashed border-border text-primary hover:bg-primary/5 rounded-xl"><Plus className="mr-2 h-4 w-4" /> Buscar mais produtos</Button>
           </div>
         )}
 
@@ -432,13 +457,21 @@ export function RepresentativeOrderBuilder({
       <div className="space-y-5">
         {/* Customer & context */}
         <section className="rounded-2xl border border-border/40 bg-card">
-          <div className="border-b border-border/30 px-4 py-3 flex items-center justify-between"><h2 className="text-sm font-semibold font-heading text-foreground">1. Cliente e contexto</h2>{selectedStoreId && <Button variant="ghost" size="sm" onClick={() => setIsCustomerSheetOpen(true)} className="h-7 text-xs text-primary px-2">Trocar cliente</Button>}</div>
+          <div className="border-b border-border/30 px-4 py-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold font-heading text-foreground">1. Cliente e contexto</h2>
+            {selectedStoreId && (
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => { setEditingStore(selectedStore); setIsCustomerFormOpen(true) }} className="h-7 text-xs text-primary px-2">Editar</Button>
+                <Button variant="ghost" size="sm" onClick={openCustomerSheet} className="h-7 text-xs text-primary px-2">Trocar</Button>
+              </div>
+            )}
+          </div>
           <div className="p-4">
             {!selectedStoreId ? (
                <div className="rounded-xl p-6 text-center border bg-muted/20">
                   <Users className="h-8 w-8 mx-auto text-muted-foreground/50 mb-3" />
                   <p className="text-sm text-muted-foreground mb-4">Nenhum cliente selecionado</p>
-                  <Button onClick={() => setIsCustomerSheetOpen(true)} className="gradient-bronze text-white font-semibold rounded-xl h-10 px-6 shadow-md transition hover:opacity-90">Selecionar Cliente</Button>
+                  <Button onClick={openCustomerSheet} className="gradient-bronze text-white font-semibold rounded-xl h-10 px-6 shadow-md transition hover:opacity-90">Selecionar Cliente</Button>
                </div>
             ) : (
                <div className="grid gap-4 md:grid-cols-2">
@@ -452,7 +485,7 @@ export function RepresentativeOrderBuilder({
 
         {/* Products */}
         <section className={cn("rounded-2xl border bg-card transition-all duration-300", !selectedStoreId ? "opacity-50 pointer-events-none border-border/40" : "border-border/40 shadow-sm")}>
-          <div className="border-b border-border/30 px-4 py-3 flex items-center justify-between"><h2 className="text-sm font-semibold font-heading text-foreground">2. Produtos do Pedido</h2><Button size="sm" onClick={() => setIsProductSheetOpen(true)} className="h-8 rounded-lg gradient-navy font-semibold px-4 text-white hover:opacity-90 shadow-sm"><Plus className="mr-1.5 h-3.5 w-3.5" /> Buscar Produtos</Button></div>
+          <div className="border-b border-border/30 px-4 py-3 flex items-center justify-between"><h2 className="text-sm font-semibold font-heading text-foreground">2. Produtos do Pedido</h2><Button size="sm" onClick={() => setIsProductOverlayOpen(true)} className="h-8 rounded-lg gradient-navy font-semibold px-4 text-white hover:opacity-90 shadow-sm"><Plus className="mr-1.5 h-3.5 w-3.5" /> Buscar Produtos</Button></div>
           <div className="p-4">
             <ItemsList items={items} setItems={setItems} pricingPending={pricingPending} />
           </div>
@@ -531,74 +564,101 @@ export function RepresentativeOrderBuilder({
       {desktopContent}
 
       {/* Modals de Seleção UX Native */}
-      <Sheet open={isCustomerSheetOpen} onOpenChange={setIsCustomerSheetOpen}>
-        <SheetContent side="bottom" className="h-[90dvh] rounded-t-3xl border-border bg-card p-0 flex flex-col sm:max-w-md sm:mx-auto sm:right-auto sm:left-1/2 sm:-translate-x-1/2">
-          <div className="border-b border-border/40 px-6 py-4">
-            <SheetHeader className="text-left mb-3"><SheetTitle className="font-heading text-lg">Selecionar Cliente</SheetTitle></SheetHeader>
-            <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input autoFocus value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Buscar por nome corporativo..." className="h-10 rounded-xl border-border pl-10 bg-muted/20" /></div>
+      <Sheet open={isCustomerSheetOpen} onOpenChange={(open: boolean) => { setIsCustomerSheetOpen(open); if (!open) { setCustomerSearch(''); setIsCustomerSearchActive(false) } }}>
+        <SheetContent side="bottom" className="h-[95dvh] min-h-0 overflow-hidden rounded-t-3xl border-border bg-card p-0 flex flex-col sm:max-w-md sm:mx-auto sm:right-auto sm:left-1/2 sm:-translate-x-1/2">
+          {/* Header Profissional com Busca Animada */}
+          <div className="shrink-0 border-b border-border/40 gradient-navy px-4 py-3 text-white flex items-center justify-between relative overflow-hidden h-14">
+            <div className={cn("flex items-center gap-3 transition-all duration-300", isCustomerSearchActive ? "opacity-0 -translate-x-10 pointer-events-none" : "opacity-100 translate-x-0")}>
+              <button 
+                onClick={() => setIsCustomerSheetOpen(false)} 
+                className="rounded-full p-1.5 hover:bg-white/20 transition-colors"
+                title="Voltar"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <h2 className="text-lg font-bold font-heading">Clientes</h2>
+            </div>
+
+            <div className={cn(
+              "absolute inset-y-0 left-0 right-14 px-4 flex items-center transition-all duration-300",
+              isCustomerSearchActive ? "opacity-100 translate-x-0" : "opacity-0 translate-x-10 pointer-events-none"
+            )}>
+              <div className="relative w-full">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" />
+                <Input 
+                  value={customerSearch} 
+                  onChange={(e) => setCustomerSearch(e.target.value)} 
+                  placeholder="Buscar por Razão Social..." 
+                  className="h-10 rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/40 pl-10 focus:bg-white/20 transition-all border-0 focus-visible:ring-1 focus-visible:ring-white/30"
+                  autoFocus={isCustomerSearchActive}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0 bg-transparent">
+              <button 
+                onClick={() => setIsCustomerSearchActive(!isCustomerSearchActive)} 
+                className={cn("rounded-full p-2 transition-colors", isCustomerSearchActive ? "bg-white/20" : "hover:bg-white/20")}
+                title="Buscar"
+              >
+                <Search className="h-5 w-5" />
+              </button>
+              <button 
+                onClick={() => { setEditingStore(null); setIsCustomerFormOpen(true) }} 
+                className="rounded-full p-2 hover:bg-white/20 transition-colors"
+                title="Novo Cliente"
+              >
+                <Plus className="h-6 w-6" />
+              </button>
+            </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
-            {filteredCustomers.length === 0 ? <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">Nenhum cliente encontrado.</div> : filteredCustomers.map(c => (
-              <button key={c.id} onClick={() => { handleStoreChange(c.id); setIsCustomerSheetOpen(false) }} className="w-full text-left p-3 rounded-xl border border-border/40 bg-card hover:bg-muted/40 transition flex items-center justify-between">
-                <div><p className="font-semibold text-sm">{c.company_name}</p></div>
-                {selectedStoreId === c.id && <span className="bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-md text-[10px] font-bold">Selecionado</span>}
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 space-y-2 bg-muted/10" style={{ WebkitOverflowScrolling: "touch" }}>
+            {filteredCustomers.length === 0 ? (
+               <div className="flex flex-col h-40 items-center justify-center text-sm text-muted-foreground gap-2">
+                 <Users className="h-8 w-8 opacity-20" />
+                 <p>Nenhum cliente encontrado.</p>
+               </div>
+            ) : filteredCustomers.map(c => (
+              <button 
+                key={c.id} 
+                onClick={() => { handleStoreChange(c.id); setIsCustomerSheetOpen(false); setCustomerSearch(''); setIsCustomerSearchActive(false) }} 
+                className="w-full text-left p-4 rounded-xl border border-border/40 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all flex items-center justify-between group shadow-sm mb-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-sm text-foreground line-clamp-1 group-hover:text-primary transition-colors">{c.company_name}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{c.customer_code ? `#${c.customer_code}` : 'Sem código'} • {c.email || 'Sem email'}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {selectedStoreId === c.id && <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[9px] h-5">Selecionado</Badge>}
+                  <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                </div>
               </button>
             ))}
           </div>
         </SheetContent>
       </Sheet>
 
-      <Sheet open={isProductSheetOpen} onOpenChange={setIsProductSheetOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md border-l border-border bg-card p-0 flex flex-col">
-          <div className="border-b border-border/40 px-4 py-4 glass z-20">
-            <SheetHeader className="text-left mb-3"><SheetTitle className="font-heading text-lg">Catálogo de Produtos</SheetTitle></SheetHeader>
-            <div className="flex gap-2">
-              <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Buscar produto..." className="h-9 rounded-xl border-border pl-10 bg-muted/20 text-sm" /></div>
-              <Select value={selectedCategoryId} onValueChange={(v) => setSelectedCategoryId(v || 'all')}><SelectTrigger className="w-[120px] h-9 rounded-xl border-border text-xs"><SelectValue placeholder="Categoria">{selectedCategoryId === 'all' ? 'Todas' : categories.find(c => c.id === selectedCategoryId)?.name}</SelectValue></SelectTrigger><SelectContent><SelectItem value="all">Todas</SelectItem>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 bg-muted/10">
-            <div className="grid grid-cols-2 gap-3">
-              {filteredProducts.slice(0, 30).map((product) => (
-                <button key={product.id} type="button" onClick={() => { setDialogProductId(product.id) }} className="overflow-hidden rounded-xl border border-border/50 bg-card text-left transition hover:border-primary/50 hover:shadow-md group flex flex-col h-full">
-                  <div className="relative h-28 w-full bg-muted/40 shrink-0">{getPrimaryImage(product) ? <Image src={getPrimaryImage(product) || ''} alt={product.name} fill className="object-cover transition-transform group-hover:scale-105" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-6 w-6" /></div>}</div>
-                  <div className="p-3 flex-1 flex flex-col justify-start">
-                    <p className="line-clamp-2 text-xs font-semibold text-foreground leading-tight">{product.name}</p>
-                    {product.category?.name && <span className="mt-1.5 inline-flex w-fit rounded-md bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">{product.category.name}</span>}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
+      {isCustomerFormOpen && (
+        <div className="fixed inset-0 z-[100] bg-background">
+          <RepresentativeCustomerForm
+            onClose={() => { setIsCustomerFormOpen(false); setEditingStore(null) }}
+            onSave={handleSaveCustomer}
+            customerTypes={customerTypes}
+            saving={customerSaving}
+            initialData={editingStore}
+          />
+        </div>
+      )}
 
-      {/* Product configurator dialog */}
-      <Dialog open={Boolean(dialogProductId)} onOpenChange={(open) => !open && setDialogProductId(null)}>
-        <DialogContent className="rounded-2xl border-border bg-card sm:max-w-2xl">
-          <DialogHeader><DialogTitle className="text-sm font-heading">Configurar item</DialogTitle></DialogHeader>
-          {configLoading || !configData ? (
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-5 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Carregando...</div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-[180px_minmax(0,1fr)]">
-              <div className="relative h-40 overflow-hidden rounded-xl bg-muted/40">{configData.product.images?.find((i) => i.is_primary)?.url ? <Image src={configData.product.images.find((i) => i.is_primary)?.url || ''} alt={configData.product.name} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-7 w-7" /></div>}</div>
-              <div className="space-y-3">
-                <p className="text-sm font-semibold font-heading text-foreground">{configData.product.name}</p>
-                {(configData.product.size_options || []).filter((o) => o.is_active).length > 0 && (
-                  <div className="space-y-1.5"><Label className="text-xs">Tamanho</Label><div className="flex flex-wrap gap-1.5">{(configData.product.size_options || []).filter((o) => o.is_active).map((o) => (<button key={o.id} type="button" onClick={() => setSelectedSizeOptionId(o.id)} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedSizeOptionId === o.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}>{o.name}</button>))}</div></div>
-                )}
-                <div className="space-y-1.5"><Label className="text-xs">Tecido</Label><div className="flex flex-wrap gap-1.5">{configData.fabrics.map((f) => (<button key={f.id} type="button" onClick={() => { setSelectedFabricId(f.id); setSelectedColorId(f.colors[0]?.id || '') }} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedFabricId === f.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}>{f.name}</button>))}</div></div>
-                <div className="space-y-1.5"><Label className="text-xs">Cor</Label><div className="flex flex-wrap gap-1.5">{(configData.fabrics.find((f) => f.id === selectedFabricId)?.colors || []).map((c) => (<button key={c.id} type="button" onClick={() => setSelectedColorId(c.id)} className={cn('rounded-lg border px-2.5 py-1.5 text-xs transition-all', selectedColorId === c.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}>{c.name}</button>))}</div></div>
-                <div className="flex items-end gap-3">
-                  <div className="space-y-1.5"><Label className="text-xs">Qtd.</Label><Input type="number" min={1} value={dialogQuantity} onChange={(e) => setDialogQuantity(Math.max(1, Number(e.target.value || 1)))} className="h-9 w-20 rounded-xl border-border text-sm" /></div>
-                  <div className="rounded-xl bg-muted/40 px-3 py-2"><p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Unitário</p><p className="text-lg font-bold font-heading text-foreground">{formatCurrency(previewPrice)}</p></div>
-                </div>
-                <Button size="sm" className="h-9 rounded-xl border-0 text-xs font-semibold gradient-bronze text-white hover:opacity-90" onClick={addConfiguredItem}><Plus className="mr-1.5 h-3.5 w-3.5" />Adicionar item</Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {isProductOverlayOpen && (
+        <RepresentativeProductCatalogOverlay
+          products={products}
+          categories={categories}
+          onClose={() => setIsProductOverlayOpen(false)}
+          onConfirm={handleCatalogConfirm}
+        />
+      )}
     </>
   )
 }

@@ -17,6 +17,7 @@ export default async function SalesNewOrderPage({
       products={data.products}
       categories={data.categories}
       priceTables={data.priceTables}
+      customerTypes={data.customerTypes}
     />
   )
 }

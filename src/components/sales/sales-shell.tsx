@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Link from 'next/link'
 import { useMemo, useState, type ReactNode } from 'react'
@@ -46,9 +46,9 @@ const mainNavItems: NavItem[] = [
 ]
 
 const moreNavItems: NavItem[] = [
-  { href: '/sales/quotes/new', label: 'Novo Orçamento', shortLabel: 'Orçam.', icon: FileText },
+  { href: '/sales/quotes/new', label: 'Novo OrÃ§amento', shortLabel: 'OrÃ§am.', icon: FileText },
   { href: '/sales/orders', label: 'Pedidos Realizados', shortLabel: 'Pedidos', icon: ClipboardCheck },
-  { href: '/sales/quotes', label: 'Orçamentos Salvos', shortLabel: 'Orçam.', icon: BarChart3 },
+  { href: '/sales/quotes', label: 'OrÃ§amentos Salvos', shortLabel: 'OrÃ§am.', icon: BarChart3 },
 ]
 
 const allNavItems = [...mainNavItems, ...moreNavItems]
@@ -56,18 +56,18 @@ const allNavItems = [...mainNavItems, ...moreNavItems]
 const pageTitles: Record<string, string> = {
   '/sales/dashboard': 'Dashboard',
   '/sales/orders/new': 'Novo Pedido',
-  '/sales/quotes/new': 'Novo Orçamento',
+  '/sales/quotes/new': 'Novo OrÃ§amento',
   '/sales/customers': 'Clientes',
   '/sales/visits': 'Visitas',
   '/sales/orders': 'Pedidos',
-  '/sales/quotes': 'Orçamentos',
+  '/sales/quotes': 'OrÃ§amentos',
 }
 
 function matchPageTitle(pathname: string) {
   const exact = pageTitles[pathname]
   if (exact) return exact
   if (pathname.startsWith('/sales/orders/')) return 'Detalhe do Pedido'
-  if (pathname.startsWith('/sales/quotes/')) return 'Detalhe do Orçamento'
+  if (pathname.startsWith('/sales/quotes/')) return 'Detalhe do OrÃ§amento'
   return 'Vendas'
 }
 
@@ -94,7 +94,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
 
   return (
     <div className="relative flex min-h-[100dvh] flex-col bg-background text-foreground">
-      {/* ─── Admin preview banner ─── */}
+      {/* â”€â”€â”€ Admin preview banner â”€â”€â”€ */}
       {isAdminPreview && (
         <div className="relative z-60 flex items-center justify-between overflow-hidden bg-gradient-to-r from-orange-500 to-amber-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm">
           <span className="flex items-center gap-1.5 truncate">
@@ -102,7 +102,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
             </span>
-            MODO REPRESENTANTE (PREVIEW)
+            MODO REPRESENTANTE (ADMIN)
           </span>
           <Button
             variant="secondary"
@@ -115,7 +115,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
         </div>
       )}
 
-      {/* ─── Desktop sidebar (navy) ─── */}
+      {/* â”€â”€â”€ Desktop sidebar (navy) â”€â”€â”€ */}
       <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:flex lg:w-[240px] lg:flex-col" style={{ background: 'var(--sidebar)', color: 'var(--sidebar-foreground)' }}>
         {/* Profile */}
         <div className="flex items-center gap-3 border-b px-4 py-4" style={{ borderColor: 'var(--sidebar-border)' }}>
@@ -134,7 +134,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
             <Link href="/sales/orders/new">+ Novo Pedido</Link>
           </Button>
           <Button asChild variant="outline" size="sm" className="h-9 w-full rounded-xl border-white/10 bg-white/5 text-xs hover:bg-white/10" style={{ color: 'var(--sidebar-foreground)' }}>
-            <Link href="/sales/quotes/new">+ Novo Orçamento</Link>
+            <Link href="/sales/quotes/new">+ Novo OrÃ§amento</Link>
           </Button>
         </div>
 
@@ -179,7 +179,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
         )}
       </aside>
 
-      {/* ─── Mobile top bar (glass) ─── */}
+      {/* â”€â”€â”€ Mobile top bar (glass) â”€â”€â”€ */}
       <header
         data-mobile-top-bar
         className={cn(
@@ -218,7 +218,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
         </div>
       </header>
 
-      {/* ─── Main content ─── */}
+      {/* â”€â”€â”€ Main content â”€â”€â”€ */}
       <div className="flex-1 lg:pl-[240px]">
         {/* Desktop header */}
         <header className="sticky top-0 z-20 hidden border-b border-border/30 bg-background/90 backdrop-blur-lg lg:block">
@@ -226,7 +226,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
             <h1 className="truncate text-lg font-bold font-heading text-gradient-navy">{title}</h1>
             <div className="flex items-center gap-2 shrink-0">
               <Button asChild variant="outline" size="sm" className="h-8 rounded-xl border-border text-xs">
-                <Link href="/sales/quotes/new">Novo Orçamento</Link>
+                <Link href="/sales/quotes/new">Novo OrÃ§amento</Link>
               </Button>
               <Button asChild size="sm" className="h-8 rounded-xl border-0 text-xs font-semibold gradient-bronze text-white hover:opacity-90">
                 <Link href="/sales/orders/new">Novo Pedido</Link>
@@ -250,7 +250,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
         </main>
       </div>
 
-      {/* ─── Mobile bottom nav (glass, motion, native app feel) ─── */}
+      {/* â”€â”€â”€ Mobile bottom nav (glass, motion, native app feel) â”€â”€â”€ */}
       <nav
         data-mobile-bottom-nav
         className={cn(
@@ -259,7 +259,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
         )}
         style={{ paddingBottom: isStandalone ? 'max(env(safe-area-inset-bottom, 0px), 8px)' : 'env(safe-area-inset-bottom, 0px)' }}
         role="navigation"
-        aria-label="Navegação principal representante"
+        aria-label="NavegaÃ§Ã£o principal representante"
       >
         <div
           data-mobile-bottom-nav-inner
@@ -302,7 +302,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
             <SheetTrigger asChild>
               <button
                 className="relative flex h-full flex-1 flex-col items-center justify-center gap-0.5 mobile-touch-target"
-                aria-label="Mais opções"
+                aria-label="Mais opÃ§Ãµes"
               >
                 <motion.div whileTap={{ scale: 0.82 }} className="relative">
                   <MoreHorizontal className={cn('h-5 w-5 transition-colors duration-200', moreOpen ? 'text-primary' : 'text-muted-foreground')} />
@@ -314,7 +314,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
             </SheetTrigger>
             <SheetContent side="bottom" className="rounded-t-3xl border-t border-border/30 bg-background p-0">
               <SheetHeader className="border-b border-border/30 px-5 py-4">
-                <SheetTitle className="text-base font-bold font-heading text-gradient-navy">Mais opções</SheetTitle>
+                <SheetTitle className="text-base font-bold font-heading text-gradient-navy">Mais opÃ§Ãµes</SheetTitle>
               </SheetHeader>
               <div className="divide-y divide-border/30 px-1 py-2">
                 {moreNavItems.map((item) => {
@@ -342,3 +342,4 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
     </div>
   )
 }
+
