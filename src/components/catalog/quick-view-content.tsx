@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { usePriceTableStore } from '@/lib/stores/price-table-store'
+import { useCustomerCommercialStore } from '@/lib/stores/customer-commercial-store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useProductDetailData, type ProductDetailData } from '@/lib/hooks/use-product-detail-data'
 import { useProductSelectionState } from '@/lib/hooks/use-product-selection-state'
@@ -68,6 +69,7 @@ export function QuickViewContent({
     const { addItem, openCart } = useCartStore()
     const { isFavorite, toggle } = useFavoritesStore()
     const { discountPercentage, overrides } = usePriceTableStore()
+    const { isSalesBlocked } = useCustomerCommercialStore()
     const isMobile = useIsMobile()
     const [addingToCart, setAddingToCart] = useState(false)
 
@@ -263,6 +265,10 @@ export function QuickViewContent({
 
     const handleAddToCart = () => {
         if (!product) return
+        if (isSalesBlocked) {
+            toast.error('Este cliente esta com vendas restritas no momento.')
+            return
+        }
         if (requiresSizeSelection && !selectedSizeOption) {
             toast.error('Selecione um tamanho antes de adicionar ao carrinho.')
             return
@@ -657,6 +663,11 @@ export function QuickViewContent({
                 </div>
 
                 <div className="shrink-0 border-t border-border bg-white p-3 md:p-4">
+                    {isSalesBlocked && (
+                        <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                            Compras bloqueadas para este cliente. Fale com o administrativo.
+                        </div>
+                    )}
                     <div className="flex flex-col items-center gap-3 sm:flex-row">
                         <div className="flex w-full flex-1 items-center justify-between sm:w-auto sm:block">
                             <span className="text-sm font-medium text-muted-foreground">
@@ -669,11 +680,19 @@ export function QuickViewContent({
 
                         <Button
                             className="h-11 w-full min-w-[180px] gap-2 rounded-md px-6 font-semibold sm:w-auto"
-                            disabled={!selectedFabric || totalQuantity === 0 || addingToCart || !canSelectVariants}
+                            disabled={
+                                isSalesBlocked ||
+                                !selectedFabric ||
+                                totalQuantity === 0 ||
+                                addingToCart ||
+                                !canSelectVariants
+                            }
                             onClick={handleAddToCart}
                         >
                             <ShoppingCart className="h-4 w-4" />
-                            {!canSelectVariants
+                            {isSalesBlocked
+                                ? 'Vendas restritas'
+                                : !canSelectVariants
                                 ? 'Selecione tamanho'
                                 : totalQuantity === 0
                                   ? 'Selecionar cores'

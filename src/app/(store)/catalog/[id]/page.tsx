@@ -34,6 +34,7 @@ import { useProductSelectionState } from '@/lib/hooks/use-product-selection-stat
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import type { ProductDetailVariant } from '@/lib/products/product-detail'
 import { usePriceTableStore } from '@/lib/stores/price-table-store'
+import { useCustomerCommercialStore } from '@/lib/stores/customer-commercial-store'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
 import { buildBaseGalleryImages, buildDisplayGalleryImages } from '@/lib/products/gallery-images'
 import { toast } from 'sonner'
@@ -53,6 +54,7 @@ export default function ProductDetailPage() {
     const isMobile = useIsMobile()
     const { isFavorite, toggle } = useFavoritesStore()
     const { discountPercentage, overrides } = usePriceTableStore()
+    const { isSalesBlocked } = useCustomerCommercialStore()
     const { product, images, fabrics, variants, sizeOptions, loading, error, reload } = useProductDetailData({
         productId,
         enabled: !!productId,
@@ -206,6 +208,10 @@ export default function ProductDetailPage() {
     }
 
     const handleAddToCart = () => {
+        if (isSalesBlocked) {
+            toast.error('Este cliente esta com vendas restritas no momento.')
+            return
+        }
         if (!selectedFabric) return
         if (requiresSizeSelection && !selectedSizeOption) {
             toast.error('Selecione um tamanho antes de continuar.')
@@ -636,6 +642,11 @@ export default function ProductDetailPage() {
                     <Separator />
 
                     <div className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-lg shadow-slate-950/10">
+                        {isSalesBlocked && (
+                            <div className="mb-4 rounded-xl border border-red-300/40 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                                Compras bloqueadas para este cliente. Solicite liberacao administrativa.
+                            </div>
+                        )}
                         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                             <div>
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
@@ -659,10 +670,18 @@ export default function ProductDetailPage() {
                             size="lg"
                             className="h-14 w-full border-0 bg-white text-slate-950 shadow-md hover:bg-white/92 disabled:bg-white/70"
                             onClick={handleAddToCart}
-                            disabled={!selectedFabric || totalSelectedQuantity === 0 || addingToCart || !canSelectVariants}
+                            disabled={
+                                isSalesBlocked ||
+                                !selectedFabric ||
+                                totalSelectedQuantity === 0 ||
+                                addingToCart ||
+                                !canSelectVariants
+                            }
                         >
                             <ShoppingCart className="mr-2 h-5 w-5" />
-                            {!canSelectVariants
+                            {isSalesBlocked
+                                ? 'Vendas restritas'
+                                : !canSelectVariants
                                 ? 'Selecione o tamanho'
                                 : totalSelectedQuantity === 0
                                   ? 'Selecione as quantidades'

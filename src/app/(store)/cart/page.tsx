@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { type ComponentType, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -14,7 +14,6 @@ import {
     Minus,
     Package,
     Plus,
-    Receipt,
     ShieldCheck,
     ShoppingBag,
     Trash2,
@@ -103,7 +102,7 @@ function buildPaymentOptionsFromMethodGroup(group: CheckoutPaymentMethodGroup): 
         .filter((link) => link.is_active && link.payment_condition?.is_active)
         .map((link) => ({
             id: link.payment_condition_id,
-            label: link.payment_condition ? getConditionLabel(link.payment_condition) : 'Condição comercial',
+            label: link.payment_condition ? getConditionLabel(link.payment_condition) : 'CondiÃ§Ã£o comercial',
             description: link.payment_condition?.description || group.method.description || null,
             discountPercentage: link.payment_condition?.discount_percentage || 0,
             surchargePercentage: link.payment_condition?.surcharge_percentage || 0,
@@ -542,6 +541,8 @@ export default function CartPage() {
     const [newAddressDialogOpen, setNewAddressDialogOpen] = useState(false)
     const [priceValidationPending, setPriceValidationPending] = useState(false)
     const [lastValidatedKey, setLastValidatedKey] = useState('')
+    const [checkoutBlockedByPolicy, setCheckoutBlockedByPolicy] = useState(false)
+    const [paymentRestrictionMessage, setPaymentRestrictionMessage] = useState<string | null>(null)
     const selectedPaymentMethodRef = useRef(selectedPaymentMethod)
 
     const total = subtotal()
@@ -628,10 +629,11 @@ export default function CartPage() {
     const paymentSurcharge = discountedTotal * (surchargePercentage / 100)
     const finalTotal = discountedTotal + paymentSurcharge
     const minOrderMet = !settings?.min_order_amount || total >= settings.min_order_amount
+    const canCheckout = minOrderMet && !checkoutBlockedByPolicy
 
     const selectedPaymentLabel = selectedPaymentOption
-        ? `${selectedMethodGroup?.method.name ? `${selectedMethodGroup.method.name} · ` : ''}${selectedPaymentOption.label}`
-        : 'Selecione uma condição'
+        ? `${selectedMethodGroup?.method.name ? `${selectedMethodGroup.method.name} Â· ` : ''}${selectedPaymentOption.label}`
+        : 'Selecione uma condiÃ§Ã£o'
 
     const selectedPaymentDescription =
         selectedPaymentOption?.description ||
@@ -762,10 +764,14 @@ export default function CartPage() {
             const nextMethodGroups = (rulesResponse.paymentMethods || []) as CheckoutPaymentMethodGroup[]
             const nextTableRules = rulesResponse.priceTableRules || []
             const nextConditions = rulesResponse.globalConditions || []
+            const nextCheckoutBlocked = Boolean(rulesResponse.checkoutBlocked)
+            const nextRestrictionMessage = rulesResponse.paymentRestrictionMessage || null
 
             setPaymentMethodGroups(nextMethodGroups)
             setPriceTableRules(nextTableRules)
             setPaymentConditions(nextConditions)
+            setCheckoutBlockedByPolicy(nextCheckoutBlocked)
+            setPaymentRestrictionMessage(nextRestrictionMessage)
 
             const groupedMethods = nextMethodGroups.filter(
                 (group) => group.rules.length > 0 || group.conditions.length > 0
@@ -844,20 +850,43 @@ export default function CartPage() {
             return
         }
 
+        if (checkoutBlockedByPolicy) {
+            toast.error(
+                paymentRestrictionMessage ||
+                    'Checkout indisponivel para o perfil financeiro deste cliente.'
+            )
+            return
+        }
+
         if (!minOrderMet) {
             toast.error(`Pedido minimo: R$ ${settings?.min_order_amount?.toFixed(2)}`)
             return
         }
 
         if (!selectedPayment) {
-            toast.error('Selecione um meio e uma condição de pagamento.')
+            toast.error('Selecione um meio e uma condiÃ§Ã£o de pagamento.')
             return
         }
 
         setConfirmCheckoutOpen(true)
-    }, [items.length, minOrderMet, selectedPayment, settings?.min_order_amount])
+    }, [
+        checkoutBlockedByPolicy,
+        items.length,
+        minOrderMet,
+        paymentRestrictionMessage,
+        selectedPayment,
+        settings?.min_order_amount,
+    ])
 
     const processOrder = useCallback(async () => {
+        if (checkoutBlockedByPolicy) {
+            toast.error(
+                paymentRestrictionMessage ||
+                    'Checkout indisponivel para o perfil financeiro deste cliente.'
+            )
+            return
+        }
+
         setLoading(true)
         setConfirmCheckoutOpen(false)
 
@@ -906,7 +935,17 @@ export default function CartPage() {
             toast.error('Ocorreu um erro interno de conexao.')
             setLoading(false)
         }
-    }, [clearCart, isTableRule, items, notes, router, selectedAddressId, selectedPayment])
+    }, [
+        checkoutBlockedByPolicy,
+        clearCart,
+        isTableRule,
+        items,
+        notes,
+        paymentRestrictionMessage,
+        router,
+        selectedAddressId,
+        selectedPayment,
+    ])
 
     if (items.length === 0) {
         return <EmptyCartState onCatalog={() => router.push('/catalog')} />
@@ -1040,7 +1079,7 @@ export default function CartPage() {
                             </div>
                         </CheckoutSection>
 
-                        {/* ── Mobile: Pagamento Card ────────────────── */}
+                        {/* â”€â”€ Mobile: Pagamento Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden mb-4">
                             <div className="border-b border-slate-100 px-4 py-3.5">
                                 <div className="flex items-center gap-2.5">
@@ -1056,9 +1095,24 @@ export default function CartPage() {
                                 </div>
                             </div>
                             <div className="px-4 py-4 space-y-4">
+                                {paymentRestrictionMessage && (
+                                    <div
+                                        className={cn(
+                                            'rounded-xl border px-3 py-3 text-sm',
+                                            checkoutBlockedByPolicy
+                                                ? 'border-red-200 bg-red-50 text-red-700'
+                                                : 'border-amber-200 bg-amber-50 text-amber-700'
+                                        )}
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                            <p>{paymentRestrictionMessage}</p>
+                                        </div>
+                                    </div>
+                                )}
                                 {paymentOptions.length === 0 ? (
                                     <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
-                                        Nenhum meio de pagamento disponível.
+                                        Nenhum meio de pagamento disponÃ­vel.
                                     </div>
                                 ) : (
                                     <>
@@ -1088,7 +1142,7 @@ export default function CartPage() {
                                                                     disabled={!hasOptions}
                                                                 >
                                                                     {group.method.name}
-                                                                    {!hasOptions && ' (indisponível)'}
+                                                                    {!hasOptions && ' (indisponÃ­vel)'}
                                                                 </SelectItem>
                                                             )
                                                         })}
@@ -1141,7 +1195,7 @@ export default function CartPage() {
                                 )}
                             </div>
                         </div>
-                        {/* ── Mobile: Entrega Card ──────────────────── */}
+                        {/* â”€â”€ Mobile: Entrega Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
                             <div className="border-b border-slate-100 px-4 py-3.5">
                                 <div className="flex items-center justify-between gap-3">
@@ -1245,7 +1299,7 @@ export default function CartPage() {
                             </div>
                         </div>
 
-                        {/* ── Mobile: Observações Card ──────────────── */}
+                        {/* â”€â”€ Mobile: ObservaÃ§Ãµes Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
                             <div className="border-b border-slate-100 px-4 py-3.5">
                                 <div className="flex items-center gap-2.5">
@@ -1269,7 +1323,7 @@ export default function CartPage() {
                             </div>
                         </div>
 
-                        {/* ── Desktop: Endereço de entrega ─────────── */}
+                        {/* â”€â”€ Desktop: EndereÃ§o de entrega â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                         <CheckoutSection
                             icon={Truck}
                             eyebrow="Endereco"
@@ -1359,7 +1413,7 @@ export default function CartPage() {
                             </div>
                         </CheckoutSection>
 
-                        {/* ── Desktop: Observações ──────────────────── */}
+                        {/* â”€â”€ Desktop: ObservaÃ§Ãµes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                         <CheckoutSection
                             icon={MessageSquare}
                             eyebrow="Contexto"
@@ -1394,7 +1448,23 @@ export default function CartPage() {
                                         </div>
                                     )}
 
-                                    {/* ── Forma de Pagamento ──────────────── */}
+                                    {paymentRestrictionMessage && (
+                                        <div
+                                            className={cn(
+                                                'rounded-xl border px-3 py-3 text-sm',
+                                                checkoutBlockedByPolicy
+                                                    ? 'border-red-200 bg-red-50 text-red-700'
+                                                    : 'border-amber-200 bg-amber-50 text-amber-700'
+                                            )}
+                                        >
+                                            <div className="flex items-start gap-2">
+                                                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                                <p>{paymentRestrictionMessage}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* â”€â”€ Forma de Pagamento â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                                     {paymentMethodGroups.length > 0 && (
                                         <div className="space-y-2">
                                             <Label className="text-sm font-semibold text-slate-800">
@@ -1421,7 +1491,7 @@ export default function CartPage() {
                                                                 disabled={!hasOptions}
                                                             >
                                                                 {group.method.name}
-                                                                {!hasOptions && ' (indisponível)'}
+                                                                {!hasOptions && ' (indisponÃ­vel)'}
                                                             </SelectItem>
                                                         )
                                                     })}
@@ -1430,7 +1500,7 @@ export default function CartPage() {
                                         </div>
                                     )}
 
-                                    {/* ── Tipo / Condição de Pagamento ────── */}
+                                    {/* â”€â”€ Tipo / CondiÃ§Ã£o de Pagamento â”€â”€â”€â”€â”€â”€ */}
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between gap-2">
                                             <Label className="text-sm font-semibold text-slate-800">
@@ -1474,7 +1544,7 @@ export default function CartPage() {
 
                                     <Separator />
 
-                                    {/* ── Resumo financeiro ─────────────── */}
+                                    {/* â”€â”€ Resumo financeiro â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                                     <div className="space-y-2.5">
                                         <SummaryRow
                                             label={`Itens (${count})`}
@@ -1489,14 +1559,14 @@ export default function CartPage() {
                                         )}
                                         {paymentSurcharge > 0 && (
                                             <SummaryRow
-                                                label={`Acréscimo de pagamento (${surchargePercentage}%)`}
+                                                label={`AcrÃ©scimo de pagamento (${surchargePercentage}%)`}
                                                 value={`+ R$ ${formatCurrency(paymentSurcharge)}`}
                                                 emphasis="warning"
                                             />
                                         )}
                                     </div>
 
-                                    {/* ── Total Final ──────────────────── */}
+                                    {/* â”€â”€ Total Final â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                                     <div className="rounded-2xl gradient-navy px-4 py-4">
                                         <div className="flex items-end justify-between gap-4">
                                             <div className="space-y-1">
@@ -1530,7 +1600,7 @@ export default function CartPage() {
                                     <Button
                                         className="h-12 w-full rounded-xl gradient-bronze border-0 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg"
                                         onClick={handlePlaceOrder}
-                                        disabled={loading || !minOrderMet}
+                                        disabled={loading || !canCheckout}
                                     >
                                         {loading ? (
                                             <Loader2 className="h-5 w-5 animate-spin" />
@@ -1566,7 +1636,7 @@ export default function CartPage() {
                     <Button
                         className="h-11 min-w-[168px] rounded-xl gradient-bronze border-0 px-5 text-white shadow-md transition-all hover:shadow-lg"
                         onClick={handlePlaceOrder}
-                        disabled={loading || !minOrderMet}
+                        disabled={loading || !canCheckout}
                     >
                         {loading ? (
                             <Loader2 className="h-5 w-5 animate-spin" />
@@ -1671,5 +1741,6 @@ export default function CartPage() {
         </div>
     )
 }
+
 
 

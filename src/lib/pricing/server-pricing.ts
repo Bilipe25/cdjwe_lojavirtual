@@ -1,5 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
+﻿import { createClient } from '@/lib/supabase/server'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
+import { resolveEffectivePriceTableIdForStore } from '@/lib/commercial/store-commercial'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
@@ -85,27 +86,12 @@ export async function resolvePriceTableIdForStore(
     storeId: string,
     preferredPriceTableId?: string | null
 ) {
-    if (preferredPriceTableId) return preferredPriceTableId
+    const resolved = await resolveEffectivePriceTableIdForStore(supabase, {
+        storeId,
+        preferredPriceTableId: preferredPriceTableId || null,
+    })
 
-    const { data: pivot } = await supabase
-        .from('store_price_tables')
-        .select('price_table_id')
-        .eq('store_id', storeId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-
-    let tableId = pivot?.price_table_id || null
-    if (!tableId) {
-        const { data: defaultTable } = await supabase
-            .from('price_tables')
-            .select('id')
-            .eq('is_default', true)
-            .single()
-        tableId = defaultTable?.id || null
-    }
-
-    return tableId
+    return resolved.priceTableId
 }
 
 export async function getPriceTableContextForStore(
@@ -328,3 +314,4 @@ export async function getVariantPricingSnapshotsForStore(
         missingVariantIds: Array.from(new Set(missingVariantIds)),
     }
 }
+

@@ -3,9 +3,15 @@
 import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { usePriceTableStore } from '@/lib/stores/price-table-store'
+import {
+    getStoreCommercialSettings,
+    resolveEffectivePriceTableIdForStore,
+} from '@/lib/commercial/store-commercial'
+import { useCustomerCommercialStore } from '@/lib/stores/customer-commercial-store'
 
 export function PriceTableInitializer() {
     const { setTableData, clearTableData } = usePriceTableStore()
+    const { setSettings, clearSettings } = useCustomerCommercialStore()
     const initialized = useRef(false)
 
     useEffect(() => {
@@ -18,6 +24,7 @@ export function PriceTableInitializer() {
                 const { data: { user } } = await supabase.auth.getUser()
                 if (!user) {
                     clearTableData()
+                    clearSettings()
                     return
                 }
 
@@ -30,30 +37,18 @@ export function PriceTableInitializer() {
 
                 if (!store) {
                     clearTableData()
+                    clearSettings()
                     return
                 }
 
-                // Get Active Price Table mapping
-                const { data: pivot } = await supabase
-                    .from('store_price_tables')
-                    .select('price_table_id')
-                    .eq('store_id', store.id)
-                    .order('created_at', { ascending: false })
-                    .limit(1)
-                    .single()
+                const commercialSettings = await getStoreCommercialSettings(supabase, store.id)
+                setSettings(commercialSettings)
 
-                let tableId = pivot?.price_table_id
-
-                if (!tableId) {
-                    // Fallback to default
-                    const { data: defaultTable } = await supabase
-                        .from('price_tables')
-                        .select('id')
-                        .eq('is_default', true)
-                        .single()
-                    
-                    tableId = defaultTable?.id
-                }
+                const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(supabase, {
+                    storeId: store.id,
+                    settings: commercialSettings,
+                })
+                const tableId = resolvedPriceTable.priceTableId
 
                 if (!tableId) {
                     clearTableData()
@@ -99,12 +94,13 @@ export function PriceTableInitializer() {
 
             } catch (error) {
                 console.error('[PriceTableInitializer] Error:', error)
+                clearSettings()
                 // Don't clear on network error to keep cached state if possible, or clear depending on strictness
             }
         }
 
         initializeTable()
-    }, [setTableData, clearTableData])
+    }, [setTableData, clearTableData, setSettings, clearSettings])
 
     return null
 }

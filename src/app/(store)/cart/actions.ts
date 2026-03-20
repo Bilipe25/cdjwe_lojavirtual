@@ -4,6 +4,13 @@ import { createClient } from '@/lib/supabase/server'
 import type { CartItem } from '@/lib/types'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
 import {
+    applyCommercialPaymentAvailability,
+    getStoreCommercialSettings,
+    resolveEffectivePriceTableIdForStore,
+    validateCheckoutSelectionAgainstCommercialSettings,
+    validateStoreCreditLimitForOrder,
+} from '@/lib/commercial/store-commercial'
+import {
     getAvailableCheckoutPayments,
     resolveCheckoutPaymentSelection,
 } from '@/lib/payments/checkout-payment'
@@ -132,6 +139,10 @@ function mapAtomicOrderErrorToUserMessage(errorMessage: string) {
     if (normalized.includes('loja nao encontrada')) return 'Sua loja nao foi localizada. Atualize a pagina e tente novamente.'
     if (normalized.includes('loja nao pertence ao perfil')) return 'Nao foi possivel validar sua loja. Atualize a pagina e tente novamente.'
     if (normalized.includes('itens do pedido sao obrigatorios')) return 'Seu carrinho ficou vazio durante a validacao. Revise e tente novamente.'
+    if (normalized.includes('vendas restritas')) return 'Este cliente esta com vendas restritas para novos pedidos.'
+    if (normalized.includes('somente a vista')) return 'Este cliente pode comprar somente a vista (1 parcela).'
+    if (normalized.includes('limite de credito excedido')) return 'Limite de credito excedido para este cliente.'
+    if (normalized.includes('politica comercial do cliente')) return 'Pagamento invalido para a politica comercial deste cliente.'
     if (isDuplicateOrderNumber(errorMessage)) return 'Conflito temporario na numeracao do pedido. Tente novamente em instantes.'
     if (isMissingExtendedAtomicSignature(errorMessage)) {
         return 'Banco desatualizado para o checkout atomico. Aplique as migrations pendentes de pedidos e pagamentos (013, 023, 025, 027 e 028).'
@@ -166,25 +177,8 @@ async function resolveActivePriceTableId(
     supabase: Awaited<ReturnType<typeof createClient>>,
     storeId: string
 ) {
-    const { data: pivot } = await supabase
-        .from('store_price_tables')
-        .select('price_table_id')
-        .eq('store_id', storeId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-
-    let tableId = pivot?.price_table_id || null
-    if (!tableId) {
-        const { data: defaultTable } = await supabase
-            .from('price_tables')
-            .select('id')
-            .eq('is_default', true)
-            .single()
-        tableId = defaultTable?.id || null
-    }
-
-    return tableId
+    const resolved = await resolveEffectivePriceTableIdForStore(supabase, { storeId })
+    return resolved.priceTableId
 }
 
 async function getActivePriceTableContext(
@@ -304,47 +298,52 @@ export async function getAvailablePaymentRules(cartTotal: number) {
     const {
         data: { user },
     } = await supabase.auth.getUser()
-    if (!user) return { globalConditions: [] }
+    if (!user) {
+        return {
+            priceTableRules: [],
+            globalConditions: [],
+            paymentMethods: [],
+            financialProfile: 'no_restriction',
+            checkoutBlocked: false,
+            paymentRestrictionMessage: null as string | null,
+        }
+    }
 
     const { data: store } = await supabase
         .from('stores')
         .select('id')
         .eq('profile_id', user.id)
         .single()
-    if (!store) return { globalConditions: [] }
-
-    let priceTableId = await resolveActivePriceTableId(supabase, store.id)
-
-    if (priceTableId) {
-        const { data: priceTable } = await supabase
-            .from('price_tables')
-            .select('is_active, valid_from, valid_until')
-            .eq('id', priceTableId)
-            .single()
-
-        if (!priceTable || !priceTable.is_active) {
-            priceTableId = null
-        } else {
-            const now = new Date()
-            const validFrom = priceTable.valid_from ? new Date(priceTable.valid_from) : null
-            const validUntil = priceTable.valid_until ? new Date(priceTable.valid_until) : null
-            const isStarted = !validFrom || now >= validFrom
-            const isExpired = validUntil && now > validUntil
-            if (!isStarted || isExpired) {
-                priceTableId = null
-            }
+    if (!store) {
+        return {
+            priceTableRules: [],
+            globalConditions: [],
+            paymentMethods: [],
+            financialProfile: 'no_restriction',
+            checkoutBlocked: false,
+            paymentRestrictionMessage: null as string | null,
         }
     }
 
-    const availability = await getAvailableCheckoutPayments(supabase, {
-        cartTotal,
-        priceTableId,
+    const commercialSettings = await getStoreCommercialSettings(supabase, store.id)
+    const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(supabase, {
+        storeId: store.id,
+        settings: commercialSettings,
     })
 
+    const availability = await getAvailableCheckoutPayments(supabase, {
+        cartTotal,
+        priceTableId: resolvedPriceTable.priceTableId,
+    })
+    const filteredAvailability = applyCommercialPaymentAvailability(availability, commercialSettings)
+
     return {
-        priceTableRules: availability.priceTableRules,
-        globalConditions: availability.globalConditions,
-        paymentMethods: availability.methodGroups,
+        priceTableRules: filteredAvailability.priceTableRules,
+        globalConditions: filteredAvailability.globalConditions,
+        paymentMethods: filteredAvailability.methodGroups,
+        financialProfile: commercialSettings?.financial_profile || 'no_restriction',
+        checkoutBlocked: filteredAvailability.blocked,
+        paymentRestrictionMessage: filteredAvailability.reason,
     }
 }
 
@@ -556,6 +555,11 @@ export async function checkoutAction(
         .single()
     if (!store || storeError) return { error: 'Loja do usuario nao localizada no sistema.' }
 
+    const commercialSettings = await getStoreCommercialSettings(supabase, store.id)
+    if (commercialSettings?.financial_profile === 'block_sales') {
+        return { error: 'Este cliente esta com vendas restritas e nao pode finalizar novos pedidos.' }
+    }
+
     const variantIds = Array.from(new Set(items.map((item) => item.variantId)))
     const sizeOptionIds = Array.from(
         new Set(items.map((item) => item.sizeOptionId).filter((value): value is string => Boolean(value)))
@@ -636,7 +640,11 @@ export async function checkoutAction(
         return { error: `Pedido minimo obrigatorio de R$ ${settings.min_order_amount.toFixed(2)}.` }
     }
 
-    const activePriceTableId = await resolveActivePriceTableId(supabase, store.id)
+    const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(supabase, {
+        storeId: store.id,
+        settings: commercialSettings,
+    })
+    const activePriceTableId = resolvedPriceTable.priceTableId
     const resolvedPayment = await resolveCheckoutPaymentSelection(supabase, {
         cartTotal: secureSubtotal,
         selectedPaymentId,
@@ -649,6 +657,16 @@ export async function checkoutAction(
     }
 
     const paymentSelection = resolvedPayment.data
+    const commercialPaymentValidationMessage = validateCheckoutSelectionAgainstCommercialSettings({
+        settings: commercialSettings,
+        paymentMethodId: paymentSelection.paymentMethodId,
+        paymentConditionId: paymentSelection.paymentConditionId,
+        paymentInstallments: paymentSelection.paymentInstallments,
+    })
+    if (commercialPaymentValidationMessage) {
+        return { error: commercialPaymentValidationMessage }
+    }
+
     const discountPercentage = paymentSelection.paymentDiscountPercentage
     const surchargePercentage = paymentSelection.paymentSurchargePercentage
     const paymentRuleId = paymentSelection.paymentRuleId
@@ -658,6 +676,16 @@ export async function checkoutAction(
     let finalTotal = secureSubtotal - paymentDiscount
     const paymentSurcharge = (finalTotal * surchargePercentage) / 100
     finalTotal += paymentSurcharge
+
+    const creditLimitMessage = await validateStoreCreditLimitForOrder({
+        supabase,
+        storeId: store.id,
+        settings: commercialSettings,
+        orderTotal: finalTotal,
+    })
+    if (creditLimitMessage) {
+        return { error: creditLimitMessage }
+    }
 
     let shippingAddressStr: string | null = null
     let addressQuery = supabase.from('store_addresses').select('*').eq('store_id', store.id)

@@ -8,6 +8,13 @@ import {
     resolveCheckoutPaymentSelection,
 } from '@/lib/payments/checkout-payment'
 import {
+    applyCommercialPaymentAvailability,
+    getStoreCommercialSettings,
+    resolveEffectivePriceTableIdForStore,
+    validateCheckoutSelectionAgainstCommercialSettings,
+    validateStoreCreditLimitForOrder,
+} from '@/lib/commercial/store-commercial'
+import {
     PRODUCT_VARIANT_DETAIL_SELECT,
     buildProductFabricGroups,
 } from '@/lib/products/product-detail'
@@ -500,15 +507,25 @@ export async function getRepresentativePaymentOptions(input: {
         return { error: 'Cliente nao disponivel para este representante.' }
     }
 
-    const availability = await getAvailableCheckoutPayments(admin as never, {
-        cartTotal: toNumber(input.subtotal),
-        priceTableId: input.priceTableId || null,
+    const commercialSettings = await getStoreCommercialSettings(admin as never, store.id)
+    const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(admin as never, {
+        storeId: store.id,
+        preferredPriceTableId: input.priceTableId || null,
+        settings: commercialSettings,
     })
 
+    const availability = await getAvailableCheckoutPayments(admin as never, {
+        cartTotal: toNumber(input.subtotal),
+        priceTableId: resolvedPriceTable.priceTableId,
+    })
+    const filteredAvailability = applyCommercialPaymentAvailability(availability, commercialSettings)
+
     return {
-        paymentMethods: availability.methodGroups,
-        globalConditions: availability.globalConditions,
-        priceTableRules: availability.priceTableRules,
+        paymentMethods: filteredAvailability.methodGroups,
+        globalConditions: filteredAvailability.globalConditions,
+        priceTableRules: filteredAvailability.priceTableRules,
+        checkoutBlocked: filteredAvailability.blocked,
+        restrictionMessage: filteredAvailability.reason,
     }
 }
 
@@ -631,6 +648,18 @@ async function persistRepresentativeDocument(
             return { error: 'Cliente nao disponivel para este representante.' }
         }
 
+        const commercialSettings = await getStoreCommercialSettings(admin as never, store.id)
+        if (mode === 'order' && commercialSettings?.financial_profile === 'block_sales') {
+            return { error: 'Este cliente esta com vendas restritas para novos pedidos.' }
+        }
+
+        const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(admin as never, {
+            storeId: store.id,
+            preferredPriceTableId: payload.priceTableId || null,
+            settings: commercialSettings,
+        })
+        const effectivePriceTableId = resolvedPriceTable.priceTableId
+
         if (!payload.items?.length) {
             return { error: mode === 'order' ? 'Adicione itens ao pedido.' : 'Adicione itens ao orcamento.' }
         }
@@ -643,7 +672,7 @@ async function persistRepresentativeDocument(
                 variantId: item.variantId,
                 sizeOptionId: item.sizeOptionId ?? null,
             })),
-            payload.priceTableId || null
+            effectivePriceTableId
         )
 
         if ('error' in pricingResult && pricingResult.error) {
@@ -687,12 +716,25 @@ async function persistRepresentativeDocument(
                 cartTotal: negotiation.adjustedSubtotal,
                 selectedPaymentId: payload.selectedPaymentId,
                 isTableRule: Boolean(payload.isTableRule),
-                priceTableId: payload.priceTableId || null,
+                priceTableId: effectivePriceTableId,
             })
             : { data: null, error: null }
 
         if (paymentSelection.error) {
             return { error: paymentSelection.error }
+        }
+
+        if (paymentSelection.data) {
+            const selectionValidationError = validateCheckoutSelectionAgainstCommercialSettings({
+                settings: commercialSettings,
+                paymentMethodId: paymentSelection.data.paymentMethodId,
+                paymentConditionId: paymentSelection.data.paymentConditionId,
+                paymentInstallments: paymentSelection.data.paymentInstallments,
+            })
+
+            if (selectionValidationError) {
+                return { error: selectionValidationError }
+            }
         }
 
         const paymentDiscountPercentage = paymentSelection.data?.paymentDiscountPercentage || 0
@@ -701,6 +743,18 @@ async function persistRepresentativeDocument(
         const afterPaymentDiscount = Math.max(0, negotiation.adjustedSubtotal - paymentDiscountAmount)
         const paymentSurchargeAmount = afterPaymentDiscount * (paymentSurchargePercentage / 100)
         const total = Math.max(0, afterPaymentDiscount + paymentSurchargeAmount)
+
+        if (mode === 'order') {
+            const creditLimitMessage = await validateStoreCreditLimitForOrder({
+                supabase: admin as never,
+                storeId: store.id,
+                settings: commercialSettings,
+                orderTotal: total,
+            })
+            if (creditLimitMessage) {
+                return { error: creditLimitMessage }
+            }
+        }
 
         let shippingAddress: string | null = null
         if (payload.selectedAddressId) {
@@ -741,7 +795,7 @@ async function persistRepresentativeDocument(
         if (mode === 'order') {
             const { data, error } = await supabase.rpc('representative_create_order_atomic', {
                 p_store_id: store.id,
-                p_price_table_id: payload.priceTableId || null,
+                p_price_table_id: effectivePriceTableId,
                 p_payment_method_id: paymentSelection.data?.paymentMethodId || null,
                 p_payment_condition_id: paymentSelection.data?.paymentConditionId || null,
                 p_payment_rule_id: paymentSelection.data?.paymentRuleId || null,
@@ -777,7 +831,7 @@ async function persistRepresentativeDocument(
 
         const { data, error } = await supabase.rpc('representative_create_quote_atomic', {
             p_store_id: store.id,
-            p_price_table_id: payload.priceTableId || null,
+            p_price_table_id: effectivePriceTableId,
             p_payment_method_id: paymentSelection.data?.paymentMethodId || null,
             p_payment_condition_id: paymentSelection.data?.paymentConditionId || null,
             p_payment_rule_id: paymentSelection.data?.paymentRuleId || null,

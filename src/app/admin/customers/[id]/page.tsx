@@ -1,17 +1,16 @@
-'use client'
+﻿'use client'
 
-import { useEffect, useState, useMemo, use } from 'react'
+import { useEffect, useState, useMemo, use, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ChevronRight, Building2, ShoppingBag, Shield, Pencil, Key, FileText, Ban, Check, MapPin } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Building2, ShoppingBag, Shield, Pencil, Key, FileText, Ban, Check, MapPin, CreditCard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { getCustomerAuditLog, getCustomerOrders, updateCustomerStatusAsAdmin, getCustomerTags, getRepresentatives } from '../actions'
+import { getCustomerAuditLog, getCustomerOrders, getCustomerTags, getRepresentatives } from '../actions'
 import type { CustomerWithStore } from '../components/CustomerList'
 import type { CustomerLoginAudit, CustomerType, CustomerTag, Profile } from '@/lib/types'
 import type { CustomerOrderSummary } from '../components/CustomerOrdersTab'
@@ -22,6 +21,7 @@ import { CustomerOrdersTab } from '../components/CustomerOrdersTab'
 import { CustomerAuditTab } from '../components/CustomerAuditTab'
 import { CustomerAccessTab } from '../components/CustomerAccessTab'
 import { CustomerAddressManager } from '../components/CustomerAddressManager'
+import { CustomerCommercialTab } from '../components/CustomerCommercialTab'
 
 const statusConfig: Record<string, { label: string; color: string }> = {
     pending: { label: 'Pendente', color: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -40,7 +40,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
     const [customer, setCustomer] = useState<CustomerWithStore | null>(null)
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
-    const [activeTab, setActiveTab] = useState<'general' | 'access' | 'orders' | 'audit' | 'addresses'>('general')
+    const [activeTab, setActiveTab] = useState<'general' | 'access' | 'orders' | 'audit' | 'addresses' | 'commercial'>('general')
 
     // Lookup data states for Edit Drawer
     const [customerTypes, setCustomerTypes] = useState<CustomerType[]>([])
@@ -101,28 +101,43 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
         }
     }, [customerId, supabase])
 
+    const loadAuditTabData = useCallback(async () => {
+        if (!customer || didLoadAudit || loadingAudit) return
+
+        setLoadingAudit(true)
+        try {
+            const result = await getCustomerAuditLog(customer.id)
+            if (result.data) setAuditLog(result.data)
+            setDidLoadAudit(true)
+        } finally {
+            setLoadingAudit(false)
+        }
+    }, [customer, didLoadAudit, loadingAudit])
+
+    const loadOrdersTabData = useCallback(async () => {
+        if (!customer || didLoadOrders || loadingOrders) return
+
+        setLoadingOrders(true)
+        try {
+            const result = await getCustomerOrders(customer.id)
+            if (result.data) setOrders(result.data as CustomerOrderSummary[])
+            setDidLoadOrders(true)
+        } finally {
+            setLoadingOrders(false)
+        }
+    }, [customer, didLoadOrders, loadingOrders])
+
     // Load tabs data when clicked
     useEffect(() => {
-        if (!customer) return
-
-        if (activeTab === 'audit' && !didLoadAudit && !loadingAudit) {
-            setLoadingAudit(true)
-            getCustomerAuditLog(customer.id).then(res => {
-                if (res.data) setAuditLog(res.data)
-                setDidLoadAudit(true)
-                setLoadingAudit(false)
-            })
+        if (activeTab === 'audit') {
+            void loadAuditTabData()
+            return
         }
 
-        if (activeTab === 'orders' && !didLoadOrders && !loadingOrders) {
-            setLoadingOrders(true)
-            getCustomerOrders(customer.id).then(res => {
-                if (res.data) setOrders(res.data as CustomerOrderSummary[])
-                setDidLoadOrders(true)
-                setLoadingOrders(false)
-            })
+        if (activeTab === 'orders') {
+            void loadOrdersTabData()
         }
-    }, [activeTab, customer, didLoadAudit, didLoadOrders, loadingAudit, loadingOrders])
+    }, [activeTab, loadAuditTabData, loadOrdersTabData])
 
     // Inline update handlers
     const handleContactUpdated = (updated: Partial<CustomerWithStore>) => {
@@ -132,6 +147,23 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
     const handleCompanyUpdated = () => {
         // Reload the full profile to get fresh store/type/rep/tags data
         window.location.reload()
+    }
+
+    const handleRepresentativeUpdated = (representativeId: string | null) => {
+        setCustomer((previous) => {
+            if (!previous?.stores?.length) return previous
+
+            const updatedStores = [...previous.stores]
+            const currentStore = { ...updatedStores[0] }
+            currentStore.representative_id = representativeId
+            currentStore.representative = undefined
+            updatedStores[0] = currentStore
+
+            return {
+                ...previous,
+                stores: updatedStores,
+            } as CustomerWithStore
+        })
     }
 
     if (loading) {
@@ -274,11 +306,11 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                 <div className="mt-4 sm:mt-6 pt-4 sm:pt-5 border-t border-border/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
                         <span className="font-medium">E-mail:</span>
-                        <span className="truncate" title={customer.email || ''}>{customer.email || 'NÃ£o informado'}</span>
+                        <span className="truncate" title={customer.email || ''}>{customer.email || 'Nao informado'}</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <span className="font-medium">Telefone:</span>
-                        <span>{customer.phone || 'NÃ£o informado'}</span>
+                        <span>{customer.phone || 'Nao informado'}</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <span className="font-medium">Cadastrado em:</span>
@@ -310,7 +342,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                         }`}
                     >
                         <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                        <span className="hidden sm:inline">Informações Gerais</span>
+                        <span className="hidden sm:inline">Informacoes Gerais</span>
                         <span className="sm:hidden">Geral</span>
                     </button>
                     <button
@@ -330,7 +362,16 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                         }`}
                     >
                         <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                        Endereços
+                        Enderecos
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('commercial')}
+                        className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            activeTab === 'commercial' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        Financeiro/Comercial
                     </button>
                     <button
                         onClick={() => setActiveTab('orders')}
@@ -380,6 +421,22 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                             <CustomerAddressManager storeId={store.id} />
                         ) : (
                             <p className="text-sm text-muted-foreground">Cliente nao possui uma loja/empresa associada para gerenciar enderecos.</p>
+                        )}
+                    </div>
+                )}
+                
+                {activeTab === 'commercial' && (
+                    <div className="bg-white rounded-2xl border p-6 shadow-sm">
+                        {store ? (
+                            <CustomerCommercialTab
+                                storeId={store.id}
+                                initialRepresentativeId={store.representative_id || null}
+                                onRepresentativeUpdated={handleRepresentativeUpdated}
+                            />
+                        ) : (
+                            <p className="text-sm text-muted-foreground">
+                                Cliente nao possui loja associada para configuracao comercial.
+                            </p>
                         )}
                     </div>
                 )}

@@ -64,6 +64,20 @@ export interface StoreAddress {
   updated_at: string
 }
 
+export interface StoreCommercialSettings {
+  id: string
+  store_id: string
+  override_price_table_id: string | null
+  override_payment_method_id: string | null
+  override_payment_condition_id: string | null
+  financial_profile: 'no_restriction' | 'cash_only' | 'block_sales'
+  max_discount_percentage: number | null
+  credit_limit: number | null
+  commercial_notes: string | null
+  created_at: string
+  updated_at: string
+}
+
 // ==================== STORES (Clientes) ====================
 
 export interface Store {
@@ -92,6 +106,7 @@ export interface Store {
   representative?: Profile | null
   store_tags?: StoreTag[]
   store_addresses?: StoreAddress[]
+  commercial_settings?: StoreCommercialSettings | null
 }
 
 // ==================== PRODUCT CATALOG ====================

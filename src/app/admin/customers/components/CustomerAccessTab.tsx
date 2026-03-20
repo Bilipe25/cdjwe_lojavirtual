@@ -5,7 +5,6 @@ import { Key, Copy, Loader2, MessageCircle, Mail, Eye, EyeOff, RefreshCw, Buildi
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { generateCustomerPassword, setCustomerPassword, sendAccessLink } from '../actions'
 import { toast } from 'sonner'

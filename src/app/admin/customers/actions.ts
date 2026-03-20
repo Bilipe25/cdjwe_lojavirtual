@@ -9,6 +9,7 @@ import {
     normalizeCnpj,
     normalizeEmail,
 } from '@/lib/customers/access'
+import { normalizeFinancialProfile, type FinancialProfile } from '@/lib/commercial/types'
 
 // ==================== HELPER: Get Admin Supabase Client ====================
 
@@ -69,6 +70,18 @@ type UpsertCustomerDomainInput = {
     state?: string | null
     zipCode?: string | null
     tagIds?: string[]
+}
+
+type CustomerCommercialSettingsPayload = {
+    storeId: string
+    overridePriceTableId?: string | null
+    overridePaymentMethodId?: string | null
+    overridePaymentConditionId?: string | null
+    financialProfile?: FinancialProfile
+    maxDiscountPercentage?: number | null
+    creditLimit?: number | null
+    commercialNotes?: string | null
+    representativeId?: string | null
 }
 
 async function sendAccountApprovedEmail(params: { email: string; fullName: string }) {
@@ -177,6 +190,16 @@ function toErrorMessage(error: unknown, fallback: string) {
 function isAuthUserMissingError(message?: string) {
     const normalized = (message || '').toLowerCase()
     return normalized.includes('user not found') || normalized.includes('not found')
+}
+
+function toOptionalUuid(value?: string | null) {
+    const normalized = (value || '').trim()
+    return normalized.length > 0 ? normalized : null
+}
+
+function toNullableNumber(value?: number | null) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return null
+    return Number(value)
 }
 
 async function getCustomerDeleteBlocker(
@@ -1054,6 +1077,241 @@ export async function getRepresentatives() {
     } catch (err: unknown) {
         console.error('Get Representatives Error:', err)
         return { error: toErrorMessage(err, 'Erro ao buscar representantes.') }
+    }
+}
+
+// ==================== CUSTOMER COMMERCIAL SETTINGS ====================
+
+export async function getCustomerCommercialSetup(storeId: string) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        if (!storeId) {
+            return { error: 'Cliente sem loja vinculada.' }
+        }
+
+        const [priceTablesRes, methodsRes, conditionsRes, methodLinksRes, repsRes] = await Promise.all([
+            supabaseAdmin
+                .from('price_tables')
+                .select('id, name, discount_percentage, is_default, is_active, valid_from, valid_until')
+                .order('name', { ascending: true }),
+            supabaseAdmin
+                .from('payment_methods')
+                .select('id, code, name, is_active, sort_order')
+                .order('sort_order', { ascending: true }),
+            supabaseAdmin
+                .from('payment_conditions')
+                .select('id, name, installments, is_active, sort_order')
+                .order('sort_order', { ascending: true }),
+            supabaseAdmin
+                .from('payment_method_conditions')
+                .select('id, payment_method_id, payment_condition_id, is_active')
+                .eq('is_active', true),
+            supabaseAdmin
+                .from('profiles')
+                .select('id, full_name, role')
+                .in('role', ['admin', 'representative'])
+                .order('full_name', { ascending: true }),
+        ])
+
+        let schemaReady = true
+        let settingsData: Record<string, unknown> | null = null
+        const { data: settingsRow, error: settingsError } = await supabaseAdmin
+            .from('store_commercial_settings')
+            .select('*')
+            .eq('store_id', storeId)
+            .maybeSingle()
+
+        if (settingsError) {
+            if (settingsError.code === '42P01') {
+                schemaReady = false
+            } else {
+                throw settingsError
+            }
+        } else if (settingsRow) {
+            settingsData = {
+                ...settingsRow,
+                financial_profile: normalizeFinancialProfile(settingsRow.financial_profile),
+            }
+        }
+
+        return {
+            data: {
+                schemaReady,
+                settings: settingsData,
+                lookups: {
+                    priceTables: priceTablesRes.data || [],
+                    paymentMethods: methodsRes.data || [],
+                    paymentConditions: conditionsRes.data || [],
+                    paymentMethodConditions: methodLinksRes.data || [],
+                    representatives: repsRes.data || [],
+                },
+            },
+        }
+    } catch (err: unknown) {
+        console.error('Get Customer Commercial Setup Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao carregar configuracoes comerciais do cliente.') }
+    }
+}
+
+export async function upsertCustomerCommercialSettings(
+    payload: CustomerCommercialSettingsPayload
+) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        if (!payload.storeId) {
+            return { error: 'Loja do cliente nao informada.' }
+        }
+
+        const overridePriceTableId = toOptionalUuid(payload.overridePriceTableId)
+        const overridePaymentMethodId = toOptionalUuid(payload.overridePaymentMethodId)
+        const overridePaymentConditionId = toOptionalUuid(payload.overridePaymentConditionId)
+        const representativeId =
+            payload.representativeId === undefined ? undefined : toOptionalUuid(payload.representativeId)
+
+        const financialProfile = normalizeFinancialProfile(payload.financialProfile)
+        const maxDiscountPercentage = toNullableNumber(payload.maxDiscountPercentage)
+        const creditLimit = toNullableNumber(payload.creditLimit)
+        const commercialNotes = (payload.commercialNotes || '').trim() || null
+
+        if (maxDiscountPercentage !== null && (maxDiscountPercentage < 0 || maxDiscountPercentage > 100)) {
+            return { error: 'Desconto maximo deve ficar entre 0% e 100%.' }
+        }
+
+        if (creditLimit !== null && creditLimit < 0) {
+            return { error: 'Limite de credito nao pode ser negativo.' }
+        }
+
+        if (overridePriceTableId) {
+            const { data: table } = await supabaseAdmin
+                .from('price_tables')
+                .select('id')
+                .eq('id', overridePriceTableId)
+                .limit(1)
+                .maybeSingle()
+            if (!table?.id) {
+                return { error: 'Tabela de preco especifica nao encontrada.' }
+            }
+        }
+
+        if (overridePaymentMethodId) {
+            const { data: method } = await supabaseAdmin
+                .from('payment_methods')
+                .select('id')
+                .eq('id', overridePaymentMethodId)
+                .limit(1)
+                .maybeSingle()
+            if (!method?.id) {
+                return { error: 'Meio de pagamento especifico nao encontrado.' }
+            }
+        }
+
+        let overridePaymentConditionInstallments: number | null = null
+        if (overridePaymentConditionId) {
+            const { data: condition } = await supabaseAdmin
+                .from('payment_conditions')
+                .select('id, installments')
+                .eq('id', overridePaymentConditionId)
+                .limit(1)
+                .maybeSingle()
+            if (!condition?.id) {
+                return { error: 'Condicao de pagamento especifica nao encontrada.' }
+            }
+            overridePaymentConditionInstallments = Number(condition.installments || 1)
+        }
+
+        if (
+            financialProfile === 'cash_only' &&
+            overridePaymentConditionInstallments !== null &&
+            overridePaymentConditionInstallments > 1
+        ) {
+            return {
+                error: 'Perfil "Somente a vista" exige condicao com 1 parcela.',
+            }
+        }
+
+        if (overridePaymentMethodId && overridePaymentConditionId) {
+            const { data: link } = await supabaseAdmin
+                .from('payment_method_conditions')
+                .select('id')
+                .eq('payment_method_id', overridePaymentMethodId)
+                .eq('payment_condition_id', overridePaymentConditionId)
+                .eq('is_active', true)
+                .limit(1)
+                .maybeSingle()
+
+            if (!link?.id) {
+                return {
+                    error: 'A condicao selecionada nao esta ativa para o meio de pagamento escolhido.',
+                }
+            }
+        }
+
+        if (representativeId !== undefined) {
+            if (representativeId) {
+                const { data: representative } = await supabaseAdmin
+                    .from('profiles')
+                    .select('id, role')
+                    .eq('id', representativeId)
+                    .in('role', ['admin', 'representative'])
+                    .limit(1)
+                    .maybeSingle()
+
+                if (!representative?.id) {
+                    return { error: 'Representante vinculado nao encontrado.' }
+                }
+            }
+
+            const { error: repUpdateError } = await supabaseAdmin
+                .from('stores')
+                .update({ representative_id: representativeId || null })
+                .eq('id', payload.storeId)
+
+            if (repUpdateError) {
+                throw repUpdateError
+            }
+        }
+
+        const upsertPayload = {
+            store_id: payload.storeId,
+            override_price_table_id: overridePriceTableId,
+            override_payment_method_id: overridePaymentMethodId,
+            override_payment_condition_id: overridePaymentConditionId,
+            financial_profile: financialProfile,
+            max_discount_percentage: maxDiscountPercentage,
+            credit_limit: creditLimit,
+            commercial_notes: commercialNotes,
+            updated_at: new Date().toISOString(),
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('store_commercial_settings')
+            .upsert(upsertPayload, { onConflict: 'store_id' })
+            .select('*')
+            .single()
+
+        if (error) {
+            if (error.code === '42P01') {
+                return {
+                    error: 'A migration de configuracoes comerciais ainda nao foi aplicada no banco.',
+                }
+            }
+            throw error
+        }
+
+        return {
+            success: true,
+            data: {
+                ...data,
+                financial_profile: normalizeFinancialProfile(data.financial_profile),
+            },
+        }
+    } catch (err: unknown) {
+        console.error('Upsert Customer Commercial Settings Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao salvar configuracoes comerciais.') }
     }
 }
 
