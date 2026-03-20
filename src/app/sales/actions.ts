@@ -910,10 +910,10 @@ export async function createCustomerAsRepresentativeTx(data: {
     state?: string
     zipCode?: string
 }) {
-    const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
-    
-    // Representative can only register under their own scope initially
-    const targetRepresentativeId = scopeRepresentativeId || profile.id
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+    // In admin preview mode we keep it unassigned, while representative users keep own scope.
+    const representativeToAssign = scopeRepresentativeId || null
 
     const { 
         email, 
@@ -980,7 +980,7 @@ export async function createCustomerAsRepresentativeTx(data: {
             p_cnpj: cnpj.replace(/\D/g, ''),
             p_email: normalizedEmail,
             p_customer_type_id: customerTypeId || null,
-            p_representative_id: targetRepresentativeId,
+            p_representative_id: representativeToAssign,
             p_address: address || null,
             p_city: city || null,
             p_state: state || null,
@@ -1019,10 +1019,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
     state?: string
     zipCode?: string
 }) {
-    const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
-    
-    // Representative can only register/edit under their own scope initially
-    const targetRepresentativeId = scopeRepresentativeId || profile.id
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
 
     const { 
         id: storeId, 
@@ -1074,9 +1071,11 @@ export async function updateCustomerAsRepresentativeTx(data: {
             return { error: 'Cliente não encontrado.' }
         }
 
-        if (storeToUpdate.representative_id && storeToUpdate.representative_id !== targetRepresentativeId) {
+        if (scopeRepresentativeId && storeToUpdate.representative_id && storeToUpdate.representative_id !== scopeRepresentativeId) {
             return { error: 'Acesso negado. Cliente pertence a outro representante.' }
         }
+
+        const representativeToPersist = scopeRepresentativeId || storeToUpdate.representative_id || null
 
         // Email collision check
         const { data: currentProfile, error: currentProfileError } = await admin
@@ -1113,7 +1112,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
         }
 
         // 3. Upsert using RPC
-        const { data: rpcData, error: rpcError } = await admin.rpc('admin_upsert_customer_domain', {
+        const { error: rpcError } = await admin.rpc('admin_upsert_customer_domain', {
             p_profile_id: profileId,
             p_full_name: fullName,
             p_phone: phone || null,
@@ -1124,7 +1123,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
             p_cnpj: cnpj.replace(/\D/g, ''),
             p_email: normalizedEmail,
             p_customer_type_id: customerTypeId || null,
-            p_representative_id: targetRepresentativeId,
+            p_representative_id: representativeToPersist,
             p_address: address || null,
             p_city: city || null,
             p_state: state || null,
