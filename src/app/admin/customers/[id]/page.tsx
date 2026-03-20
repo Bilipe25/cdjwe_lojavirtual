@@ -11,18 +11,16 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { getCustomerAuditLog, getCustomerOrders, updateCustomerStatusAsAdmin, getCustomerTags, getRepresentatives, updateCustomerAsAdminTx } from '../actions'
+import { getCustomerAuditLog, getCustomerOrders, updateCustomerStatusAsAdmin, getCustomerTags, getRepresentatives } from '../actions'
 import type { CustomerWithStore } from '../components/CustomerList'
 import type { CustomerLoginAudit, CustomerType, CustomerTag, Profile } from '@/lib/types'
 import type { CustomerOrderSummary } from '../components/CustomerOrdersTab'
-import type { CustomerEditFormData } from '../schema'
 
 // Components
 import { CustomerGeneralTab } from '../components/CustomerGeneralTab'
 import { CustomerOrdersTab } from '../components/CustomerOrdersTab'
 import { CustomerAuditTab } from '../components/CustomerAuditTab'
 import { CustomerAccessTab } from '../components/CustomerAccessTab'
-import { CustomerEditDrawer } from '../components/CustomerEditDrawer'
 import { CustomerAddressManager } from '../components/CustomerAddressManager'
 
 const statusConfig: Record<string, { label: string; color: string }> = {
@@ -48,7 +46,6 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
     const [customerTypes, setCustomerTypes] = useState<CustomerType[]>([])
     const [customerTags, setCustomerTags] = useState<CustomerTag[]>([])
     const [representatives, setRepresentatives] = useState<Partial<Profile>[]>([])
-    const [isEditOpen, setIsEditOpen] = useState(false)
 
     // Tab data states
     const [auditLog, setAuditLog] = useState<CustomerLoginAudit[]>([])
@@ -127,21 +124,14 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
         }
     }, [activeTab, customer, didLoadAudit, didLoadOrders, loadingAudit, loadingOrders])
 
-    // Edit Handler
-    const handleSaveCustomer = async (profileId: string, storeId: string, formData: CustomerEditFormData) => {
-        try {
-            const result = await updateCustomerAsAdminTx(profileId, storeId, formData)
-            if (!result.success) {
-                toast.error(result.error || 'Erro ao atualizar cliente')
-            } else {
-                toast.success('Cliente atualizado com sucesso!')
-                // Force reload
-                window.location.reload()
-            }
-        } catch (error) {
-            console.error(error)
-            toast.error('Erro inesperado ao atualizar')
-        }
+    // Inline update handlers
+    const handleContactUpdated = (updated: Partial<CustomerWithStore>) => {
+        setCustomer(prev => prev ? { ...prev, ...updated } as CustomerWithStore : prev)
+    }
+
+    const handleCompanyUpdated = () => {
+        // Reload the full profile to get fresh store/type/rep/tags data
+        window.location.reload()
     }
 
     if (loading) {
@@ -195,7 +185,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
 
     // Component Content...
     return (
-        <div className="space-y-6 pb-20">
+        <div className="space-y-4 sm:space-y-6 pb-20 overflow-x-hidden">
             {/* Breadcrumb */}
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-2">
                 <Link href="/admin/customers" className="hover:text-navy transition-colors inline-flex items-center font-medium">
@@ -209,28 +199,28 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
             </div>
 
             {/* Premium Header */}
-            <div className="relative rounded-2xl border border-border/60 bg-white/90 shadow-sm overflow-hidden p-6 md:p-8 backdrop-blur-md">
+            <div className="relative rounded-2xl border border-border/60 bg-white/90 shadow-sm overflow-hidden p-4 sm:p-6 md:p-8 backdrop-blur-md">
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
                     {/* Identity Container */}
                     <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 flex-1 text-center sm:text-left z-10 relative">
-                        <div className="h-24 w-24 rounded-full bg-gradient-to-br from-navy via-[#1e293b] to-[#0f172a] flex items-center justify-center shadow-lg shrink-0 border-4 border-white/50 ring-1 ring-black/5">
-                            <span className="text-white font-bold text-3xl tracking-wider">
+                        <div className="h-16 w-16 sm:h-24 sm:w-24 rounded-full bg-gradient-to-br from-navy via-[#1e293b] to-[#0f172a] flex items-center justify-center shadow-lg shrink-0 border-4 border-white/50 ring-1 ring-black/5">
+                            <span className="text-white font-bold text-xl sm:text-3xl tracking-wider">
                                 {customer.full_name.substring(0, 2).toUpperCase()}
                             </span>
                         </div>
                         
                         <div className="flex-1 min-w-0">
-                            <h1 className="text-3xl md:text-4xl font-bold font-heading text-navy flex items-center justify-center sm:justify-start gap-3 flex-wrap leading-tight">
-                                {customer.full_name}
+                            <h1 className="text-xl sm:text-3xl md:text-4xl font-bold font-heading text-navy flex items-center justify-center sm:justify-start gap-2 sm:gap-3 flex-wrap leading-tight wrap-break-word">
+                                <span className="wrap-break-word">{customer.full_name}</span>
                                 <Badge className={`text-xs border shadow-sm px-2.5 py-0.5 ${config.color}`}>
                                     <span className="h-1.5 w-1.5 rounded-full bg-current opacity-75 mr-1.5 inline-block"></span>
                                     {config.label}
                                 </Badge>
                             </h1>
-                            <p className="text-muted-foreground mt-1 text-sm md:text-base flex items-center justify-center sm:justify-start gap-2 flex-wrap">
-                                <Building2 className="h-4 w-4 opacity-70" />
-                                {store?.company_name || 'Sem empresa cadastrada'}
-                                {store?.cnpj && <span className="text-xs opacity-70 ml-1">CNPJ: {store.cnpj}</span>}
+                            <p className="text-muted-foreground mt-1 text-xs sm:text-sm md:text-base flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 flex-wrap">
+                                <Building2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 opacity-70 shrink-0" />
+                                <span className="truncate">{store?.company_name || 'Sem empresa cadastrada'}</span>
+                                {store?.cnpj && <span className="text-xs opacity-70 hidden sm:inline">CNPJ: {store.cnpj}</span>}
                             </p>
                             
                             <div className="flex items-center justify-center sm:justify-start gap-2 mt-3 flex-wrap">
@@ -255,7 +245,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
 
                     {/* Quick Actions Desktop */}
                     <div className="hidden md:flex items-start gap-2 shrink-0">
-                        <Button variant="outline" size="sm" className="bg-white shadow-sm" onClick={() => setIsEditOpen(true)}>
+                        <Button variant="outline" size="sm" className="bg-white shadow-sm" onClick={() => setActiveTab('general')}>
                             <Pencil className="h-4 w-4 mr-2" /> Editar Cadastro
                         </Button>
                         <Button variant="outline" size="sm" className="bg-white shadow-sm" onClick={() => setActiveTab('access')}>
@@ -281,7 +271,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                 </div>
 
                 {/* Info Bar at Header bottom */}
-                <div className="mt-6 pt-5 border-t border-border/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm text-muted-foreground">
+                <div className="mt-4 sm:mt-6 pt-4 sm:pt-5 border-t border-border/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
                         <span className="font-medium">E-mail:</span>
                         <span className="truncate" title={customer.email || ''}>{customer.email || 'NÃ£o informado'}</span>
@@ -298,7 +288,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                 
                 {/* Mobile Actions Bottom */}
                 <div className="flex md:hidden mt-4 gap-2 pt-4 border-t border-border/50 overflow-x-auto pb-1 scrollbar-hide">
-                    <Button variant="outline" size="sm" className="bg-white whitespace-nowrap" onClick={() => setIsEditOpen(true)}>
+                    <Button variant="outline" size="sm" className="bg-white whitespace-nowrap" onClick={() => setActiveTab('general')}>
                         <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
                     </Button>
                     <Button variant="outline" size="sm" className="bg-white whitespace-nowrap" onClick={() => setActiveTab('access')}>
@@ -310,56 +300,71 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                 </div>
             </div>
 
-            {/* Navigation Tabs (Desktop Grid, Mobile Scrollable) */}
-            <div className="flex gap-1 border-b border-border/60 overflow-x-auto scrollbar-hide">
-                <button
-                    onClick={() => setActiveTab('general')}
-                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                        activeTab === 'general' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                    <FileText className="h-4 w-4" /> Informações Gerais
-                </button>
-                <button
-                    onClick={() => setActiveTab('access')}
-                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                        activeTab === 'access' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                    <Key className="h-4 w-4" /> Acessos do Sistema
-                </button>
-                <button
-                    onClick={() => setActiveTab('addresses')}
-                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                        activeTab === 'addresses' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                    <MapPin className="h-4 w-4" /> Endereços
-                </button>
-                <button
-                    onClick={() => setActiveTab('orders')}
-                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                        activeTab === 'orders' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                    <ShoppingBag className="h-4 w-4" /> Pedidos Recentes
-                </button>
-                <button
-                    onClick={() => setActiveTab('audit')}
-                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                        activeTab === 'audit' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                    <Shield className="h-4 w-4" /> Auditoria e Logs
-                </button>
+            {/* Navigation Tabs */}
+            <div className="-mx-4 sm:mx-0">
+                <div className="flex border-b border-border/60 overflow-x-auto scrollbar-hide px-4 sm:px-0">
+                    <button
+                        onClick={() => setActiveTab('general')}
+                        className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            activeTab === 'general' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        <span className="hidden sm:inline">Informações Gerais</span>
+                        <span className="sm:hidden">Geral</span>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('access')}
+                        className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            activeTab === 'access' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <Key className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        <span className="hidden sm:inline">Acessos do Sistema</span>
+                        <span className="sm:hidden">Acessos</span>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('addresses')}
+                        className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            activeTab === 'addresses' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        Endereços
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('orders')}
+                        className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            activeTab === 'orders' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <ShoppingBag className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        Pedidos
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('audit')}
+                        className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            activeTab === 'audit' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        <span className="hidden sm:inline">Auditoria e Logs</span>
+                        <span className="sm:hidden">Auditoria</span>
+                    </button>
+                </div>
             </div>
 
             {/* Tab Contents */}
             <div>
                 {activeTab === 'general' && (
-                    <div className="bg-white rounded-2xl border p-6 shadow-sm">
-                        <CustomerGeneralTab customer={customer} />
-                    </div>
+                    <CustomerGeneralTab
+                        customer={customer}
+                        customerTypes={customerTypes}
+                        customerTags={customerTags}
+                        representatives={representatives}
+                        onContactUpdated={handleContactUpdated}
+                        onCompanyUpdated={handleCompanyUpdated}
+                    />
                 )}
                 
                 {activeTab === 'access' && (
@@ -391,17 +396,6 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                     </div>
                 )}
             </div>
-
-            {/* Global Edit Drawer for this page */}
-            <CustomerEditDrawer 
-                customer={customer}
-                customerTypes={customerTypes}
-                customerTags={customerTags}
-                representatives={representatives}
-                isOpen={isEditOpen}
-                onClose={() => setIsEditOpen(false)}
-                onSave={handleSaveCustomer}
-            />
         </div>
     )
 }

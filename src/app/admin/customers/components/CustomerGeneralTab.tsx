@@ -1,69 +1,49 @@
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Mail, Phone, MapPin } from 'lucide-react'
+import { Clock } from 'lucide-react'
 import type { CustomerWithStore } from './CustomerList'
+import type { CustomerType, CustomerTag, Profile } from '@/lib/types'
+import { ClientContactCard } from './ClientContactCard'
+import { ClientCompanyCard } from './ClientCompanyCard'
 
 interface CustomerGeneralTabProps {
     customer: CustomerWithStore
+    customerTypes: CustomerType[]
+    customerTags: CustomerTag[]
+    representatives: Partial<Profile>[]
+    onContactUpdated: (updated: Partial<CustomerWithStore>) => void
+    onCompanyUpdated: () => void
 }
 
-export function CustomerGeneralTab({ customer }: CustomerGeneralTabProps) {
-    const store = customer.stores?.[0]
-    const customerTypeLabel = store?.customer_type?.name || (store?.customer_type_id ? 'Tipo vinculado (inativo)' : null)
-    const representativeLabel = store?.representative?.full_name || (store?.representative_id ? 'Representante vinculado (inativo)' : null)
-
+export function CustomerGeneralTab({ customer, customerTypes, customerTags, representatives, onContactUpdated, onCompanyUpdated }: CustomerGeneralTabProps) {
     return (
-        <div className="space-y-5">
-            {/* Contact Info */}
-            <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-navy">Contato</h4>
-                <div className="bg-white rounded-lg p-3 space-y-2.5 text-sm border">
-                    <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span>{customer.email}</span>
-                    </div>
-                    {customer.phone && (
-                        <div className="flex items-center gap-2">
-                            <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-                            <span>{customer.phone}</span>
-                        </div>
-                    )}
-                </div>
-            </div>
+        <div className="space-y-4">
+            {/* Contact Card */}
+            <ClientContactCard customer={customer} onUpdated={onContactUpdated} />
 
-            {/* Company Info */}
-            {store && (
-                <div className="space-y-3">
-                    <h4 className="text-sm font-semibold text-navy">Empresa</h4>
-                    <div className="bg-white rounded-lg p-3 space-y-1.5 text-sm border">
-                        <p><strong>Razão Social:</strong> {store.company_name}</p>
-                        {store.trade_name && <p><strong>Nome Fantasia:</strong> {store.trade_name}</p>}
-                        <p><strong>CNPJ:</strong> {store.cnpj}</p>
-                        {customerTypeLabel && <p><strong>Tipo:</strong> {customerTypeLabel}</p>}
-                        {representativeLabel && <p><strong>Representante:</strong> {representativeLabel}</p>}
-                    </div>
-                </div>
-            )}
+            {/* Company Card */}
+            <ClientCompanyCard
+                customer={customer}
+                customerTypes={customerTypes}
+                customerTags={customerTags}
+                representatives={representatives}
+                onUpdated={onCompanyUpdated}
+            />
 
-            {/* Address */}
-            {store?.address && (
-                <div className="space-y-3">
-                    <h4 className="text-sm font-semibold text-navy flex items-center gap-1.5">
-                        <MapPin className="h-4 w-4" /> Endereço
-                    </h4>
-                    <div className="bg-white rounded-lg p-3 text-sm border">
-                        <p>{store.address}</p>
-                        <p>{store.city && `${store.city}`}{store.state && ` - ${store.state}`}{store.zip_code && ` • CEP: ${store.zip_code}`}</p>
+            {/* Metadata (Read-only) */}
+            <div className="rounded-2xl border bg-white p-5 shadow-sm">
+                <h3 className="text-sm font-semibold text-navy flex items-center gap-2 mb-3">
+                    <Clock className="h-4 w-4" /> Linha do Tempo
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Cadastrado em</p>
+                        <p className="text-sm font-medium">{format(new Date(customer.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</p>
                     </div>
-                </div>
-            )}
-
-            {/* Metadata */}
-            <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-navy">Info</h4>
-                <div className="bg-white rounded-lg p-3 text-xs text-muted-foreground space-y-1 border">
-                    <p>Cadastrado em: {format(new Date(customer.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</p>
-                    <p>Atualizado em: {format(new Date(customer.updated_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</p>
+                    <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Última atualização</p>
+                        <p className="text-sm font-medium">{format(new Date(customer.updated_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</p>
+                    </div>
                 </div>
             </div>
         </div>
