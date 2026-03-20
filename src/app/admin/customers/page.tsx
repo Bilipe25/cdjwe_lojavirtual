@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -23,7 +24,6 @@ import { CustomerFilters } from './components/CustomerFilters'
 import { CustomerList, type CustomerWithStore } from './components/CustomerList'
 import { CustomerOverviewCards, type OverviewFilterKey } from './components/CustomerOverviewCards'
 import { CustomerFormModal } from './components/CustomerFormModal'
-import { CustomerDetailModal } from './components/CustomerDetailModal'
 import { CustomerEditDrawer } from './components/CustomerEditDrawer'
 import { CustomerImportModal } from './components/CustomerImportModal'
 import { CustomerAccessModal } from './components/CustomerAccessModal'
@@ -46,6 +46,7 @@ const PLACEHOLDER_EMAIL_OR_FILTER = [
 ].join(',')
 
 export default function CustomersPage() {
+    const router = useRouter()
     const supabase = useMemo(() => createClient(), [])
 
     // Data State
@@ -72,7 +73,6 @@ export default function CustomersPage() {
     const [overviewFilter, setOverviewFilter] = useState<OverviewFilterKey>('registered')
 
     // Modals & Selection State
-    const [selectedCustomer, setSelectedCustomer] = useState<CustomerWithStore | null>(null)
     const [isCreateOpen, setIsCreateOpen] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
     const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -484,7 +484,7 @@ export default function CustomersPage() {
                 loading={loading}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
-                onViewDetail={setSelectedCustomer}
+                onViewDetail={(c) => router.push(`/admin/customers/${c.id}`)}
                 onUpdateStatus={updateStatus}
                 onEditCustomer={setEditCustomer}
                 onManageAccess={setAccessCustomer}
@@ -516,14 +516,6 @@ export default function CustomersPage() {
                     </div>
                 </div>
             )}
-
-            {/* Detail Drawer */}
-            <CustomerDetailModal 
-                customer={selectedCustomer}
-                onClose={() => setSelectedCustomer(null)}
-                onEdit={(c) => { setSelectedCustomer(null); setEditCustomer(c); }}
-                onManageAccess={(c) => { setSelectedCustomer(null); setAccessCustomer(c); }}
-            />
 
             {/* Create Modal */}
             <CustomerFormModal 
