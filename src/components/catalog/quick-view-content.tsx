@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { Package, ShoppingCart, Search, Minus, Plus, Heart } from 'lucide-react'
@@ -27,6 +27,7 @@ export interface QuickViewAddToCartSummaryItem {
     fabricName: string
     colorName: string
     sizeName: string | null
+    sizeOptionId: string | null
     quantity: number
     unitPrice: number
     lineTotal: number
@@ -322,6 +323,7 @@ export function QuickViewContent({
                     fabricName: fabric?.name || '',
                     colorName: color?.name || '',
                     sizeName: resolvedSizeName,
+                    sizeOptionId: resolvedSizeOptionId,
                     quantity,
                     unitPrice: priceBreakdown.unitPrice,
                     lineTotal: priceBreakdown.unitPrice * quantity,

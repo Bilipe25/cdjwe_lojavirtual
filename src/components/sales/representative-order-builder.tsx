@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { ChevronLeft, ChevronRight, FileText, Loader2, Minus, Package, Plus, Search, ShoppingBag, Trash2, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileText, Loader2, Mail, MapPin, Minus, Package, Pencil, Phone, Plus, Search, ShoppingBag, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 import type {
@@ -194,6 +194,7 @@ export function RepresentativeOrderBuilder({
   const [customerSearch, setCustomerSearch] = useState('')
   const [isCustomerSearchActive, setIsCustomerSearchActive] = useState(false)
   const [isCustomerSheetOpen, setIsCustomerSheetOpen] = useState(false)
+  const [previewCustomer, setPreviewCustomer] = useState<BuilderCustomer | null>(null)
   const [isProductOverlayOpen, setIsProductOverlayOpen] = useState(false)
   const [isCustomerFormOpen, setIsCustomerFormOpen] = useState(false)
   const [editingStore, setEditingStore] = useState<BuilderCustomer | null>(null)
@@ -563,81 +564,215 @@ export function RepresentativeOrderBuilder({
       {mobileContent}
       {desktopContent}
 
-      {/* Modals de Seleção UX Native */}
-      <Sheet open={isCustomerSheetOpen} onOpenChange={(open: boolean) => { setIsCustomerSheetOpen(open); if (!open) { setCustomerSearch(''); setIsCustomerSearchActive(false) } }}>
-        <SheetContent side="bottom" className="h-[95dvh] min-h-0 overflow-hidden rounded-t-3xl border-border bg-card p-0 flex flex-col sm:max-w-md sm:mx-auto sm:right-auto sm:left-1/2 sm:-translate-x-1/2">
-          {/* Header Profissional com Busca Animada */}
-          <div className="shrink-0 border-b border-border/40 gradient-navy px-4 py-3 text-white flex items-center justify-between relative overflow-hidden h-14">
-            <div className={cn("flex items-center gap-3 transition-all duration-300", isCustomerSearchActive ? "opacity-0 -translate-x-10 pointer-events-none" : "opacity-100 translate-x-0")}>
-              <button 
-                onClick={() => setIsCustomerSheetOpen(false)} 
-                className="rounded-full p-1.5 hover:bg-white/20 transition-colors"
-                title="Voltar"
-              >
-                <ChevronLeft className="h-6 w-6" />
-              </button>
-              <h2 className="text-lg font-bold font-heading">Clientes</h2>
-            </div>
+      {/* ─── Customer Selection Fullpage Overlay ─── */}
+      {isCustomerSheetOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background">
 
-            <div className={cn(
-              "absolute inset-y-0 left-0 right-14 px-4 flex items-center transition-all duration-300",
-              isCustomerSearchActive ? "opacity-100 translate-x-0" : "opacity-0 translate-x-10 pointer-events-none"
-            )}>
-              <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" />
-                <Input 
-                  value={customerSearch} 
-                  onChange={(e) => setCustomerSearch(e.target.value)} 
-                  placeholder="Buscar por Razão Social..." 
-                  className="h-10 rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/40 pl-10 focus:bg-white/20 transition-all border-0 focus-visible:ring-1 focus-visible:ring-white/30"
-                  autoFocus={isCustomerSearchActive}
-                />
+          {/* ─── View: Customer Detail ─── */}
+          {previewCustomer ? (
+            <>
+              {/* Header — navy bar with back + title + edit */}
+              <div className="shrink-0 gradient-navy px-4 py-3 text-white flex items-center justify-between h-14">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setPreviewCustomer(null)}
+                    className="rounded-full p-1.5 hover:bg-white/20 transition-colors"
+                    title="Voltar"
+                  >
+                    <ChevronLeft className="h-6 w-6" />
+                  </button>
+                  <h2 className="text-lg font-bold font-heading">Dados do cliente</h2>
+                </div>
+                <button
+                  onClick={() => { setEditingStore(previewCustomer); setIsCustomerFormOpen(true) }}
+                  className="rounded-full p-2 hover:bg-white/20 transition-colors"
+                  title="Editar"
+                >
+                  <Pencil className="h-5 w-5" />
+                </button>
               </div>
-            </div>
 
-            <div className="flex items-center gap-1 shrink-0 bg-transparent">
-              <button 
-                onClick={() => setIsCustomerSearchActive(!isCustomerSearchActive)} 
-                className={cn("rounded-full p-2 transition-colors", isCustomerSearchActive ? "bg-white/20" : "hover:bg-white/20")}
-                title="Buscar"
-              >
-                <Search className="h-5 w-5" />
-              </button>
-              <button 
-                onClick={() => { setEditingStore(null); setIsCustomerFormOpen(true) }} 
-                className="rounded-full p-2 hover:bg-white/20 transition-colors"
-                title="Novo Cliente"
-              >
-                <Plus className="h-6 w-6" />
-              </button>
-            </div>
-          </div>
+              {/* Body — customer info */}
+              <div className="flex-1 overflow-y-auto overscroll-y-contain bg-background" style={{ WebkitOverflowScrolling: 'touch' }}>
+                {/* Company header */}
+                <div className="px-5 pt-5 pb-4">
+                  <h3 className="text-lg font-bold text-foreground leading-snug">{previewCustomer.company_name}</h3>
+                  {previewCustomer.cnpj && <p className="text-sm text-muted-foreground mt-0.5">CNPJ: {previewCustomer.cnpj}</p>}
+                  {previewCustomer.state_registration && <p className="text-sm text-muted-foreground">Inscrição Estadual: {previewCustomer.state_registration}</p>}
+                  {previewCustomer.customer_code && <p className="text-sm text-muted-foreground">Código: #{previewCustomer.customer_code}</p>}
+                </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 space-y-2 bg-muted/10" style={{ WebkitOverflowScrolling: "touch" }}>
-            {filteredCustomers.length === 0 ? (
-               <div className="flex flex-col h-40 items-center justify-center text-sm text-muted-foreground gap-2">
-                 <Users className="h-8 w-8 opacity-20" />
-                 <p>Nenhum cliente encontrado.</p>
-               </div>
-            ) : filteredCustomers.map(c => (
-              <button 
-                key={c.id} 
-                onClick={() => { handleStoreChange(c.id); setIsCustomerSheetOpen(false); setCustomerSearch(''); setIsCustomerSearchActive(false) }} 
-                className="w-full text-left p-4 rounded-xl border border-border/40 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all flex items-center justify-between group shadow-sm mb-2"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="font-bold text-sm text-foreground line-clamp-1 group-hover:text-primary transition-colors">{c.company_name}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{c.customer_code ? `#${c.customer_code}` : 'Sem código'} • {c.email || 'Sem email'}</p>
+                <Separator />
+
+                {/* Contact rows */}
+                {previewCustomer.phone && (
+                  <div className="flex items-center gap-4 px-5 py-4 border-b border-border/30">
+                    <Phone className="h-5 w-5 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-muted-foreground">Celular</p>
+                      <p className="text-sm font-medium text-foreground">{previewCustomer.phone}</p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </div>
+                )}
+
+                {previewCustomer.email && (
+                  <div className="flex items-center gap-4 px-5 py-4 border-b border-border/30">
+                    <Mail className="h-5 w-5 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{previewCustomer.email}</p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </div>
+                )}
+
+                {/* Primary address */}
+                {(() => {
+                  const addr = previewCustomer.addresses?.find(a => a.is_main) || previewCustomer.addresses?.[0]
+                  const legacyAddr = !addr && previewCustomer.address
+                    ? { address: previewCustomer.address, city: previewCustomer.city, state: previewCustomer.state, zip_code: previewCustomer.zip_code, neighborhood: null as string | null }
+                    : null
+                  const display = addr || legacyAddr
+                  if (!display) return null
+                  return (
+                    <div className="flex items-start gap-4 px-5 py-4 border-b border-border/30">
+                      <MapPin className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">{display.address}</p>
+                        {display.neighborhood && <p className="text-sm text-muted-foreground">{display.neighborhood}</p>}
+                        <p className="text-sm text-muted-foreground">{[display.city, display.state].filter(Boolean).join(' - ')}</p>
+                        {display.zip_code && <p className="text-sm text-muted-foreground">{display.zip_code}</p>}
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-1" />
+                    </div>
+                  )
+                })()}
+
+                {/* Price tables */}
+                {previewCustomer.assigned_price_tables && previewCustomer.assigned_price_tables.length > 0 && (
+                  <>
+                    <div className="px-5 pt-5 pb-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tabelas de preço</p>
+                    </div>
+                    <div className="px-5 pb-4 flex flex-wrap gap-2">
+                      {previewCustomer.assigned_price_tables.map(t => (
+                        <Badge key={t.id} variant="outline" className="text-xs border-border">{t.name}</Badge>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Extra addresses */}
+                {previewCustomer.addresses && previewCustomer.addresses.length > 1 && (
+                  <>
+                    <div className="px-5 pt-3 pb-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Endereços ({previewCustomer.addresses.length})</p>
+                    </div>
+                    {previewCustomer.addresses.map(addr => (
+                      <div key={addr.id} className="flex items-start gap-4 px-5 py-3 border-b border-border/20">
+                        <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-foreground">{addr.title}{addr.is_main ? ' (Principal)' : ''}</p>
+                          <p className="text-xs text-muted-foreground">{addr.address}{addr.number ? `, ${addr.number}` : ''} — {addr.city}/{addr.state}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {/* Fixed CTA */}
+              <div className="shrink-0 border-t border-border/40 p-4 bg-card safe-bottom">
+                <Button
+                  className="h-12 w-full rounded-xl border-0 text-sm font-bold gradient-navy text-white hover:opacity-90"
+                  onClick={() => { handleStoreChange(previewCustomer.id); setIsCustomerSheetOpen(false); setPreviewCustomer(null); setCustomerSearch(''); setIsCustomerSearchActive(false) }}
+                >
+                  SELECIONAR ESTE CLIENTE
+                </Button>
+              </div>
+            </>
+          ) : (
+            /* ─── View: Customer List ─── */
+            <>
+              {/* Header Profissional com Busca Animada */}
+              <div className="shrink-0 gradient-navy px-4 py-3 text-white flex items-center justify-between relative overflow-hidden h-14">
+                <div className={cn("flex items-center gap-3 transition-all duration-300", isCustomerSearchActive ? "opacity-0 -translate-x-10 pointer-events-none" : "opacity-100 translate-x-0")}>
+                  <button
+                    onClick={() => { setIsCustomerSheetOpen(false); setCustomerSearch(''); setIsCustomerSearchActive(false); setPreviewCustomer(null) }}
+                    className="rounded-full p-1.5 hover:bg-white/20 transition-colors"
+                    title="Voltar"
+                  >
+                    <ChevronLeft className="h-6 w-6" />
+                  </button>
+                  <h2 className="text-lg font-bold font-heading">Clientes</h2>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {selectedStoreId === c.id && <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[9px] h-5">Selecionado</Badge>}
-                  <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+
+                <div className={cn(
+                  "absolute inset-y-0 left-0 right-14 px-4 flex items-center transition-all duration-300",
+                  isCustomerSearchActive ? "opacity-100 translate-x-0" : "opacity-0 translate-x-10 pointer-events-none"
+                )}>
+                  <div className="relative w-full">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" />
+                    <Input
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      placeholder="Buscar por Razão Social..."
+                      className="h-10 rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/40 pl-10 focus:bg-white/20 transition-all border-0 focus-visible:ring-1 focus-visible:ring-white/30"
+                      autoFocus={isCustomerSearchActive}
+                    />
+                  </div>
                 </div>
-              </button>
-            ))}
-          </div>
-        </SheetContent>
-      </Sheet>
+
+                <div className="flex items-center gap-1 shrink-0 bg-transparent">
+                  <button
+                    onClick={() => setIsCustomerSearchActive(!isCustomerSearchActive)}
+                    className={cn("rounded-full p-2 transition-colors", isCustomerSearchActive ? "bg-white/20" : "hover:bg-white/20")}
+                    title="Buscar"
+                  >
+                    <Search className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => { setEditingStore(null); setIsCustomerFormOpen(true) }}
+                    className="rounded-full p-2 hover:bg-white/20 transition-colors"
+                    title="Novo Cliente"
+                  >
+                    <Plus className="h-6 w-6" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto overscroll-y-contain bg-muted/10" style={{ WebkitOverflowScrolling: 'touch' }}>
+                {filteredCustomers.length === 0 ? (
+                  <div className="flex flex-col h-40 items-center justify-center text-sm text-muted-foreground gap-2">
+                    <Users className="h-8 w-8 opacity-20" />
+                    <p>Nenhum cliente encontrado.</p>
+                  </div>
+                ) : filteredCustomers.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => setPreviewCustomer(c)}
+                    className="w-full text-left flex items-center gap-3 px-4 py-3.5 border-b border-border/30 hover:bg-muted/40 transition-colors group"
+                  >
+                    <div className="w-1 self-stretch rounded-full bg-emerald-500/60 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-sm text-foreground line-clamp-1 group-hover:text-primary transition-colors">{c.company_name}</p>
+                      {c.trade_name && c.trade_name !== c.company_name && (
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{c.trade_name}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {selectedStoreId === c.id && <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[9px] h-5">Atual</Badge>}
+                      <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+
 
       {isCustomerFormOpen && (
         <div className="fixed inset-0 z-[100] bg-background">

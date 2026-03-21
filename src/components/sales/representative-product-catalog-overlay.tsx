@@ -33,6 +33,7 @@ export type StagedItem = {
   fabricName: string
   colorName: string
   sizeName: string | null
+  sizeOptionId: string | null
   imageUrl: string | null
   quantity: number
   unitPrice: number
@@ -308,12 +309,13 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
 
   const handleAddBatch = (summary: QuickViewAddToCartSummary) => {
     const newItems: StagedItem[] = summary.items.map((si) => ({
-      id: `${si.id}::${si.sizeName || 'legacy'}`,
+      id: `${si.id}::${si.sizeOptionId || 'legacy'}`,
       productId: summary.productId,
       productName: si.productName,
       fabricName: si.fabricName,
       colorName: si.colorName,
       sizeName: si.sizeName,
+      sizeOptionId: si.sizeOptionId,
       imageUrl: si.imageUrl,
       quantity: si.quantity,
       unitPrice: si.unitPrice,
