@@ -483,6 +483,11 @@ export function RepresentativeOrderBuilder({
       }
 
       const orderId = response.orderId
+      if (!orderId) {
+        toast.error('Pedido criado, mas nao foi possivel identificar o pedido para finalizacao.')
+        router.push('/sales/orders')
+        return
+      }
       const isMobileLikeViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 1279px)').matches
       if (!isMobileLikeViewport) {
         router.push(`/sales/orders/${orderId}`)
