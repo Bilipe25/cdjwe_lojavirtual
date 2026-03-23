@@ -48,8 +48,11 @@ export interface OrderWithDetails {
     notes: string | null;
     store?: { company_name: string; cnpj: string };
     profile?: { full_name: string };
+    customer_profile?: { full_name: string } | null;
+    created_by_profile?: { full_name: string; role?: string } | null;
     payment_condition?: { name: string };
     item_count?: number;
+    sales_channel?: 'customer_portal' | 'representative';
 }
 
 interface OrderListProps {
@@ -114,6 +117,9 @@ export function OrderList({
                 const isSelected = selectedOrders.includes(order.id);
                 const nextTransitions = getAvailableOrderStatusTransitions(order.status)
                 const itemCount = Number(order.item_count || 0)
+                const isRepresentativeOrder = order.sales_channel === 'representative'
+                const customerName = order.customer_profile?.full_name || order.profile?.full_name || 'Cliente nao informado'
+                const representativeName = order.created_by_profile?.full_name || 'Representante nao informado'
 
                 return (
                     <motion.div 
@@ -158,15 +164,29 @@ export function OrderList({
                                             <Badge variant="outline" className={`text-[10px] ${config.color}`}>
                                                 {config.label}
                                             </Badge>
+                                            <Badge
+                                                variant="outline"
+                                                className={`text-[10px] ${isRepresentativeOrder ? 'border-primary/30 bg-primary/5 text-primary' : 'border-emerald-300 bg-emerald-50 text-emerald-700'}`}
+                                            >
+                                                {isRepresentativeOrder ? 'Canal: Representante' : 'Canal: Cliente'}
+                                            </Badge>
                                         </div>
                                         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm text-muted-foreground truncate">
                                             <span className="font-medium text-slate-700 truncate max-w-[200px]" title={order.store?.company_name}>
                                                 {order.store?.company_name || 'Sem Empresa'}
                                             </span>
                                             <span className="hidden sm:inline">•</span>
-                                            <span className="truncate max-w-[150px]" title={order.profile?.full_name}>
-                                                {order.profile?.full_name || 'Sem Cliente'}
+                                            <span className="truncate max-w-[180px]" title={customerName}>
+                                                Cliente: {customerName}
                                             </span>
+                                            {isRepresentativeOrder && (
+                                                <>
+                                                    <span className="hidden sm:inline">•</span>
+                                                    <span className="truncate max-w-[180px]" title={representativeName}>
+                                                        Rep: {representativeName}
+                                                    </span>
+                                                </>
+                                            )}
                                             <span className="hidden sm:inline">•</span>
                                             <span>
                                                 {format(new Date(order.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
@@ -180,6 +200,11 @@ export function OrderList({
                                             <span>
                                                 {itemCount} {itemCount === 1 ? 'item' : 'itens'}
                                             </span>
+                                            {itemCount === 0 && (
+                                                <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive">
+                                                    sem itens
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
 

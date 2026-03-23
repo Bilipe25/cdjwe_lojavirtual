@@ -19,6 +19,16 @@ type AdminOrdersSearchRpcRow = {
     payment_condition_name: string | null
     item_count: number | null
     total_count: number | null
+    sales_channel?: string | null
+    created_by_full_name?: string | null
+}
+
+type AdminOrderExportEnrichmentRow = {
+    id: string
+    sales_channel: 'customer_portal' | 'representative' | null
+    customer_profile?: { full_name?: string | null } | null
+    created_by_profile?: { full_name?: string | null } | null
+    items?: Array<{ count?: number | null }>
 }
 
 const statusLabelMap: Record<string, string> = {
@@ -101,8 +111,47 @@ export async function GET(request: Request) {
         page += 1
     }
 
-    const header = ['ID', 'Pedido', 'Cliente', 'CNPJ/Empresa', 'Status', 'Total', 'Data']
+    const enrichmentById = new Map<string, {
+        salesChannel: 'customer_portal' | 'representative' | null
+        customerName: string
+        representativeName: string
+        itemCount: number
+    }>()
+
+    const orderIds = rows.map((row) => row.id)
+    if (orderIds.length > 0) {
+        const { data: enrichmentData } = await supabase
+            .from('orders')
+            .select(`
+                id,
+                sales_channel,
+                customer_profile:profiles!orders_profile_id_fkey(full_name),
+                created_by_profile:profiles!orders_created_by_profile_id_fkey(full_name),
+                items:order_items(count)
+            `)
+            .in('id', orderIds)
+
+        ;((enrichmentData || []) as AdminOrderExportEnrichmentRow[]).forEach((row) => {
+            enrichmentById.set(row.id, {
+                salesChannel: row.sales_channel || null,
+                customerName: row.customer_profile?.full_name || '',
+                representativeName: row.created_by_profile?.full_name || '',
+                itemCount: Number(row.items?.[0]?.count || 0),
+            })
+        })
+    }
+
+    const header = ['ID', 'Pedido', 'Canal', 'Representante', 'Cliente', 'CNPJ/Empresa', 'Itens', 'Status', 'Total', 'Data']
     const lines = rows.map((row) => {
+        const enrichment = enrichmentById.get(row.id)
+        const channel = (row.sales_channel || enrichment?.salesChannel || 'customer_portal') === 'representative'
+            ? 'Representante'
+            : 'Cliente'
+        const representativeName = row.created_by_full_name
+            || enrichment?.representativeName
+            || (channel === 'Representante' ? 'Nao informado' : 'Portal do cliente')
+        const customerName = row.profile_full_name || enrichment?.customerName || ''
+        const itemCount = enrichment ? enrichment.itemCount : Number(row.item_count || 0)
         const statusLabel = statusLabelMap[row.status] || row.status
         const total = Number(row.total || 0).toFixed(2).replace('.', ',')
         const companyInfo = `${row.store_cnpj || ''} - ${row.store_company_name || ''}`.trim()
@@ -110,8 +159,11 @@ export async function GET(request: Request) {
         return [
             escapeCsvValue(row.id),
             escapeCsvValue(row.order_number),
-            escapeCsvValue(row.profile_full_name || ''),
+            escapeCsvValue(channel),
+            escapeCsvValue(representativeName),
+            escapeCsvValue(customerName),
             escapeCsvValue(companyInfo),
+            escapeCsvValue(itemCount),
             escapeCsvValue(statusLabel),
             escapeCsvValue(total),
             escapeCsvValue(formatDate(row.created_at)),

@@ -53,8 +53,17 @@ export interface AdminOrderDetailRecord {
         company_name?: string | null
         cnpj?: string | null
     } | null
+    sales_channel?: 'customer_portal' | 'representative' | null
     profile?: {
         full_name?: string | null
+    } | null
+    customer_profile?: {
+        full_name?: string | null
+        role?: string | null
+    } | null
+    created_by_profile?: {
+        full_name?: string | null
+        role?: string | null
     } | null
     payment_method_name?: string | null
     payment_method_code?: string | null
@@ -108,6 +117,7 @@ export function OrderDetailModal({
                 discount_amount,
                 created_at,
                 notes,
+                sales_channel,
                 payment_method_name,
                 payment_method_code,
                 payment_condition_name,
@@ -116,18 +126,37 @@ export function OrderDetailModal({
                 payment_discount_percentage,
                 payment_surcharge_percentage,
                 store:stores(company_name, cnpj),
-                profile:profiles(full_name),
+                customer_profile:profiles!orders_profile_id_fkey(full_name, role),
+                created_by_profile:profiles!orders_created_by_profile_id_fkey(full_name, role),
                 payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage),
                 items:order_items(*)
             `)
             .eq('id', orderId)
             .single()
 
-        if (!error && data) {
-            setOrderData(data as AdminOrderDetailRecord)
-        } else {
+        if (error || !data) {
+            console.error('[ADMIN ORDERS] Falha ao carregar detalhes do pedido:', error)
             setOrderData(order)
+            setLoadingOrder(false)
+            return
         }
+
+        const resolved = data as AdminOrderDetailRecord
+        if (!Array.isArray(resolved.items) || resolved.items.length === 0) {
+            const { data: fallbackItems, error: fallbackItemsError } = await supabase
+                .from('order_items')
+                .select('*')
+                .eq('order_id', orderId)
+                .order('created_at')
+
+            if (!fallbackItemsError && fallbackItems) {
+                resolved.items = fallbackItems as OrderItem[]
+            } else if (fallbackItemsError) {
+                console.error('[ADMIN ORDERS] Falha ao carregar itens do pedido:', fallbackItemsError)
+            }
+        }
+
+        setOrderData(resolved)
         setLoadingOrder(false)
     }, [order])
 
@@ -181,6 +210,10 @@ export function OrderDetailModal({
 
     if (!order) return null;
     const resolvedOrder = orderData || order
+    const isRepresentativeOrder = resolvedOrder.sales_channel === 'representative'
+    const customerName = resolvedOrder.customer_profile?.full_name || resolvedOrder.profile?.full_name || 'N/A'
+    const representativeName = resolvedOrder.created_by_profile?.full_name || (isRepresentativeOrder ? 'Nao informado' : 'Portal do cliente')
+    const itemCount = resolvedOrder.items?.length || 0
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -192,6 +225,12 @@ export function OrderDetailModal({
                                 <span className="truncate">Pedido {resolvedOrder.order_number}</span>
                                 <Badge className={`${statusConfig[resolvedOrder.status as keyof typeof statusConfig]?.color} border text-[10px] sm:text-xs`}>
                                     {statusConfig[resolvedOrder.status as keyof typeof statusConfig]?.label}
+                                </Badge>
+                                <Badge
+                                    variant="outline"
+                                    className={`text-[10px] sm:text-xs ${isRepresentativeOrder ? 'border-primary/30 bg-primary/5 text-primary' : 'border-emerald-300 bg-emerald-50 text-emerald-700'}`}
+                                >
+                                    {isRepresentativeOrder ? 'Representante' : 'Cliente'}
                                 </Badge>
                             </DialogTitle>
                             <p className="text-xs sm:text-sm text-muted-foreground mt-1 truncate">
@@ -242,7 +281,9 @@ export function OrderDetailModal({
                             <div className="space-y-1 text-sm">
                                 <p><span className="text-muted-foreground">Razão Social:</span> <span className="font-medium">{resolvedOrder.store?.company_name || 'N/A'}</span></p>
                                 <p><span className="text-muted-foreground">CNPJ:</span> <span className="font-medium">{resolvedOrder.store?.cnpj || 'N/A'}</span></p>
-                                <p><span className="text-muted-foreground">Representante:</span> <span className="font-medium">{resolvedOrder.profile?.full_name || 'N/A'}</span></p>
+                                <p><span className="text-muted-foreground">Cliente:</span> <span className="font-medium">{customerName}</span></p>
+                                <p><span className="text-muted-foreground">Origem:</span> <span className="font-medium">{isRepresentativeOrder ? 'Pedido de representante' : 'Pedido portal cliente'}</span></p>
+                                <p><span className="text-muted-foreground">Representante:</span> <span className="font-medium">{representativeName}</span></p>
                             </div>
                         </div>
 
@@ -257,9 +298,14 @@ export function OrderDetailModal({
 
                     {/* Order Items */}
                     <div>
-                        <h4 className="font-bold text-lg mb-4 text-navy">Itens Solicitados ({resolvedOrder.items?.length || 0})</h4>
+                        <h4 className="font-bold text-lg mb-4 text-navy">Itens Solicitados ({itemCount})</h4>
                         <div className="space-y-3">
-                            {resolvedOrder.items?.map((item) => (
+                            {itemCount === 0 && (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                                    Nenhum item encontrado neste pedido. Verifique o fluxo de criacao ou recarregue os dados.
+                                </div>
+                            )}
+                            {(resolvedOrder.items || []).map((item) => (
                                 <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-border/50 hover:border-bronze/30 transition-colors bg-white">
                                     <div className="min-w-0 pr-4 mb-2 sm:mb-0">
                                         <p className="font-semibold text-base text-navy">{item.product_name}</p>

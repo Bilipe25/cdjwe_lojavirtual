@@ -34,6 +34,8 @@ type AdminOrdersSearchRpcRow = {
     payment_condition_name: string | null
     item_count: number | null
     total_count: number | null
+    sales_channel?: string | null
+    created_by_full_name?: string | null
 }
 
 type AdminOrderStatusUpdateRpcRow = {
@@ -57,6 +59,14 @@ type AdminOrderBulkStatusUpdateRpcRow = {
     changed: boolean
     success: boolean
     error_message: string | null
+}
+
+type AdminOrderListEnrichmentRow = {
+    id: string
+    sales_channel: 'customer_portal' | 'representative' | null
+    customer_profile?: { full_name?: string | null } | null
+    created_by_profile?: { full_name?: string | null; role?: string | null } | null
+    items?: Array<{ count?: number | null }>
 }
 
 export default function AdminOrdersPage() {
@@ -91,7 +101,47 @@ export default function AdminOrdersPage() {
             toast.error('Erro ao carregar os pedidos do servidor.')
         } else {
             const rows = (data || []) as AdminOrdersSearchRpcRow[]
+            const orderIds = rows.map((row) => row.id)
+            const enrichmentById = new Map<string, {
+                salesChannel: 'customer_portal' | 'representative' | null
+                customerName: string
+                representativeName: string
+                itemCount: number
+            }>()
+
+            if (orderIds.length > 0) {
+                const { data: enrichmentData, error: enrichmentError } = await supabase
+                    .from('orders')
+                    .select(`
+                        id,
+                        sales_channel,
+                        customer_profile:profiles!orders_profile_id_fkey(full_name),
+                        created_by_profile:profiles!orders_created_by_profile_id_fkey(full_name, role),
+                        items:order_items(count)
+                    `)
+                    .in('id', orderIds)
+
+                if (enrichmentError) {
+                    console.error('[ADMIN ORDERS] Falha ao enriquecer lista de pedidos:', enrichmentError)
+                } else {
+                    ;((enrichmentData || []) as AdminOrderListEnrichmentRow[]).forEach((row) => {
+                        enrichmentById.set(row.id, {
+                            salesChannel: row.sales_channel || null,
+                            customerName: row.customer_profile?.full_name || '',
+                            representativeName: row.created_by_profile?.full_name || '',
+                            itemCount: Number(row.items?.[0]?.count || 0),
+                        })
+                    })
+                }
+            }
+
             const mapped = rows.map((order) => {
+                const enrichment = enrichmentById.get(order.id)
+                const customerName = order.profile_full_name || enrichment?.customerName || ''
+                const representativeName = order.created_by_full_name || enrichment?.representativeName || ''
+                const salesChannel = (order.sales_channel || enrichment?.salesChannel || 'customer_portal') as 'customer_portal' | 'representative'
+                const itemCount = enrichment ? enrichment.itemCount : Number(order.item_count || 0)
+
                 return {
                     id: order.id,
                     order_number: order.order_number,
@@ -106,12 +156,19 @@ export default function AdminOrdersPage() {
                         cnpj: order.store_cnpj || '',
                     },
                     profile: {
-                        full_name: order.profile_full_name || '',
+                        full_name: customerName,
                     },
+                    customer_profile: {
+                        full_name: customerName,
+                    },
+                    created_by_profile: representativeName
+                        ? { full_name: representativeName }
+                        : undefined,
                     payment_condition: {
                         name: order.payment_condition_name || '',
                     },
-                    item_count: Number(order.item_count || 0),
+                    item_count: itemCount,
+                    sales_channel: salesChannel,
                 }
             })
             setOrders(mapped)

@@ -53,6 +53,10 @@ type ReceiptOrder = {
         full_name?: string | null
         phone?: string | null
     } | null
+    created_by_profile?: {
+        full_name?: string | null
+        role?: string | null
+    } | null
     payment_method_name?: string | null
     payment_method_code?: string | null
     payment_condition_name?: string | null
@@ -114,7 +118,7 @@ function buildCustomerPhone(order: ReceiptOrder) {
 }
 
 function buildRepresentative(order: ReceiptOrder) {
-    return order.profile?.full_name || 'Nao informado'
+    return order.created_by_profile?.full_name || order.profile?.full_name || 'Nao informado'
 }
 
 function createSectionTitle(title: string, options?: { lineWidth?: number; marginBottom?: number }): Content {
