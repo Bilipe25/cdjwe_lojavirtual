@@ -25,6 +25,7 @@ import {
 } from '@/lib/pricing/server-pricing'
 import type {
     Order,
+    OrderItem,
     PriceTable,
     Product,
     Profile,
@@ -33,6 +34,7 @@ import type {
     Store,
     StoreAddress,
     CustomerType,
+    SystemSettings,
 } from '@/lib/types'
 
 type RepresentativeBootstrapCustomer = Store & {
@@ -350,6 +352,56 @@ export async function getRepresentativeOrderDetail(orderId: string) {
 
     const { data } = await query.single()
     return (data || null) as Order | null
+}
+
+export async function getRepresentativeOrderCompletionData(orderId: string) {
+    try {
+        const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+        const orderQuery = admin
+            .from('orders')
+            .select(`
+                *,
+                store:stores(*),
+                profile:profiles!orders_profile_id_fkey(*),
+                payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage)
+            `)
+            .eq('id', orderId)
+
+        if (scopeRepresentativeId) {
+            orderQuery.eq('created_by_profile_id', scopeRepresentativeId)
+        }
+
+        const { data: orderData, error: orderError } = await orderQuery.single()
+        if (orderError || !orderData) {
+            return { error: 'Pedido nao encontrado para este representante.' }
+        }
+
+        const { data: itemsData, error: itemsError } = await admin
+            .from('order_items')
+            .select('*')
+            .eq('order_id', orderId)
+            .order('created_at')
+
+        if (itemsError) {
+            return { error: 'Nao foi possivel carregar os itens do pedido.' }
+        }
+
+        const { data: settingsData } = await admin
+            .from('system_settings')
+            .select('*')
+            .limit(1)
+            .maybeSingle()
+
+        return {
+            success: true,
+            order: orderData as Order,
+            items: (itemsData || []) as OrderItem[],
+            settings: (settingsData || null) as SystemSettings | null,
+        }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao carregar dados da finalizacao do pedido.' }
+    }
 }
 
 export async function getRepresentativeQuotesData() {

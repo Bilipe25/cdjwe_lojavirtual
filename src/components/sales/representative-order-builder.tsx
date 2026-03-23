@@ -1,14 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { ChevronLeft, ChevronRight, FileText, Loader2, Mail, MapPin, Minus, Package, Pencil, Phone, Plus, Search, ShoppingBag, Trash2, Users } from 'lucide-react'
+import { CheckCircle2, ChevronLeft, ChevronRight, Copy, FileDown, FileText, Home, Loader2, Mail, MapPin, MessageCircle, Minus, Package, Pencil, Phone, Plus, Search, Share2, ShoppingBag, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 import type {
   Category,
   Order,
+  OrderItem,
   PaymentMethod,
   PaymentMethodCondition,
   PriceTable,
@@ -19,6 +20,7 @@ import type {
   Store,
   StoreAddress,
   CustomerType,
+  SystemSettings,
 } from '@/lib/types'
 import {
   createRepresentativeOrderAction,
@@ -27,20 +29,21 @@ import {
   updateCustomerAsRepresentativeTx,
   validateRepresentativeDraftPricingAction,
   saveRepresentativeQuoteAction,
+  getRepresentativeOrderCompletionData,
 } from '@/app/sales/actions'
 import { RepresentativeProductCatalogOverlay, type CatalogOverlayConfirmPayload } from './representative-product-catalog-overlay'
 import { RepresentativeCustomerForm, type RepCustomerFormData } from './representative-customer-form'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import type { PriceSnapshot } from '@/lib/pricing/server-pricing'
-import { cn } from '@/lib/utils'
+import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
+import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
+import { cn, getWhatsAppLink } from '@/lib/utils'
 
 type BuilderCustomer = Store & {
   addresses?: StoreAddress[]
@@ -84,6 +87,12 @@ type PaymentOption = {
 type PricingValidationResult =
   | { prices: Record<string, PriceSnapshot>; missingKeys: string[]; missingVariantIds: string[] }
   | { error: string }
+
+type CompletionData = {
+  order: Order
+  items: OrderItem[]
+  settings: SystemSettings | null
+}
 
 
 
@@ -161,6 +170,43 @@ function SectionRow({ label, value, highlight, onClick }: { label: string; value
   )
 }
 
+function CompletionActionRow({
+  icon: Icon,
+  label,
+  description,
+  onClick,
+  busy,
+  last,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  description?: string
+  onClick: () => void
+  busy?: boolean
+  last?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={Boolean(busy)}
+      className={cn(
+        'group flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60',
+        !last && 'border-b border-border/40'
+      )}
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+        {busy ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <Icon className="h-5 w-5 text-primary" />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-foreground">{label}</p>
+        {description ? <p className="mt-0.5 text-xs text-muted-foreground">{description}</p> : null}
+      </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+    </button>
+  )
+}
+
 export function RepresentativeOrderBuilder({
   mode,
   initialCustomerId,
@@ -202,6 +248,11 @@ export function RepresentativeOrderBuilder({
   const [pricingPending, setPricingPending] = useState(false)
   const [submitting, startSubmitting] = useTransition()
   const [customerSaving, setCustomerSaving] = useState(false)
+  const [completionData, setCompletionData] = useState<CompletionData | null>(null)
+  const [completionLoading, setCompletionLoading] = useState(false)
+  const [completionPdfLoading, setCompletionPdfLoading] = useState(false)
+  const [completionWhatsAppLoading, setCompletionWhatsAppLoading] = useState(false)
+  const [completionShareLoading, setCompletionShareLoading] = useState(false)
 
   /* ─── Mobile section visibility ─── */
   const [openSection, setOpenSection] = useState<'customer' | 'products' | 'negotiation' | 'payment' | 'notes' | null>(null)
@@ -321,12 +372,102 @@ export function RepresentativeOrderBuilder({
       } else {
         toast.error(result.error || 'Erro ao salvar cliente.')
       }
-    } catch (e) {
+    } catch {
       toast.error('Erro de conexão ao salvar cliente.')
     } finally {
       setCustomerSaving(false)
     }
   }
+
+  const buildCompletionMessage = useCallback((data: CompletionData) => {
+    const paymentDisplay = getOrderPaymentDisplay(data.order)
+    const createdAt = new Date(data.order.created_at).toLocaleString('pt-BR')
+    const itemLines = data.items.map((item) => (
+      `- ${item.product_name} (${item.fabric_name}/${item.color_name}${item.size ? `/${item.size}` : ''})\n  ${item.quantity}x ${formatCurrency(item.unit_price)} = ${formatCurrency(item.subtotal)}`
+    )).join('\n')
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '')
+
+    return [
+      `Pedido ${data.order.order_number} - ${data.settings?.system_name || 'CDJWE'}`,
+      `Data: ${createdAt}`,
+      `Status: Em analise`,
+      '',
+      'Itens:',
+      itemLines || '- Sem itens',
+      '',
+      `Total: ${formatCurrency(data.order.total)}`,
+      paymentDisplay.combinedLabel !== 'A combinar' ? `Pagamento: ${paymentDisplay.combinedLabel}` : null,
+      appUrl ? `Ver pedido: ${appUrl}/sales/orders/${data.order.id}` : null,
+    ].filter(Boolean).join('\n')
+  }, [])
+
+  const openCompletionWhatsApp = useCallback((data: CompletionData) => {
+    const message = buildCompletionMessage(data)
+    const waBase = getWhatsAppLink(data.settings?.whatsapp)
+    const url = waBase
+      ? `${waBase}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`
+    window.open(url, '_blank')
+  }, [buildCompletionMessage])
+
+  const handleCompletionDownloadPdf = useCallback(async () => {
+    if (!completionData) return false
+    setCompletionPdfLoading(true)
+    try {
+      await generateOrderReceiptPDF(completionData.order, completionData.items, completionData.settings)
+      return true
+    } catch {
+      toast.error('Nao foi possivel gerar o PDF do pedido.')
+      return false
+    } finally {
+      setCompletionPdfLoading(false)
+    }
+  }, [completionData])
+
+  const handleCompletionWhatsApp = useCallback(async () => {
+    if (!completionData) return
+    setCompletionWhatsAppLoading(true)
+    try {
+      openCompletionWhatsApp(completionData)
+    } finally {
+      setCompletionWhatsAppLoading(false)
+    }
+  }, [completionData, openCompletionWhatsApp])
+
+  const handleCompletionPrintAndWhatsApp = useCallback(async () => {
+    if (!completionData) return
+    const pdfOk = await handleCompletionDownloadPdf()
+    if (!pdfOk) return
+    openCompletionWhatsApp(completionData)
+    toast.success('PDF gerado. Agora finalize o envio no WhatsApp.')
+  }, [completionData, handleCompletionDownloadPdf, openCompletionWhatsApp])
+
+  const handleCompletionShare = useCallback(async () => {
+    if (!completionData) return
+    const message = buildCompletionMessage(completionData)
+    setCompletionShareLoading(true)
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({
+          title: `Pedido ${completionData.order.order_number}`,
+          text: message,
+        })
+        return
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(message)
+        toast.success('Resumo do pedido copiado para compartilhamento.')
+        return
+      }
+
+      toast.info('Compartilhamento indisponivel neste navegador.')
+    } catch {
+      // User may cancel native share; no need to show an error toast.
+    } finally {
+      setCompletionShareLoading(false)
+    }
+  }, [buildCompletionMessage, completionData])
 
   const handleSubmit = (target: 'order' | 'quote') => {
     if (!selectedStoreId) { toast.error('Selecione um cliente.'); return }
@@ -335,7 +476,36 @@ export function RepresentativeOrderBuilder({
       const payload = { storeId: selectedStoreId, priceTableId: selectedPriceTableId || null, selectedPaymentId: effectivePaymentId || null, isTableRule: Boolean(selectedPaymentOption?.isTableRule), selectedAddressId: selectedAddressId || null, notes, negotiationDiscountType: discountType === 'none' ? null : discountType, negotiationDiscountValue: Number(discountValue || 0), negotiationSurchargeAmount: Number(surchargeValue || 0), negotiationReason, items }
       const response = target === 'order' ? await createRepresentativeOrderAction(payload) : await saveRepresentativeQuoteAction(payload)
       if (!response.success) { toast.error(response.error || 'Falha ao salvar.'); return }
-      router.push(target === 'order' ? `/sales/orders/${response.orderId}` : `/sales/quotes/${response.quoteId}`)
+
+      if (target === 'quote') {
+        router.push(`/sales/quotes/${response.quoteId}`)
+        return
+      }
+
+      const orderId = response.orderId
+      const isMobileLikeViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 1279px)').matches
+      if (!isMobileLikeViewport) {
+        router.push(`/sales/orders/${orderId}`)
+        return
+      }
+
+      setCompletionLoading(true)
+      setCompletionData(null)
+      const completionResponse = await getRepresentativeOrderCompletionData(orderId)
+      setCompletionLoading(false)
+
+      if (!completionResponse.success) {
+        toast.error(completionResponse.error || 'Pedido criado, mas nao foi possivel carregar a finalizacao.')
+        router.push(`/sales/orders/${orderId}`)
+        return
+      }
+
+      setCompletionData({
+        order: completionResponse.order,
+        items: completionResponse.items,
+        settings: completionResponse.settings,
+      })
+      toast.success('Pedido finalizado com sucesso.')
     })
   }
 
@@ -563,6 +733,101 @@ export function RepresentativeOrderBuilder({
     <>
       {mobileContent}
       {desktopContent}
+
+      {(completionLoading || completionData) && mode === 'order' && (
+        <div className="fixed inset-0 z-[120] flex flex-col bg-background">
+          {completionLoading || !completionData ? (
+            <div className="flex flex-1 items-center justify-center px-6">
+              <div className="glass-card rounded-2xl border border-border/40 px-6 py-6 text-center">
+                <Loader2 className="mx-auto h-7 w-7 animate-spin text-primary" />
+                <p className="mt-3 text-sm font-medium text-foreground">Preparando finalizacao do pedido...</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="shrink-0 gradient-navy px-4 pb-5 pt-4 text-white shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/20">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-base font-bold font-heading">Atendimento finalizado</p>
+                    <p className="mt-0.5 text-xs text-white/75">Pedido #{completionData.order.order_number}</p>
+                    <p className="mt-1 text-[11px] text-white/70">
+                      Total {formatCurrency(completionData.order.total)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-4 pb-24 pt-4">
+                <div className="glass-card overflow-hidden rounded-2xl border border-border/40">
+                  <CompletionActionRow
+                    icon={Share2}
+                    label="Compartilhar"
+                    description="Compartilhe o resumo do pedido"
+                    onClick={() => { void handleCompletionShare() }}
+                    busy={completionShareLoading}
+                  />
+                  <CompletionActionRow
+                    icon={MessageCircle}
+                    label="Enviar por WhatsApp"
+                    description="Abrir WhatsApp com mensagem pronta"
+                    onClick={() => { void handleCompletionWhatsApp() }}
+                    busy={completionWhatsAppLoading}
+                  />
+                  <CompletionActionRow
+                    icon={FileDown}
+                    label="Impressao (PDF)"
+                    description="Gerar comprovante em PDF"
+                    onClick={() => { void handleCompletionDownloadPdf() }}
+                    busy={completionPdfLoading}
+                  />
+                  <CompletionActionRow
+                    icon={Copy}
+                    label="Imprimir e enviar no WhatsApp"
+                    description="Gera o PDF e abre o WhatsApp"
+                    onClick={() => { void handleCompletionPrintAndWhatsApp() }}
+                    busy={completionPdfLoading || completionWhatsAppLoading}
+                  />
+                  <CompletionActionRow
+                    icon={ShoppingBag}
+                    label="Novo atendimento para este cliente"
+                    description="Iniciar novo pedido mantendo o cliente"
+                    onClick={() => {
+                      setCompletionData(null)
+                      router.push(`/sales/orders/new?customer=${completionData.order.store_id}`)
+                    }}
+                  />
+                  <CompletionActionRow
+                    icon={FileText}
+                    label="Ver pedido finalizado"
+                    description="Abrir a pagina de detalhes do pedido"
+                    onClick={() => {
+                      setCompletionData(null)
+                      router.push(`/sales/orders/${completionData.order.id}`)
+                    }}
+                    last
+                  />
+                </div>
+              </div>
+
+              <div className="shrink-0 border-t border-border/40 bg-background/95 p-4 backdrop-blur-sm">
+                <Button
+                  className="h-12 w-full rounded-xl border-0 text-sm font-bold gradient-bronze text-white hover:opacity-90"
+                  onClick={() => {
+                    setCompletionData(null)
+                    router.push('/sales/dashboard')
+                  }}
+                >
+                  <Home className="mr-2 h-4 w-4" />
+                  VOLTAR AO MENU INICIAL
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ─── Customer Selection Fullpage Overlay ─── */}
       {isCustomerSheetOpen && (
