@@ -244,6 +244,11 @@ function formatPercentage(value: number) {
     })
 }
 
+function generateRepresentativeTemporaryPassword() {
+    const token = crypto.randomUUID().replace(/-/g, '')
+    return `${token.slice(0, 8)}Aa1!`
+}
+
 type RepresentativeCustomerAccessScopeMode =
     | 'assigned_only'
     | 'all_admin_portfolio'
@@ -1316,12 +1321,13 @@ export async function createCustomerAsRepresentativeTx(data: {
         zipCode 
     } = data
 
-    if (!email || !password || !fullName || !companyName || !cnpj) {
+    if (!email || !fullName || !companyName || !cnpj) {
         return { error: 'Campos obrigatórios faltando.' }
     }
 
     try {
         const normalizedEmail = email.trim().toLowerCase()
+        const passwordToUse = password && password.trim().length >= 6 ? password : generateRepresentativeTemporaryPassword()
 
         // 1. Check if email already exists
         const { data: existingProfileByEmail } = await admin
@@ -1338,7 +1344,7 @@ export async function createCustomerAsRepresentativeTx(data: {
         // 2. Create user in Auth
         const { data: authData, error: authError } = await admin.auth.admin.createUser({
             email: normalizedEmail,
-            password,
+            password: passwordToUse,
             email_confirm: true,
             user_metadata: {
                 full_name: fullName,
@@ -1529,6 +1535,3 @@ export async function updateCustomerAsRepresentativeTx(data: {
         return { error: msg }
     }
 }
-
-
-

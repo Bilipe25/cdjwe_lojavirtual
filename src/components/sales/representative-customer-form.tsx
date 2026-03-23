@@ -1,16 +1,14 @@
 'use client';
 
-import { useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, Users, Building2, MapPin, Check, ChevronLeft } from 'lucide-react';
+import { Loader2, Users, MapPin, Check, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import type { CustomerType } from '@/lib/types';
+import type { CustomerType, Profile, Store, StoreAddress } from '@/lib/types';
 
 // Simplified schema for representative customer creation
 const repCustomerSchema = z.object({
@@ -30,12 +28,17 @@ const repCustomerSchema = z.object({
 
 export type RepCustomerFormData = z.infer<typeof repCustomerSchema>;
 
+type RepresentativeCustomerInitialData = Partial<Store> & {
+    profile?: Partial<Profile> | null;
+    addresses?: Partial<StoreAddress>[];
+};
+
 interface RepresentativeCustomerFormProps {
     onClose: () => void;
     onSave: (data: RepCustomerFormData) => Promise<void>;
     customerTypes: CustomerType[];
     saving: boolean;
-    initialData?: any;
+    initialData?: RepresentativeCustomerInitialData;
 }
 
 export function RepresentativeCustomerForm({
@@ -56,7 +59,7 @@ export function RepresentativeCustomerForm({
             tradeName: initialData?.trade_name || '',
             cnpj: initialData?.cnpj || '',
             customerTypeId: initialData?.customer_type_id || '',
-            address: initialData?.addresses?.[0]?.street || '',
+            address: initialData?.addresses?.[0]?.address || '',
             city: initialData?.addresses?.[0]?.city || '',
             state: initialData?.addresses?.[0]?.state || '',
             zipCode: initialData?.addresses?.[0]?.zip_code || '',
@@ -67,12 +70,6 @@ export function RepresentativeCustomerForm({
     const selectedCustomerTypeId = useWatch({ control: form.control, name: 'customerTypeId' }) || '';
 
     const onSubmit = async (data: RepCustomerFormData) => {
-        // If password is empty, generate a random one (the action backend will use it, 
-        // but since our schema requires it or generates it, we can pass a dummy if missing
-        // However, the action expects a password. Let's auto-generate one here if empty:
-        if (!data.password) {
-            data.password = Math.random().toString(36).slice(-8) + 'A1!'; 
-        }
         await onSave(data);
     };
 

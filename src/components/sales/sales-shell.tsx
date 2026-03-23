@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { useMemo, useState, type ReactNode } from 'react'
@@ -12,11 +12,9 @@ import {
   FileText,
   LayoutDashboard,
   MapPinned,
-  Menu,
   MoreHorizontal,
   ShoppingBag,
   Users,
-  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
@@ -342,4 +340,3 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
     </div>
   )
 }
-

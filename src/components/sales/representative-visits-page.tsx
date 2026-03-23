@@ -16,6 +16,8 @@ import type { RepresentativeVisit, Store } from '@/lib/types'
 
 type CustomerRow = Store
 
+type VisitOutcome = 'planned' | 'completed' | 'follow_up' | 'converted_quote' | 'converted_order'
+
 const outcomeLabels: Record<RepresentativeVisit['outcome'], string> = {
   planned: 'Planejada',
   completed: 'Concluída',
@@ -37,20 +39,67 @@ export function RepresentativeVisitsPage({ customers, visits }: { customers: Cus
   const [open, setOpen] = useState(false)
   const [customerId, setCustomerId] = useState('')
   const [visitedAt, setVisitedAt] = useState('')
-  const [outcome, setOutcome] = useState<'planned' | 'completed' | 'follow_up' | 'converted_quote' | 'converted_order'>('planned')
+  const [outcome, setOutcome] = useState<VisitOutcome>('planned')
   const [resultSummary, setResultSummary] = useState('')
   const [nextStep, setNextStep] = useState('')
   const [notes, setNotes] = useState('')
   const [pending, startTransition] = useTransition()
 
   const sortedCustomers = useMemo(() => [...customers].sort((a, b) => a.company_name.localeCompare(b.company_name, 'pt-BR')), [customers])
+  const sortedVisits = useMemo(
+    () => [...visits].sort((a, b) => new Date(b.visited_at).getTime() - new Date(a.visited_at).getTime()),
+    [visits]
+  )
+
+  const resetForm = () => {
+    setCustomerId('')
+    setVisitedAt('')
+    setOutcome('planned')
+    setResultSummary('')
+    setNextStep('')
+    setNotes('')
+  }
+
+  const handleDialogChange = (nextOpen: boolean) => {
+    setOpen(nextOpen)
+    if (!nextOpen && !pending) {
+      resetForm()
+    }
+  }
+
+  const handleCreateVisit = () => {
+    if (!customerId) {
+      toast.error('Selecione um cliente para registrar a visita.')
+      return
+    }
+
+    startTransition(async () => {
+      const response = await createRepresentativeVisitAction({
+        storeId: customerId,
+        visitedAt: visitedAt || null,
+        outcome,
+        resultSummary: resultSummary.trim() || null,
+        nextStep: nextStep.trim() || null,
+        notes: notes.trim() || null,
+      })
+
+      if (!response.success) {
+        toast.error(response.error || 'Falha ao registrar visita.')
+        return
+      }
+
+      toast.success('Visita registrada com sucesso.')
+      resetForm()
+      setOpen(false)
+      router.refresh()
+    })
+  }
 
   return (
     <div className="space-y-4">
-      {/* Header with button */}
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">{visits.length} visita(s)</span>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <span className="text-xs font-medium text-muted-foreground">{sortedVisits.length} visita(s)</span>
+        <Dialog open={open} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
             <Button size="sm" className="h-8 rounded-xl border-0 text-xs font-semibold gradient-bronze text-white hover:opacity-90">
               <CalendarPlus className="mr-1.5 h-3.5 w-3.5" />
@@ -69,7 +118,7 @@ export function RepresentativeVisitsPage({ customers, visits }: { customers: Cus
                 <Select value={customerId} onValueChange={(value) => setCustomerId(value || '')}>
                   <SelectTrigger className="h-9 rounded-xl border-border text-sm">
                     <SelectValue placeholder="Selecione um cliente">
-                      {sortedCustomers.find(c => c.id === customerId)?.company_name}
+                      {sortedCustomers.find((customer) => customer.id === customerId)?.company_name}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -89,11 +138,9 @@ export function RepresentativeVisitsPage({ customers, visits }: { customers: Cus
 
               <div className="space-y-1.5">
                 <Label className="text-xs">Resultado</Label>
-                <Select value={outcome} onValueChange={(value) => setOutcome((value || 'planned') as typeof outcome)}>
+                <Select value={outcome} onValueChange={(value) => setOutcome((value || 'planned') as VisitOutcome)}>
                   <SelectTrigger className="h-9 rounded-xl border-border text-sm">
-                    <SelectValue placeholder="Selecione">
-                      {outcomeLabels[outcome]}
-                    </SelectValue>
+                    <SelectValue placeholder="Selecione">{outcomeLabels[outcome]}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="planned">Planejada</SelectItem>
@@ -125,27 +172,7 @@ export function RepresentativeVisitsPage({ customers, visits }: { customers: Cus
               size="sm"
               className="mt-1 h-9 rounded-xl border-0 text-xs font-semibold gradient-bronze text-white hover:opacity-90"
               disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  const response = await createRepresentativeVisitAction({
-                    storeId: customerId,
-                    visitedAt: visitedAt || null,
-                    outcome,
-                    resultSummary,
-                    nextStep,
-                    notes,
-                  })
-
-                  if (!response.success) {
-                    toast.error(response.error || 'Falha ao registrar visita.')
-                    return
-                  }
-
-                  toast.success('Visita registrada com sucesso.')
-                  setOpen(false)
-                  router.refresh()
-                })
-              }
+              onClick={handleCreateVisit}
             >
               {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Salvar visita'}
             </Button>
@@ -153,8 +180,7 @@ export function RepresentativeVisitsPage({ customers, visits }: { customers: Cus
         </Dialog>
       </div>
 
-      {/* Visits list */}
-      {visits.length === 0 ? (
+      {sortedVisits.length === 0 ? (
         <SalesEmptyState
           title="Nenhuma visita registrada"
           description="Registre visitas para manter histórico e follow-up."
@@ -166,7 +192,7 @@ export function RepresentativeVisitsPage({ customers, visits }: { customers: Cus
         />
       ) : (
         <div className="divide-y divide-border/30 rounded-2xl border border-border/40 bg-card">
-          {visits.map((visit) => (
+          {sortedVisits.map((visit) => (
             <div key={visit.id} className="px-4 py-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">

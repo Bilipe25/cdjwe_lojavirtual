@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronRight, Search, ShoppingBag, FileText } from 'lucide-react'
+import { Search, ShoppingBag, FileText } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { SalesEmptyState } from '@/components/sales/sales-ui'
@@ -20,16 +20,17 @@ function formatCurrency(value: number) {
 
 export function RepresentativeCustomersPage({ customers }: { customers: CustomerRow[] }) {
   const [search, setSearch] = useState('')
+  const deferredSearch = useDeferredValue(search)
 
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
+    const term = deferredSearch.trim().toLowerCase()
     if (!term) return customers
     return customers.filter((customer) =>
       customer.company_name.toLowerCase().includes(term) ||
-      customer.cnpj.toLowerCase().includes(term) ||
+      customer.cnpj?.toLowerCase().includes(term) ||
       customer.customer_code?.toLowerCase().includes(term)
     )
-  }, [customers, search])
+  }, [customers, deferredSearch])
 
   return (
     <div className="space-y-4">

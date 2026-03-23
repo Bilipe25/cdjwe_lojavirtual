@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useDeferredValue, useState, useMemo, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import {
   ChevronLeft,
@@ -245,7 +245,7 @@ function RepBasket({
       </div>
 
       {/* Footer */}
-      <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border/40 p-4 shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.08)] pb-safe" style={{ maxWidth: '448px', margin: '0 auto', left: '0', right: '0' }}>
+      <div className="sticky bottom-0 z-10 bg-card border-t border-border/40 p-4 shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.08)] pb-safe">
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-xs text-muted-foreground">Total selecionado</p>
@@ -253,7 +253,7 @@ function RepBasket({
           </div>
           <div className="text-right">
             <p className="text-xs text-muted-foreground">Quantidade</p>
-            <p className="text-lg font-bold text-primary">{totalQty} iten{totalQty !== 1 ? 's' : ''}</p>
+            <p className="text-lg font-bold text-primary">{totalQty} item{totalQty !== 1 ? 's' : ''}</p>
           </div>
         </div>
         <Button
@@ -275,6 +275,7 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
   const [phase, setPhase] = useState<Phase>('catalog')
   const [activeProductId, setActiveProductId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const deferredSearch = useDeferredValue(search)
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [searchActive, setSearchActive] = useState(false)
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([])
@@ -289,11 +290,11 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       const matchCategory = selectedCategory === 'all' || p.category_id === selectedCategory
-      const term = search.trim().toLowerCase()
+      const term = deferredSearch.trim().toLowerCase()
       const matchSearch = !term || p.name.toLowerCase().includes(term)
       return matchCategory && matchSearch
     })
-  }, [products, search, selectedCategory])
+  }, [deferredSearch, products, selectedCategory])
 
   // Compute staged qty per product for badge
   const stagedQtyByProductId = useMemo(() => {
@@ -353,7 +354,7 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background sm:max-w-md sm:mx-auto sm:border-x sm:border-border sm:shadow-xl xl:hidden pb-safe">
+    <div className="fixed inset-0 z-50 flex flex-col bg-background pb-safe sm:max-w-md sm:mx-auto sm:border-x sm:border-border sm:shadow-xl xl:left-auto xl:right-0 xl:w-[520px] xl:max-w-none xl:mx-0">
 
       {/* ── Phase: CATALOG ── */}
       {phase === 'catalog' && (
@@ -471,13 +472,13 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
 
           {/* Sticky basket bar (only if items staged) */}
           {totalStagedQty > 0 && (
-            <div className="fixed bottom-0 left-0 right-0 p-4 bg-card border-t border-border/40 shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.08)] pb-safe" style={{ maxWidth: '448px', margin: '0 auto', left: '0', right: '0' }}>
+            <div className="sticky bottom-0 z-10 p-4 bg-card border-t border-border/40 shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.08)] pb-safe">
               <Button
                 onClick={() => setPhase('basket')}
                 className="w-full h-12 rounded-xl gradient-navy hover:opacity-90 text-white font-semibold text-base"
               >
                 <ShoppingBag className="h-5 w-5 mr-2" />
-                Ver seleção · {totalStagedQty} iten{totalStagedQty !== 1 ? 's' : ''} · {fmt(totalStagedValue)}
+                Ver seleção · {totalStagedQty} item{totalStagedQty !== 1 ? 's' : ''} · {fmt(totalStagedValue)}
               </Button>
             </div>
           )}

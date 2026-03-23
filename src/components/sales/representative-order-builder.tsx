@@ -1,11 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { CheckCircle2, ChevronLeft, ChevronRight, Copy, FileDown, FileText, Home, Loader2, Mail, MapPin, MessageCircle, Minus, Package, Pencil, Phone, Plus, Search, Share2, ShoppingBag, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
-import { calculateProductPrice } from '@/lib/pricing/calculate-product-price'
 import type {
   Category,
   Order,
@@ -15,8 +14,6 @@ import type {
   PriceTable,
   PriceTablePaymentRule,
   Product,
-  ProductSizeOption,
-  Profile,
   Store,
   StoreAddress,
   CustomerType,
@@ -100,10 +97,6 @@ function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
 
-function buildCartKey(variantId: string, sizeOptionId: string | null) {
-  return `${variantId}::${sizeOptionId || 'legacy'}`
-}
-
 function buildPaymentOptions(group: PaymentMethodGroup | null): PaymentOption[] {
   if (!group) return []
   return [
@@ -138,16 +131,33 @@ function computeNegotiation(subtotal: number, discountType: 'percent' | 'value' 
   return { adjustedSubtotal, discountAmount, discountPercentage, surchargeAmount: safeSurcharge }
 }
 
-function getPrimaryImage(product: BuilderProduct) {
-  return product.images?.find((img) => img.is_primary)?.url || product.images?.[0]?.url || null
-}
-
 function getDefaultAddressId(store: BuilderCustomer | null) {
   return store?.addresses?.find((a) => a.is_main)?.id || store?.addresses?.[0]?.id || ''
 }
 
 function getDefaultPriceTableId(store: BuilderCustomer | null, fallbackTables: PriceTable[]) {
   return (store?.assigned_price_tables?.[0] || fallbackTables[0])?.id || ''
+}
+
+function hasSamePricingSnapshot(current: DraftItem[], next: DraftItem[]) {
+  if (current.length !== next.length) return false
+
+  for (let index = 0; index < current.length; index += 1) {
+    const currentItem = current[index]
+    const nextItem = next[index]
+    if (!nextItem) return false
+
+    if (
+      currentItem.cartKey !== nextItem.cartKey ||
+      currentItem.quantity !== nextItem.quantity ||
+      currentItem.unitPrice !== nextItem.unitPrice ||
+      currentItem.sizeName !== nextItem.sizeName
+    ) {
+      return false
+    }
+  }
+
+  return true
 }
 
 /* ─── Section row (mobile native style — label + chevron) ─── */
@@ -256,6 +266,7 @@ export function RepresentativeOrderBuilder({
 
   /* ─── Mobile section visibility ─── */
   const [openSection, setOpenSection] = useState<'customer' | 'products' | 'negotiation' | 'payment' | 'notes' | null>(null)
+  const revalidationSequenceRef = useRef(0)
 
   const selectedStore = useMemo(() => customers.find((c) => c.id === selectedStoreId) || null, [customers, selectedStoreId])
   const availablePriceTables = useMemo(() => selectedStore?.assigned_price_tables?.length ? selectedStore.assigned_price_tables : priceTables, [priceTables, selectedStore])
@@ -284,26 +295,96 @@ export function RepresentativeOrderBuilder({
     setSelectedPaymentId('')
   }
 
-  /* ─── Pricing revalidation ─── */
+    /* ─── Pricing revalidation ─── */
   useEffect(() => {
-    let cancelled = false
-    const revalidate = async () => {
-      if (!selectedStoreId || draftItems.length === 0) { setPaymentGroups([]); setSelectedPaymentMethodId(''); setSelectedPaymentId(''); return }
-      setPricingPending(true)
-      const pricing = (await validateRepresentativeDraftPricingAction({ storeId: selectedStoreId, priceTableId: selectedPriceTableId || null, lines: draftItems.map((i) => ({ cartKey: i.cartKey, variantId: i.variantId, sizeOptionId: i.sizeOptionId })) })) as PricingValidationResult
-      if (cancelled) return
-      if ('error' in pricing) { setPricingPending(false); toast.error(pricing.error); return }
-      const repricedItems = draftItems.map((i) => { const p = pricing.prices[i.cartKey]; return p ? { ...i, unitPrice: p.unitPrice, sizeName: p.sizeName ?? i.sizeName } : i })
-      setItems(repricedItems)
-      const subtotal = repricedItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
-      const payments = await getRepresentativePaymentOptions({ storeId: selectedStoreId, subtotal, priceTableId: selectedPriceTableId || null })
-      if (cancelled) return
-      if ('error' in payments && payments.error) { setPricingPending(false); toast.error(payments.error); return }
-      setPaymentGroups((payments.paymentMethods || []) as PaymentMethodGroup[])
+    if (!selectedStoreId || draftItems.length === 0) {
+      setPaymentGroups([])
+      setSelectedPaymentMethodId('')
+      setSelectedPaymentId('')
       setPricingPending(false)
+      return
     }
-    void revalidate()
-    return () => { cancelled = true }
+
+    let cancelled = false
+    const sequence = revalidationSequenceRef.current + 1
+    revalidationSequenceRef.current = sequence
+
+    const resetPaymentState = () => {
+      setPaymentGroups([])
+      setSelectedPaymentMethodId('')
+      setSelectedPaymentId('')
+    }
+
+    const revalidate = async () => {
+      setPricingPending(true)
+
+      try {
+        const pricing = (await validateRepresentativeDraftPricingAction({
+          storeId: selectedStoreId,
+          priceTableId: selectedPriceTableId || null,
+          lines: draftItems.map((item) => ({
+            cartKey: item.cartKey,
+            variantId: item.variantId,
+            sizeOptionId: item.sizeOptionId,
+          })),
+        })) as PricingValidationResult
+
+        if (cancelled || sequence !== revalidationSequenceRef.current) return
+
+        if ('error' in pricing) {
+          resetPaymentState()
+          toast.error(pricing.error)
+          return
+        }
+
+        const repricedItems = draftItems.map((item) => {
+          const price = pricing.prices[item.cartKey]
+          if (!price) return item
+
+          return {
+            ...item,
+            unitPrice: price.unitPrice,
+            sizeName: price.sizeName ?? item.sizeName,
+          }
+        })
+
+        setItems((current) => (hasSamePricingSnapshot(current, repricedItems) ? current : repricedItems))
+
+        const subtotal = repricedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
+        const payments = await getRepresentativePaymentOptions({
+          storeId: selectedStoreId,
+          subtotal,
+          priceTableId: selectedPriceTableId || null,
+        })
+
+        if (cancelled || sequence !== revalidationSequenceRef.current) return
+
+        if ('error' in payments && payments.error) {
+          resetPaymentState()
+          toast.error(payments.error)
+          return
+        }
+
+        setPaymentGroups((payments.paymentMethods || []) as PaymentMethodGroup[])
+      } catch {
+        if (cancelled || sequence !== revalidationSequenceRef.current) return
+        resetPaymentState()
+        toast.error('Não foi possível revalidar preços e pagamentos.')
+      } finally {
+        if (!cancelled && sequence === revalidationSequenceRef.current) {
+          setPricingPending(false)
+        }
+      }
+    }
+
+    const timeout = window.setTimeout(() => {
+      void revalidate()
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
   }, [draftItems, pricingSignature, selectedPriceTableId, selectedStoreId])
 
   const effectivePaymentMethodId = paymentGroups.some((g) => g.method.id === selectedPaymentMethodId) ? selectedPaymentMethodId : paymentGroups[0]?.method.id || ''
@@ -472,45 +553,72 @@ export function RepresentativeOrderBuilder({
   const handleSubmit = (target: 'order' | 'quote') => {
     if (!selectedStoreId) { toast.error('Selecione um cliente.'); return }
     if (items.length === 0) { toast.error('Adicione pelo menos um item.'); return }
+    if (pricingPending) { toast.info('Aguarde a revalidacao de precos antes de finalizar.'); return }
+
     startSubmitting(async () => {
-      const payload = { storeId: selectedStoreId, priceTableId: selectedPriceTableId || null, selectedPaymentId: effectivePaymentId || null, isTableRule: Boolean(selectedPaymentOption?.isTableRule), selectedAddressId: selectedAddressId || null, notes, negotiationDiscountType: discountType === 'none' ? null : discountType, negotiationDiscountValue: Number(discountValue || 0), negotiationSurchargeAmount: Number(surchargeValue || 0), negotiationReason, items }
-      const response = target === 'order' ? await createRepresentativeOrderAction(payload) : await saveRepresentativeQuoteAction(payload)
-      if (!response.success) { toast.error(response.error || 'Falha ao salvar.'); return }
+      try {
+        const payload = {
+          storeId: selectedStoreId,
+          priceTableId: selectedPriceTableId || null,
+          selectedPaymentId: effectivePaymentId || null,
+          isTableRule: Boolean(selectedPaymentOption?.isTableRule),
+          selectedAddressId: selectedAddressId || null,
+          notes,
+          negotiationDiscountType: discountType === 'none' ? null : discountType,
+          negotiationDiscountValue: Number(discountValue || 0),
+          negotiationSurchargeAmount: Number(surchargeValue || 0),
+          negotiationReason,
+          items,
+        }
 
-      if (target === 'quote') {
-        router.push(`/sales/quotes/${response.quoteId}`)
-        return
+        const response = target === 'order'
+          ? await createRepresentativeOrderAction(payload)
+          : await saveRepresentativeQuoteAction(payload)
+
+        if (!response.success) {
+          toast.error(response.error || 'Falha ao salvar.')
+          return
+        }
+
+        if (target === 'quote') {
+          router.push(`/sales/quotes/${response.quoteId}`)
+          return
+        }
+
+        const orderId = response.orderId
+        if (!orderId) {
+          toast.error('Pedido criado, mas nao foi possivel identificar o pedido para finalizacao.')
+          router.push('/sales/orders')
+          return
+        }
+
+        const isMobileLikeViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 1279px)').matches
+        if (!isMobileLikeViewport) {
+          router.push(`/sales/orders/${orderId}`)
+          return
+        }
+
+        setCompletionLoading(true)
+        setCompletionData(null)
+        const completionResponse = await getRepresentativeOrderCompletionData(orderId)
+
+        if (!completionResponse.success) {
+          toast.error(completionResponse.error || 'Pedido criado, mas nao foi possivel carregar a finalizacao.')
+          router.push(`/sales/orders/${orderId}`)
+          return
+        }
+
+        setCompletionData({
+          order: completionResponse.order,
+          items: completionResponse.items,
+          settings: completionResponse.settings,
+        })
+        toast.success('Pedido finalizado com sucesso.')
+      } catch {
+        toast.error('Falha inesperada ao finalizar o atendimento.')
+      } finally {
+        setCompletionLoading(false)
       }
-
-      const orderId = response.orderId
-      if (!orderId) {
-        toast.error('Pedido criado, mas nao foi possivel identificar o pedido para finalizacao.')
-        router.push('/sales/orders')
-        return
-      }
-      const isMobileLikeViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 1279px)').matches
-      if (!isMobileLikeViewport) {
-        router.push(`/sales/orders/${orderId}`)
-        return
-      }
-
-      setCompletionLoading(true)
-      setCompletionData(null)
-      const completionResponse = await getRepresentativeOrderCompletionData(orderId)
-      setCompletionLoading(false)
-
-      if (!completionResponse.success) {
-        toast.error(completionResponse.error || 'Pedido criado, mas nao foi possivel carregar a finalizacao.')
-        router.push(`/sales/orders/${orderId}`)
-        return
-      }
-
-      setCompletionData({
-        order: completionResponse.order,
-        items: completionResponse.items,
-        settings: completionResponse.settings,
-      })
-      toast.success('Pedido finalizado com sucesso.')
     })
   }
 
@@ -614,7 +722,7 @@ export function RepresentativeOrderBuilder({
         </div>
         <Button
           className="h-12 w-full rounded-xl border-0 text-sm font-bold gradient-navy text-white hover:opacity-90"
-          disabled={submitting || !selectedStoreId || items.length === 0}
+          disabled={submitting || pricingPending || !selectedStoreId || items.length === 0}
           onClick={() => handleSubmit(mode)}
         >
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'order' ? (
@@ -716,14 +824,14 @@ export function RepresentativeOrderBuilder({
               <p className="mt-1 text-xs text-white/60">{selectedPaymentOption?.label || 'Defina pagamento'}</p>
             </div>
             {mode === 'order' && (
-              <Button className="h-10 w-full rounded-xl border-0 text-sm font-bold gradient-bronze text-white hover:opacity-90" disabled={submitting || !selectedStoreId || items.length === 0} onClick={() => handleSubmit('order')}>
+              <Button className="h-10 w-full rounded-xl border-0 text-sm font-bold gradient-bronze text-white hover:opacity-90" disabled={submitting || pricingPending || !selectedStoreId || items.length === 0} onClick={() => handleSubmit('order')}>
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ShoppingBag className="mr-2 h-4 w-4" />Confirmar pedido</>}
               </Button>
             )}
             <Button
               variant={mode === 'quote' ? 'default' : 'outline'}
               className={mode === 'quote' ? 'h-10 w-full rounded-xl border-0 text-sm font-bold gradient-navy text-white hover:opacity-90' : 'h-10 w-full rounded-xl border-border bg-card text-sm text-foreground hover:bg-muted/60'}
-              disabled={submitting || !selectedStoreId || items.length === 0}
+              disabled={submitting || pricingPending || !selectedStoreId || items.length === 0}
               onClick={() => handleSubmit('quote')}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><FileText className="mr-2 h-4 w-4" />Salvar orçamento</>}

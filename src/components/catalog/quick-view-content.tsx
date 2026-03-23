@@ -10,7 +10,6 @@ import { useCartStore } from '@/lib/stores/cart-store'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { usePriceTableStore } from '@/lib/stores/price-table-store'
 import { useCustomerCommercialStore } from '@/lib/stores/customer-commercial-store'
-import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useProductDetailData, type ProductDetailData } from '@/lib/hooks/use-product-detail-data'
 import { useProductSelectionState } from '@/lib/hooks/use-product-selection-state'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
@@ -71,7 +70,7 @@ export function QuickViewContent({
     const { isFavorite, toggle } = useFavoritesStore()
     const { discountPercentage, overrides } = usePriceTableStore()
     const { isSalesBlocked } = useCustomerCommercialStore()
-    const isMobile = useIsMobile()
+    const hasExternalAddHandler = typeof onAddedToCart === 'function'
     const [addingToCart, setAddingToCart] = useState(false)
 
     const selection = useProductSelectionState({
@@ -339,7 +338,7 @@ export function QuickViewContent({
                 items: addedItems,
             }
 
-            if (isMobile) {
+            if (hasExternalAddHandler) {
                 onAddedToCart?.(addedSummary)
             } else {
                 toast.success(`${totalQuantity} itens adicionados ao carrinho!`)
@@ -347,7 +346,7 @@ export function QuickViewContent({
 
             resetSelection()
             onClose()
-            if (!isMobile) {
+            if (!hasExternalAddHandler) {
                 openCart()
             }
         } finally {
