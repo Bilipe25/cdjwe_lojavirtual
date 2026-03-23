@@ -103,7 +103,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 export default function OrderConfirmationPage() {
     const params = useParams()
     const router = useRouter()
-    const orderId = params.id as string
+    const orderId = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : ''
 
     const [order, setOrder] = useState<OrderConfirmationRecord | null>(null)
     const [items, setItems] = useState<OrderItem[]>([])
@@ -114,6 +114,12 @@ export default function OrderConfirmationPage() {
     const [isSendingEmail, setIsSendingEmail] = useState(false)
 
     const loadOrder = useCallback(async () => {
+        if (!orderId) {
+            toast.error('Pedido invalido.')
+            router.push('/orders')
+            return
+        }
+
         setLoading(true)
         setError(null)
         try {
@@ -132,7 +138,8 @@ export default function OrderConfirmationPage() {
                 .select(`
                     *,
                     store:stores(*),
-                    profile:profiles(*),
+                    profile:profiles!orders_profile_id_fkey(*),
+                    created_by_profile:profiles!orders_created_by_profile_id_fkey(id, full_name, role, email, phone, status, created_at, updated_at),
                     payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage)
                 `)
                 .eq('id', orderId)

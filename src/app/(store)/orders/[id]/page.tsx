@@ -68,6 +68,7 @@ const statusOrder: OrderStatus[] = ['pending', 'approved', 'in_production', 'shi
 export default function OrderDetailPage() {
     const params = useParams()
     const router = useRouter()
+    const orderId = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : ''
     const [order, setOrder] = useState<OrderDetailRecord | null>(null)
     const [items, setItems] = useState<OrderItem[]>([])
     const [history, setHistory] = useState<OrderHistoryEntry[]>([])
@@ -78,6 +79,11 @@ export default function OrderDetailPage() {
     const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
     const loadOrder = useCallback(async () => {
+        if (!orderId) {
+            router.push('/orders')
+            return
+        }
+
         setLoading(true)
         const supabase = createClient()
 
@@ -95,10 +101,11 @@ export default function OrderDetailPage() {
             .select(`
                 *,
                 store:stores(*),
-                profile:profiles(*),
+                profile:profiles!orders_profile_id_fkey(*),
+                created_by_profile:profiles!orders_created_by_profile_id_fkey(id, full_name, role, email, phone, status, created_at, updated_at),
                 payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage)
             `)
-            .eq('id', params.id)
+            .eq('id', orderId)
             .eq('profile_id', user.id)
             .single()
 
@@ -120,7 +127,7 @@ export default function OrderDetailPage() {
         const { data: itemsData } = await supabase
             .from('order_items')
             .select('*')
-            .eq('order_id', params.id)
+            .eq('order_id', orderId)
             .order('created_at')
         if (itemsData) setItems(itemsData)
 
@@ -128,12 +135,12 @@ export default function OrderDetailPage() {
         const { data: historyData } = await supabase
             .from('order_status_history')
             .select('*, changed_by_profile:profiles(role, full_name)')
-            .eq('order_id', params.id)
+            .eq('order_id', orderId)
             .order('created_at', { ascending: true })
         if (historyData) setHistory(historyData as OrderHistoryEntry[])
 
         setLoading(false)
-    }, [params.id, router])
+    }, [orderId, router])
 
     useEffect(() => {
         void loadOrder()
