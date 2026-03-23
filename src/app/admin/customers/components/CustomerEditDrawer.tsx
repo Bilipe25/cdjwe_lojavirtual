@@ -81,6 +81,9 @@ export function CustomerEditDrawer({
                 : '';
     const selectedRepresentativeLabel =
         selectedRepresentative?.full_name || (hasMissingRepresentativeOption ? fallbackRepresentativeLabel : '');
+    const willBecomeRepresentative =
+        (selectedCustomerType?.slug || '').toLowerCase() === 'representante' ||
+        (selectedCustomerType?.name || '').toLowerCase() === 'representante';
 
     useEffect(() => {
         if (isOpen && customer) {
@@ -310,6 +313,11 @@ export function CustomerEditDrawer({
                                         ))}
                                     </SelectContent>
                                 </Select>
+                                {willBecomeRepresentative && (
+                                    <p className="text-[11px] text-blue-700">
+                                        Ao salvar, este usuario sera promovido para representante e passara a entrar no painel de representante.
+                                    </p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <Label>Representante Responsável</Label>

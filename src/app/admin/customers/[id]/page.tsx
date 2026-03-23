@@ -22,6 +22,7 @@ import { CustomerAuditTab } from '../components/CustomerAuditTab'
 import { CustomerAccessTab } from '../components/CustomerAccessTab'
 import { CustomerAddressManager } from '../components/CustomerAddressManager'
 import { CustomerCommercialTab } from '../components/CustomerCommercialTab'
+import { CustomerRepresentativeTab } from '../components/CustomerRepresentativeTab'
 
 const statusConfig: Record<string, { label: string; color: string }> = {
     pending: { label: 'Pendente', color: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -40,7 +41,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
     const [customer, setCustomer] = useState<CustomerWithStore | null>(null)
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
-    const [activeTab, setActiveTab] = useState<'general' | 'access' | 'orders' | 'audit' | 'addresses' | 'commercial'>('general')
+    const [activeTab, setActiveTab] = useState<'general' | 'access' | 'orders' | 'audit' | 'addresses' | 'commercial' | 'representative'>('general')
 
     // Lookup data states for Edit Drawer
     const [customerTypes, setCustomerTypes] = useState<CustomerType[]>([])
@@ -65,7 +66,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
             const { data, error } = await supabase
                 .from('profiles')
                 .select('*, stores!stores_profile_id_fkey(*, customer_type:customer_types(*), store_tags(customer_tags(*)), representative:profiles!stores_representative_id_fkey(id, full_name))')
-                .eq('role', 'client')
+                .in('role', ['client', 'representative'])
                 .eq('id', customerId)
                 .single()
 
@@ -138,6 +139,12 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
             void loadOrdersTabData()
         }
     }, [activeTab, loadAuditTabData, loadOrdersTabData])
+
+    useEffect(() => {
+        if (activeTab === 'representative' && customer?.role !== 'representative') {
+            setActiveTab('general')
+        }
+    }, [activeTab, customer?.role])
 
     // Inline update handlers
     const handleContactUpdated = (updated: Partial<CustomerWithStore>) => {
@@ -214,6 +221,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
     const config = statusConfig[customer.status] || statusConfig.pending
     const customerTypeLabel = store?.customer_type?.name
     const representativeName = store?.representative?.full_name
+    const isRepresentativeProfile = customer.role === 'representative'
 
     // Component Content...
     return (
@@ -259,6 +267,11 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                                 {customerTypeLabel && (
                                     <Badge variant="outline" className="border-bronze/30 text-bronze bg-bronze/5">
                                         {customerTypeLabel}
+                                    </Badge>
+                                )}
+                                {isRepresentativeProfile && (
+                                    <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                                        Representante ativo
                                     </Badge>
                                 )}
                                 {store?.store_tags?.map((t, idx) => t.customer_tags && (
@@ -373,6 +386,17 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                         <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                         Financeiro/Comercial
                     </button>
+                    {isRepresentativeProfile && (
+                        <button
+                            onClick={() => setActiveTab('representative')}
+                            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                                activeTab === 'representative' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
+                            }`}
+                        >
+                            <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            Configuracao do Representante
+                        </button>
+                    )}
                     <button
                         onClick={() => setActiveTab('orders')}
                         className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
@@ -444,6 +468,12 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                 {activeTab === 'orders' && (
                     <div className="bg-white rounded-2xl border p-6 shadow-sm">
                         <CustomerOrdersTab orders={orders} loading={loadingOrders} />
+                    </div>
+                )}
+
+                {activeTab === 'representative' && isRepresentativeProfile && (
+                    <div className="bg-white rounded-2xl border p-6 shadow-sm">
+                        <CustomerRepresentativeTab profileId={customer.id} />
                     </div>
                 )}
                 

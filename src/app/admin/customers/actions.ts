@@ -84,6 +84,15 @@ type CustomerCommercialSettingsPayload = {
     representativeId?: string | null
 }
 
+type RepresentativeCommercialSettingsPayload = {
+    profileId: string
+    maxDiscountPercentage?: number | null
+    allowFreeNegotiation?: boolean
+    canOverridePriceTable?: boolean
+    notes?: string | null
+    allowedPriceTableIds?: string[]
+}
+
 async function sendAccountApprovedEmail(params: { email: string; fullName: string }) {
     if (!hasRealCustomerEmail(params.email)) {
         return
@@ -200,6 +209,103 @@ function toOptionalUuid(value?: string | null) {
 function toNullableNumber(value?: number | null) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) return null
     return Number(value)
+}
+
+function isRepresentativeCustomerType(type?: { slug?: string | null; name?: string | null } | null) {
+    const slug = (type?.slug || '').trim().toLowerCase()
+    const name = (type?.name || '').trim().toLowerCase()
+    return slug === 'representante' || name === 'representante'
+}
+
+async function syncProfileRoleWithCustomerType(params: {
+    supabaseAdmin: Awaited<ReturnType<typeof getAdminClient>>
+    profileId: string
+    customerTypeId?: string | null
+    currentRole?: string | null
+    currentStatus?: string | null
+    fullName?: string | null
+}) {
+    const {
+        supabaseAdmin,
+        profileId,
+        customerTypeId,
+        currentRole = null,
+        currentStatus = null,
+        fullName = null,
+    } = params
+
+    const normalizedCustomerTypeId = toOptionalUuid(customerTypeId)
+    if (!normalizedCustomerTypeId) {
+        const targetRole = 'client' as const
+        if (currentRole === targetRole) {
+            return { role: targetRole, changed: false }
+        }
+
+        const targetStatus = currentStatus || 'approved'
+        const { error: profileRoleError } = await supabaseAdmin
+            .from('profiles')
+            .update({ role: targetRole, status: targetStatus })
+            .eq('id', profileId)
+
+        if (profileRoleError) {
+            throw profileRoleError
+        }
+
+        try {
+            await supabaseAdmin.auth.admin.updateUserById(profileId, {
+                user_metadata: {
+                    role: targetRole,
+                    ...(fullName ? { full_name: fullName } : {}),
+                },
+            })
+        } catch (authError) {
+            console.error('[CUSTOMER ROLE SYNC] Failed to sync auth metadata:', authError)
+        }
+
+        return { role: targetRole, changed: true }
+    }
+
+    const { data: customerType, error: customerTypeError } = await supabaseAdmin
+        .from('customer_types')
+        .select('id, slug, name')
+        .eq('id', normalizedCustomerTypeId)
+        .limit(1)
+        .maybeSingle()
+
+    if (customerTypeError) throw customerTypeError
+    const shouldBeRepresentative = isRepresentativeCustomerType(customerType)
+    const targetRole: 'client' | 'representative' = shouldBeRepresentative ? 'representative' : 'client'
+
+    if (currentRole === targetRole) {
+        return { role: targetRole, changed: false }
+    }
+
+    const targetStatus =
+        targetRole === 'representative'
+            ? 'approved'
+            : (currentStatus || 'approved')
+
+    const { error: profileRoleError } = await supabaseAdmin
+        .from('profiles')
+        .update({ role: targetRole, status: targetStatus })
+        .eq('id', profileId)
+
+    if (profileRoleError) {
+        throw profileRoleError
+    }
+
+    try {
+        await supabaseAdmin.auth.admin.updateUserById(profileId, {
+            user_metadata: {
+                role: targetRole,
+                ...(fullName ? { full_name: fullName } : {}),
+            },
+        })
+    } catch (authError) {
+        console.error('[CUSTOMER ROLE SYNC] Failed to sync auth metadata:', authError)
+    }
+
+    return { role: targetRole, changed: true }
 }
 
 async function getCustomerDeleteBlocker(
@@ -376,6 +482,15 @@ export async function createCustomerAsAdminTx(formData: FormData) {
             throw new Error(upsertResult.error)
         }
 
+        await syncProfileRoleWithCustomerType({
+            supabaseAdmin,
+            profileId: authData.user.id,
+            customerTypeId: customerTypeId || null,
+            currentRole: 'client',
+            currentStatus: 'approved',
+            fullName,
+        })
+
         await sendAccountApprovedEmail({
             email: normalizedEmail,
             fullName,
@@ -414,7 +529,7 @@ export async function updateCustomerAsAdminTx(
 
         const { data: currentProfile, error: currentProfileError } = await supabaseAdmin
             .from('profiles')
-            .select('email')
+            .select('email, role, status, full_name')
             .eq('id', profileId)
             .single()
 
@@ -467,6 +582,15 @@ export async function updateCustomerAsAdminTx(
             throw new Error(upsertResult.error)
         }
 
+        await syncProfileRoleWithCustomerType({
+            supabaseAdmin,
+            profileId,
+            customerTypeId: data.customerTypeId || null,
+            currentRole: currentProfile.role,
+            currentStatus: currentProfile.status,
+            fullName: data.fullName || currentProfile.full_name,
+        })
+
         return { success: true }
     } catch (err: unknown) {
         console.error('Customer Update TX Error:', err)
@@ -489,8 +613,8 @@ export async function updateCustomerStatusAsAdmin(profileId: string, status: Cus
             return { error: 'Cliente nao encontrado.' }
         }
 
-        if (profile.role !== 'client') {
-            return { error: 'Apenas clientes podem ter status alterado.' }
+        if (!['client', 'representative'].includes(profile.role)) {
+            return { error: 'Apenas clientes e representantes podem ter status alterado.' }
         }
 
         if (profile.status !== status) {
@@ -530,7 +654,7 @@ export async function bulkUpdateCustomerStatusAsAdmin(ids: string[], status: Cus
             .from('profiles')
             .select('id, role, status, email, full_name')
             .in('id', uniqueIds)
-            .eq('role', 'client')
+            .in('role', ['client', 'representative'])
 
         if (loadError) throw loadError
         if (!customers || customers.length === 0) {
@@ -877,6 +1001,17 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
                     results.push({ row: rowRef, status: 'error', message: upsertResult.error })
                     continue
                 }
+
+                await syncProfileRoleWithCustomerType({
+                    supabaseAdmin,
+                    profileId: targetProfileId,
+                    customerTypeId: row.customerType
+                        ? typeMap.get(row.customerType.toLowerCase()) || null
+                        : null,
+                    currentRole: existingProfileByEmail?.role || existingProfileByCnpj.data?.role || 'client',
+                    currentStatus: 'imported',
+                    fullName: row.fullName,
+                })
 
                 results.push({
                     row: rowRef,
@@ -1312,6 +1447,199 @@ export async function upsertCustomerCommercialSettings(
     } catch (err: unknown) {
         console.error('Upsert Customer Commercial Settings Error:', err)
         return { error: toErrorMessage(err, 'Erro ao salvar configuracoes comerciais.') }
+    }
+}
+
+// ==================== REPRESENTATIVE COMMERCIAL SETTINGS ====================
+
+export async function getRepresentativeCommercialSetup(profileId: string) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        if (!profileId) {
+            return { error: 'Representante nao informado.' }
+        }
+
+        const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .select('id, role, full_name, status')
+            .eq('id', profileId)
+            .limit(1)
+            .maybeSingle()
+
+        if (profileError) throw profileError
+        if (!profile?.id) return { error: 'Perfil nao encontrado.' }
+        if (profile.role !== 'representative') {
+            return { error: 'Este cadastro ainda nao e um representante.' }
+        }
+
+        const [priceTablesRes, linksRes, assignedCountRes] = await Promise.all([
+            supabaseAdmin
+                .from('price_tables')
+                .select('id, name, discount_percentage, is_default, is_active, valid_from, valid_until')
+                .order('name', { ascending: true }),
+            supabaseAdmin
+                .from('representative_price_tables')
+                .select('price_table_id')
+                .eq('representative_id', profileId),
+            supabaseAdmin
+                .from('stores')
+                .select('id', { count: 'exact', head: true })
+                .eq('representative_id', profileId),
+        ])
+
+        let schemaReady = true
+        let settingsData: Record<string, unknown> | null = null
+
+        const { data: settingsRow, error: settingsError } = await supabaseAdmin
+            .from('representative_commercial_settings')
+            .select('*')
+            .eq('profile_id', profileId)
+            .maybeSingle()
+
+        if (settingsError) {
+            if (settingsError.code === '42P01') {
+                schemaReady = false
+            } else {
+                throw settingsError
+            }
+        } else if (settingsRow) {
+            settingsData = settingsRow
+        }
+
+        if (linksRes.error && linksRes.error.code === '42P01') {
+            schemaReady = false
+        } else if (linksRes.error) {
+            throw linksRes.error
+        }
+
+        return {
+            data: {
+                schemaReady,
+                profile,
+                settings: settingsData,
+                allowedPriceTableIds: (linksRes.data || []).map((row) => row.price_table_id),
+                lookups: {
+                    priceTables: priceTablesRes.data || [],
+                },
+                stats: {
+                    assignedCustomers: assignedCountRes.count || 0,
+                },
+            },
+        }
+    } catch (err: unknown) {
+        console.error('Get Representative Commercial Setup Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao carregar configuracoes do representante.') }
+    }
+}
+
+export async function upsertRepresentativeCommercialSettings(
+    payload: RepresentativeCommercialSettingsPayload
+) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const profileId = toOptionalUuid(payload.profileId)
+        if (!profileId) {
+            return { error: 'Representante invalido.' }
+        }
+
+        const { data: representative, error: representativeError } = await supabaseAdmin
+            .from('profiles')
+            .select('id, role')
+            .eq('id', profileId)
+            .limit(1)
+            .maybeSingle()
+
+        if (representativeError) throw representativeError
+        if (!representative?.id || representative.role !== 'representative') {
+            return { error: 'O perfil informado nao e um representante.' }
+        }
+
+        const maxDiscountPercentage = toNullableNumber(payload.maxDiscountPercentage)
+        if (maxDiscountPercentage !== null && (maxDiscountPercentage < 0 || maxDiscountPercentage > 100)) {
+            return { error: 'Desconto maximo deve ficar entre 0% e 100%.' }
+        }
+
+        const notes = (payload.notes || '').trim() || null
+        const allowFreeNegotiation = payload.allowFreeNegotiation !== false
+        const canOverridePriceTable = payload.canOverridePriceTable !== false
+        const allowedPriceTableIds = Array.from(
+            new Set((payload.allowedPriceTableIds || []).map((value) => value.trim()).filter(Boolean))
+        )
+
+        if (allowedPriceTableIds.length > 0) {
+            const { data: tables, error: tablesError } = await supabaseAdmin
+                .from('price_tables')
+                .select('id')
+                .in('id', allowedPriceTableIds)
+
+            if (tablesError) throw tablesError
+
+            const foundIds = new Set((tables || []).map((table) => table.id))
+            const missing = allowedPriceTableIds.filter((id) => !foundIds.has(id))
+            if (missing.length > 0) {
+                return { error: 'Uma ou mais tabelas selecionadas nao existem.' }
+            }
+        }
+
+        const { data: settingsRow, error: settingsError } = await supabaseAdmin
+            .from('representative_commercial_settings')
+            .upsert({
+                profile_id: profileId,
+                max_discount_percentage: maxDiscountPercentage,
+                allow_free_negotiation: allowFreeNegotiation,
+                can_override_price_table: canOverridePriceTable,
+                notes,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'profile_id' })
+            .select('*')
+            .single()
+
+        if (settingsError) {
+            if (settingsError.code === '42P01') {
+                return { error: 'A migration de configuracao do representante ainda nao foi aplicada no banco.' }
+            }
+            throw settingsError
+        }
+
+        const { error: cleanupError } = await supabaseAdmin
+            .from('representative_price_tables')
+            .delete()
+            .eq('representative_id', profileId)
+
+        if (cleanupError) {
+            if (cleanupError.code === '42P01') {
+                return { error: 'A migration de configuracao do representante ainda nao foi aplicada no banco.' }
+            }
+            throw cleanupError
+        }
+
+        if (allowedPriceTableIds.length > 0) {
+            const { error: insertLinksError } = await supabaseAdmin
+                .from('representative_price_tables')
+                .insert(
+                    allowedPriceTableIds.map((tableId) => ({
+                        representative_id: profileId,
+                        price_table_id: tableId,
+                    }))
+                )
+
+            if (insertLinksError) throw insertLinksError
+        }
+
+        return {
+            success: true,
+            data: {
+                ...(settingsRow || {}),
+                allowedPriceTableIds,
+            },
+        }
+    } catch (err: unknown) {
+        console.error('Upsert Representative Commercial Settings Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao salvar configuracoes do representante.') }
     }
 }
 

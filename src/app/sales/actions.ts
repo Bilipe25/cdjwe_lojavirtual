@@ -180,6 +180,70 @@ function computeNegotiation(
     }
 }
 
+type RepresentativeCommercialPolicy = {
+    maxDiscountPercentage: number | null
+    allowFreeNegotiation: boolean
+    canOverridePriceTable: boolean
+    allowedPriceTableIds: string[]
+}
+
+function isMissingRepresentativeCommercialSchemaError(error: { code?: string | null; message?: string | null } | null | undefined) {
+    if (!error) return false
+    if (error.code === '42P01') return true
+    const message = (error.message || '').toLowerCase()
+    return message.includes('representative_commercial_settings') || message.includes('representative_price_tables')
+}
+
+async function getRepresentativeCommercialPolicy(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId: string
+): Promise<RepresentativeCommercialPolicy | null> {
+    const [settingsRes, tablesRes] = await Promise.all([
+        admin
+            .from('representative_commercial_settings')
+            .select('max_discount_percentage, allow_free_negotiation, can_override_price_table')
+            .eq('profile_id', representativeId)
+            .maybeSingle(),
+        admin
+            .from('representative_price_tables')
+            .select('price_table_id')
+            .eq('representative_id', representativeId),
+    ])
+
+    if (isMissingRepresentativeCommercialSchemaError(settingsRes.error) || isMissingRepresentativeCommercialSchemaError(tablesRes.error)) {
+        return null
+    }
+
+    if (settingsRes.error) {
+        throw new Error(settingsRes.error.message || 'Falha ao carregar politica comercial do representante.')
+    }
+
+    if (tablesRes.error) {
+        throw new Error(tablesRes.error.message || 'Falha ao carregar tabelas permitidas do representante.')
+    }
+
+    const settings = settingsRes.data
+    const tableIds = (tablesRes.data || []).map((row) => row.price_table_id).filter(Boolean)
+    if (!settings && tableIds.length === 0) return null
+
+    return {
+        maxDiscountPercentage:
+            settings?.max_discount_percentage !== null && settings?.max_discount_percentage !== undefined
+                ? Number(settings.max_discount_percentage)
+                : null,
+        allowFreeNegotiation: settings?.allow_free_negotiation !== false,
+        canOverridePriceTable: settings?.can_override_price_table !== false,
+        allowedPriceTableIds: tableIds,
+    }
+}
+
+function formatPercentage(value: number) {
+    return value.toLocaleString('pt-BR', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+    })
+}
+
 async function getRepresentativeCustomersInternal(representativeId?: string | null) {
     const admin = getAdminClient()
 
@@ -468,6 +532,19 @@ export async function getRepresentativeVisitsData() {
 
 export async function getRepresentativeOrderBuilderData() {
     const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const representativePolicy = scopeRepresentativeId
+        ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+        : null
+    const priceTablesQuery = admin
+        .from('price_tables')
+        .select('*')
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+
+    if (representativePolicy?.allowedPriceTableIds?.length) {
+        priceTablesQuery.in('id', representativePolicy.allowedPriceTableIds)
+    }
+
     const [customers, productsRes, categoriesRes, priceTablesRes, customerTypesRes] = await Promise.all([
         getRepresentativeCustomersInternal(scopeRepresentativeId),
         admin
@@ -476,7 +553,7 @@ export async function getRepresentativeOrderBuilderData() {
             .eq('is_active', true)
             .order('name', { ascending: true }),
         admin.from('categories').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
-        admin.from('price_tables').select('*').eq('is_active', true).order('name', { ascending: true }),
+        priceTablesQuery,
         admin.from('customer_types').select('*').order('is_active', { ascending: false }).order('sort_order', { ascending: true }),
     ])
 
@@ -510,6 +587,23 @@ export async function getRepresentativeProductConfiguratorData(input: {
 
     if (!store) {
         return { error: 'Cliente nao disponivel para este representante.' }
+    }
+
+    const representativePolicy = scopeRepresentativeId
+        ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+        : null
+
+    if (scopeRepresentativeId && representativePolicy && !representativePolicy.canOverridePriceTable && input.priceTableId) {
+        return { error: 'Este representante nao pode trocar manualmente a tabela de precos.' }
+    }
+
+    if (
+        scopeRepresentativeId &&
+        representativePolicy?.allowedPriceTableIds.length &&
+        input.priceTableId &&
+        !representativePolicy.allowedPriceTableIds.includes(input.priceTableId)
+    ) {
+        return { error: 'Tabela de preco nao permitida para este representante.' }
     }
 
     const { data: product } = await admin
@@ -562,12 +656,28 @@ export async function getRepresentativePaymentOptions(input: {
         return { error: 'Cliente nao disponivel para este representante.' }
     }
 
+    const representativePolicy = scopeRepresentativeId
+        ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+        : null
+
+    if (scopeRepresentativeId && representativePolicy && !representativePolicy.canOverridePriceTable && input.priceTableId) {
+        return { error: 'Este representante nao pode trocar manualmente a tabela de precos.' }
+    }
+
     const commercialSettings = await getStoreCommercialSettings(admin as never, store.id)
     const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(admin as never, {
         storeId: store.id,
         preferredPriceTableId: input.priceTableId || null,
         settings: commercialSettings,
     })
+
+    if (
+        scopeRepresentativeId &&
+        representativePolicy?.allowedPriceTableIds.length &&
+        (!resolvedPriceTable.priceTableId || !representativePolicy.allowedPriceTableIds.includes(resolvedPriceTable.priceTableId))
+    ) {
+        return { error: 'Tabela de preco nao permitida para este representante.' }
+    }
 
     const availability = await getAvailableCheckoutPayments(admin as never, {
         cartTotal: toNumber(input.subtotal),
@@ -606,6 +716,29 @@ export async function validateRepresentativeDraftPricingAction(input: {
         return { error: 'Cliente nao disponivel para este representante.' }
     }
 
+    const representativePolicy = scopeRepresentativeId
+        ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+        : null
+
+    if (scopeRepresentativeId && representativePolicy && !representativePolicy.canOverridePriceTable && input.priceTableId) {
+        return { error: 'Este representante nao pode trocar manualmente a tabela de precos.' }
+    }
+
+    let effectivePriceTableId = input.priceTableId || null
+    if (scopeRepresentativeId && representativePolicy?.allowedPriceTableIds.length) {
+        const commercialSettings = await getStoreCommercialSettings(admin as never, store.id)
+        const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(admin as never, {
+            storeId: store.id,
+            preferredPriceTableId: input.priceTableId || null,
+            settings: commercialSettings,
+        })
+        effectivePriceTableId = resolvedPriceTable.priceTableId
+
+        if (!effectivePriceTableId || !representativePolicy.allowedPriceTableIds.includes(effectivePriceTableId)) {
+            return { error: 'Tabela de preco nao permitida para este representante.' }
+        }
+    }
+
     return getVariantPricingSnapshotsForStore(
         admin as never,
         input.storeId,
@@ -614,7 +747,7 @@ export async function validateRepresentativeDraftPricingAction(input: {
             variantId: line.variantId,
             sizeOptionId: line.sizeOptionId ?? null,
         })),
-        input.priceTableId || null
+        effectivePriceTableId
     )
 }
 
@@ -699,6 +832,10 @@ async function persistRepresentativeDocument(
             return { error: 'Cliente nao disponivel para este representante.' }
         }
 
+        const representativePolicy = scopeRepresentativeId
+            ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+            : null
+
         const commercialSettings = await getStoreCommercialSettings(admin as never, store.id)
         if (mode === 'order' && commercialSettings?.financial_profile === 'block_sales') {
             return { error: 'Este cliente esta com vendas restritas para novos pedidos.' }
@@ -710,6 +847,18 @@ async function persistRepresentativeDocument(
             settings: commercialSettings,
         })
         const effectivePriceTableId = resolvedPriceTable.priceTableId
+
+        if (scopeRepresentativeId && representativePolicy) {
+            if (!representativePolicy.canOverridePriceTable && payload.priceTableId) {
+                return { error: 'Este representante nao pode trocar manualmente a tabela de precos.' }
+            }
+
+            if (representativePolicy.allowedPriceTableIds.length > 0) {
+                if (!effectivePriceTableId || !representativePolicy.allowedPriceTableIds.includes(effectivePriceTableId)) {
+                    return { error: 'A tabela de preco selecionada nao esta permitida para este representante.' }
+                }
+            }
+        }
 
         if (!payload.items?.length) {
             return { error: mode === 'order' ? 'Adicione itens ao pedido.' : 'Adicione itens ao orcamento.' }
@@ -761,6 +910,26 @@ async function persistRepresentativeDocument(
             payload.negotiationDiscountValue,
             payload.negotiationSurchargeAmount
         )
+        const effectiveNegotiationDiscountPercentage =
+            subtotal > 0 ? (negotiation.discountAmount / subtotal) * 100 : 0
+
+        if (scopeRepresentativeId && representativePolicy) {
+            if (
+                !representativePolicy.allowFreeNegotiation &&
+                (negotiation.discountAmount > 0 || negotiation.surchargeAmount > 0)
+            ) {
+                return { error: 'Este representante nao possui permissao para negociar desconto/acrescimo manual.' }
+            }
+
+            if (
+                representativePolicy.maxDiscountPercentage !== null &&
+                effectiveNegotiationDiscountPercentage > representativePolicy.maxDiscountPercentage + 0.0001
+            ) {
+                return {
+                    error: `Desconto de ${formatPercentage(effectiveNegotiationDiscountPercentage)}% excede o limite permitido de ${formatPercentage(representativePolicy.maxDiscountPercentage)}%.`,
+                }
+            }
+        }
 
         const paymentSelection = payload.selectedPaymentId
             ? await resolveCheckoutPaymentSelection(supabase as never, {
@@ -860,7 +1029,7 @@ async function persistRepresentativeDocument(
                 p_payment_surcharge_percentage: paymentSurchargePercentage,
                 p_subtotal: subtotal,
                 p_payment_discount_amount: paymentDiscountAmount,
-                p_negotiation_discount_percentage: negotiation.discountPercentage,
+                p_negotiation_discount_percentage: effectiveNegotiationDiscountPercentage,
                 p_negotiation_discount_amount: negotiation.discountAmount,
                 p_negotiation_surcharge_amount: negotiation.surchargeAmount,
                 p_total: total,
@@ -896,7 +1065,7 @@ async function persistRepresentativeDocument(
             p_payment_surcharge_percentage: paymentSurchargePercentage,
             p_subtotal: subtotal,
             p_payment_discount_amount: paymentDiscountAmount,
-            p_negotiation_discount_percentage: negotiation.discountPercentage,
+            p_negotiation_discount_percentage: effectiveNegotiationDiscountPercentage,
             p_negotiation_discount_amount: negotiation.discountAmount,
             p_negotiation_surcharge_amount: negotiation.surchargeAmount,
             p_total: total,

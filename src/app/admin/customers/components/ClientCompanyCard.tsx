@@ -69,6 +69,9 @@ export function ClientCompanyCard({ customer, customerTypes, customerTags, repre
         ? `${selectedCustomerType.name}${!selectedCustomerType.is_active ? ' (inativo)' : ''}`
         : hasMissingCustomerTypeOption ? fallbackCustomerTypeLabel : ''
     const selectedRepresentativeLabel = selectedRepresentative?.full_name || (hasMissingRepresentativeOption ? fallbackRepresentativeLabel : '')
+    const willBecomeRepresentative =
+        (selectedCustomerType?.slug || '').toLowerCase() === 'representante' ||
+        (selectedCustomerType?.name || '').toLowerCase() === 'representante'
 
     const handleCancel = () => {
         reset({
@@ -220,6 +223,11 @@ export function ClientCompanyCard({ customer, customerTypes, customerTags, repre
                             ))}
                         </SelectContent>
                     </Select>
+                    {willBecomeRepresentative && (
+                        <p className="text-[11px] text-blue-700">
+                            Ao salvar, este usuario tera acesso ao painel de representante.
+                        </p>
+                    )}
                 </div>
                 <div className="space-y-1.5">
                     <Label className="text-xs">Representante Responsável</Label>

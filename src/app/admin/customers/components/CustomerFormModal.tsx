@@ -62,6 +62,9 @@ export function CustomerFormModal({
     const selectedTagIds = useWatch({ control: form.control, name: 'tagIds' }) || [];
     const selectedCustomerType = customerTypes.find((type) => type.id === selectedCustomerTypeId);
     const selectedRepresentative = representatives.find((rep) => rep.id === selectedRepresentativeId);
+    const willBecomeRepresentative =
+        (selectedCustomerType?.slug || '').toLowerCase() === 'representante' ||
+        (selectedCustomerType?.name || '').toLowerCase() === 'representante';
     const hasMissingCustomerTypeOption = Boolean(
         selectedCustomerTypeId && selectedCustomerTypeId !== 'none' && !selectedCustomerType
     );
@@ -210,6 +213,11 @@ export function CustomerFormModal({
                                         ))}
                                     </SelectContent>
                                 </Select>
+                                {willBecomeRepresentative && (
+                                    <p className="text-[11px] text-blue-700">
+                                        Este cadastro sera promovido para representante e passara a acessar o painel de representante no login.
+                                    </p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <Label>Representante Responsável</Label>
