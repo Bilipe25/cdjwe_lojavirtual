@@ -255,6 +255,16 @@ type RepresentativeCustomerAccessPolicy = {
     allowedCities: string[]
 }
 
+type RepresentativeManualCustomerRule = {
+    decision: 'allow' | 'deny'
+    reason: string | null
+}
+
+type RepresentativeCustomerAccessContext = {
+    policy: RepresentativeCustomerAccessPolicy
+    manualRules: Map<string, RepresentativeManualCustomerRule>
+}
+
 type RepresentativeStoreAccessRow = {
     id: string
     representative_id: string | null
@@ -281,6 +291,13 @@ function isMissingRepresentativeAccessSchemaError(error: { code?: string | null;
     return message.includes('representative_customer_access_policies')
 }
 
+function isMissingRepresentativeManualRulesSchemaError(error: { code?: string | null; message?: string | null } | null | undefined) {
+    if (!error) return false
+    if (error.code === '42P01') return true
+    const message = (error.message || '').toLowerCase()
+    return message.includes('representative_customer_access_rules')
+}
+
 async function getRepresentativeCustomerAccessPolicy(
     admin: ReturnType<typeof getAdminClient>,
     representativeId: string
@@ -302,31 +319,79 @@ async function getRepresentativeCustomerAccessPolicy(
     return {
         scopeMode: normalizeRepresentativeScopeMode(data?.scope_mode),
         allowedStates: normalizeAccessValues(data?.allowed_states, (value) => value.toUpperCase()),
-        allowedCities: normalizeAccessValues(data?.allowed_cities),
+        allowedCities: normalizeAccessValues(data?.allowed_cities, (value) => value.toLowerCase()),
     }
 }
 
-function canAccessUnassignedStoreByPolicy(
-    store: Pick<RepresentativeStoreAccessRow, 'representative_id' | 'state' | 'city'>,
-    policy: RepresentativeCustomerAccessPolicy
+async function getRepresentativeManualCustomerRules(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId: string
+): Promise<Map<string, RepresentativeManualCustomerRule>> {
+    const { data, error } = await admin
+        .from('representative_customer_access_rules')
+        .select('store_id, decision, reason')
+        .eq('representative_id', representativeId)
+
+    if (isMissingRepresentativeManualRulesSchemaError(error)) {
+        return new Map<string, RepresentativeManualCustomerRule>()
+    }
+
+    if (error) {
+        throw new Error(error.message || 'Falha ao carregar regras manuais de carteira do representante.')
+    }
+
+    return new Map(
+        (data || []).map((row) => [
+            row.store_id,
+            {
+                decision: row.decision === 'deny' ? 'deny' : 'allow',
+                reason: (row.reason || '').trim() || null,
+            },
+        ])
+    )
+}
+
+async function getRepresentativeCustomerAccessContext(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId: string
+): Promise<RepresentativeCustomerAccessContext> {
+    const [policy, manualRules] = await Promise.all([
+        getRepresentativeCustomerAccessPolicy(admin, representativeId),
+        getRepresentativeManualCustomerRules(admin, representativeId),
+    ])
+
+    return { policy, manualRules }
+}
+
+function resolveUnassignedStoreAccessByPriority(
+    store: Pick<RepresentativeStoreAccessRow, 'id' | 'state' | 'city'>,
+    accessContext: RepresentativeCustomerAccessContext
 ) {
-    if (store.representative_id) return false
-    if (policy.scopeMode === 'all_admin_portfolio') return true
-    if (policy.scopeMode !== 'filtered_portfolio') return false
+    const manualRule = accessContext.manualRules.get(store.id)
+    if (manualRule?.decision === 'deny') return false
+    if (manualRule?.decision === 'allow') return true
+
+    const normalizedCity = (store.city || '').trim().toLowerCase()
+    if (normalizedCity && accessContext.policy.allowedCities.includes(normalizedCity)) {
+        return true
+    }
 
     const normalizedState = (store.state || '').trim().toUpperCase()
-    const normalizedCity = (store.city || '').trim()
+    if (normalizedState && accessContext.policy.allowedStates.includes(normalizedState)) {
+        return true
+    }
 
-    const matchState =
-        policy.allowedStates.length > 0 && normalizedState
-            ? policy.allowedStates.includes(normalizedState)
-            : false
-    const matchCity =
-        policy.allowedCities.length > 0 && normalizedCity
-            ? policy.allowedCities.includes(normalizedCity)
-            : false
+    return accessContext.policy.scopeMode === 'all_admin_portfolio'
+}
 
-    return matchState || matchCity
+function canRepresentativeAccessStore(
+    store: RepresentativeStoreAccessRow,
+    representativeId: string,
+    accessContext: RepresentativeCustomerAccessContext
+) {
+    if (store.representative_id === representativeId) return true
+    if (store.representative_id && store.representative_id !== representativeId) return false
+    return resolveUnassignedStoreAccessByPriority(store, accessContext)
 }
 
 async function loadStoreWithinRepresentativeScope(
@@ -342,14 +407,10 @@ async function loadStoreWithinRepresentativeScope(
 
     if (!store) return null
     if (!representativeId) return store
-    if (store.representative_id === representativeId) return store
-
-    const policy = await getRepresentativeCustomerAccessPolicy(admin, representativeId)
-    if (canAccessUnassignedStoreByPolicy(store as RepresentativeStoreAccessRow, policy)) {
-        return store
-    }
-
-    return null
+    const accessContext = await getRepresentativeCustomerAccessContext(admin, representativeId)
+    return canRepresentativeAccessStore(store as RepresentativeStoreAccessRow, representativeId, accessContext)
+        ? store
+        : null
 }
 
 async function getRepresentativeCustomersInternal(representativeId?: string | null) {
@@ -376,64 +437,43 @@ async function getRepresentativeCustomersInternal(representativeId?: string | nu
             .order('company_name')
         stores = (allStores || []) as typeof stores
     } else {
-        const accessPolicy = await getRepresentativeCustomerAccessPolicy(admin, representativeId)
-
-        const { data: assignedStores } = await admin
-            .from('stores')
-            .select(storeSelect)
-            .eq('representative_id', representativeId)
-            .order('company_name')
-
-        const storeMap = new Map<string, (typeof stores)[number]>()
-        ;(assignedStores || []).forEach((store) => {
-            storeMap.set(store.id, store as (typeof stores)[number])
-        })
-
-        if (accessPolicy.scopeMode === 'all_admin_portfolio') {
-            const { data: adminPortfolioStores } = await admin
+        const accessContext = await getRepresentativeCustomerAccessContext(admin, representativeId)
+        const [assignedStoresRes, adminPortfolioStoresRes] = await Promise.all([
+            admin
+                .from('stores')
+                .select(storeSelect)
+                .eq('representative_id', representativeId)
+                .order('company_name'),
+            admin
                 .from('stores')
                 .select(storeSelect)
                 .is('representative_id', null)
-                .order('company_name')
+                .order('company_name'),
+        ])
 
-            ;(adminPortfolioStores || []).forEach((store) => {
-                if (!storeMap.has(store.id)) {
-                    storeMap.set(store.id, store as (typeof stores)[number])
-                }
-            })
+        if (assignedStoresRes.error) {
+            throw new Error(assignedStoresRes.error.message || 'Falha ao carregar clientes do representante.')
         }
 
-        if (accessPolicy.scopeMode === 'filtered_portfolio') {
-            if (accessPolicy.allowedStates.length > 0) {
-                const { data: stateScopedStores } = await admin
-                    .from('stores')
-                    .select(storeSelect)
-                    .is('representative_id', null)
-                    .in('state', accessPolicy.allowedStates)
-                    .order('company_name')
-
-                ;(stateScopedStores || []).forEach((store) => {
-                    if (!storeMap.has(store.id)) {
-                        storeMap.set(store.id, store as (typeof stores)[number])
-                    }
-                })
-            }
-
-            if (accessPolicy.allowedCities.length > 0) {
-                const { data: cityScopedStores } = await admin
-                    .from('stores')
-                    .select(storeSelect)
-                    .is('representative_id', null)
-                    .in('city', accessPolicy.allowedCities)
-                    .order('company_name')
-
-                ;(cityScopedStores || []).forEach((store) => {
-                    if (!storeMap.has(store.id)) {
-                        storeMap.set(store.id, store as (typeof stores)[number])
-                    }
-                })
-            }
+        if (adminPortfolioStoresRes.error) {
+            throw new Error(adminPortfolioStoresRes.error.message || 'Falha ao carregar carteira geral do admin.')
         }
+
+        const storeMap = new Map<string, (typeof stores)[number]>()
+
+        ;(assignedStoresRes.data || []).forEach((store) => {
+            storeMap.set(store.id, store as (typeof stores)[number])
+        })
+
+        ;(adminPortfolioStoresRes.data || []).forEach((store) => {
+            const storeRow = store as RepresentativeStoreAccessRow
+            if (
+                !storeMap.has(store.id) &&
+                canRepresentativeAccessStore(storeRow, representativeId, accessContext)
+            ) {
+                storeMap.set(store.id, store as (typeof stores)[number])
+            }
+        })
 
         stores = Array.from(storeMap.values()).sort((a, b) =>
             (a.company_name || '').localeCompare(b.company_name || '', 'pt-BR')

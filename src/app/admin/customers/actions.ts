@@ -94,6 +94,11 @@ type RepresentativeCommercialSettingsPayload = {
     customerAccessMode?: 'assigned_only' | 'all_admin_portfolio' | 'filtered_portfolio'
     allowedStates?: string[]
     allowedCities?: string[]
+    manualCustomerRules?: Array<{
+        storeId: string
+        decision: 'allow' | 'deny'
+        reason?: string | null
+    }>
 }
 
 async function sendAccountApprovedEmail(params: { email: string; fullName: string }) {
@@ -212,6 +217,58 @@ function toOptionalUuid(value?: string | null) {
 function toNullableNumber(value?: number | null) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) return null
     return Number(value)
+}
+
+function normalizeStringArray(values?: string[] | null, transform?: (value: string) => string) {
+    const mapper = transform || ((value: string) => value)
+    return Array.from(new Set((values || []).map((value) => mapper((value || '').trim())).filter(Boolean)))
+}
+
+function sortStrings(values: string[]) {
+    return [...values].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+}
+
+function arraysEqual(a: string[], b: string[]) {
+    if (a.length !== b.length) return false
+    for (let index = 0; index < a.length; index++) {
+        if (a[index] !== b[index]) return false
+    }
+    return true
+}
+
+function jsonStatesEqual(a: Record<string, unknown>, b: Record<string, unknown>) {
+    return JSON.stringify(a) === JSON.stringify(b)
+}
+
+async function logRepresentativeAccessAudit(params: {
+    supabaseAdmin: Awaited<ReturnType<typeof getAdminClient>>
+    representativeId: string
+    changedByProfileId?: string | null
+    eventType: string
+    entityType: string
+    storeId?: string | null
+    beforeState?: Record<string, unknown> | null
+    afterState?: Record<string, unknown> | null
+    notes?: string | null
+}) {
+    const { supabaseAdmin } = params
+    const { error } = await supabaseAdmin
+        .from('representative_customer_access_audit_logs')
+        .insert({
+            representative_id: params.representativeId,
+            changed_by_profile_id: params.changedByProfileId || null,
+            event_type: params.eventType,
+            entity_type: params.entityType,
+            store_id: params.storeId || null,
+            before_state: params.beforeState || null,
+            after_state: params.afterState || null,
+            notes: params.notes || null,
+        })
+
+    if (error) {
+        if (error.code === '42P01') return
+        console.error('[REP ACCESS AUDIT] Failed to persist log:', error)
+    }
 }
 
 function isRepresentativeCustomerType(type?: { slug?: string | null; name?: string | null } | null) {
@@ -1477,7 +1534,7 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
             return { error: 'Este cadastro ainda nao e um representante.' }
         }
 
-        const [priceTablesRes, linksRes, assignedCountRes, policyRes, portfolioLookupRes] = await Promise.all([
+        const [priceTablesRes, linksRes, assignedCountRes, policyRes, portfolioLookupRes, manualRulesRes, auditLogRes, candidateStoresRes] = await Promise.all([
             supabaseAdmin
                 .from('price_tables')
                 .select('id, name, discount_percentage, is_default, is_active, valid_from, valid_until')
@@ -1500,6 +1557,68 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
                 .select('state, city')
                 .is('representative_id', null)
                 .eq('is_active', true),
+            supabaseAdmin
+                .from('representative_customer_access_rules')
+                .select(`
+                    store_id,
+                    decision,
+                    reason,
+                    created_at,
+                    updated_at,
+                    store:stores!representative_customer_access_rules_store_id_fkey(
+                        id,
+                        company_name,
+                        trade_name,
+                        customer_code,
+                        city,
+                        state,
+                        representative_id
+                    )
+                `)
+                .eq('representative_id', profileId)
+                .order('updated_at', { ascending: false }),
+            supabaseAdmin
+                .from('representative_customer_access_audit_logs')
+                .select(`
+                    id,
+                    event_type,
+                    entity_type,
+                    store_id,
+                    before_state,
+                    after_state,
+                    notes,
+                    created_at,
+                    changed_by_profile:profiles!representative_customer_access_audit_logs_changed_by_profile_id_fkey(
+                        id,
+                        full_name,
+                        email
+                    ),
+                    store:stores!representative_customer_access_audit_logs_store_id_fkey(
+                        id,
+                        company_name,
+                        trade_name,
+                        customer_code
+                    )
+                `)
+                .eq('representative_id', profileId)
+                .order('created_at', { ascending: false })
+                .limit(80),
+            supabaseAdmin
+                .from('stores')
+                .select(`
+                    id,
+                    company_name,
+                    trade_name,
+                    customer_code,
+                    city,
+                    state,
+                    representative_id,
+                    representative:profiles!stores_representative_id_fkey(id, full_name)
+                `)
+                .eq('is_active', true)
+                .is('representative_id', null)
+                .order('company_name', { ascending: true })
+                .limit(120),
         ])
 
         let schemaReady = true
@@ -1533,8 +1652,24 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
             throw policyRes.error
         }
 
+        if (manualRulesRes.error && manualRulesRes.error.code === '42P01') {
+            schemaReady = false
+        } else if (manualRulesRes.error) {
+            throw manualRulesRes.error
+        }
+
+        if (auditLogRes.error && auditLogRes.error.code === '42P01') {
+            schemaReady = false
+        } else if (auditLogRes.error) {
+            throw auditLogRes.error
+        }
+
         if (portfolioLookupRes.error) {
             throw portfolioLookupRes.error
+        }
+
+        if (candidateStoresRes.error) {
+            throw candidateStoresRes.error
         }
 
         const availableStates = Array.from(
@@ -1564,10 +1699,13 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
                     allowedStates: policyRes.data?.allowed_states || [],
                     allowedCities: policyRes.data?.allowed_cities || [],
                 },
+                manualRules: manualRulesRes.data || [],
+                auditLogs: auditLogRes.data || [],
                 lookups: {
                     priceTables: priceTablesRes.data || [],
                     availableStates,
                     availableCities,
+                    candidateStores: candidateStoresRes.data || [],
                 },
                 stats: {
                     assignedCustomers: assignedCountRes.count || 0,
@@ -1584,7 +1722,7 @@ export async function upsertRepresentativeCommercialSettings(
     payload: RepresentativeCommercialSettingsPayload
 ) {
     try {
-        await verifyAdmin()
+        const adminUser = await verifyAdmin()
         const supabaseAdmin = await getAdminClient()
 
         const profileId = toOptionalUuid(payload.profileId)
@@ -1613,15 +1751,28 @@ export async function upsertRepresentativeCommercialSettings(
         const allowFreeNegotiation = payload.allowFreeNegotiation !== false
         const canOverridePriceTable = payload.canOverridePriceTable !== false
         const customerAccessMode = payload.customerAccessMode || 'assigned_only'
-        const allowedPriceTableIds = Array.from(
-            new Set((payload.allowedPriceTableIds || []).map((value) => value.trim()).filter(Boolean))
+        const allowedPriceTableIds = sortStrings(normalizeStringArray(payload.allowedPriceTableIds))
+        const allowedStates = sortStrings(
+            normalizeStringArray(payload.allowedStates, (value) => value.toUpperCase())
         )
-        const allowedStates = Array.from(
-            new Set((payload.allowedStates || []).map((value) => value.trim().toUpperCase()).filter(Boolean))
+        const allowedCities = sortStrings(
+            normalizeStringArray(payload.allowedCities)
         )
-        const allowedCities = Array.from(
-            new Set((payload.allowedCities || []).map((value) => value.trim()).filter(Boolean))
-        )
+        const manualRulesInput = Array.from(
+            (payload.manualCustomerRules || []).reduce((accumulator, item) => {
+                const storeId = toOptionalUuid(item?.storeId)
+                if (!storeId) return accumulator
+
+                const decision = item?.decision === 'deny' ? 'deny' : 'allow'
+                const reason = (item?.reason || '').trim() || null
+                accumulator.set(storeId, {
+                    storeId,
+                    decision,
+                    reason,
+                })
+                return accumulator
+            }, new Map<string, { storeId: string; decision: 'allow' | 'deny'; reason: string | null }>())
+        ).map(([, rule]) => rule)
 
         if (!['assigned_only', 'all_admin_portfolio', 'filtered_portfolio'].includes(customerAccessMode)) {
             return { error: 'Escopo de carteira invalido para o representante.' }
@@ -1643,6 +1794,160 @@ export async function upsertRepresentativeCommercialSettings(
             const missing = allowedPriceTableIds.filter((id) => !foundIds.has(id))
             if (missing.length > 0) {
                 return { error: 'Uma ou mais tabelas selecionadas nao existem.' }
+            }
+        }
+
+        const [existingSettingsRes, existingLinksRes, existingPolicyRes, existingRulesRes] = await Promise.all([
+            supabaseAdmin
+                .from('representative_commercial_settings')
+                .select('max_discount_percentage, allow_free_negotiation, can_override_price_table, notes')
+                .eq('profile_id', profileId)
+                .maybeSingle(),
+            supabaseAdmin
+                .from('representative_price_tables')
+                .select('price_table_id')
+                .eq('representative_id', profileId),
+            supabaseAdmin
+                .from('representative_customer_access_policies')
+                .select('scope_mode, allowed_states, allowed_cities')
+                .eq('representative_id', profileId)
+                .maybeSingle(),
+            supabaseAdmin
+                .from('representative_customer_access_rules')
+                .select(`
+                    store_id,
+                    decision,
+                    reason,
+                    store:stores!representative_customer_access_rules_store_id_fkey(
+                        id,
+                        company_name,
+                        trade_name,
+                        customer_code,
+                        city,
+                        state,
+                        representative_id
+                    )
+                `)
+                .eq('representative_id', profileId),
+        ])
+
+        if (existingSettingsRes.error) {
+            if (existingSettingsRes.error.code === '42P01') {
+                return { error: 'A migration de configuracao do representante ainda nao foi aplicada no banco.' }
+            }
+            throw existingSettingsRes.error
+        }
+
+        if (existingLinksRes.error) {
+            if (existingLinksRes.error.code === '42P01') {
+                return { error: 'A migration de configuracao do representante ainda nao foi aplicada no banco.' }
+            }
+            throw existingLinksRes.error
+        }
+
+        if (existingPolicyRes.error) {
+            if (existingPolicyRes.error.code === '42P01') {
+                return { error: 'A migration de configuracao do representante ainda nao foi aplicada no banco.' }
+            }
+            throw existingPolicyRes.error
+        }
+
+        if (existingRulesRes.error) {
+            if (existingRulesRes.error.code === '42P01') {
+                return { error: 'A migration de regras de carteira por cliente ainda nao foi aplicada no banco.' }
+            }
+            throw existingRulesRes.error
+        }
+
+        const currentSettingsState = {
+            maxDiscountPercentage:
+                existingSettingsRes.data?.max_discount_percentage !== null &&
+                    existingSettingsRes.data?.max_discount_percentage !== undefined
+                    ? Number(existingSettingsRes.data.max_discount_percentage)
+                    : null,
+            allowFreeNegotiation: existingSettingsRes.data?.allow_free_negotiation !== false,
+            canOverridePriceTable: existingSettingsRes.data?.can_override_price_table !== false,
+            notes: (existingSettingsRes.data?.notes || '').trim() || null,
+        }
+        const targetSettingsState = {
+            maxDiscountPercentage,
+            allowFreeNegotiation,
+            canOverridePriceTable,
+            notes,
+        }
+
+        const currentPriceTableIds = sortStrings(
+            normalizeStringArray((existingLinksRes.data || []).map((row) => row.price_table_id))
+        )
+
+        const currentPolicyState = {
+            scopeMode: (existingPolicyRes.data?.scope_mode || 'assigned_only') as
+                | 'assigned_only'
+                | 'all_admin_portfolio'
+                | 'filtered_portfolio',
+            allowedStates: sortStrings(
+                normalizeStringArray(existingPolicyRes.data?.allowed_states || [], (value) => value.toUpperCase())
+            ),
+            allowedCities: sortStrings(
+                normalizeStringArray(existingPolicyRes.data?.allowed_cities || [])
+            ),
+        }
+        const targetPolicyState = {
+            scopeMode: customerAccessMode as 'assigned_only' | 'all_admin_portfolio' | 'filtered_portfolio',
+            allowedStates,
+            allowedCities,
+        }
+
+        const currentRulesMap = new Map(
+            (existingRulesRes.data || []).map((rule) => [
+                rule.store_id,
+                {
+                    storeId: rule.store_id,
+                    decision: rule.decision === 'deny' ? 'deny' : 'allow',
+                    reason: (rule.reason || '').trim() || null,
+                    store: (rule as Record<string, unknown>).store as Record<string, unknown> | null,
+                },
+            ])
+        )
+        const targetRulesMap = new Map(
+            manualRulesInput.map((rule) => [
+                rule.storeId,
+                {
+                    storeId: rule.storeId,
+                    decision: rule.decision,
+                    reason: rule.reason,
+                },
+            ])
+        )
+
+        if (manualRulesInput.length > 0) {
+            const manualStoreIds = manualRulesInput.map((rule) => rule.storeId)
+            const { data: manualStores, error: manualStoresError } = await supabaseAdmin
+                .from('stores')
+                .select('id, representative_id, company_name, trade_name, customer_code')
+                .in('id', manualStoreIds)
+
+            if (manualStoresError) throw manualStoresError
+
+            const storesById = new Map((manualStores || []).map((store) => [store.id, store]))
+            const missingStoreIds = manualStoreIds.filter((storeId) => !storesById.has(storeId))
+            if (missingStoreIds.length > 0) {
+                return { error: 'Um ou mais clientes selecionados nao existem mais.' }
+            }
+
+            const blockedStore = manualStores?.find((store) => {
+                if (currentRulesMap.has(store.id)) return false
+                return Boolean(store.representative_id && store.representative_id !== profileId)
+            })
+            if (blockedStore) {
+                const blockedName =
+                    blockedStore.trade_name ||
+                    blockedStore.company_name ||
+                    blockedStore.customer_code ||
+                    blockedStore.id
+                return {
+                    error: `O cliente "${blockedName}" pertence a outro representante e nao pode entrar nesta configuracao.`,
+                }
             }
         }
 
@@ -1710,6 +2015,170 @@ export async function upsertRepresentativeCommercialSettings(
             throw policyError
         }
 
+        const existingRuleIds = new Set(Array.from(currentRulesMap.keys()))
+        const nextRuleIds = new Set(Array.from(targetRulesMap.keys()))
+        const rulesToDelete = Array.from(existingRuleIds).filter((storeId) => !nextRuleIds.has(storeId))
+        const rulesToInsert = manualRulesInput.filter((rule) => !existingRuleIds.has(rule.storeId))
+        const rulesToUpdate = manualRulesInput.filter((rule) => existingRuleIds.has(rule.storeId))
+
+        if (rulesToDelete.length > 0) {
+            const { error: deleteRulesError } = await supabaseAdmin
+                .from('representative_customer_access_rules')
+                .delete()
+                .eq('representative_id', profileId)
+                .in('store_id', rulesToDelete)
+
+            if (deleteRulesError) throw deleteRulesError
+        }
+
+        if (rulesToInsert.length > 0) {
+            const { error: insertRulesError } = await supabaseAdmin
+                .from('representative_customer_access_rules')
+                .insert(
+                    rulesToInsert.map((rule) => ({
+                        representative_id: profileId,
+                        store_id: rule.storeId,
+                        decision: rule.decision,
+                        reason: rule.reason,
+                        created_by_profile_id: adminUser.id,
+                        updated_by_profile_id: adminUser.id,
+                        updated_at: new Date().toISOString(),
+                    }))
+                )
+
+            if (insertRulesError) {
+                if (insertRulesError.code === '42P01') {
+                    return { error: 'A migration de regras de carteira por cliente ainda nao foi aplicada no banco.' }
+                }
+                throw insertRulesError
+            }
+        }
+
+        if (rulesToUpdate.length > 0) {
+            const { error: upsertRulesError } = await supabaseAdmin
+                .from('representative_customer_access_rules')
+                .upsert(
+                    rulesToUpdate.map((rule) => ({
+                        representative_id: profileId,
+                        store_id: rule.storeId,
+                        decision: rule.decision,
+                        reason: rule.reason,
+                        updated_by_profile_id: adminUser.id,
+                        updated_at: new Date().toISOString(),
+                    })),
+                    { onConflict: 'representative_id,store_id' }
+                )
+
+            if (upsertRulesError) {
+                if (upsertRulesError.code === '42P01') {
+                    return { error: 'A migration de regras de carteira por cliente ainda nao foi aplicada no banco.' }
+                }
+                throw upsertRulesError
+            }
+        }
+
+        if (!jsonStatesEqual(currentSettingsState, targetSettingsState)) {
+            await logRepresentativeAccessAudit({
+                supabaseAdmin,
+                representativeId: profileId,
+                changedByProfileId: adminUser.id,
+                eventType: 'updated',
+                entityType: 'commercial_settings',
+                beforeState: currentSettingsState,
+                afterState: targetSettingsState,
+                notes: 'Atualizacao das configuracoes comerciais do representante.',
+            })
+        }
+
+        if (!arraysEqual(currentPriceTableIds, allowedPriceTableIds)) {
+            await logRepresentativeAccessAudit({
+                supabaseAdmin,
+                representativeId: profileId,
+                changedByProfileId: adminUser.id,
+                eventType: 'updated',
+                entityType: 'price_tables',
+                beforeState: { allowedPriceTableIds: currentPriceTableIds },
+                afterState: { allowedPriceTableIds },
+                notes: 'Atualizacao das tabelas de preco permitidas.',
+            })
+        }
+
+        if (
+            currentPolicyState.scopeMode !== targetPolicyState.scopeMode ||
+            !arraysEqual(currentPolicyState.allowedStates, targetPolicyState.allowedStates) ||
+            !arraysEqual(currentPolicyState.allowedCities, targetPolicyState.allowedCities)
+        ) {
+            await logRepresentativeAccessAudit({
+                supabaseAdmin,
+                representativeId: profileId,
+                changedByProfileId: adminUser.id,
+                eventType: 'updated',
+                entityType: 'access_policy',
+                beforeState: currentPolicyState,
+                afterState: targetPolicyState,
+                notes: 'Atualizacao da politica global de carteira do admin.',
+            })
+        }
+
+        for (const [storeId, nextRule] of targetRulesMap.entries()) {
+            const previousRule = currentRulesMap.get(storeId)
+            if (!previousRule) {
+                await logRepresentativeAccessAudit({
+                    supabaseAdmin,
+                    representativeId: profileId,
+                    changedByProfileId: adminUser.id,
+                    eventType: 'created',
+                    entityType: 'manual_customer_rule',
+                    storeId,
+                    beforeState: null,
+                    afterState: nextRule,
+                    notes: 'Regra manual por cliente adicionada.',
+                })
+                continue
+            }
+
+            const normalizedPrevious = {
+                storeId,
+                decision: previousRule.decision,
+                reason: previousRule.reason,
+            }
+
+            if (!jsonStatesEqual(normalizedPrevious, nextRule)) {
+                await logRepresentativeAccessAudit({
+                    supabaseAdmin,
+                    representativeId: profileId,
+                    changedByProfileId: adminUser.id,
+                    eventType: 'updated',
+                    entityType: 'manual_customer_rule',
+                    storeId,
+                    beforeState: normalizedPrevious,
+                    afterState: nextRule,
+                    notes: 'Regra manual por cliente atualizada.',
+                })
+            }
+        }
+
+        for (const storeId of rulesToDelete) {
+            const previousRule = currentRulesMap.get(storeId)
+            if (!previousRule) continue
+
+            await logRepresentativeAccessAudit({
+                supabaseAdmin,
+                representativeId: profileId,
+                changedByProfileId: adminUser.id,
+                eventType: 'deleted',
+                entityType: 'manual_customer_rule',
+                storeId,
+                beforeState: {
+                    storeId,
+                    decision: previousRule.decision,
+                    reason: previousRule.reason,
+                },
+                afterState: null,
+                notes: 'Regra manual por cliente removida.',
+            })
+        }
+
         return {
             success: true,
             data: {
@@ -1718,11 +2187,70 @@ export async function upsertRepresentativeCommercialSettings(
                 customerAccessMode: policyRow?.scope_mode || 'assigned_only',
                 allowedStates: policyRow?.allowed_states || [],
                 allowedCities: policyRow?.allowed_cities || [],
+                manualCustomerRules: manualRulesInput,
             },
         }
     } catch (err: unknown) {
         console.error('Upsert Representative Commercial Settings Error:', err)
         return { error: toErrorMessage(err, 'Erro ao salvar configuracoes do representante.') }
+    }
+}
+
+export async function searchRepresentativePortfolioStores(input: {
+    representativeId: string
+    term?: string
+    limit?: number
+}) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const representativeId = toOptionalUuid(input.representativeId)
+        if (!representativeId) {
+            return { error: 'Representante invalido.' }
+        }
+
+        const safeLimit = Math.min(Math.max(Number(input.limit || 40), 5), 120)
+        const term = (input.term || '').trim()
+
+        let query = supabaseAdmin
+            .from('stores')
+            .select(`
+                id,
+                company_name,
+                trade_name,
+                customer_code,
+                cnpj,
+                city,
+                state,
+                representative_id,
+                representative:profiles!stores_representative_id_fkey(id, full_name)
+            `)
+            .eq('is_active', true)
+            .is('representative_id', null)
+            .order('company_name', { ascending: true })
+            .limit(safeLimit)
+
+        if (term) {
+            query = query.or(
+                [
+                    `company_name.ilike.%${term}%`,
+                    `trade_name.ilike.%${term}%`,
+                    `customer_code.ilike.%${term}%`,
+                    `cnpj.ilike.%${term}%`,
+                    `city.ilike.%${term}%`,
+                    `state.ilike.%${term}%`,
+                ].join(',')
+            )
+        }
+
+        const { data, error } = await query
+        if (error) throw error
+
+        return { data: data || [] }
+    } catch (err: unknown) {
+        console.error('Search Representative Portfolio Stores Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao buscar clientes da carteira.') }
     }
 }
 
