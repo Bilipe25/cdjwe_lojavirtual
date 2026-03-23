@@ -1159,7 +1159,7 @@ export function RepresentativeOrderBuilder({
             onSave={handleSaveCustomer}
             customerTypes={customerTypes}
             saving={customerSaving}
-            initialData={editingStore}
+            initialData={editingStore ?? undefined}
           />
         </div>
       )}
