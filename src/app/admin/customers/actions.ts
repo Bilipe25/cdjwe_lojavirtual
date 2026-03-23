@@ -91,6 +91,9 @@ type RepresentativeCommercialSettingsPayload = {
     canOverridePriceTable?: boolean
     notes?: string | null
     allowedPriceTableIds?: string[]
+    customerAccessMode?: 'assigned_only' | 'all_admin_portfolio' | 'filtered_portfolio'
+    allowedStates?: string[]
+    allowedCities?: string[]
 }
 
 async function sendAccountApprovedEmail(params: { email: string; fullName: string }) {
@@ -1474,7 +1477,7 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
             return { error: 'Este cadastro ainda nao e um representante.' }
         }
 
-        const [priceTablesRes, linksRes, assignedCountRes] = await Promise.all([
+        const [priceTablesRes, linksRes, assignedCountRes, policyRes, portfolioLookupRes] = await Promise.all([
             supabaseAdmin
                 .from('price_tables')
                 .select('id, name, discount_percentage, is_default, is_active, valid_from, valid_until')
@@ -1487,6 +1490,16 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
                 .from('stores')
                 .select('id', { count: 'exact', head: true })
                 .eq('representative_id', profileId),
+            supabaseAdmin
+                .from('representative_customer_access_policies')
+                .select('scope_mode, allowed_states, allowed_cities')
+                .eq('representative_id', profileId)
+                .maybeSingle(),
+            supabaseAdmin
+                .from('stores')
+                .select('state, city')
+                .is('representative_id', null)
+                .eq('is_active', true),
         ])
 
         let schemaReady = true
@@ -1514,14 +1527,47 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
             throw linksRes.error
         }
 
+        if (policyRes.error && policyRes.error.code === '42P01') {
+            schemaReady = false
+        } else if (policyRes.error) {
+            throw policyRes.error
+        }
+
+        if (portfolioLookupRes.error) {
+            throw portfolioLookupRes.error
+        }
+
+        const availableStates = Array.from(
+            new Set(
+                (portfolioLookupRes.data || [])
+                    .map((row) => (row.state || '').trim().toUpperCase())
+                    .filter(Boolean)
+            )
+        ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+        const availableCities = Array.from(
+            new Set(
+                (portfolioLookupRes.data || [])
+                    .map((row) => (row.city || '').trim())
+                    .filter(Boolean)
+            )
+        ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
         return {
             data: {
                 schemaReady,
                 profile,
                 settings: settingsData,
                 allowedPriceTableIds: (linksRes.data || []).map((row) => row.price_table_id),
+                accessPolicy: {
+                    scopeMode: policyRes.data?.scope_mode || 'assigned_only',
+                    allowedStates: policyRes.data?.allowed_states || [],
+                    allowedCities: policyRes.data?.allowed_cities || [],
+                },
                 lookups: {
                     priceTables: priceTablesRes.data || [],
+                    availableStates,
+                    availableCities,
                 },
                 stats: {
                     assignedCustomers: assignedCountRes.count || 0,
@@ -1566,9 +1612,24 @@ export async function upsertRepresentativeCommercialSettings(
         const notes = (payload.notes || '').trim() || null
         const allowFreeNegotiation = payload.allowFreeNegotiation !== false
         const canOverridePriceTable = payload.canOverridePriceTable !== false
+        const customerAccessMode = payload.customerAccessMode || 'assigned_only'
         const allowedPriceTableIds = Array.from(
             new Set((payload.allowedPriceTableIds || []).map((value) => value.trim()).filter(Boolean))
         )
+        const allowedStates = Array.from(
+            new Set((payload.allowedStates || []).map((value) => value.trim().toUpperCase()).filter(Boolean))
+        )
+        const allowedCities = Array.from(
+            new Set((payload.allowedCities || []).map((value) => value.trim()).filter(Boolean))
+        )
+
+        if (!['assigned_only', 'all_admin_portfolio', 'filtered_portfolio'].includes(customerAccessMode)) {
+            return { error: 'Escopo de carteira invalido para o representante.' }
+        }
+
+        if (customerAccessMode === 'filtered_portfolio' && allowedStates.length === 0 && allowedCities.length === 0) {
+            return { error: 'Selecione ao menos um estado ou uma cidade para o escopo filtrado.' }
+        }
 
         if (allowedPriceTableIds.length > 0) {
             const { data: tables, error: tablesError } = await supabaseAdmin
@@ -1630,11 +1691,33 @@ export async function upsertRepresentativeCommercialSettings(
             if (insertLinksError) throw insertLinksError
         }
 
+        const { data: policyRow, error: policyError } = await supabaseAdmin
+            .from('representative_customer_access_policies')
+            .upsert({
+                representative_id: profileId,
+                scope_mode: customerAccessMode,
+                allowed_states: allowedStates,
+                allowed_cities: allowedCities,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'representative_id' })
+            .select('scope_mode, allowed_states, allowed_cities')
+            .single()
+
+        if (policyError) {
+            if (policyError.code === '42P01') {
+                return { error: 'A migration de configuracao do representante ainda nao foi aplicada no banco.' }
+            }
+            throw policyError
+        }
+
         return {
             success: true,
             data: {
                 ...(settingsRow || {}),
                 allowedPriceTableIds,
+                customerAccessMode: policyRow?.scope_mode || 'assigned_only',
+                allowedStates: policyRow?.allowed_states || [],
+                allowedCities: policyRow?.allowed_cities || [],
             },
         }
     } catch (err: unknown) {

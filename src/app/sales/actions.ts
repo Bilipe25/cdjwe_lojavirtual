@@ -244,28 +244,203 @@ function formatPercentage(value: number) {
     })
 }
 
+type RepresentativeCustomerAccessScopeMode =
+    | 'assigned_only'
+    | 'all_admin_portfolio'
+    | 'filtered_portfolio'
+
+type RepresentativeCustomerAccessPolicy = {
+    scopeMode: RepresentativeCustomerAccessScopeMode
+    allowedStates: string[]
+    allowedCities: string[]
+}
+
+type RepresentativeStoreAccessRow = {
+    id: string
+    representative_id: string | null
+    state: string | null
+    city: string | null
+}
+
+function normalizeRepresentativeScopeMode(value: string | null | undefined): RepresentativeCustomerAccessScopeMode {
+    if (value === 'all_admin_portfolio' || value === 'filtered_portfolio' || value === 'assigned_only') {
+        return value
+    }
+    return 'assigned_only'
+}
+
+function normalizeAccessValues(values?: string[] | null, transform?: (value: string) => string) {
+    const mapper = transform || ((value: string) => value)
+    return Array.from(new Set((values || []).map((value) => mapper(value.trim())).filter(Boolean)))
+}
+
+function isMissingRepresentativeAccessSchemaError(error: { code?: string | null; message?: string | null } | null | undefined) {
+    if (!error) return false
+    if (error.code === '42P01') return true
+    const message = (error.message || '').toLowerCase()
+    return message.includes('representative_customer_access_policies')
+}
+
+async function getRepresentativeCustomerAccessPolicy(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId: string
+): Promise<RepresentativeCustomerAccessPolicy> {
+    const { data, error } = await admin
+        .from('representative_customer_access_policies')
+        .select('scope_mode, allowed_states, allowed_cities')
+        .eq('representative_id', representativeId)
+        .maybeSingle()
+
+    if (isMissingRepresentativeAccessSchemaError(error)) {
+        return { scopeMode: 'assigned_only', allowedStates: [], allowedCities: [] }
+    }
+
+    if (error) {
+        throw new Error(error.message || 'Falha ao carregar politica de carteira do representante.')
+    }
+
+    return {
+        scopeMode: normalizeRepresentativeScopeMode(data?.scope_mode),
+        allowedStates: normalizeAccessValues(data?.allowed_states, (value) => value.toUpperCase()),
+        allowedCities: normalizeAccessValues(data?.allowed_cities),
+    }
+}
+
+function canAccessUnassignedStoreByPolicy(
+    store: Pick<RepresentativeStoreAccessRow, 'representative_id' | 'state' | 'city'>,
+    policy: RepresentativeCustomerAccessPolicy
+) {
+    if (store.representative_id) return false
+    if (policy.scopeMode === 'all_admin_portfolio') return true
+    if (policy.scopeMode !== 'filtered_portfolio') return false
+
+    const normalizedState = (store.state || '').trim().toUpperCase()
+    const normalizedCity = (store.city || '').trim()
+
+    const matchState =
+        policy.allowedStates.length > 0 && normalizedState
+            ? policy.allowedStates.includes(normalizedState)
+            : false
+    const matchCity =
+        policy.allowedCities.length > 0 && normalizedCity
+            ? policy.allowedCities.includes(normalizedCity)
+            : false
+
+    return matchState || matchCity
+}
+
+async function loadStoreWithinRepresentativeScope(
+    admin: ReturnType<typeof getAdminClient>,
+    storeId: string,
+    representativeId?: string | null
+) {
+    const { data: store } = await admin
+        .from('stores')
+        .select('id, profile_id, representative_id, state, city')
+        .eq('id', storeId)
+        .maybeSingle()
+
+    if (!store) return null
+    if (!representativeId) return store
+    if (store.representative_id === representativeId) return store
+
+    const policy = await getRepresentativeCustomerAccessPolicy(admin, representativeId)
+    if (canAccessUnassignedStoreByPolicy(store as RepresentativeStoreAccessRow, policy)) {
+        return store
+    }
+
+    return null
+}
+
 async function getRepresentativeCustomersInternal(representativeId?: string | null) {
     const admin = getAdminClient()
-
-    const query = admin.from('stores').select(`
+    const storeSelect = `
             *,
             profile:profiles!stores_profile_id_fkey(*),
             addresses:store_addresses(*),
             price_table_links:store_price_tables(
                 price_table:price_tables(*)
             )
-        `)
-    if (representativeId) {
-        query.eq('representative_id', representativeId)
-    }
+        `
 
-    const { data: stores } = await query.order('company_name')
-
-    const normalizedStores = ((stores || []) as Array<Store & {
+    let stores: Array<Store & {
         profile?: Profile | null
         addresses?: StoreAddress[]
         price_table_links?: Array<{ price_table?: PriceTable | null }>
-    }>).map((store) => ({
+    }> = []
+
+    if (!representativeId) {
+        const { data: allStores } = await admin
+            .from('stores')
+            .select(storeSelect)
+            .order('company_name')
+        stores = (allStores || []) as typeof stores
+    } else {
+        const accessPolicy = await getRepresentativeCustomerAccessPolicy(admin, representativeId)
+
+        const { data: assignedStores } = await admin
+            .from('stores')
+            .select(storeSelect)
+            .eq('representative_id', representativeId)
+            .order('company_name')
+
+        const storeMap = new Map<string, (typeof stores)[number]>()
+        ;(assignedStores || []).forEach((store) => {
+            storeMap.set(store.id, store as (typeof stores)[number])
+        })
+
+        if (accessPolicy.scopeMode === 'all_admin_portfolio') {
+            const { data: adminPortfolioStores } = await admin
+                .from('stores')
+                .select(storeSelect)
+                .is('representative_id', null)
+                .order('company_name')
+
+            ;(adminPortfolioStores || []).forEach((store) => {
+                if (!storeMap.has(store.id)) {
+                    storeMap.set(store.id, store as (typeof stores)[number])
+                }
+            })
+        }
+
+        if (accessPolicy.scopeMode === 'filtered_portfolio') {
+            if (accessPolicy.allowedStates.length > 0) {
+                const { data: stateScopedStores } = await admin
+                    .from('stores')
+                    .select(storeSelect)
+                    .is('representative_id', null)
+                    .in('state', accessPolicy.allowedStates)
+                    .order('company_name')
+
+                ;(stateScopedStores || []).forEach((store) => {
+                    if (!storeMap.has(store.id)) {
+                        storeMap.set(store.id, store as (typeof stores)[number])
+                    }
+                })
+            }
+
+            if (accessPolicy.allowedCities.length > 0) {
+                const { data: cityScopedStores } = await admin
+                    .from('stores')
+                    .select(storeSelect)
+                    .is('representative_id', null)
+                    .in('city', accessPolicy.allowedCities)
+                    .order('company_name')
+
+                ;(cityScopedStores || []).forEach((store) => {
+                    if (!storeMap.has(store.id)) {
+                        storeMap.set(store.id, store as (typeof stores)[number])
+                    }
+                })
+            }
+        }
+
+        stores = Array.from(storeMap.values()).sort((a, b) =>
+            (a.company_name || '').localeCompare(b.company_name || '', 'pt-BR')
+        )
+    }
+
+    const normalizedStores = (stores || []).map((store) => ({
         ...store,
         assigned_price_tables: (store.price_table_links || [])
             .map((item) => item.price_table)
@@ -573,17 +748,7 @@ export async function getRepresentativeProductConfiguratorData(input: {
     priceTableId?: string | null
 }) {
     const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
-
-    const storeQuery = admin
-        .from('stores')
-        .select('id, representative_id')
-        .eq('id', input.storeId)
-
-    if (scopeRepresentativeId) {
-        storeQuery.eq('representative_id', scopeRepresentativeId)
-    }
-
-    const { data: store } = await storeQuery.single()
+    const store = await loadStoreWithinRepresentativeScope(admin, input.storeId, scopeRepresentativeId)
 
     if (!store) {
         return { error: 'Cliente nao disponivel para este representante.' }
@@ -640,17 +805,7 @@ export async function getRepresentativePaymentOptions(input: {
     priceTableId?: string | null
 }) {
     const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
-
-    const storeQuery = admin
-        .from('stores')
-        .select('id, representative_id')
-        .eq('id', input.storeId)
-
-    if (scopeRepresentativeId) {
-        storeQuery.eq('representative_id', scopeRepresentativeId)
-    }
-
-    const { data: store } = await storeQuery.single()
+    const store = await loadStoreWithinRepresentativeScope(admin, input.storeId, scopeRepresentativeId)
 
     if (!store) {
         return { error: 'Cliente nao disponivel para este representante.' }
@@ -700,17 +855,7 @@ export async function validateRepresentativeDraftPricingAction(input: {
     lines: Array<{ cartKey?: string; variantId: string; sizeOptionId?: string | null }>
 }) {
     const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
-
-    const storeQuery = admin
-        .from('stores')
-        .select('id, representative_id')
-        .eq('id', input.storeId)
-
-    if (scopeRepresentativeId) {
-        storeQuery.eq('representative_id', scopeRepresentativeId)
-    }
-
-    const { data: store } = await storeQuery.single()
+    const store = await loadStoreWithinRepresentativeScope(admin, input.storeId, scopeRepresentativeId)
 
     if (!store) {
         return { error: 'Cliente nao disponivel para este representante.' }
@@ -765,16 +910,7 @@ export async function createRepresentativeVisitAction(payload: {
         const { user, admin, scopeRepresentativeId } = await requireRepresentativeContext()
 
 
-        const storeQuery = admin
-            .from('stores')
-            .select('id, profile_id, representative_id')
-            .eq('id', payload.storeId)
-
-        if (scopeRepresentativeId) {
-            storeQuery.eq('representative_id', scopeRepresentativeId)
-        }
-
-        const { data: store } = await storeQuery.single()
+        const store = await loadStoreWithinRepresentativeScope(admin, payload.storeId, scopeRepresentativeId)
 
         if (!store) {
             return { error: 'Cliente nao disponivel para este representante.' }
@@ -815,18 +951,7 @@ async function persistRepresentativeDocument(
 ) {
     try {
         const { admin, supabase, scopeRepresentativeId } = await requireRepresentativeContext()
-
-
-        const storeQuery = admin
-            .from('stores')
-            .select('id, profile_id, representative_id')
-            .eq('id', payload.storeId)
-
-        if (scopeRepresentativeId) {
-            storeQuery.eq('representative_id', scopeRepresentativeId)
-        }
-
-        const { data: store } = await storeQuery.single()
+        const store = await loadStoreWithinRepresentativeScope(admin, payload.storeId, scopeRepresentativeId)
 
         if (!store) {
             return { error: 'Cliente nao disponivel para este representante.' }
