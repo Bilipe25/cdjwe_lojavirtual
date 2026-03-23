@@ -1584,21 +1584,11 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
                     event_type,
                     entity_type,
                     store_id,
+                    changed_by_profile_id,
                     before_state,
                     after_state,
                     notes,
-                    created_at,
-                    changed_by_profile:profiles!representative_customer_access_audit_logs_changed_by_profile_id_fkey(
-                        id,
-                        full_name,
-                        email
-                    ),
-                    store:stores!representative_customer_access_audit_logs_store_id_fkey(
-                        id,
-                        company_name,
-                        trade_name,
-                        customer_code
-                    )
+                    created_at
                 `)
                 .eq('representative_id', profileId)
                 .order('created_at', { ascending: false })
@@ -1672,6 +1662,54 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
             throw candidateStoresRes.error
         }
 
+        const rawAuditLogs = (auditLogRes.data || []) as Array<{
+            id: string
+            event_type: string | null
+            entity_type: string | null
+            store_id: string | null
+            changed_by_profile_id: string | null
+            before_state: Record<string, unknown> | null
+            after_state: Record<string, unknown> | null
+            notes: string | null
+            created_at: string | null
+        }>
+
+        const auditStoreIds = Array.from(
+            new Set(rawAuditLogs.map((entry) => entry.store_id).filter((value): value is string => Boolean(value)))
+        )
+        const auditActorIds = Array.from(
+            new Set(rawAuditLogs.map((entry) => entry.changed_by_profile_id).filter((value): value is string => Boolean(value)))
+        )
+
+        const [auditStoresRes, auditActorsRes] = await Promise.all([
+            auditStoreIds.length > 0
+                ? supabaseAdmin
+                    .from('stores')
+                    .select('id, company_name, trade_name, customer_code')
+                    .in('id', auditStoreIds)
+                : Promise.resolve({ data: [], error: null }),
+            auditActorIds.length > 0
+                ? supabaseAdmin
+                    .from('profiles')
+                    .select('id, full_name, email')
+                    .in('id', auditActorIds)
+                : Promise.resolve({ data: [], error: null }),
+        ])
+
+        if (auditStoresRes.error) throw auditStoresRes.error
+        if (auditActorsRes.error) throw auditActorsRes.error
+
+        const auditStoresMap = new Map((auditStoresRes.data || []).map((store) => [store.id, store]))
+        const auditActorsMap = new Map((auditActorsRes.data || []).map((actor) => [actor.id, actor]))
+
+        const auditLogs = rawAuditLogs.map((entry) => ({
+            ...entry,
+            changed_by_profile: entry.changed_by_profile_id
+                ? (auditActorsMap.get(entry.changed_by_profile_id) || null)
+                : null,
+            store: entry.store_id ? (auditStoresMap.get(entry.store_id) || null) : null,
+        }))
+
         const availableStates = Array.from(
             new Set(
                 (portfolioLookupRes.data || [])
@@ -1700,7 +1738,7 @@ export async function getRepresentativeCommercialSetup(profileId: string) {
                     allowedCities: policyRes.data?.allowed_cities || [],
                 },
                 manualRules: manualRulesRes.data || [],
-                auditLogs: auditLogRes.data || [],
+                auditLogs,
                 lookups: {
                     priceTables: priceTablesRes.data || [],
                     availableStates,
