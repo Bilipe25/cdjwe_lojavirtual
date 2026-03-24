@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useCallback, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { CheckCircle2, ChevronLeft, ChevronRight, Copy, FileDown, FileText, Home, Loader2, Mail, MapPin, MessageCircle, Minus, Package, Pencil, Phone, Plus, Search, Share2, ShoppingBag, Trash2, Users } from 'lucide-react'
@@ -9,22 +9,14 @@ import type {
   Category,
   Order,
   OrderItem,
-  PaymentMethod,
-  PaymentMethodCondition,
   PriceTable,
-  PriceTablePaymentRule,
-  Product,
-  Store,
-  StoreAddress,
   CustomerType,
   SystemSettings,
 } from '@/lib/types'
 import {
   createRepresentativeOrderAction,
-  getRepresentativePaymentOptions,
   createCustomerAsRepresentativeTx,
   updateCustomerAsRepresentativeTx,
-  validateRepresentativeDraftPricingAction,
   saveRepresentativeQuoteAction,
   getRepresentativeOrderCompletionData,
 } from '@/app/sales/actions'
@@ -37,53 +29,13 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
-import type { PriceSnapshot } from '@/lib/pricing/server-pricing'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
 import { cn, getWhatsAppLink } from '@/lib/utils'
-
-type BuilderCustomer = Store & {
-  addresses?: StoreAddress[]
-  assigned_price_tables?: PriceTable[]
-}
-
-type BuilderProduct = Product & {
-  images?: { url: string; is_primary: boolean }[]
-  category?: Category | null
-}
-
-type DraftItem = {
-  cartKey: string
-  productId: string
-  productName: string
-  variantId: string
-  fabricName: string
-  colorName: string
-  sizeName: string | null
-  sizeOptionId: string | null
-  imageUrl: string | null
-  quantity: number
-  unitPrice: number
-}
-
-type PaymentMethodGroup = {
-  method: PaymentMethod
-  conditions: PaymentMethodCondition[]
-  rules: PriceTablePaymentRule[]
-}
-
-type PaymentOption = {
-  id: string
-  label: string
-  description: string | null
-  discountPercentage: number
-  surchargePercentage: number
-  isTableRule: boolean
-}
-
-type PricingValidationResult =
-  | { prices: Record<string, PriceSnapshot>; missingKeys: string[]; missingVariantIds: string[] }
-  | { error: string }
+import { useOrderDraft } from '@/components/sales/order-builder/hooks/use-order-draft'
+import { usePaymentSelection } from '@/components/sales/order-builder/hooks/use-payment-selection'
+import { usePricingValidation } from '@/components/sales/order-builder/hooks/use-pricing-validation'
+import type { BuilderCustomer, BuilderProduct, DraftItem } from '@/components/sales/order-builder/types'
 
 type CompletionData = {
   order: Order
@@ -91,76 +43,11 @@ type CompletionData = {
   settings: SystemSettings | null
 }
 
-
-
 function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
 
-function buildPaymentOptions(group: PaymentMethodGroup | null): PaymentOption[] {
-  if (!group) return []
-  return [
-    ...group.rules.map((rule) => ({
-      id: rule.id,
-      label: rule.payment_method_condition?.payment_condition?.name || `${rule.number_of_installments}x`,
-      description: rule.payment_method_condition?.payment_condition?.description || 'Regra comercial da tabela.',
-      discountPercentage: rule.discount_percentage,
-      surchargePercentage: rule.surcharge_percentage || 0,
-      isTableRule: true,
-    })),
-    ...group.conditions
-      .filter((link) => link.is_active && link.payment_condition?.is_active)
-      .map((link) => ({
-        id: link.payment_condition_id,
-        label: link.payment_condition?.name || 'Condição',
-        description: link.payment_condition?.description || group.method.description || null,
-        discountPercentage: link.payment_condition?.discount_percentage || 0,
-        surchargePercentage: link.payment_condition?.surcharge_percentage || 0,
-        isTableRule: false,
-      })),
-  ]
-}
-
-function computeNegotiation(subtotal: number, discountType: 'percent' | 'value' | 'none', discountValue: number, surchargeValue: number) {
-  const safeSubtotal = Math.max(0, subtotal)
-  const safeDiscount = Math.max(0, discountValue)
-  const safeSurcharge = Math.max(0, surchargeValue)
-  const discountAmount = discountType === 'percent' ? safeSubtotal * (Math.min(100, safeDiscount) / 100) : discountType === 'value' ? Math.min(safeSubtotal, safeDiscount) : 0
-  const discountPercentage = discountType === 'percent' ? Math.min(100, safeDiscount) : 0
-  const adjustedSubtotal = Math.max(0, safeSubtotal - discountAmount + safeSurcharge)
-  return { adjustedSubtotal, discountAmount, discountPercentage, surchargeAmount: safeSurcharge }
-}
-
-function getDefaultAddressId(store: BuilderCustomer | null) {
-  return store?.addresses?.find((a) => a.is_main)?.id || store?.addresses?.[0]?.id || ''
-}
-
-function getDefaultPriceTableId(store: BuilderCustomer | null, fallbackTables: PriceTable[]) {
-  return (store?.assigned_price_tables?.[0] || fallbackTables[0])?.id || ''
-}
-
-function hasSamePricingSnapshot(current: DraftItem[], next: DraftItem[]) {
-  if (current.length !== next.length) return false
-
-  for (let index = 0; index < current.length; index += 1) {
-    const currentItem = current[index]
-    const nextItem = next[index]
-    if (!nextItem) return false
-
-    if (
-      currentItem.cartKey !== nextItem.cartKey ||
-      currentItem.quantity !== nextItem.quantity ||
-      currentItem.unitPrice !== nextItem.unitPrice ||
-      currentItem.sizeName !== nextItem.sizeName
-    ) {
-      return false
-    }
-  }
-
-  return true
-}
-
-/* ─── Section row (mobile native style — label + chevron) ─── */
+/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Section row (mobile native style Ã¢â‚¬â€ label + chevron) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 function SectionRow({ label, value, highlight, onClick }: { label: string; value?: string; highlight?: boolean; onClick?: () => void }) {
   return (
     <button
@@ -235,18 +122,7 @@ export function RepresentativeOrderBuilder({
   customerTypes: CustomerType[]
 }) {
   const router = useRouter()
-  const initialStore = customers.find((c) => c.id === initialCustomerId) || null
-  const [selectedStoreId, setSelectedStoreId] = useState(initialCustomerId || '')
-  const [selectedAddressId, setSelectedAddressId] = useState(() => getDefaultAddressId(initialStore))
-  const [selectedPriceTableId, setSelectedPriceTableId] = useState(() => getDefaultPriceTableId(initialStore, priceTables))
-  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState('')
-  const [selectedPaymentId, setSelectedPaymentId] = useState('')
   const [notes, setNotes] = useState('')
-  const [discountType, setDiscountType] = useState<'percent' | 'value' | 'none'>('none')
-  const [discountValue, setDiscountValue] = useState('')
-  const [surchargeValue, setSurchargeValue] = useState('')
-  const [negotiationReason, setNegotiationReason] = useState('')
-  const [items, setItems] = useState<DraftItem[]>([])
   const [customerSearch, setCustomerSearch] = useState('')
   const [isCustomerSearchActive, setIsCustomerSearchActive] = useState(false)
   const [isCustomerSheetOpen, setIsCustomerSheetOpen] = useState(false)
@@ -254,8 +130,6 @@ export function RepresentativeOrderBuilder({
   const [isProductOverlayOpen, setIsProductOverlayOpen] = useState(false)
   const [isCustomerFormOpen, setIsCustomerFormOpen] = useState(false)
   const [editingStore, setEditingStore] = useState<BuilderCustomer | null>(null)
-  const [paymentGroups, setPaymentGroups] = useState<PaymentMethodGroup[]>([])
-  const [pricingPending, setPricingPending] = useState(false)
   const [submitting, startSubmitting] = useTransition()
   const [customerSaving, setCustomerSaving] = useState(false)
   const [completionData, setCompletionData] = useState<CompletionData | null>(null)
@@ -264,141 +138,70 @@ export function RepresentativeOrderBuilder({
   const [completionWhatsAppLoading, setCompletionWhatsAppLoading] = useState(false)
   const [completionShareLoading, setCompletionShareLoading] = useState(false)
 
-  /* ─── Mobile section visibility ─── */
+  /* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Mobile section visibility Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
   const [openSection, setOpenSection] = useState<'customer' | 'products' | 'negotiation' | 'payment' | 'notes' | null>(null)
-  const revalidationSequenceRef = useRef(0)
 
-  const selectedStore = useMemo(() => customers.find((c) => c.id === selectedStoreId) || null, [customers, selectedStoreId])
-  const availablePriceTables = useMemo(() => selectedStore?.assigned_price_tables?.length ? selectedStore.assigned_price_tables : priceTables, [priceTables, selectedStore])
-  
+  const {
+    selectedStore,
+    selectedStoreId,
+    selectedAddressId,
+    setSelectedAddressId,
+    selectedPriceTableId,
+    setSelectedPriceTableId,
+    items,
+    setItems,
+    availablePriceTables,
+    handleStoreChange,
+  } = useOrderDraft({
+    customers,
+    priceTables,
+    initialCustomerId,
+  })
+
+  const {
+    pricingPending,
+    paymentGroups,    setSelectedPaymentMethodId,    setSelectedPaymentId,
+    effectivePaymentMethodId,
+    selectedMethodGroup,
+    paymentOptions,
+    effectivePaymentId,
+    selectedPaymentOption,
+  } = usePricingValidation({
+    selectedStoreId,
+    selectedPriceTableId,
+    items,
+    setItems,
+  })
+
   const filteredCustomers = useMemo(() => customers.filter((c) => {
     const term = customerSearch.trim().toLowerCase()
     if (!term) return true
     return c.company_name.toLowerCase().includes(term) || (c.customer_code && c.customer_code.toLowerCase().includes(term))
   }), [customers, customerSearch])
 
-  const pricingSignature = useMemo(() => JSON.stringify(items.map((i) => [i.variantId, i.sizeOptionId, i.quantity])), [items])
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const draftItems = useMemo(() => items, [pricingSignature])
-
   const openCustomerSheet = () => {
     setIsCustomerSearchActive(false)
     setIsCustomerSheetOpen(true)
   }
 
-  const handleStoreChange = (nextStoreId: string) => {
-    const nextStore = customers.find((c) => c.id === nextStoreId) || null
-    setSelectedStoreId(nextStoreId)
-    setSelectedAddressId(getDefaultAddressId(nextStore))
-    setSelectedPriceTableId(getDefaultPriceTableId(nextStore, priceTables))
-    setSelectedPaymentMethodId('')
-    setSelectedPaymentId('')
-  }
-
-    /* ─── Pricing revalidation ─── */
-  useEffect(() => {
-    if (!selectedStoreId || draftItems.length === 0) {
-      setPaymentGroups([])
-      setSelectedPaymentMethodId('')
-      setSelectedPaymentId('')
-      setPricingPending(false)
-      return
-    }
-
-    let cancelled = false
-    const sequence = revalidationSequenceRef.current + 1
-    revalidationSequenceRef.current = sequence
-
-    const resetPaymentState = () => {
-      setPaymentGroups([])
-      setSelectedPaymentMethodId('')
-      setSelectedPaymentId('')
-    }
-
-    const revalidate = async () => {
-      setPricingPending(true)
-
-      try {
-        const pricing = (await validateRepresentativeDraftPricingAction({
-          storeId: selectedStoreId,
-          priceTableId: selectedPriceTableId || null,
-          lines: draftItems.map((item) => ({
-            cartKey: item.cartKey,
-            variantId: item.variantId,
-            sizeOptionId: item.sizeOptionId,
-          })),
-        })) as PricingValidationResult
-
-        if (cancelled || sequence !== revalidationSequenceRef.current) return
-
-        if ('error' in pricing) {
-          resetPaymentState()
-          toast.error(pricing.error)
-          return
-        }
-
-        const repricedItems = draftItems.map((item) => {
-          const price = pricing.prices[item.cartKey]
-          if (!price) return item
-
-          return {
-            ...item,
-            unitPrice: price.unitPrice,
-            sizeName: price.sizeName ?? item.sizeName,
-          }
-        })
-
-        setItems((current) => (hasSamePricingSnapshot(current, repricedItems) ? current : repricedItems))
-
-        const subtotal = repricedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
-        const payments = await getRepresentativePaymentOptions({
-          storeId: selectedStoreId,
-          subtotal,
-          priceTableId: selectedPriceTableId || null,
-        })
-
-        if (cancelled || sequence !== revalidationSequenceRef.current) return
-
-        if ('error' in payments && payments.error) {
-          resetPaymentState()
-          toast.error(payments.error)
-          return
-        }
-
-        setPaymentGroups((payments.paymentMethods || []) as PaymentMethodGroup[])
-      } catch {
-        if (cancelled || sequence !== revalidationSequenceRef.current) return
-        resetPaymentState()
-        toast.error('Não foi possível revalidar preços e pagamentos.')
-      } finally {
-        if (!cancelled && sequence === revalidationSequenceRef.current) {
-          setPricingPending(false)
-        }
-      }
-    }
-
-    const timeout = window.setTimeout(() => {
-      void revalidate()
-    }, 250)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(timeout)
-    }
-  }, [draftItems, pricingSignature, selectedPriceTableId, selectedStoreId])
-
-  const effectivePaymentMethodId = paymentGroups.some((g) => g.method.id === selectedPaymentMethodId) ? selectedPaymentMethodId : paymentGroups[0]?.method.id || ''
-  const selectedMethodGroup = useMemo(() => paymentGroups.find((g) => g.method.id === effectivePaymentMethodId) || null, [effectivePaymentMethodId, paymentGroups])
-  const paymentOptions = useMemo(() => buildPaymentOptions(selectedMethodGroup), [selectedMethodGroup])
-  const effectivePaymentId = paymentOptions.some((o) => o.id === selectedPaymentId) ? selectedPaymentId : paymentOptions[0]?.id || ''
-  const selectedPaymentOption = paymentOptions.find((o) => o.id === effectivePaymentId) || null
-
   const subtotal = useMemo(() => items.reduce((s, i) => s + i.quantity * i.unitPrice, 0), [items])
-  const negotiation = useMemo(() => computeNegotiation(subtotal, discountType, Number(discountValue || 0), Number(surchargeValue || 0)), [discountType, discountValue, subtotal, surchargeValue])
-  const paymentDiscountAmount = negotiation.adjustedSubtotal * ((selectedPaymentOption?.discountPercentage || 0) / 100)
-  const afterPaymentDiscount = Math.max(0, negotiation.adjustedSubtotal - paymentDiscountAmount)
-  const paymentSurchargeAmount = afterPaymentDiscount * ((selectedPaymentOption?.surchargePercentage || 0) / 100)
-  const total = Math.max(0, afterPaymentDiscount + paymentSurchargeAmount)
+  const {
+    discountType,
+    setDiscountType,
+    discountValue,
+    setDiscountValue,
+    surchargeValue,
+    setSurchargeValue,
+    negotiationReason,
+    setNegotiationReason,
+    negotiation,
+    paymentDiscountAmount,
+    paymentSurchargeAmount,
+    total,
+  } = usePaymentSelection({
+    subtotal,
+    selectedPaymentOption,
+  })
 
   const handleCatalogConfirm = (payload: CatalogOverlayConfirmPayload) => {
     setItems((cur) => {
@@ -454,7 +257,7 @@ export function RepresentativeOrderBuilder({
         toast.error(result.error || 'Erro ao salvar cliente.')
       }
     } catch {
-      toast.error('Erro de conexão ao salvar cliente.')
+      toast.error('Erro de conexÃƒÂ£o ao salvar cliente.')
     } finally {
       setCustomerSaving(false)
     }
@@ -622,7 +425,7 @@ export function RepresentativeOrderBuilder({
     })
   }
 
-  /* ─── Mobile view (list of sections with chevrons) ─── */
+  /* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Mobile view (list of sections with chevrons) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
   const mobileContent = (
     <div className="flex flex-col min-h-[calc(100dvh-140px)] xl:hidden">
       <div className="flex-1 divide-y divide-border/30 rounded-2xl border border-border/40 bg-card">
@@ -641,7 +444,7 @@ export function RepresentativeOrderBuilder({
               </div>
               <Button variant="outline" size="sm" onClick={() => { setEditingStore(selectedStore); setIsCustomerFormOpen(true) }} className="h-9 rounded-xl border-border bg-card text-primary font-semibold">Editar</Button>
             </div>
-            <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm"><SelectValue placeholder="Endereço">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select>
+            <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm"><SelectValue placeholder="EndereÃƒÂ§o">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select>
           </div>
         )}
 
@@ -656,7 +459,7 @@ export function RepresentativeOrderBuilder({
 
         {/* Negotiation */}
         <SectionRow
-          label="Negociação"
+          label="NegociaÃƒÂ§ÃƒÂ£o"
           value={discountType !== 'none' ? `${discountType === 'percent' ? `${discountValue}%` : formatCurrency(Number(discountValue || 0))} desc.` : undefined}
           onClick={() => setOpenSection(openSection === 'negotiation' ? null : 'negotiation')}
         />
@@ -670,7 +473,7 @@ export function RepresentativeOrderBuilder({
               </SelectTrigger>
               <SelectContent><SelectItem value="none">Sem desconto</SelectItem><SelectItem value="percent">Percentual</SelectItem><SelectItem value="value">Valor</SelectItem></SelectContent></Select></div>
             <div className="space-y-1.5"><Label className="text-xs">{discountType === 'percent' ? '% desc.' : 'Valor desc.'}</Label><Input value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
-            <div className="space-y-1.5"><Label className="text-xs">Acréscimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">AcrÃƒÂ©scimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
             <div className="space-y-1.5"><Label className="text-xs">Motivo</Label><Input value={negotiationReason} onChange={(e) => setNegotiationReason(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
           </div>
         )}
@@ -691,7 +494,7 @@ export function RepresentativeOrderBuilder({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>{paymentGroups.map((g) => <SelectItem key={g.method.id} value={g.method.id}>{g.method.name}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-1.5"><Label className="text-xs">Condição</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
+            <div className="space-y-1.5"><Label className="text-xs">CondiÃƒÂ§ÃƒÂ£o</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
               <SelectTrigger className="h-9 rounded-xl border-border text-sm">
                 <SelectValue placeholder="Selecione">
                   {selectedPaymentOption?.label}
@@ -703,13 +506,13 @@ export function RepresentativeOrderBuilder({
 
         {/* Notes */}
         <SectionRow
-          label="Observações"
+          label="ObservaÃƒÂ§ÃƒÂµes"
           value={notes ? notes.substring(0, 40) + (notes.length > 40 ? '...' : '') : undefined}
           onClick={() => setOpenSection(openSection === 'notes' ? null : 'notes')}
         />
         {openSection === 'notes' && (
           <div className="bg-muted/20 px-4 py-4">
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" placeholder="Observações do pedido..." />
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" placeholder="ObservaÃƒÂ§ÃƒÂµes do pedido..." />
           </div>
         )}
       </div>
@@ -728,14 +531,14 @@ export function RepresentativeOrderBuilder({
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'order' ? (
             <><ShoppingBag className="mr-2 h-4 w-4" />CONFIRMAR PEDIDO</>
           ) : (
-            <><FileText className="mr-2 h-4 w-4" />SALVAR ORÇAMENTO</>
+            <><FileText className="mr-2 h-4 w-4" />SALVAR ORÃƒâ€¡AMENTO</>
           )}
         </Button>
       </div>
     </div>
   )
 
-  /* ─── Desktop view (two-column) ─── */
+  /* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Desktop view (two-column) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
   const desktopContent = (
     <div className="hidden xl:grid xl:grid-cols-[minmax(0,1fr)_340px] xl:gap-5">
       <div className="space-y-5">
@@ -759,9 +562,9 @@ export function RepresentativeOrderBuilder({
                </div>
             ) : (
                <div className="grid gap-4 md:grid-cols-2">
-                 <div className="space-y-1.5 md:col-span-2"><Label className="text-xs text-muted-foreground">Cliente Vínculado</Label><div className="h-10 px-3 border border-border bg-muted/30 rounded-xl flex items-center cursor-pointer hover:bg-muted/50 transition"><span className="font-semibold text-foreground text-sm">{selectedStore?.company_name}</span></div></div>
-                 <div className="space-y-1.5"><Label className="text-xs">Tabela de preço</Label><Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Tabela">{availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}</SelectValue></SelectTrigger><SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
-                 <div className="space-y-1.5"><Label className="text-xs">Entrega</Label><Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Endereço">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select></div>
+                 <div className="space-y-1.5 md:col-span-2"><Label className="text-xs text-muted-foreground">Cliente VÃƒÂ­nculado</Label><div className="h-10 px-3 border border-border bg-muted/30 rounded-xl flex items-center cursor-pointer hover:bg-muted/50 transition"><span className="font-semibold text-foreground text-sm">{selectedStore?.company_name}</span></div></div>
+                 <div className="space-y-1.5"><Label className="text-xs">Tabela de preÃƒÂ§o</Label><Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Tabela">{availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}</SelectValue></SelectTrigger><SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
+                 <div className="space-y-1.5"><Label className="text-xs">Entrega</Label><Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="EndereÃƒÂ§o">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select></div>
                </div>
             )}
           </div>
@@ -786,7 +589,7 @@ export function RepresentativeOrderBuilder({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>{paymentGroups.map((g) => <SelectItem key={g.method.id} value={g.method.id}>{g.method.name}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-1.5"><Label className="text-xs">Condição</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
+            <div className="space-y-1.5"><Label className="text-xs">CondiÃƒÂ§ÃƒÂ£o</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
               <SelectTrigger className="h-9 rounded-xl border-border text-sm">
                 <SelectValue placeholder="Selecione">
                   {selectedPaymentOption?.label}
@@ -801,9 +604,9 @@ export function RepresentativeOrderBuilder({
               </SelectTrigger>
               <SelectContent><SelectItem value="none">Sem desconto</SelectItem><SelectItem value="percent">Percentual</SelectItem><SelectItem value="value">Valor</SelectItem></SelectContent></Select></div>
             <div className="space-y-1.5"><Label className="text-xs">{discountType === 'percent' ? '% desc.' : 'Valor desc.'}</Label><Input value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
-            <div className="space-y-1.5"><Label className="text-xs">Acréscimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">AcrÃƒÂ©scimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
             <div className="space-y-1.5"><Label className="text-xs">Motivo</Label><Input value={negotiationReason} onChange={(e) => setNegotiationReason(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
-            <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">Observações</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">ObservaÃƒÂ§ÃƒÂµes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" /></div>
           </div>
         </section>
       </div>
@@ -815,9 +618,9 @@ export function RepresentativeOrderBuilder({
           <div className="space-y-3 p-4">
             <div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">Subtotal</span><span className="font-semibold text-foreground">{formatCurrency(subtotal)}</span></div>
             {negotiation.discountAmount > 0 && <div className="flex items-center justify-between text-xs text-emerald-700"><span>Desc. negociado</span><span className="font-semibold">- {formatCurrency(negotiation.discountAmount)}</span></div>}
-            {negotiation.surchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>Acréscimo</span><span className="font-semibold">+ {formatCurrency(negotiation.surchargeAmount)}</span></div>}
+            {negotiation.surchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>AcrÃƒÂ©scimo</span><span className="font-semibold">+ {formatCurrency(negotiation.surchargeAmount)}</span></div>}
             {paymentDiscountAmount > 0 && <div className="flex items-center justify-between text-xs text-emerald-700"><span>Desc. pagamento</span><span className="font-semibold">- {formatCurrency(paymentDiscountAmount)}</span></div>}
-            {paymentSurchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>Acrésc. pagamento</span><span className="font-semibold">+ {formatCurrency(paymentSurchargeAmount)}</span></div>}
+            {paymentSurchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>AcrÃƒÂ©sc. pagamento</span><span className="font-semibold">+ {formatCurrency(paymentSurchargeAmount)}</span></div>}
             <div className="rounded-xl gradient-navy px-4 py-3 text-white">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-white/70">Total estimado</p>
               <p className="mt-1 text-2xl font-bold font-heading tracking-tight">{formatCurrency(total)}</p>
@@ -834,7 +637,7 @@ export function RepresentativeOrderBuilder({
               disabled={submitting || pricingPending || !selectedStoreId || items.length === 0}
               onClick={() => handleSubmit('quote')}
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><FileText className="mr-2 h-4 w-4" />Salvar orçamento</>}
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><FileText className="mr-2 h-4 w-4" />Salvar orÃƒÂ§amento</>}
             </Button>
           </div>
         </div>
@@ -942,14 +745,14 @@ export function RepresentativeOrderBuilder({
         </div>
       )}
 
-      {/* ─── Customer Selection Fullpage Overlay ─── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Customer Selection Fullpage Overlay Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       {isCustomerSheetOpen && (
         <div className="fixed inset-0 z-50 flex flex-col bg-background">
 
-          {/* ─── View: Customer Detail ─── */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ View: Customer Detail Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           {previewCustomer ? (
             <>
-              {/* Header — navy bar with back + title + edit */}
+              {/* Header Ã¢â‚¬â€ navy bar with back + title + edit */}
               <div className="shrink-0 gradient-navy px-4 py-3 text-white flex items-center justify-between h-14">
                 <div className="flex items-center gap-3">
                   <button
@@ -970,14 +773,14 @@ export function RepresentativeOrderBuilder({
                 </button>
               </div>
 
-              {/* Body — customer info */}
+              {/* Body Ã¢â‚¬â€ customer info */}
               <div className="flex-1 overflow-y-auto overscroll-y-contain bg-background" style={{ WebkitOverflowScrolling: 'touch' }}>
                 {/* Company header */}
                 <div className="px-5 pt-5 pb-4">
                   <h3 className="text-lg font-bold text-foreground leading-snug">{previewCustomer.company_name}</h3>
                   {previewCustomer.cnpj && <p className="text-sm text-muted-foreground mt-0.5">CNPJ: {previewCustomer.cnpj}</p>}
-                  {previewCustomer.state_registration && <p className="text-sm text-muted-foreground">Inscrição Estadual: {previewCustomer.state_registration}</p>}
-                  {previewCustomer.customer_code && <p className="text-sm text-muted-foreground">Código: #{previewCustomer.customer_code}</p>}
+                  {previewCustomer.state_registration && <p className="text-sm text-muted-foreground">InscriÃƒÂ§ÃƒÂ£o Estadual: {previewCustomer.state_registration}</p>}
+                  {previewCustomer.customer_code && <p className="text-sm text-muted-foreground">CÃƒÂ³digo: #{previewCustomer.customer_code}</p>}
                 </div>
 
                 <Separator />
@@ -1030,7 +833,7 @@ export function RepresentativeOrderBuilder({
                 {previewCustomer.assigned_price_tables && previewCustomer.assigned_price_tables.length > 0 && (
                   <>
                     <div className="px-5 pt-5 pb-2">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tabelas de preço</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tabelas de preÃƒÂ§o</p>
                     </div>
                     <div className="px-5 pb-4 flex flex-wrap gap-2">
                       {previewCustomer.assigned_price_tables.map(t => (
@@ -1044,14 +847,14 @@ export function RepresentativeOrderBuilder({
                 {previewCustomer.addresses && previewCustomer.addresses.length > 1 && (
                   <>
                     <div className="px-5 pt-3 pb-2">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Endereços ({previewCustomer.addresses.length})</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">EndereÃƒÂ§os ({previewCustomer.addresses.length})</p>
                     </div>
                     {previewCustomer.addresses.map(addr => (
                       <div key={addr.id} className="flex items-start gap-4 px-5 py-3 border-b border-border/20">
                         <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-foreground">{addr.title}{addr.is_main ? ' (Principal)' : ''}</p>
-                          <p className="text-xs text-muted-foreground">{addr.address}{addr.number ? `, ${addr.number}` : ''} — {addr.city}/{addr.state}</p>
+                          <p className="text-xs text-muted-foreground">{addr.address}{addr.number ? `, ${addr.number}` : ''} Ã¢â‚¬â€ {addr.city}/{addr.state}</p>
                         </div>
                       </div>
                     ))}
@@ -1070,7 +873,7 @@ export function RepresentativeOrderBuilder({
               </div>
             </>
           ) : (
-            /* ─── View: Customer List ─── */
+            /* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ View: Customer List Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
             <>
               {/* Header Profissional com Busca Animada */}
               <div className="shrink-0 gradient-navy px-4 py-3 text-white flex items-center justify-between relative overflow-hidden h-14">
@@ -1094,7 +897,7 @@ export function RepresentativeOrderBuilder({
                     <Input
                       value={customerSearch}
                       onChange={(e) => setCustomerSearch(e.target.value)}
-                      placeholder="Buscar por Razão Social..."
+                      placeholder="Buscar por RazÃƒÂ£o Social..."
                       className="h-10 rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/40 pl-10 focus:bg-white/20 transition-all border-0 focus-visible:ring-1 focus-visible:ring-white/30"
                       autoFocus={isCustomerSearchActive}
                     />
@@ -1176,7 +979,7 @@ export function RepresentativeOrderBuilder({
   )
 }
 
-/* ─── Shared items list ─── */
+/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Shared items list Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 function ItemsList({ items, setItems, pricingPending }: { items: DraftItem[]; setItems: React.Dispatch<React.SetStateAction<DraftItem[]>>; pricingPending: boolean }) {
   function formatCurrency(value: number) {
     return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
@@ -1213,3 +1016,4 @@ function ItemsList({ items, setItems, pricingPending }: { items: DraftItem[]; se
     </div>
   )
 }
+

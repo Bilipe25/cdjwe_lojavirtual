@@ -1,0 +1,1826 @@
+'use server'
+
+import { cookies } from 'next/headers'
+import { revalidateTag, unstable_cache } from 'next/cache'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/server'
+import {
+    getAvailableCheckoutPayments,
+    resolveCheckoutPaymentSelection,
+} from '@/lib/payments/checkout-payment'
+import {
+    applyCommercialPaymentAvailability,
+    getStoreCommercialSettings,
+    resolveEffectivePriceTableIdForStore,
+    validateCheckoutSelectionAgainstCommercialSettings,
+    validateStoreCreditLimitForOrder,
+} from '@/lib/commercial/store-commercial'
+import {
+    PRODUCT_VARIANT_DETAIL_SELECT,
+    buildProductFabricGroups,
+} from '@/lib/products/product-detail'
+import {
+    buildPricingCartKey,
+    getPriceTableContextForStore,
+    getVariantPricingSnapshotsForStore,
+} from '@/lib/pricing/server-pricing'
+import type {
+    Order,
+    OrderItem,
+    PriceTable,
+    Product,
+    Profile,
+    RepresentativeVisit,
+    SalesQuote,
+    Store,
+    StoreAddress,
+    CustomerType,
+    SystemSettings,
+} from '@/lib/types'
+
+type RepresentativeBootstrapCustomer = Store & {
+    profile?: Profile | null
+    addresses?: StoreAddress[]
+    assigned_price_tables?: PriceTable[]
+    last_order?: Pick<Order, 'id' | 'order_number' | 'created_at' | 'total' | 'status'> | null
+}
+
+type RepresentativeCatalogProduct = Product & {
+    images?: { url: string; is_primary: boolean; sort_order?: number }[]
+}
+
+type PaginatedResult<T> = {
+    items: T[]
+    total: number
+    page: number
+    pageSize: number
+    totalPages: number
+}
+
+type RepresentativeCustomersPageInput = {
+    page?: number
+    pageSize?: number
+    query?: string
+}
+
+type RepresentativeOrdersPageInput = {
+    page?: number
+    pageSize?: number
+}
+
+type RepresentativeCatalogProductsPageInput = {
+    page?: number
+    pageSize?: number
+    search?: string
+    categoryId?: string | null
+}
+
+type RepresentativeDraftLine = {
+    cartKey?: string
+    variantId: string
+    productId: string
+    productName: string
+    fabricName: string
+    colorName: string
+    sizeName?: string | null
+    sizeOptionId?: string | null
+    imageUrl?: string | null
+    quantity: number
+}
+
+type RepresentativeDocumentPayload = {
+    storeId: string
+    priceTableId?: string | null
+    selectedPaymentId?: string | null
+    isTableRule?: boolean
+    selectedAddressId?: string | null
+    notes?: string | null
+    negotiationDiscountType?: 'percent' | 'value' | null
+    negotiationDiscountValue?: number | null
+    negotiationSurchargeAmount?: number | null
+    negotiationReason?: string | null
+    items: RepresentativeDraftLine[]
+}
+
+type SalesOrderLikeResult = {
+    order_id?: string
+    order_number?: string
+    quote_id?: string
+    quote_number?: string
+}
+
+function getAdminClient() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+    if (!supabaseUrl || !serviceRoleKey) {
+        throw new Error('Credenciais server-side do Supabase nao configuradas.')
+    }
+
+    return createServiceClient(supabaseUrl, serviceRoleKey, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+        },
+    })
+}
+
+const SALES_REPRESENTATIVE_CACHE_NAMESPACE = 'sales:representative'
+const DEFAULT_CUSTOMERS_PAGE_SIZE = 20
+const DEFAULT_ORDERS_PAGE_SIZE = 20
+const DEFAULT_PRODUCTS_PAGE_SIZE = 24
+
+type RepresentativeCacheSegment =
+    | 'customers'
+    | 'orders'
+    | 'quotes'
+    | 'visits'
+    | 'products'
+    | 'dashboard'
+    | 'builder'
+
+function normalizePage(value?: number, fallback = 1) {
+    const parsed = Number(value || fallback)
+    if (!Number.isFinite(parsed)) return fallback
+    return Math.max(1, Math.floor(parsed))
+}
+
+function normalizePageSize(value: number | undefined, fallback: number, max: number) {
+    const parsed = Number(value || fallback)
+    if (!Number.isFinite(parsed)) return fallback
+    return Math.max(1, Math.min(max, Math.floor(parsed)))
+}
+
+function normalizeSearchTerm(value?: string | null) {
+    return (value || '').trim().toLowerCase()
+}
+
+function getRepresentativeScopeCacheKey(scopeRepresentativeId?: string | null) {
+    return scopeRepresentativeId || 'admin-preview'
+}
+
+function getRepresentativeCacheTag(scopeKey: string, segment: RepresentativeCacheSegment) {
+    return `${SALES_REPRESENTATIVE_CACHE_NAMESPACE}:${scopeKey}:${segment}`
+}
+
+function revalidateRepresentativeSegments(
+    scopeRepresentativeId: string | null | undefined,
+    segments: RepresentativeCacheSegment[]
+) {
+    const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
+    const dedupedSegments = Array.from(new Set(segments))
+    dedupedSegments.forEach((segment) => {
+        revalidateTag(getRepresentativeCacheTag(scopeKey, segment), 'max')
+    })
+}
+
+function paginateItems<T>(items: T[], page: number, pageSize: number): PaginatedResult<T> {
+    const total = items.length
+    const totalPages = Math.max(1, Math.ceil(total / pageSize))
+    const safePage = Math.min(page, totalPages)
+    const offset = (safePage - 1) * pageSize
+
+    return {
+        items: items.slice(offset, offset + pageSize),
+        total,
+        page: safePage,
+        pageSize,
+        totalPages,
+    }
+}
+
+async function requireRepresentativeContext() {
+    const cookieStore = await cookies()
+    const viewAsRepresentative = cookieStore.get('view_as_representative')?.value === 'true'
+    const supabase = await createClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+        throw new Error('Usuario nao autenticado.')
+    }
+
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+
+    const normalizedProfile = profile as Profile | null
+    const isRepresentative = normalizedProfile?.role === 'representative'
+    const isAdminPreview = normalizedProfile?.role === 'admin' && viewAsRepresentative
+
+    if (!normalizedProfile || (!isRepresentative && !isAdminPreview)) {
+        throw new Error('Acesso restrito ao modo representante.')
+    }
+
+    if (!isAdminPreview && normalizedProfile.status !== 'approved') {
+        throw new Error('Representante sem aprovacao para operar.')
+    }
+
+    return {
+        supabase,
+        admin: getAdminClient(),
+        user,
+        profile: normalizedProfile,
+        isAdminPreview,
+        scopeRepresentativeId: isRepresentative ? user.id : null,
+    }
+}
+
+function toNumber(value: number | string | null | undefined) {
+    const parsed = Number(value || 0)
+    return Number.isFinite(parsed) ? parsed : 0
+}
+
+function formatAddress(address?: StoreAddress | null) {
+    if (!address) return null
+
+    return `${address.title ? `[${address.title}] ` : ''}${address.address}${address.number ? `, ${address.number}` : ''}${address.complement ? ` - ${address.complement}` : ''}, ${address.neighborhood ? `${address.neighborhood}, ` : ''}${address.city} - ${address.state}, CEP: ${address.zip_code}`
+}
+
+function computeNegotiation(
+    subtotal: number,
+    discountType?: 'percent' | 'value' | null,
+    discountValue?: number | null,
+    surchargeAmount?: number | null
+) {
+    const safeSubtotal = Math.max(0, toNumber(subtotal))
+    const safeDiscountValue = Math.max(0, toNumber(discountValue))
+    const safeSurchargeAmount = Math.max(0, toNumber(surchargeAmount))
+
+    let discountPercentage = 0
+    let discountAmount = 0
+
+    if (discountType === 'percent') {
+        discountPercentage = Math.min(100, safeDiscountValue)
+        discountAmount = safeSubtotal * (discountPercentage / 100)
+    } else if (discountType === 'value') {
+        discountAmount = Math.min(safeSubtotal, safeDiscountValue)
+    }
+
+    const adjustedSubtotal = Math.max(0, safeSubtotal - discountAmount + safeSurchargeAmount)
+
+    return {
+        adjustedSubtotal,
+        discountPercentage,
+        discountAmount,
+        surchargeAmount: safeSurchargeAmount,
+    }
+}
+
+type RepresentativeCommercialPolicy = {
+    maxDiscountPercentage: number | null
+    allowFreeNegotiation: boolean
+    canOverridePriceTable: boolean
+    allowedPriceTableIds: string[]
+}
+
+function isMissingRepresentativeCommercialSchemaError(error: { code?: string | null; message?: string | null } | null | undefined) {
+    if (!error) return false
+    if (error.code === '42P01') return true
+    const message = (error.message || '').toLowerCase()
+    return message.includes('representative_commercial_settings') || message.includes('representative_price_tables')
+}
+
+async function getRepresentativeCommercialPolicy(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId: string
+): Promise<RepresentativeCommercialPolicy | null> {
+    const [settingsRes, tablesRes] = await Promise.all([
+        admin
+            .from('representative_commercial_settings')
+            .select('max_discount_percentage, allow_free_negotiation, can_override_price_table')
+            .eq('profile_id', representativeId)
+            .maybeSingle(),
+        admin
+            .from('representative_price_tables')
+            .select('price_table_id')
+            .eq('representative_id', representativeId),
+    ])
+
+    if (isMissingRepresentativeCommercialSchemaError(settingsRes.error) || isMissingRepresentativeCommercialSchemaError(tablesRes.error)) {
+        return null
+    }
+
+    if (settingsRes.error) {
+        throw new Error(settingsRes.error.message || 'Falha ao carregar politica comercial do representante.')
+    }
+
+    if (tablesRes.error) {
+        throw new Error(tablesRes.error.message || 'Falha ao carregar tabelas permitidas do representante.')
+    }
+
+    const settings = settingsRes.data
+    const tableIds = (tablesRes.data || []).map((row) => row.price_table_id).filter(Boolean)
+    if (!settings && tableIds.length === 0) return null
+
+    return {
+        maxDiscountPercentage:
+            settings?.max_discount_percentage !== null && settings?.max_discount_percentage !== undefined
+                ? Number(settings.max_discount_percentage)
+                : null,
+        allowFreeNegotiation: settings?.allow_free_negotiation !== false,
+        canOverridePriceTable: settings?.can_override_price_table !== false,
+        allowedPriceTableIds: tableIds,
+    }
+}
+
+function formatPercentage(value: number) {
+    return value.toLocaleString('pt-BR', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+    })
+}
+
+function generateRepresentativeTemporaryPassword() {
+    const token = crypto.randomUUID().replace(/-/g, '')
+    return `${token.slice(0, 8)}Aa1!`
+}
+
+type RepresentativeCustomerAccessScopeMode =
+    | 'assigned_only'
+    | 'all_admin_portfolio'
+    | 'filtered_portfolio'
+
+type RepresentativeCustomerAccessPolicy = {
+    scopeMode: RepresentativeCustomerAccessScopeMode
+    allowedStates: string[]
+    allowedCities: string[]
+}
+
+type RepresentativeManualCustomerRule = {
+    decision: 'allow' | 'deny'
+    reason: string | null
+}
+
+type RepresentativeCustomerAccessContext = {
+    policy: RepresentativeCustomerAccessPolicy
+    manualRules: Map<string, RepresentativeManualCustomerRule>
+}
+
+type RepresentativeStoreAccessRow = {
+    id: string
+    representative_id: string | null
+    state: string | null
+    city: string | null
+}
+
+function normalizeRepresentativeScopeMode(value: string | null | undefined): RepresentativeCustomerAccessScopeMode {
+    if (value === 'all_admin_portfolio' || value === 'filtered_portfolio' || value === 'assigned_only') {
+        return value
+    }
+    return 'assigned_only'
+}
+
+function normalizeAccessValues(values?: string[] | null, transform?: (value: string) => string) {
+    const mapper = transform || ((value: string) => value)
+    return Array.from(new Set((values || []).map((value) => mapper(value.trim())).filter(Boolean)))
+}
+
+function isMissingRepresentativeAccessSchemaError(error: { code?: string | null; message?: string | null } | null | undefined) {
+    if (!error) return false
+    if (error.code === '42P01') return true
+    const message = (error.message || '').toLowerCase()
+    return message.includes('representative_customer_access_policies')
+}
+
+function isMissingRepresentativeManualRulesSchemaError(error: { code?: string | null; message?: string | null } | null | undefined) {
+    if (!error) return false
+    if (error.code === '42P01') return true
+    const message = (error.message || '').toLowerCase()
+    return message.includes('representative_customer_access_rules')
+}
+
+async function getRepresentativeCustomerAccessPolicy(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId: string
+): Promise<RepresentativeCustomerAccessPolicy> {
+    const { data, error } = await admin
+        .from('representative_customer_access_policies')
+        .select('scope_mode, allowed_states, allowed_cities')
+        .eq('representative_id', representativeId)
+        .maybeSingle()
+
+    if (isMissingRepresentativeAccessSchemaError(error)) {
+        return { scopeMode: 'assigned_only', allowedStates: [], allowedCities: [] }
+    }
+
+    if (error) {
+        throw new Error(error.message || 'Falha ao carregar politica de carteira do representante.')
+    }
+
+    return {
+        scopeMode: normalizeRepresentativeScopeMode(data?.scope_mode),
+        allowedStates: normalizeAccessValues(data?.allowed_states, (value) => value.toUpperCase()),
+        allowedCities: normalizeAccessValues(data?.allowed_cities, (value) => value.toLowerCase()),
+    }
+}
+
+async function getRepresentativeManualCustomerRules(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId: string
+): Promise<Map<string, RepresentativeManualCustomerRule>> {
+    const { data, error } = await admin
+        .from('representative_customer_access_rules')
+        .select('store_id, decision, reason')
+        .eq('representative_id', representativeId)
+
+    if (isMissingRepresentativeManualRulesSchemaError(error)) {
+        return new Map<string, RepresentativeManualCustomerRule>()
+    }
+
+    if (error) {
+        throw new Error(error.message || 'Falha ao carregar regras manuais de carteira do representante.')
+    }
+
+    return new Map(
+        (data || []).map((row) => [
+            row.store_id,
+            {
+                decision: row.decision === 'deny' ? 'deny' : 'allow',
+                reason: (row.reason || '').trim() || null,
+            },
+        ])
+    )
+}
+
+async function getRepresentativeCustomerAccessContext(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId: string
+): Promise<RepresentativeCustomerAccessContext> {
+    const [policy, manualRules] = await Promise.all([
+        getRepresentativeCustomerAccessPolicy(admin, representativeId),
+        getRepresentativeManualCustomerRules(admin, representativeId),
+    ])
+
+    return { policy, manualRules }
+}
+
+function resolveUnassignedStoreAccessByPriority(
+    store: Pick<RepresentativeStoreAccessRow, 'id' | 'state' | 'city'>,
+    accessContext: RepresentativeCustomerAccessContext
+) {
+    const manualRule = accessContext.manualRules.get(store.id)
+    if (manualRule?.decision === 'deny') return false
+    if (manualRule?.decision === 'allow') return true
+
+    const normalizedCity = (store.city || '').trim().toLowerCase()
+    if (normalizedCity && accessContext.policy.allowedCities.includes(normalizedCity)) {
+        return true
+    }
+
+    const normalizedState = (store.state || '').trim().toUpperCase()
+    if (normalizedState && accessContext.policy.allowedStates.includes(normalizedState)) {
+        return true
+    }
+
+    return accessContext.policy.scopeMode === 'all_admin_portfolio'
+}
+
+function canRepresentativeAccessStore(
+    store: RepresentativeStoreAccessRow,
+    representativeId: string,
+    accessContext: RepresentativeCustomerAccessContext
+) {
+    if (store.representative_id === representativeId) return true
+    if (store.representative_id && store.representative_id !== representativeId) return false
+    return resolveUnassignedStoreAccessByPriority(store, accessContext)
+}
+
+async function loadStoreWithinRepresentativeScope(
+    admin: ReturnType<typeof getAdminClient>,
+    storeId: string,
+    representativeId?: string | null
+) {
+    const { data: store } = await admin
+        .from('stores')
+        .select('id, profile_id, representative_id, state, city')
+        .eq('id', storeId)
+        .maybeSingle()
+
+    if (!store) return null
+    if (!representativeId) return store
+    const accessContext = await getRepresentativeCustomerAccessContext(admin, representativeId)
+    return canRepresentativeAccessStore(store as RepresentativeStoreAccessRow, representativeId, accessContext)
+        ? store
+        : null
+}
+
+async function getRepresentativeCustomersInternal(representativeId?: string | null) {
+    const admin = getAdminClient()
+    const storeSelect = `
+            *,
+            profile:profiles!stores_profile_id_fkey(*),
+            addresses:store_addresses(*),
+            price_table_links:store_price_tables(
+                price_table:price_tables(*)
+            )
+        `
+
+    let stores: Array<Store & {
+        profile?: Profile | null
+        addresses?: StoreAddress[]
+        price_table_links?: Array<{ price_table?: PriceTable | null }>
+    }> = []
+
+    if (!representativeId) {
+        const { data: allStores } = await admin
+            .from('stores')
+            .select(storeSelect)
+            .order('company_name')
+        stores = (allStores || []) as typeof stores
+    } else {
+        const accessContext = await getRepresentativeCustomerAccessContext(admin, representativeId)
+        const [assignedStoresRes, adminPortfolioStoresRes] = await Promise.all([
+            admin
+                .from('stores')
+                .select(storeSelect)
+                .eq('representative_id', representativeId)
+                .order('company_name'),
+            admin
+                .from('stores')
+                .select(storeSelect)
+                .is('representative_id', null)
+                .order('company_name'),
+        ])
+
+        if (assignedStoresRes.error) {
+            throw new Error(assignedStoresRes.error.message || 'Falha ao carregar clientes do representante.')
+        }
+
+        if (adminPortfolioStoresRes.error) {
+            throw new Error(adminPortfolioStoresRes.error.message || 'Falha ao carregar carteira geral do admin.')
+        }
+
+        const storeMap = new Map<string, (typeof stores)[number]>()
+
+        ;(assignedStoresRes.data || []).forEach((store) => {
+            storeMap.set(store.id, store as (typeof stores)[number])
+        })
+
+        ;(adminPortfolioStoresRes.data || []).forEach((store) => {
+            const storeRow = store as RepresentativeStoreAccessRow
+            if (
+                !storeMap.has(store.id) &&
+                canRepresentativeAccessStore(storeRow, representativeId, accessContext)
+            ) {
+                storeMap.set(store.id, store as (typeof stores)[number])
+            }
+        })
+
+        stores = Array.from(storeMap.values()).sort((a, b) =>
+            (a.company_name || '').localeCompare(b.company_name || '', 'pt-BR')
+        )
+    }
+
+    const normalizedStores = (stores || []).map((store) => ({
+        ...store,
+        assigned_price_tables: (store.price_table_links || [])
+            .map((item) => item.price_table)
+            .filter((value): value is PriceTable => Boolean(value)),
+        addresses: (store.addresses || []).sort((a, b) => Number(b.is_main) - Number(a.is_main)),
+    }))
+
+    const storeIds = normalizedStores.map((store) => store.id)
+    const lastOrders = new Map<string, RepresentativeBootstrapCustomer['last_order']>()
+
+    if (storeIds.length > 0) {
+        const { data: orders } = await admin
+            .from('orders')
+            .select('id, order_number, created_at, total, status, store_id')
+            .in('store_id', storeIds)
+            .order('created_at', { ascending: false })
+
+        ;(orders || []).forEach((order) => {
+            if (!lastOrders.has(order.store_id)) {
+                lastOrders.set(order.store_id, {
+                    id: order.id,
+                    order_number: order.order_number,
+                    created_at: order.created_at,
+                    total: order.total,
+                    status: order.status,
+                })
+            }
+        })
+    }
+
+    return normalizedStores.map((store) => ({
+        ...store,
+        last_order: lastOrders.get(store.id) || null,
+    })) as RepresentativeBootstrapCustomer[]
+}
+
+async function getRepresentativeCatalogProductsPageInternal(
+    admin: ReturnType<typeof getAdminClient>,
+    input: RepresentativeCatalogProductsPageInput
+): Promise<PaginatedResult<RepresentativeCatalogProduct>> {
+    const page = normalizePage(input.page, 1)
+    const pageSize = normalizePageSize(input.pageSize, DEFAULT_PRODUCTS_PAGE_SIZE, 60)
+    const search = normalizeSearchTerm(input.search)
+    const offset = (page - 1) * pageSize
+
+    const query = admin
+        .from('products')
+        .select(
+            '*, category:categories(*), images:product_images(url, is_primary, sort_order), size_options:product_size_options(*)',
+            { count: 'exact' }
+        )
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+        .range(offset, offset + pageSize - 1)
+
+    if (input.categoryId) {
+        query.eq('category_id', input.categoryId)
+    }
+
+    if (search) {
+        query.ilike('name', `%${search}%`)
+    }
+
+    const { data, count, error } = await query
+
+    if (error) {
+        throw new Error(error.message || 'Falha ao carregar catalogo de produtos.')
+    }
+
+    const total = count || 0
+    const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+    return {
+        items: (data || []) as RepresentativeCatalogProduct[],
+        total,
+        page: Math.min(page, totalPages),
+        pageSize,
+        totalPages,
+    }
+}
+
+export async function getRepresentativeShellData() {
+    const { profile, isAdminPreview } = await requireRepresentativeContext()
+    return { profile, isAdminPreview }
+}
+
+export async function getRepresentativeDashboardData() {
+    const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+    const recentOrdersQuery = admin
+        .from('orders')
+        .select(`
+                id,
+                order_number,
+                created_at,
+                total,
+                status,
+                store:stores(id, customer_code, company_name, trade_name)
+            `)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+    const recentQuotesQuery = admin
+        .from('sales_quotes')
+        .select(`
+                id,
+                quote_number,
+                created_at,
+                total,
+                status,
+                store:stores(id, customer_code, company_name, trade_name)
+            `)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+    const visitsCountQuery = admin.from('sales_visits').select('id', { count: 'exact', head: true })
+    const ordersCountQuery = admin.from('orders').select('id', { count: 'exact', head: true })
+    const quotesCountQuery = admin.from('sales_quotes').select('id', { count: 'exact', head: true })
+
+    if (scopeRepresentativeId) {
+        recentOrdersQuery.eq('created_by_profile_id', scopeRepresentativeId)
+        recentQuotesQuery.eq('representative_id', scopeRepresentativeId)
+        visitsCountQuery.eq('representative_id', scopeRepresentativeId)
+        ordersCountQuery.eq('created_by_profile_id', scopeRepresentativeId)
+        quotesCountQuery.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const [customers, recentOrdersRes, recentQuotesRes, visitsRes, ordersCountRes, quotesCountRes] = await Promise.all([
+        getRepresentativeCustomersInternal(scopeRepresentativeId),
+        recentOrdersQuery,
+        recentQuotesQuery,
+        visitsCountQuery,
+        ordersCountQuery,
+        quotesCountQuery,
+    ])
+
+    return {
+        profile,
+        metrics: {
+            customers: customers.length,
+            orders: ordersCountRes.count || 0,
+            quotes: quotesCountRes.count || 0,
+            visits: visitsRes.count || 0,
+        },
+        recentOrders: recentOrdersRes.data || [],
+        recentQuotes: recentQuotesRes.data || [],
+        customers,
+    }
+}
+
+export async function getRepresentativeCustomersData() {
+    const { scopeRepresentativeId } = await requireRepresentativeContext()
+    const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
+    const loadCustomers = unstable_cache(
+        async () => getRepresentativeCustomersInternal(scopeRepresentativeId),
+        ['rep-customers-list-v1', scopeKey],
+        {
+            tags: [getRepresentativeCacheTag(scopeKey, 'customers')],
+            revalidate: 120,
+        }
+    )
+
+    return loadCustomers()
+}
+
+export async function getRepresentativeCustomersPageData(
+    input: RepresentativeCustomersPageInput = {}
+) {
+    const { scopeRepresentativeId } = await requireRepresentativeContext()
+    const page = normalizePage(input.page, 1)
+    const pageSize = normalizePageSize(input.pageSize, DEFAULT_CUSTOMERS_PAGE_SIZE, 80)
+    const query = normalizeSearchTerm(input.query)
+    const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
+
+    const loadCustomersPage = unstable_cache(
+        async () => {
+            const allCustomers = await getRepresentativeCustomersInternal(scopeRepresentativeId)
+            const filteredCustomers = query
+                ? allCustomers.filter((customer) => {
+                    const companyName = (customer.company_name || '').toLowerCase()
+                    const cnpj = (customer.cnpj || '').toLowerCase()
+                    const code = (customer.customer_code || '').toLowerCase()
+                    const tradeName = (customer.trade_name || '').toLowerCase()
+                    return (
+                        companyName.includes(query) ||
+                        cnpj.includes(query) ||
+                        code.includes(query) ||
+                        tradeName.includes(query)
+                    )
+                })
+                : allCustomers
+
+            return paginateItems(filteredCustomers, page, pageSize)
+        },
+        ['rep-customers-page-v1', scopeKey, String(page), String(pageSize), query],
+        {
+            tags: [getRepresentativeCacheTag(scopeKey, 'customers')],
+            revalidate: 120,
+        }
+    )
+
+    return loadCustomersPage()
+}
+
+export async function getRepresentativeOrdersData() {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
+        .from('orders')
+        .select(`
+            *,
+            store:stores(*),
+            profile:profiles!orders_profile_id_fkey(*),
+            created_by_profile:profiles!orders_created_by_profile_id_fkey(id, full_name, role, email, phone, status, created_at, updated_at)
+        `)
+        .order('created_at', { ascending: false })
+
+    if (scopeRepresentativeId) {
+        query.eq('created_by_profile_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query
+    return (data || []) as Order[]
+}
+
+export async function getRepresentativeOrdersPageData(input: RepresentativeOrdersPageInput = {}) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const page = normalizePage(input.page, 1)
+    const pageSize = normalizePageSize(input.pageSize, DEFAULT_ORDERS_PAGE_SIZE, 80)
+    const offset = (page - 1) * pageSize
+    const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
+
+    const loadOrdersPage = unstable_cache(
+        async () => {
+            const query = admin
+                .from('orders')
+                .select(
+                    `
+                        *,
+                        store:stores(*),
+                        profile:profiles!orders_profile_id_fkey(*),
+                        created_by_profile:profiles!orders_created_by_profile_id_fkey(id, full_name, role, email, phone, status, created_at, updated_at)
+                    `,
+                    { count: 'exact' }
+                )
+                .order('created_at', { ascending: false })
+                .range(offset, offset + pageSize - 1)
+
+            if (scopeRepresentativeId) {
+                query.eq('created_by_profile_id', scopeRepresentativeId)
+            }
+
+            const { data, count, error } = await query
+            if (error) {
+                throw new Error(error.message || 'Falha ao carregar pedidos paginados.')
+            }
+
+            const total = count || 0
+            const totalPages = Math.max(1, Math.ceil(total / pageSize))
+            return {
+                items: (data || []) as Order[],
+                total,
+                page: Math.min(page, totalPages),
+                pageSize,
+                totalPages,
+            } satisfies PaginatedResult<Order>
+        },
+        ['rep-orders-page-v1', scopeKey, String(page), String(pageSize)],
+        {
+            tags: [getRepresentativeCacheTag(scopeKey, 'orders')],
+            revalidate: 60,
+        }
+    )
+
+    return loadOrdersPage()
+}
+
+export async function getRepresentativeOrderDetail(orderId: string) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
+        .from('orders')
+        .select(`
+            *,
+            store:stores(*),
+            profile:profiles!orders_profile_id_fkey(*),
+            created_by_profile:profiles!orders_created_by_profile_id_fkey(id, full_name, role, email, phone, status, created_at, updated_at),
+            items:order_items(*),
+            status_history:order_status_history(*, changed_by_profile:profiles!order_status_history_changed_by_fkey(id, full_name, role))
+        `)
+        .eq('id', orderId)
+
+    if (scopeRepresentativeId) {
+        query.eq('created_by_profile_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query.single()
+    return (data || null) as Order | null
+}
+
+export async function getRepresentativeOrderCompletionData(orderId: string) {
+    try {
+        const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+        const orderQuery = admin
+            .from('orders')
+            .select(`
+                *,
+                store:stores(*),
+                profile:profiles!orders_profile_id_fkey(*),
+                payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage)
+            `)
+            .eq('id', orderId)
+
+        if (scopeRepresentativeId) {
+            orderQuery.eq('created_by_profile_id', scopeRepresentativeId)
+        }
+
+        const { data: orderData, error: orderError } = await orderQuery.single()
+        if (orderError || !orderData) {
+            return { error: 'Pedido nao encontrado para este representante.' }
+        }
+
+        const { data: itemsData, error: itemsError } = await admin
+            .from('order_items')
+            .select('*')
+            .eq('order_id', orderId)
+            .order('created_at')
+
+        if (itemsError) {
+            return { error: 'Nao foi possivel carregar os itens do pedido.' }
+        }
+
+        const { data: settingsData } = await admin
+            .from('system_settings')
+            .select('*')
+            .limit(1)
+            .maybeSingle()
+
+        return {
+            success: true,
+            order: orderData as Order,
+            items: (itemsData || []) as OrderItem[],
+            settings: (settingsData || null) as SystemSettings | null,
+        }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao carregar dados da finalizacao do pedido.' }
+    }
+}
+
+export async function getRepresentativeQuotesData() {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
+        .from('sales_quotes')
+        .select(`
+            *,
+            store:stores(*),
+            customer_profile:profiles!sales_quotes_customer_profile_id_fkey(*),
+            representative:profiles!sales_quotes_representative_id_fkey(*),
+            items:sales_quote_items(*)
+        `)
+        .order('created_at', { ascending: false })
+
+    if (scopeRepresentativeId) {
+        query.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query
+    return (data || []) as SalesQuote[]
+}
+
+export async function getRepresentativeQuoteDetail(quoteId: string) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
+        .from('sales_quotes')
+        .select(`
+            *,
+            store:stores(*),
+            customer_profile:profiles!sales_quotes_customer_profile_id_fkey(*),
+            representative:profiles!sales_quotes_representative_id_fkey(*),
+            items:sales_quote_items(*)
+        `)
+        .eq('id', quoteId)
+
+    if (scopeRepresentativeId) {
+        query.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query.single()
+    return (data || null) as SalesQuote | null
+}
+
+export async function getRepresentativeVisitsData() {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const query = admin
+        .from('sales_visits')
+        .select(`
+            *,
+            store:stores(*),
+            customer_profile:profiles!sales_visits_customer_profile_id_fkey(*),
+            representative:profiles!sales_visits_representative_id_fkey(*)
+        `)
+        .order('visited_at', { ascending: false })
+
+    if (scopeRepresentativeId) {
+        query.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data } = await query
+    return (data || []) as RepresentativeVisit[]
+}
+
+export async function getRepresentativeOrderBuilderData() {
+    const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
+    const loadBuilderBootstrap = unstable_cache(
+        async () => {
+            const representativePolicy = scopeRepresentativeId
+                ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+                : null
+
+            const priceTablesQuery = admin
+                .from('price_tables')
+                .select('*')
+                .eq('is_active', true)
+                .order('name', { ascending: true })
+
+            if (representativePolicy?.allowedPriceTableIds?.length) {
+                priceTablesQuery.in('id', representativePolicy.allowedPriceTableIds)
+            }
+
+            const [customers, initialProductsPage, categoriesRes, priceTablesRes, customerTypesRes] = await Promise.all([
+                getRepresentativeCustomersInternal(scopeRepresentativeId),
+                getRepresentativeCatalogProductsPageInternal(admin, {
+                    page: 1,
+                    pageSize: DEFAULT_PRODUCTS_PAGE_SIZE,
+                }),
+                admin.from('categories').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+                priceTablesQuery,
+                admin
+                    .from('customer_types')
+                    .select('*')
+                    .order('is_active', { ascending: false })
+                    .order('sort_order', { ascending: true }),
+            ])
+
+            return {
+                customers,
+                products: initialProductsPage.items,
+                categories: categoriesRes.data || [],
+                priceTables: (priceTablesRes.data || []) as PriceTable[],
+                customerTypes: (customerTypesRes.data || []) as CustomerType[],
+            }
+        },
+        ['rep-builder-bootstrap-v1', scopeKey],
+        {
+            tags: [
+                getRepresentativeCacheTag(scopeKey, 'builder'),
+                getRepresentativeCacheTag(scopeKey, 'customers'),
+                getRepresentativeCacheTag(scopeKey, 'products'),
+            ],
+            revalidate: 120,
+        }
+    )
+
+    const bootstrap = await loadBuilderBootstrap()
+
+    return {
+        profile,
+        ...bootstrap,
+    }
+}
+
+export async function getRepresentativeCatalogProductsPageAction(
+    input: RepresentativeCatalogProductsPageInput = {}
+) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const page = normalizePage(input.page, 1)
+    const pageSize = normalizePageSize(input.pageSize, DEFAULT_PRODUCTS_PAGE_SIZE, 60)
+    const search = normalizeSearchTerm(input.search)
+    const categoryId = input.categoryId || null
+    const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
+
+    const loadProductsPage = unstable_cache(
+        async () => getRepresentativeCatalogProductsPageInternal(admin, { page, pageSize, search, categoryId }),
+        ['rep-products-page-v1', scopeKey, String(page), String(pageSize), search, categoryId || 'all'],
+        {
+            tags: [getRepresentativeCacheTag(scopeKey, 'products')],
+            revalidate: 60,
+        }
+    )
+
+    return loadProductsPage()
+}
+
+export async function getRepresentativeProductConfiguratorData(input: {
+    storeId: string
+    productId: string
+    priceTableId?: string | null
+}) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const store = await loadStoreWithinRepresentativeScope(admin, input.storeId, scopeRepresentativeId)
+
+    if (!store) {
+        return { error: 'Cliente nao disponivel para este representante.' }
+    }
+
+    const representativePolicy = scopeRepresentativeId
+        ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+        : null
+
+    if (scopeRepresentativeId && representativePolicy && !representativePolicy.canOverridePriceTable && input.priceTableId) {
+        return { error: 'Este representante nao pode trocar manualmente a tabela de precos.' }
+    }
+
+    if (
+        scopeRepresentativeId &&
+        representativePolicy?.allowedPriceTableIds.length &&
+        input.priceTableId &&
+        !representativePolicy.allowedPriceTableIds.includes(input.priceTableId)
+    ) {
+        return { error: 'Tabela de preco nao permitida para este representante.' }
+    }
+
+    const { data: product } = await admin
+        .from('products')
+        .select('*, images:product_images(*), size_options:product_size_options(*)')
+        .eq('id', input.productId)
+        .single()
+
+    if (!product || !product.is_active) {
+        return { error: 'Produto nao encontrado.' }
+    }
+
+    const { data: variants } = await admin
+        .from('product_variants')
+        .select(PRODUCT_VARIANT_DETAIL_SELECT)
+        .eq('product_id', input.productId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: true })
+
+    const variantIds = ((variants || []) as Array<{ id: string }>).map((variant) => variant.id)
+    const priceTableContext = await getPriceTableContextForStore(admin as never, input.storeId, variantIds, input.priceTableId)
+
+    return {
+        product,
+        variants: variants || [],
+        fabrics: buildProductFabricGroups((variants || []) as never),
+        priceTableContext,
+    }
+}
+
+export async function getRepresentativePaymentOptions(input: {
+    storeId: string
+    subtotal: number
+    priceTableId?: string | null
+}) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const store = await loadStoreWithinRepresentativeScope(admin, input.storeId, scopeRepresentativeId)
+
+    if (!store) {
+        return { error: 'Cliente nao disponivel para este representante.' }
+    }
+
+    const representativePolicy = scopeRepresentativeId
+        ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+        : null
+
+    if (scopeRepresentativeId && representativePolicy && !representativePolicy.canOverridePriceTable && input.priceTableId) {
+        return { error: 'Este representante nao pode trocar manualmente a tabela de precos.' }
+    }
+
+    const commercialSettings = await getStoreCommercialSettings(admin as never, store.id)
+    const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(admin as never, {
+        storeId: store.id,
+        preferredPriceTableId: input.priceTableId || null,
+        settings: commercialSettings,
+    })
+
+    if (
+        scopeRepresentativeId &&
+        representativePolicy?.allowedPriceTableIds.length &&
+        (!resolvedPriceTable.priceTableId || !representativePolicy.allowedPriceTableIds.includes(resolvedPriceTable.priceTableId))
+    ) {
+        return { error: 'Tabela de preco nao permitida para este representante.' }
+    }
+
+    const availability = await getAvailableCheckoutPayments(admin as never, {
+        cartTotal: toNumber(input.subtotal),
+        priceTableId: resolvedPriceTable.priceTableId,
+    })
+    const filteredAvailability = applyCommercialPaymentAvailability(availability, commercialSettings)
+
+    return {
+        paymentMethods: filteredAvailability.methodGroups,
+        globalConditions: filteredAvailability.globalConditions,
+        priceTableRules: filteredAvailability.priceTableRules,
+        checkoutBlocked: filteredAvailability.blocked,
+        restrictionMessage: filteredAvailability.reason,
+    }
+}
+
+export async function validateRepresentativeDraftPricingAction(input: {
+    storeId: string
+    priceTableId?: string | null
+    lines: Array<{ cartKey?: string; variantId: string; sizeOptionId?: string | null }>
+}) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const store = await loadStoreWithinRepresentativeScope(admin, input.storeId, scopeRepresentativeId)
+
+    if (!store) {
+        return { error: 'Cliente nao disponivel para este representante.' }
+    }
+
+    const representativePolicy = scopeRepresentativeId
+        ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+        : null
+
+    if (scopeRepresentativeId && representativePolicy && !representativePolicy.canOverridePriceTable && input.priceTableId) {
+        return { error: 'Este representante nao pode trocar manualmente a tabela de precos.' }
+    }
+
+    let effectivePriceTableId = input.priceTableId || null
+    if (scopeRepresentativeId && representativePolicy?.allowedPriceTableIds.length) {
+        const commercialSettings = await getStoreCommercialSettings(admin as never, store.id)
+        const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(admin as never, {
+            storeId: store.id,
+            preferredPriceTableId: input.priceTableId || null,
+            settings: commercialSettings,
+        })
+        effectivePriceTableId = resolvedPriceTable.priceTableId
+
+        if (!effectivePriceTableId || !representativePolicy.allowedPriceTableIds.includes(effectivePriceTableId)) {
+            return { error: 'Tabela de preco nao permitida para este representante.' }
+        }
+    }
+
+    return getVariantPricingSnapshotsForStore(
+        admin as never,
+        input.storeId,
+        input.lines.map((line) => ({
+            cartKey: line.cartKey || buildPricingCartKey(line.variantId, line.sizeOptionId ?? null),
+            variantId: line.variantId,
+            sizeOptionId: line.sizeOptionId ?? null,
+        })),
+        effectivePriceTableId
+    )
+}
+
+export async function createRepresentativeVisitAction(payload: {
+    storeId: string
+    visitedAt?: string | null
+    notes?: string | null
+    resultSummary?: string | null
+    nextStep?: string | null
+    outcome?: RepresentativeVisit['outcome']
+    generatedQuoteId?: string | null
+    generatedOrderId?: string | null
+}) {
+    try {
+        const { user, admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+
+        const store = await loadStoreWithinRepresentativeScope(admin, payload.storeId, scopeRepresentativeId)
+
+        if (!store) {
+            return { error: 'Cliente nao disponivel para este representante.' }
+        }
+
+        const representativeActorId = scopeRepresentativeId || store.representative_id || user.id
+
+        const { data, error } = await admin
+            .from('sales_visits')
+            .insert({
+                representative_id: representativeActorId,
+                store_id: store.id,
+                customer_profile_id: store.profile_id,
+                visited_at: payload.visitedAt || new Date().toISOString(),
+                notes: payload.notes || null,
+                result_summary: payload.resultSummary || null,
+                next_step: payload.nextStep || null,
+                outcome: payload.outcome || 'planned',
+                generated_quote_id: payload.generatedQuoteId || null,
+                generated_order_id: payload.generatedOrderId || null,
+            })
+            .select('*')
+            .single()
+
+        if (error || !data) {
+            return { error: error?.message || 'Falha ao registrar visita.' }
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['visits', 'dashboard'])
+        return { success: true, visit: data }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao registrar visita.' }
+    }
+}
+
+async function persistRepresentativeDocument(
+    mode: 'order' | 'quote',
+    payload: RepresentativeDocumentPayload
+) {
+    try {
+        const { admin, supabase, scopeRepresentativeId } = await requireRepresentativeContext()
+        const store = await loadStoreWithinRepresentativeScope(admin, payload.storeId, scopeRepresentativeId)
+
+        if (!store) {
+            return { error: 'Cliente nao disponivel para este representante.' }
+        }
+
+        const representativePolicy = scopeRepresentativeId
+            ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
+            : null
+
+        const commercialSettings = await getStoreCommercialSettings(admin as never, store.id)
+        if (mode === 'order' && commercialSettings?.financial_profile === 'block_sales') {
+            return { error: 'Este cliente esta com vendas restritas para novos pedidos.' }
+        }
+
+        const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(admin as never, {
+            storeId: store.id,
+            preferredPriceTableId: payload.priceTableId || null,
+            settings: commercialSettings,
+        })
+        const effectivePriceTableId = resolvedPriceTable.priceTableId
+
+        if (scopeRepresentativeId && representativePolicy) {
+            if (!representativePolicy.canOverridePriceTable && payload.priceTableId) {
+                return { error: 'Este representante nao pode trocar manualmente a tabela de precos.' }
+            }
+
+            if (representativePolicy.allowedPriceTableIds.length > 0) {
+                if (!effectivePriceTableId || !representativePolicy.allowedPriceTableIds.includes(effectivePriceTableId)) {
+                    return { error: 'A tabela de preco selecionada nao esta permitida para este representante.' }
+                }
+            }
+        }
+
+        if (!payload.items?.length) {
+            return { error: mode === 'order' ? 'Adicione itens ao pedido.' : 'Adicione itens ao orcamento.' }
+        }
+
+        const pricingResult = await getVariantPricingSnapshotsForStore(
+            admin as never,
+            store.id,
+            payload.items.map((item) => ({
+                cartKey: item.cartKey || buildPricingCartKey(item.variantId, item.sizeOptionId ?? null),
+                variantId: item.variantId,
+                sizeOptionId: item.sizeOptionId ?? null,
+            })),
+            effectivePriceTableId
+        )
+
+        if ('error' in pricingResult && pricingResult.error) {
+            return { error: pricingResult.error }
+        }
+
+        if (pricingResult.missingKeys.length > 0 || pricingResult.missingVariantIds.length > 0) {
+            return { error: 'Alguns itens nao estao mais disponiveis. Revise o documento antes de salvar.' }
+        }
+
+        const validatedItems = payload.items.map((item) => {
+            const cartKey = item.cartKey || buildPricingCartKey(item.variantId, item.sizeOptionId ?? null)
+            const price = pricingResult.prices[cartKey]
+            if (!price) {
+                throw new Error(`Preco nao localizado para ${item.productName}.`)
+            }
+
+            return {
+                cartKey,
+                ...item,
+                sizeName: price.sizeName ?? item.sizeName ?? null,
+                unitPrice: price.unitPrice,
+                productPrice: price.productPrice,
+                variationPrice: price.variationPrice,
+                sizePrice: price.sizePrice,
+                finalPrice: price.finalPrice,
+                subtotal: price.unitPrice * item.quantity,
+            }
+        })
+
+        const subtotal = validatedItems.reduce((sum, item) => sum + item.subtotal, 0)
+        const negotiation = computeNegotiation(
+            subtotal,
+            payload.negotiationDiscountType,
+            payload.negotiationDiscountValue,
+            payload.negotiationSurchargeAmount
+        )
+        const effectiveNegotiationDiscountPercentage =
+            subtotal > 0 ? (negotiation.discountAmount / subtotal) * 100 : 0
+
+        if (scopeRepresentativeId && representativePolicy) {
+            if (
+                !representativePolicy.allowFreeNegotiation &&
+                (negotiation.discountAmount > 0 || negotiation.surchargeAmount > 0)
+            ) {
+                return { error: 'Este representante nao possui permissao para negociar desconto/acrescimo manual.' }
+            }
+
+            if (
+                representativePolicy.maxDiscountPercentage !== null &&
+                effectiveNegotiationDiscountPercentage > representativePolicy.maxDiscountPercentage + 0.0001
+            ) {
+                return {
+                    error: `Desconto de ${formatPercentage(effectiveNegotiationDiscountPercentage)}% excede o limite permitido de ${formatPercentage(representativePolicy.maxDiscountPercentage)}%.`,
+                }
+            }
+        }
+
+        const paymentSelection = payload.selectedPaymentId
+            ? await resolveCheckoutPaymentSelection(supabase as never, {
+                cartTotal: negotiation.adjustedSubtotal,
+                selectedPaymentId: payload.selectedPaymentId,
+                isTableRule: Boolean(payload.isTableRule),
+                priceTableId: effectivePriceTableId,
+            })
+            : { data: null, error: null }
+
+        if (paymentSelection.error) {
+            return { error: paymentSelection.error }
+        }
+
+        if (paymentSelection.data) {
+            const selectionValidationError = validateCheckoutSelectionAgainstCommercialSettings({
+                settings: commercialSettings,
+                paymentMethodId: paymentSelection.data.paymentMethodId,
+                paymentConditionId: paymentSelection.data.paymentConditionId,
+                paymentInstallments: paymentSelection.data.paymentInstallments,
+            })
+
+            if (selectionValidationError) {
+                return { error: selectionValidationError }
+            }
+        }
+
+        const paymentDiscountPercentage = paymentSelection.data?.paymentDiscountPercentage || 0
+        const paymentSurchargePercentage = paymentSelection.data?.paymentSurchargePercentage || 0
+        const paymentDiscountAmount = negotiation.adjustedSubtotal * (paymentDiscountPercentage / 100)
+        const afterPaymentDiscount = Math.max(0, negotiation.adjustedSubtotal - paymentDiscountAmount)
+        const paymentSurchargeAmount = afterPaymentDiscount * (paymentSurchargePercentage / 100)
+        const total = Math.max(0, afterPaymentDiscount + paymentSurchargeAmount)
+
+        if (mode === 'order') {
+            const creditLimitMessage = await validateStoreCreditLimitForOrder({
+                supabase: admin as never,
+                storeId: store.id,
+                settings: commercialSettings,
+                orderTotal: total,
+            })
+            if (creditLimitMessage) {
+                return { error: creditLimitMessage }
+            }
+        }
+
+        let shippingAddress: string | null = null
+        if (payload.selectedAddressId) {
+            const { data: address } = await admin
+                .from('store_addresses')
+                .select('*')
+                .eq('id', payload.selectedAddressId)
+                .eq('store_id', store.id)
+                .single()
+            shippingAddress = formatAddress(address as StoreAddress | null)
+        } else {
+            const { data: address } = await admin
+                .from('store_addresses')
+                .select('*')
+                .eq('store_id', store.id)
+                .eq('is_main', true)
+                .single()
+            shippingAddress = formatAddress(address as StoreAddress | null)
+        }
+
+        const itemsPayload = validatedItems.map((item) => ({
+            product_variant_id: item.variantId,
+            size_option_id: item.sizeOptionId || null,
+            product_name: item.productName,
+            fabric_name: item.fabricName,
+            color_name: item.colorName,
+            size: item.sizeName || null,
+            size_name: item.sizeName || null,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            product_price: item.productPrice,
+            size_price: item.sizePrice,
+            variation_price: item.variationPrice,
+            final_price: item.finalPrice,
+            subtotal: item.subtotal,
+        }))
+
+        if (mode === 'order') {
+            const { data, error } = await supabase.rpc('representative_create_order_atomic', {
+                p_store_id: store.id,
+                p_price_table_id: effectivePriceTableId,
+                p_payment_method_id: paymentSelection.data?.paymentMethodId || null,
+                p_payment_condition_id: paymentSelection.data?.paymentConditionId || null,
+                p_payment_rule_id: paymentSelection.data?.paymentRuleId || null,
+                p_payment_method_condition_id: paymentSelection.data?.paymentMethodConditionId || null,
+                p_payment_method_code: paymentSelection.data?.paymentMethodCode || null,
+                p_payment_method_name: paymentSelection.data?.paymentMethodName || null,
+                p_payment_condition_name: paymentSelection.data?.paymentConditionName || null,
+                p_payment_condition_description: paymentSelection.data?.paymentConditionDescription || null,
+                p_payment_installments: paymentSelection.data?.paymentInstallments || null,
+                p_payment_discount_percentage: paymentDiscountPercentage,
+                p_payment_surcharge_percentage: paymentSurchargePercentage,
+                p_subtotal: subtotal,
+                p_payment_discount_amount: paymentDiscountAmount,
+                p_negotiation_discount_percentage: effectiveNegotiationDiscountPercentage,
+                p_negotiation_discount_amount: negotiation.discountAmount,
+                p_negotiation_surcharge_amount: negotiation.surchargeAmount,
+                p_total: total,
+                p_shipping_address: shippingAddress,
+                p_notes: payload.notes || null,
+                p_negotiation_reason: payload.negotiationReason || null,
+                p_items: itemsPayload,
+                p_created_note: 'Pedido criado pelo representante em vendas presenciais.',
+                p_source_quote_id: null,
+            })
+
+            const result = Array.isArray(data) ? (data[0] as SalesOrderLikeResult | undefined) : (data as SalesOrderLikeResult | null)
+            if (error || !result?.order_id) {
+                return { error: error?.message || 'Falha ao criar pedido do representante.' }
+            }
+
+            revalidateRepresentativeSegments(scopeRepresentativeId, ['orders', 'customers', 'dashboard'])
+            return { success: true, orderId: result.order_id, orderNumber: result.order_number }
+        }
+
+        const { data, error } = await supabase.rpc('representative_create_quote_atomic', {
+            p_store_id: store.id,
+            p_price_table_id: effectivePriceTableId,
+            p_payment_method_id: paymentSelection.data?.paymentMethodId || null,
+            p_payment_condition_id: paymentSelection.data?.paymentConditionId || null,
+            p_payment_rule_id: paymentSelection.data?.paymentRuleId || null,
+            p_payment_method_condition_id: paymentSelection.data?.paymentMethodConditionId || null,
+            p_payment_method_code: paymentSelection.data?.paymentMethodCode || null,
+            p_payment_method_name: paymentSelection.data?.paymentMethodName || null,
+            p_payment_condition_name: paymentSelection.data?.paymentConditionName || null,
+            p_payment_condition_description: paymentSelection.data?.paymentConditionDescription || null,
+            p_payment_installments: paymentSelection.data?.paymentInstallments || null,
+            p_payment_discount_percentage: paymentDiscountPercentage,
+            p_payment_surcharge_percentage: paymentSurchargePercentage,
+            p_subtotal: subtotal,
+            p_payment_discount_amount: paymentDiscountAmount,
+            p_negotiation_discount_percentage: effectiveNegotiationDiscountPercentage,
+            p_negotiation_discount_amount: negotiation.discountAmount,
+            p_negotiation_surcharge_amount: negotiation.surchargeAmount,
+            p_total: total,
+            p_shipping_address: shippingAddress,
+            p_notes: payload.notes || null,
+            p_negotiation_reason: payload.negotiationReason || null,
+            p_items: itemsPayload,
+            p_status: 'draft',
+        })
+
+        const result = Array.isArray(data) ? (data[0] as SalesOrderLikeResult | undefined) : (data as SalesOrderLikeResult | null)
+        if (error || !result?.quote_id) {
+            return { error: error?.message || 'Falha ao criar orcamento do representante.' }
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'dashboard'])
+        return { success: true, quoteId: result.quote_id, quoteNumber: result.quote_number }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao salvar documento comercial.' }
+    }
+}
+
+export async function createRepresentativeOrderAction(payload: RepresentativeDocumentPayload) {
+    return persistRepresentativeDocument('order', payload)
+}
+
+export async function saveRepresentativeQuoteAction(payload: RepresentativeDocumentPayload) {
+    return persistRepresentativeDocument('quote', payload)
+}
+
+export async function convertRepresentativeQuoteToOrderAction(quoteId: string) {
+    try {
+        const { supabase, scopeRepresentativeId } = await requireRepresentativeContext()
+
+        const { data, error } = await supabase.rpc('representative_convert_quote_to_order_atomic', {
+            p_quote_id: quoteId,
+            p_created_note: 'Pedido gerado a partir de orcamento no modo representante.',
+        })
+
+        const result = Array.isArray(data) ? (data[0] as SalesOrderLikeResult | undefined) : (data as SalesOrderLikeResult | null)
+        if (error || !result?.order_id) {
+            return { error: error?.message || 'Falha ao converter orcamento em pedido.' }
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'orders', 'customers', 'dashboard'])
+        return { success: true, orderId: result.order_id, orderNumber: result.order_number }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao converter orcamento.' }
+    }
+}
+
+// ==================== REPRESENTATIVE CUSTOMER CREATION ====================
+
+export async function createCustomerAsRepresentativeTx(data: {
+    fullName: string
+    email: string
+    password?: string
+    phone?: string
+    companyName: string
+    cnpj: string
+    tradeName?: string
+    customerTypeId?: string
+    address?: string
+    city?: string
+    state?: string
+    zipCode?: string
+}) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+    // In admin preview mode we keep it unassigned, while representative users keep own scope.
+    const representativeToAssign = scopeRepresentativeId || null
+
+    const { 
+        email, 
+        password, 
+        fullName, 
+        phone, 
+        companyName, 
+        cnpj, 
+        tradeName, 
+        customerTypeId, 
+        address, 
+        city, 
+        state, 
+        zipCode 
+    } = data
+
+    if (!email || !fullName || !companyName || !cnpj) {
+        return { error: 'Campos obrigatórios faltando.' }
+    }
+
+    try {
+        const normalizedEmail = email.trim().toLowerCase()
+        const passwordToUse = password && password.trim().length >= 6 ? password : generateRepresentativeTemporaryPassword()
+
+        // 1. Check if email already exists
+        const { data: existingProfileByEmail } = await admin
+            .from('profiles')
+            .select('id')
+            .eq('email', normalizedEmail)
+            .limit(1)
+            .maybeSingle()
+
+        if (existingProfileByEmail?.id) {
+            return { error: 'Este email já está cadastrado.' }
+        }
+
+        // 2. Create user in Auth
+        const { data: authData, error: authError } = await admin.auth.admin.createUser({
+            email: normalizedEmail,
+            password: passwordToUse,
+            email_confirm: true,
+            user_metadata: {
+                full_name: fullName,
+                role: 'client',
+            },
+        })
+
+        if (authError || !authData?.user?.id) {
+            let errorMsg = 'Falha ao criar usuário.'
+            if (authError?.message?.toLowerCase().includes('already registered')) {
+                errorMsg = 'Este email já está cadastrado.'
+            }
+            throw new Error(errorMsg)
+        }
+
+        // 3. Insert domain records using the same RPC the admin uses
+        const { data: rpcData, error: rpcError } = await admin.rpc('admin_upsert_customer_domain', {
+            p_profile_id: authData.user.id,
+            p_full_name: fullName,
+            p_phone: phone || null,
+            p_status: 'approved',
+            p_store_id: null,
+            p_company_name: companyName,
+            p_trade_name: tradeName || null,
+            p_cnpj: cnpj.replace(/\D/g, ''),
+            p_email: normalizedEmail,
+            p_customer_type_id: customerTypeId || null,
+            p_representative_id: representativeToAssign,
+            p_address: address || null,
+            p_city: city || null,
+            p_state: state || null,
+            p_zip_code: zipCode || null,
+            p_tag_ids: [],
+        })
+
+        if (rpcError) {
+            // Clean up auth user on complete failure
+            await admin.auth.admin.deleteUser(authData.user.id)
+            throw new Error(rpcError.message)
+        }
+
+        const firstRow = Array.isArray(rpcData) ? rpcData[0] : rpcData
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['customers', 'dashboard', 'builder'])
+        return { success: true, storeId: firstRow?.store_id as string | undefined }
+    } catch (err: unknown) {
+        console.error('Representative Customer Creation TX Error:', err)
+        let msg = 'Erro ao criar o cliente.'
+        if (err instanceof Error && err.message) msg = err.message
+        return { error: msg }
+    }
+}
+
+export async function updateCustomerAsRepresentativeTx(data: {
+    id: string
+    profileId?: string
+    fullName: string
+    email: string
+    phone?: string
+    companyName: string
+    cnpj: string
+    tradeName?: string
+    customerTypeId?: string
+    address?: string
+    city?: string
+    state?: string
+    zipCode?: string
+}) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+    const { 
+        id: storeId, 
+        profileId: inputProfileId, 
+        email, 
+        fullName, 
+        phone, 
+        companyName, 
+        cnpj, 
+        tradeName, 
+        customerTypeId, 
+        address, 
+        city, 
+        state, 
+        zipCode 
+    } = data
+
+    if (!email || !fullName || !companyName || !cnpj) {
+        return { error: 'Campos obrigatórios faltando.' }
+    }
+
+    try {
+        const normalizedEmail = email.trim().toLowerCase()
+
+        // 1. Determine profileId if not provided
+        let profileId = inputProfileId
+        if (!profileId) {
+            const { data: storeData } = await admin
+                .from('stores')
+                .select('profile_id')
+                .eq('id', storeId)
+                .single()
+            profileId = storeData?.profile_id
+        }
+
+        if (!profileId) {
+            return { error: 'Cadastro base do cliente não encontrado.' }
+        }
+
+        // 2. Verify if it belongs to representative
+        const { data: storeToUpdate, error: loadError } = await admin
+            .from('stores')
+            .select('id, representative_id')
+            .eq('id', storeId)
+            .eq('profile_id', profileId)
+            .single()
+
+        if (loadError || !storeToUpdate) {
+            return { error: 'Cliente não encontrado.' }
+        }
+
+        if (scopeRepresentativeId && storeToUpdate.representative_id && storeToUpdate.representative_id !== scopeRepresentativeId) {
+            return { error: 'Acesso negado. Cliente pertence a outro representante.' }
+        }
+
+        const representativeToPersist = scopeRepresentativeId || storeToUpdate.representative_id || null
+
+        // Email collision check
+        const { data: currentProfile, error: currentProfileError } = await admin
+            .from('profiles')
+            .select('email')
+            .eq('id', profileId)
+            .single()
+
+        if (currentProfileError || !currentProfile) {
+            return { error: 'Cadastro base do cliente não encontrado.' }
+        }
+
+        if ((currentProfile.email || '').toLowerCase() !== normalizedEmail) {
+            const { data: existingProfileByEmail } = await admin
+                .from('profiles')
+                .select('id')
+                .eq('email', normalizedEmail)
+                .neq('id', profileId)
+                .limit(1)
+                .maybeSingle()
+
+            if (existingProfileByEmail?.id) {
+                return { error: 'Este email já está sendo utilizado por outro cadastro.' }
+            }
+
+            const { error: authUpdateError } = await admin.auth.admin.updateUserById(profileId, {
+                email: normalizedEmail,
+                email_confirm: true,
+            })
+
+            if (authUpdateError) {
+                return { error: 'Falha ao atualizar o e-mail no provedor de acesso.' }
+            }
+        }
+
+        // 3. Upsert using RPC
+        const { error: rpcError } = await admin.rpc('admin_upsert_customer_domain', {
+            p_profile_id: profileId,
+            p_full_name: fullName,
+            p_phone: phone || null,
+            p_status: 'approved',
+            p_store_id: storeId,
+            p_company_name: companyName,
+            p_trade_name: tradeName || null,
+            p_cnpj: cnpj.replace(/\D/g, ''),
+            p_email: normalizedEmail,
+            p_customer_type_id: customerTypeId || null,
+            p_representative_id: representativeToPersist,
+            p_address: address || null,
+            p_city: city || null,
+            p_state: state || null,
+            p_zip_code: zipCode || null,
+            p_tag_ids: [],
+        })
+
+        if (rpcError) {
+            throw new Error(rpcError.message)
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['customers', 'dashboard', 'builder'])
+        return { success: true, storeId }
+    } catch (err: unknown) {
+        console.error('Representative Customer Edit TX Error:', err)
+        let msg = 'Erro ao atualizar o cliente.'
+        if (err instanceof Error && err.message) msg = err.message
+        return { error: msg }
+    }
+}

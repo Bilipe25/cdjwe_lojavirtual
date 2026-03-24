@@ -12,9 +12,11 @@ import {
   Plus,
   Check,
   Trash2,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { getRepresentativeCatalogProductsPageAction } from '@/app/sales/actions'
 import { cn } from '@/lib/utils'
 import { useQuickViewData, QuickViewContent, type QuickViewAddToCartSummary } from '@/components/catalog/quick-view-content'
 import type { Category, Product } from '@/lib/types'
@@ -50,6 +52,8 @@ interface Props {
 }
 
 type Phase = 'catalog' | 'quick-view' | 'basket'
+
+const CATALOG_PAGE_SIZE = 24
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -281,20 +285,110 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
 
+  const [catalogProducts, setCatalogProducts] = useState<BuilderProduct[]>(products)
+  const [catalogPage, setCatalogPage] = useState(products.length > 0 ? 1 : 0)
+  const [catalogTotal, setCatalogTotal] = useState(0)
+  const [catalogTotalPages, setCatalogTotalPages] = useState(1)
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogLoadingMore, setCatalogLoadingMore] = useState(false)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
+  const catalogRequestSequenceRef = useRef(0)
+
+  const selectedCategoryId = selectedCategory === 'all' ? null : selectedCategory
+
   useEffect(() => {
     if (searchActive && searchRef.current) {
       searchRef.current.focus()
     }
   }, [searchActive])
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      const matchCategory = selectedCategory === 'all' || p.category_id === selectedCategory
-      const term = deferredSearch.trim().toLowerCase()
-      const matchSearch = !term || p.name.toLowerCase().includes(term)
-      return matchCategory && matchSearch
-    })
-  }, [deferredSearch, products, selectedCategory])
+  useEffect(() => {
+    let cancelled = false
+    const sequence = catalogRequestSequenceRef.current + 1
+    catalogRequestSequenceRef.current = sequence
+
+    const loadFirstPage = async () => {
+      setCatalogLoading(true)
+      setCatalogError(null)
+      try {
+        const pageData = await getRepresentativeCatalogProductsPageAction({
+          page: 1,
+          pageSize: CATALOG_PAGE_SIZE,
+          search: deferredSearch,
+          categoryId: selectedCategoryId,
+        })
+
+        if (cancelled || sequence !== catalogRequestSequenceRef.current) return
+
+        setCatalogProducts(pageData.items)
+        setCatalogPage(pageData.page)
+        setCatalogTotal(pageData.total)
+        setCatalogTotalPages(pageData.totalPages)
+      } catch {
+        if (cancelled || sequence !== catalogRequestSequenceRef.current) return
+
+        setCatalogProducts([])
+        setCatalogPage(1)
+        setCatalogTotal(0)
+        setCatalogTotalPages(1)
+        setCatalogError('Não foi possível carregar o catálogo.')
+      } finally {
+        if (!cancelled && sequence === catalogRequestSequenceRef.current) {
+          setCatalogLoading(false)
+        }
+      }
+    }
+
+    void loadFirstPage()
+
+    return () => {
+      cancelled = true
+    }
+  }, [deferredSearch, selectedCategoryId])
+
+  const loadMoreProducts = async () => {
+    if (catalogLoading || catalogLoadingMore || catalogPage >= catalogTotalPages) {
+      return
+    }
+
+    const nextPage = catalogPage + 1
+    const sequence = catalogRequestSequenceRef.current + 1
+    catalogRequestSequenceRef.current = sequence
+
+    setCatalogLoadingMore(true)
+    setCatalogError(null)
+
+    try {
+      const pageData = await getRepresentativeCatalogProductsPageAction({
+        page: nextPage,
+        pageSize: CATALOG_PAGE_SIZE,
+        search: deferredSearch,
+        categoryId: selectedCategoryId,
+      })
+
+      if (sequence !== catalogRequestSequenceRef.current) return
+
+      setCatalogProducts((current) => {
+        const nextItems = [...current]
+        pageData.items.forEach((item: BuilderProduct) => {
+          if (!nextItems.some((existing) => existing.id === item.id)) {
+            nextItems.push(item)
+          }
+        })
+        return nextItems
+      })
+      setCatalogPage(pageData.page)
+      setCatalogTotal(pageData.total)
+      setCatalogTotalPages(pageData.totalPages)
+    } catch {
+      if (sequence !== catalogRequestSequenceRef.current) return
+      setCatalogError('Não foi possível carregar mais produtos.')
+    } finally {
+      if (sequence === catalogRequestSequenceRef.current) {
+        setCatalogLoadingMore(false)
+      }
+    }
+  }
 
   // Compute staged qty per product for badge
   const stagedQtyByProductId = useMemo(() => {
@@ -448,28 +542,64 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
 
           {/* Grid */}
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-muted/10 p-3 pb-28">
-            {filteredProducts.length === 0 ? (
+            <div className="mb-3 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>{catalogTotal} produto(s)</span>
+              {catalogLoading ? <span>Carregando...</span> : null}
+            </div>
+
+            {catalogLoading ? (
+              <div className="grid grid-cols-2 gap-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div key={index} className="overflow-hidden rounded-xl border border-border/40 bg-card">
+                    <div className="aspect-square animate-pulse bg-muted/50" />
+                    <div className="space-y-2 p-2.5">
+                      <div className="h-3 w-4/5 animate-pulse rounded bg-muted/60" />
+                      <div className="h-3 w-1/2 animate-pulse rounded bg-muted/60" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : catalogProducts.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                 <Package className="h-12 w-12 text-muted-foreground/30" />
                 <p className="text-sm text-muted-foreground">Nenhum produto encontrado</p>
+                {catalogError ? <p className="text-xs text-destructive">{catalogError}</p> : null}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {filteredProducts.map((product) => (
-                  <RepProductCard
-                    key={product.id}
-                    product={product}
-                    stagedQty={stagedQtyByProductId[product.id] || 0}
-                    onTap={() => {
-                      setActiveProductId(product.id)
-                      setPhase('quick-view')
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  {catalogProducts.map((product) => (
+                    <RepProductCard
+                      key={product.id}
+                      product={product}
+                      stagedQty={stagedQtyByProductId[product.id] || 0}
+                      onTap={() => {
+                        setActiveProductId(product.id)
+                        setPhase('quick-view')
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {catalogPage < catalogTotalPages && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 w-full rounded-xl border-border text-xs font-semibold"
+                    disabled={catalogLoadingMore}
+                    onClick={() => {
+                      void loadMoreProducts()
                     }}
-                  />
-                ))}
+                  >
+                    {catalogLoadingMore ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                    Carregar mais produtos
+                  </Button>
+                )}
+
+                {catalogError ? <p className="text-center text-xs text-destructive">{catalogError}</p> : null}
               </div>
             )}
           </div>
-
           {/* Sticky basket bar (only if items staged) */}
           {totalStagedQty > 0 && (
             <div className="sticky bottom-0 z-10 p-4 bg-card border-t border-border/40 shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.08)] pb-safe">
