@@ -61,6 +61,54 @@ type RepresentativeCustomersPageInput = {
     page?: number
     pageSize?: number
     query?: string
+    state?: string | null
+    customerTypeId?: string | null
+    inactivityBucket?: '30' | '60' | '90' | 'no_order' | null
+    sort?: 'inactivity_desc' | 'name_asc' | 'recent_order_desc' | null
+    segment?: 'reactivation_90' | 'hot_30' | 'never_ordered' | null
+}
+
+type CustomerPriorityLevel = 'high' | 'medium' | 'low'
+
+type CustomerPriorityData = {
+    score: number
+    level: CustomerPriorityLevel
+    next_action: string
+}
+
+type CustomerDataQualityData = {
+    score: number
+    issues: string[]
+}
+
+type RepresentativeCustomerRow = RepresentativeBootstrapCustomer & {
+    open_quotes_count?: number
+    overdue_followups_count?: number
+    alerts?: string[]
+    data_quality?: CustomerDataQualityData
+    priority?: CustomerPriorityData
+}
+
+type RepresentativeCustomersPageSummary = {
+    totalCustomers: number
+    customersWithoutOrders: number
+    customersWithRecentOrders30: number
+    customersInactive60Plus: number
+    customersInactive90Plus: number
+    highPriorityCustomers: number
+    lowQualityCustomers: number
+    customersWithOverdueFollowups: number
+}
+
+type RepresentativeCustomersPageData = PaginatedResult<RepresentativeCustomerRow> & {
+    summary: RepresentativeCustomersPageSummary
+    facets: {
+        states: string[]
+        customerTypes: Array<{
+            id: string
+            name: string
+        }>
+    }
 }
 
 type RepresentativeOrdersPageInput = {
@@ -222,6 +270,220 @@ function calculateAgingDays(createdAt: string, now = Date.now()) {
     if (!Number.isFinite(createdTime)) return 0
     const diff = Math.max(0, now - createdTime)
     return Math.floor(diff / (1000 * 60 * 60 * 24))
+}
+
+function calculateDaysSince(dateValue?: string | null, now = Date.now()) {
+    if (!dateValue) return Number.POSITIVE_INFINITY
+    const dateTime = new Date(dateValue).getTime()
+    if (!Number.isFinite(dateTime)) return Number.POSITIVE_INFINITY
+    const diff = Math.max(0, now - dateTime)
+    return Math.floor(diff / (1000 * 60 * 60 * 24))
+}
+
+function toSafeNonNegativeInt(value: unknown, fallback: number) {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) return fallback
+    return Math.max(0, Math.floor(parsed))
+}
+
+function toStringArray(value: unknown) {
+    if (!Array.isArray(value)) return []
+    return value.filter((item): item is string => typeof item === 'string')
+}
+
+function normalizeCustomersPageRpcPayload(
+    rawPayload: unknown,
+    fallbackPage: number,
+    fallbackPageSize: number
+): RepresentativeCustomersPageData | null {
+    if (!rawPayload || typeof rawPayload !== 'object') return null
+
+    const payload = rawPayload as Record<string, unknown>
+    const items = Array.isArray(payload.items) ? (payload.items as RepresentativeCustomerRow[]) : []
+    const total = toSafeNonNegativeInt(payload.total, items.length)
+    const page = toSafeNonNegativeInt(payload.page, fallbackPage) || fallbackPage
+    const pageSize = toSafeNonNegativeInt(payload.pageSize, fallbackPageSize) || fallbackPageSize
+    const totalPages = Math.max(
+        1,
+        toSafeNonNegativeInt(payload.totalPages, Math.ceil(Math.max(1, total) / Math.max(1, pageSize)))
+    )
+
+    const summaryRaw =
+        payload.summary && typeof payload.summary === 'object'
+            ? (payload.summary as Record<string, unknown>)
+            : {}
+    const facetsRaw =
+        payload.facets && typeof payload.facets === 'object'
+            ? (payload.facets as Record<string, unknown>)
+            : {}
+
+    const customerTypesRaw = Array.isArray(facetsRaw.customerTypes)
+        ? (facetsRaw.customerTypes as Array<Record<string, unknown>>)
+        : []
+
+    return {
+        items,
+        total,
+        page,
+        pageSize,
+        totalPages,
+        summary: {
+            totalCustomers: toSafeNonNegativeInt(summaryRaw.totalCustomers, total),
+            customersWithoutOrders: toSafeNonNegativeInt(summaryRaw.customersWithoutOrders, 0),
+            customersWithRecentOrders30: toSafeNonNegativeInt(summaryRaw.customersWithRecentOrders30, 0),
+            customersInactive60Plus: toSafeNonNegativeInt(summaryRaw.customersInactive60Plus, 0),
+            customersInactive90Plus: toSafeNonNegativeInt(summaryRaw.customersInactive90Plus, 0),
+            highPriorityCustomers: toSafeNonNegativeInt(summaryRaw.highPriorityCustomers, 0),
+            lowQualityCustomers: toSafeNonNegativeInt(summaryRaw.lowQualityCustomers, 0),
+            customersWithOverdueFollowups: toSafeNonNegativeInt(summaryRaw.customersWithOverdueFollowups, 0),
+        },
+        facets: {
+            states: toStringArray(facetsRaw.states),
+            customerTypes: customerTypesRaw
+                .map((item) => {
+                    const id = typeof item.id === 'string' ? item.id : ''
+                    const name = typeof item.name === 'string' ? item.name : ''
+                    if (!id || !name) return null
+                    return { id, name }
+                })
+                .filter((item): item is { id: string; name: string } => Boolean(item)),
+        },
+    }
+}
+
+function decodeRpcJsonPayload(payload: unknown) {
+    if (typeof payload === 'string') {
+        try {
+            return JSON.parse(payload)
+        } catch {
+            return null
+        }
+    }
+
+    if (Array.isArray(payload)) {
+        return payload[0] ?? null
+    }
+
+    return payload
+}
+
+function buildInputDataQualityAssessment(input: {
+    cnpj?: string | null
+    phone?: string | null
+    email?: string | null
+    city?: string | null
+    state?: string | null
+    customerTypeId?: string | null
+    address?: string | null
+    tradeName?: string | null
+}) {
+    const issues: string[] = []
+    let penalty = 0
+
+    const normalizedCnpj = (input.cnpj || '').trim()
+    if (!normalizedCnpj) {
+        penalty += 20
+        issues.push('CNPJ ausente')
+    }
+
+    const normalizedPhone = (input.phone || '').trim()
+    const normalizedEmail = (input.email || '').trim()
+    if (!normalizedPhone && !normalizedEmail) {
+        penalty += 20
+        issues.push('Contato principal ausente')
+    }
+
+    const normalizedCity = (input.city || '').trim()
+    const normalizedState = (input.state || '').trim()
+    if (!normalizedCity || !normalizedState) {
+        penalty += 15
+        issues.push('Cidade/UF incompleto')
+    }
+
+    if (!(input.customerTypeId || '').trim()) {
+        penalty += 15
+        issues.push('Tipo de cliente nao definido')
+    }
+
+    if (!(input.address || '').trim()) {
+        penalty += 15
+        issues.push('Endereco principal ausente')
+    }
+
+    if (!(input.tradeName || '').trim()) {
+        penalty += 5
+    }
+
+    const score = Math.max(0, 100 - penalty)
+    return { score, issues }
+}
+
+function buildCustomerOperationalSignals(customer: RepresentativeBootstrapCustomer, now = Date.now()) {
+    const openQuotesCount = toSafeNonNegativeInt(
+        (customer as RepresentativeCustomerRow).open_quotes_count,
+        0
+    )
+    const overdueFollowupsCount = toSafeNonNegativeInt(
+        (customer as RepresentativeCustomerRow).overdue_followups_count,
+        0
+    )
+    const inactivityDays = calculateDaysSince(customer.last_order?.created_at || null, now)
+    const quality = buildInputDataQualityAssessment({
+        cnpj: customer.cnpj,
+        phone: customer.phone || customer.profile?.phone || null,
+        email: customer.email || customer.profile?.email || null,
+        city: customer.city || customer.addresses?.[0]?.city || null,
+        state: customer.state || customer.addresses?.[0]?.state || null,
+        customerTypeId: customer.customer_type_id || null,
+        address: customer.address || customer.addresses?.[0]?.address || null,
+        tradeName: customer.trade_name || null,
+    })
+
+    const inactivityPoints = !Number.isFinite(inactivityDays)
+        ? 60
+        : inactivityDays >= 90
+            ? 60
+            : inactivityDays >= 60
+                ? 35
+                : inactivityDays >= 30
+                    ? 20
+                    : 0
+    const priorityScore = inactivityPoints
+        + (openQuotesCount > 0 ? 20 : 0)
+        + (overdueFollowupsCount > 0 ? 20 : 0)
+        + (quality.score < 70 ? 10 : 0)
+
+    const priorityLevel: CustomerPriorityLevel =
+        priorityScore >= 70 ? 'high' : priorityScore >= 40 ? 'medium' : 'low'
+    const nextAction =
+        overdueFollowupsCount > 0
+            ? 'Executar follow-up pendente'
+            : openQuotesCount > 0
+                ? 'Retomar negociacao de orcamento aberto'
+                : !Number.isFinite(inactivityDays) || inactivityDays >= 90
+                    ? 'Iniciar plano de reativacao'
+                    : quality.score < 70
+                        ? 'Corrigir cadastro do cliente'
+                        : 'Manter relacionamento ativo'
+
+    const alerts: string[] = []
+    if (!Number.isFinite(inactivityDays)) alerts.push('Cliente sem historico de pedidos')
+    if (Number.isFinite(inactivityDays) && inactivityDays >= 90) alerts.push('Reativacao urgente (90+ dias)')
+    if (openQuotesCount > 0) alerts.push('Possui orcamento em aberto')
+    if (overdueFollowupsCount > 0) alerts.push('Follow-up vencido')
+    if (quality.score < 70) alerts.push('Cadastro com baixa qualidade')
+
+    return {
+        openQuotesCount,
+        overdueFollowupsCount,
+        alerts,
+        quality,
+        priority: {
+            score: priorityScore,
+            level: priorityLevel,
+            next_action: nextAction,
+        } satisfies CustomerPriorityData,
+    }
 }
 
 function getRepresentativeScopeCacheKey(scopeRepresentativeId?: string | null) {
@@ -581,6 +843,7 @@ async function getRepresentativeCustomersInternal(representativeId?: string | nu
     const admin = getAdminClient()
     const storeSelect = `
             *,
+            customer_type:customer_types(*),
             profile:profiles!stores_profile_id_fkey(*),
             addresses:store_addresses(*),
             price_table_links:store_price_tables(
@@ -812,34 +1075,255 @@ export async function getRepresentativeCustomersData() {
 
 export async function getRepresentativeCustomersPageData(
     input: RepresentativeCustomersPageInput = {}
-) {
-    const { scopeRepresentativeId } = await requireRepresentativeContext()
+): Promise<RepresentativeCustomersPageData> {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
     const page = normalizePage(input.page, 1)
     const pageSize = normalizePageSize(input.pageSize, DEFAULT_CUSTOMERS_PAGE_SIZE, 80)
     const query = normalizeSearchTerm(input.query)
+    const state = (input.state || '').trim().toUpperCase()
+    const customerTypeId = (input.customerTypeId || '').trim()
+    const inactivityBucket = input.inactivityBucket || null
+    const sort = input.sort || 'inactivity_desc'
+    const segment = input.segment || null
     const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
 
     const loadCustomersPage = unstable_cache(
         async () => {
+            if (scopeRepresentativeId) {
+                const accessContext = await getRepresentativeCustomerAccessContext(admin, scopeRepresentativeId)
+                const manualAllowIds: string[] = []
+                const manualDenyIds: string[] = []
+
+                accessContext.manualRules.forEach((rule, storeId) => {
+                    if (rule.decision === 'allow') {
+                        manualAllowIds.push(storeId)
+                        return
+                    }
+                    manualDenyIds.push(storeId)
+                })
+
+                const { data: rpcData, error: rpcError } = await admin.rpc('representative_get_customers_page', {
+                    p_representative_id: scopeRepresentativeId,
+                    p_query: query || null,
+                    p_state: state || null,
+                    p_customer_type_id: customerTypeId || null,
+                    p_inactivity_bucket: inactivityBucket || null,
+                    p_segment: segment || null,
+                    p_sort: sort,
+                    p_page: page,
+                    p_page_size: pageSize,
+                    p_scope_mode: accessContext.policy.scopeMode,
+                    p_allowed_states: accessContext.policy.allowedStates,
+                    p_allowed_cities: accessContext.policy.allowedCities,
+                    p_manual_allow: manualAllowIds,
+                    p_manual_deny: manualDenyIds,
+                })
+
+                if (!rpcError && rpcData) {
+                    const payload = normalizeCustomersPageRpcPayload(
+                        decodeRpcJsonPayload(rpcData),
+                        page,
+                        pageSize
+                    )
+                    if (payload) return payload
+                }
+            } else {
+                const { data: rpcData, error: rpcError } = await admin.rpc('representative_get_customers_page', {
+                    p_representative_id: null,
+                    p_query: query || null,
+                    p_state: state || null,
+                    p_customer_type_id: customerTypeId || null,
+                    p_inactivity_bucket: inactivityBucket || null,
+                    p_segment: segment || null,
+                    p_sort: sort,
+                    p_page: page,
+                    p_page_size: pageSize,
+                    p_scope_mode: 'all_admin_portfolio',
+                    p_allowed_states: [],
+                    p_allowed_cities: [],
+                    p_manual_allow: [],
+                    p_manual_deny: [],
+                })
+
+                if (!rpcError && rpcData) {
+                    const payload = normalizeCustomersPageRpcPayload(
+                        decodeRpcJsonPayload(rpcData),
+                        page,
+                        pageSize
+                    )
+                    if (payload) return payload
+                }
+            }
+
             const allCustomers = await getRepresentativeCustomersInternal(scopeRepresentativeId)
-            const filteredCustomers = query
+            const now = Date.now()
+
+            const searchedCustomers = query
                 ? allCustomers.filter((customer) => {
                     const companyName = (customer.company_name || '').toLowerCase()
                     const cnpj = (customer.cnpj || '').toLowerCase()
                     const code = (customer.customer_code || '').toLowerCase()
                     const tradeName = (customer.trade_name || '').toLowerCase()
+                    const buyerName = (customer.profile?.full_name || '').toLowerCase()
+                    const buyerEmail = (customer.profile?.email || '').toLowerCase()
                     return (
                         companyName.includes(query) ||
                         cnpj.includes(query) ||
                         code.includes(query) ||
-                        tradeName.includes(query)
+                        tradeName.includes(query) ||
+                        buyerName.includes(query) ||
+                        buyerEmail.includes(query)
                     )
                 })
                 : allCustomers
 
-            return paginateItems(filteredCustomers, page, pageSize)
+            const stateFilteredCustomers = state
+                ? searchedCustomers.filter((customer) => {
+                    const normalizedState =
+                        (customer.state || customer.addresses?.[0]?.state || '').trim().toUpperCase()
+                    return normalizedState === state
+                })
+                : searchedCustomers
+
+            const customerTypeFilteredCustomers = customerTypeId
+                ? stateFilteredCustomers.filter((customer) => customer.customer_type_id === customerTypeId)
+                : stateFilteredCustomers
+
+            const segmentFilteredCustomers = segment
+                ? customerTypeFilteredCustomers.filter((customer) => {
+                    const inactivityDays = calculateDaysSince(customer.last_order?.created_at || null, now)
+                    if (segment === 'never_ordered') {
+                        return !Number.isFinite(inactivityDays)
+                    }
+
+                    if (segment === 'hot_30') {
+                        return Number.isFinite(inactivityDays) && inactivityDays <= 30
+                    }
+
+                    return Number.isFinite(inactivityDays) && inactivityDays >= 90
+                })
+                : customerTypeFilteredCustomers
+
+            const inactivityFilteredCustomers = inactivityBucket
+                ? segmentFilteredCustomers.filter((customer) => {
+                    const inactivityDays = calculateDaysSince(customer.last_order?.created_at || null, now)
+                    if (inactivityBucket === 'no_order') {
+                        return !Number.isFinite(inactivityDays)
+                    }
+
+                    const threshold = Number(inactivityBucket)
+                    if (!Number.isFinite(threshold)) return true
+                    return inactivityDays >= threshold
+                })
+                : segmentFilteredCustomers
+
+            const sortedCustomers = [...inactivityFilteredCustomers].sort((a, b) => {
+                if (sort === 'name_asc') {
+                    return (a.company_name || '').localeCompare(b.company_name || '', 'pt-BR')
+                }
+
+                if (sort === 'recent_order_desc') {
+                    const aDays = calculateDaysSince(a.last_order?.created_at || null, now)
+                    const bDays = calculateDaysSince(b.last_order?.created_at || null, now)
+                    const normalizedADays = Number.isFinite(aDays) ? aDays : Number.MAX_SAFE_INTEGER
+                    const normalizedBDays = Number.isFinite(bDays) ? bDays : Number.MAX_SAFE_INTEGER
+
+                    if (normalizedADays !== normalizedBDays) {
+                        return normalizedADays - normalizedBDays
+                    }
+                    return (a.company_name || '').localeCompare(b.company_name || '', 'pt-BR')
+                }
+
+                const aDays = calculateDaysSince(a.last_order?.created_at || null, now)
+                const bDays = calculateDaysSince(b.last_order?.created_at || null, now)
+                const normalizedADays = Number.isFinite(aDays) ? aDays : Number.MAX_SAFE_INTEGER
+                const normalizedBDays = Number.isFinite(bDays) ? bDays : Number.MAX_SAFE_INTEGER
+
+                if (normalizedADays !== normalizedBDays) {
+                    return normalizedBDays - normalizedADays
+                }
+                return (a.company_name || '').localeCompare(b.company_name || '', 'pt-BR')
+            })
+
+            const enrichedCustomers: RepresentativeCustomerRow[] = sortedCustomers.map((customer) => {
+                const signals = buildCustomerOperationalSignals(customer, now)
+                return {
+                    ...customer,
+                    open_quotes_count: signals.openQuotesCount,
+                    overdue_followups_count: signals.overdueFollowupsCount,
+                    alerts: signals.alerts,
+                    data_quality: {
+                        score: signals.quality.score,
+                        issues: signals.quality.issues,
+                    },
+                    priority: signals.priority,
+                }
+            })
+
+            const paginated = paginateItems(enrichedCustomers, page, pageSize)
+
+            const summary = {
+                totalCustomers: enrichedCustomers.length,
+                customersWithoutOrders: enrichedCustomers.filter((customer) => !customer.last_order).length,
+                customersWithRecentOrders30: enrichedCustomers.filter((customer) => {
+                    const inactivityDays = calculateDaysSince(customer.last_order?.created_at || null, now)
+                    return Number.isFinite(inactivityDays) && inactivityDays <= 30
+                }).length,
+                customersInactive60Plus: enrichedCustomers.filter((customer) => {
+                    const inactivityDays = calculateDaysSince(customer.last_order?.created_at || null, now)
+                    return Number.isFinite(inactivityDays) && inactivityDays >= 60
+                }).length,
+                customersInactive90Plus: enrichedCustomers.filter((customer) => {
+                    const inactivityDays = calculateDaysSince(customer.last_order?.created_at || null, now)
+                    return Number.isFinite(inactivityDays) && inactivityDays >= 90
+                }).length,
+                highPriorityCustomers: enrichedCustomers.filter((customer) => customer.priority?.level === 'high').length,
+                lowQualityCustomers: enrichedCustomers.filter((customer) => (customer.data_quality?.score || 100) < 70).length,
+                customersWithOverdueFollowups: enrichedCustomers.filter(
+                    (customer) => (customer.overdue_followups_count || 0) > 0
+                ).length,
+            }
+
+            const states = Array.from(
+                new Set(
+                    allCustomers
+                        .map((customer) => (customer.state || customer.addresses?.[0]?.state || '').trim().toUpperCase())
+                        .filter(Boolean)
+                )
+            ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+            const customerTypes = Array.from(
+                new Map(
+                    allCustomers
+                        .filter((customer) => customer.customer_type?.id && customer.customer_type?.name)
+                        .map((customer) => [customer.customer_type!.id, {
+                            id: customer.customer_type!.id,
+                            name: customer.customer_type!.name,
+                        }])
+                ).values()
+            ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+
+            return {
+                ...paginated,
+                summary,
+                facets: {
+                    states,
+                    customerTypes,
+                },
+            }
         },
-        ['rep-customers-page-v1', scopeKey, String(page), String(pageSize), query],
+        [
+            'rep-customers-page-v2',
+            scopeKey,
+            String(page),
+            String(pageSize),
+            query,
+            state || 'all',
+            customerTypeId || 'all',
+            segment || 'all',
+            inactivityBucket || 'all',
+            sort,
+        ],
         {
             tags: [getRepresentativeCacheTag(scopeKey, 'customers')],
             revalidate: 120,
@@ -2665,6 +3149,31 @@ export async function convertRepresentativeQuoteToOrderAction(quoteId: string) {
 
 // ==================== REPRESENTATIVE CUSTOMER CREATION ====================
 
+async function appendRepresentativeCustomerAuditLog(
+    admin: ReturnType<typeof getAdminClient>,
+    payload: {
+        storeId?: string | null
+        representativeId?: string | null
+        actorProfileId?: string | null
+        action: 'create' | 'update' | 'quality_flag' | 'automated_alert'
+        details?: Record<string, unknown> | null
+    }
+) {
+    const { error } = await admin
+        .from('representative_customer_audit_logs')
+        .insert({
+            store_id: payload.storeId || null,
+            representative_id: payload.representativeId || null,
+            actor_profile_id: payload.actorProfileId || null,
+            action: payload.action,
+            details: payload.details || null,
+        })
+
+    if (error) {
+        console.warn('Customer audit log skipped:', error.message || error)
+    }
+}
+
 export async function createCustomerAsRepresentativeTx(data: {
     fullName: string
     email: string
@@ -2679,7 +3188,7 @@ export async function createCustomerAsRepresentativeTx(data: {
     state?: string
     zipCode?: string
 }) {
-    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const { admin, scopeRepresentativeId, user } = await requireRepresentativeContext()
 
     // In admin preview mode we keep it unassigned, while representative users keep own scope.
     const representativeToAssign = scopeRepresentativeId || null
@@ -2765,8 +3274,66 @@ export async function createCustomerAsRepresentativeTx(data: {
         }
 
         const firstRow = Array.isArray(rpcData) ? rpcData[0] : rpcData
+        const createdStoreId =
+            firstRow && typeof firstRow === 'object' && 'store_id' in firstRow
+                ? String((firstRow as { store_id?: string }).store_id || '')
+                : ''
+
+        await appendRepresentativeCustomerAuditLog(admin, {
+            storeId: createdStoreId || null,
+            representativeId: representativeToAssign,
+            actorProfileId: user.id,
+            action: 'create',
+            details: {
+                source: 'representative_customer_create',
+                customerTypeId: customerTypeId || null,
+                city: city || null,
+                state: state || null,
+            },
+        })
+
+        const qualityAssessment = buildInputDataQualityAssessment({
+            cnpj,
+            phone,
+            email: normalizedEmail,
+            city,
+            state,
+            customerTypeId,
+            address,
+            tradeName,
+        })
+
+        if (qualityAssessment.issues.length > 0) {
+            await appendRepresentativeCustomerAuditLog(admin, {
+                storeId: createdStoreId || null,
+                representativeId: representativeToAssign,
+                actorProfileId: user.id,
+                action: 'quality_flag',
+                details: {
+                    source: 'representative_customer_create',
+                    score: qualityAssessment.score,
+                    issues: qualityAssessment.issues,
+                },
+            })
+        }
+
+        if (qualityAssessment.score < 70) {
+            await appendRepresentativeCustomerAuditLog(admin, {
+                storeId: createdStoreId || null,
+                representativeId: representativeToAssign,
+                actorProfileId: user.id,
+                action: 'automated_alert',
+                details: {
+                    source: 'representative_customer_create',
+                    priority: 'medium',
+                    alert: 'Cadastro com baixa qualidade',
+                    score: qualityAssessment.score,
+                },
+            })
+        }
+
         revalidateRepresentativeSegments(scopeRepresentativeId, ['customers', 'dashboard', 'builder'])
-        return { success: true, storeId: firstRow?.store_id as string | undefined }
+        return { success: true, storeId: createdStoreId || undefined }
     } catch (err: unknown) {
         console.error('Representative Customer Creation TX Error:', err)
         let msg = 'Erro ao criar o cliente.'
@@ -2790,7 +3357,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
     state?: string
     zipCode?: string
 }) {
-    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const { admin, scopeRepresentativeId, user } = await requireRepresentativeContext()
 
     const { 
         id: storeId, 
@@ -2904,6 +3471,59 @@ export async function updateCustomerAsRepresentativeTx(data: {
 
         if (rpcError) {
             throw new Error(rpcError.message)
+        }
+
+        await appendRepresentativeCustomerAuditLog(admin, {
+            storeId,
+            representativeId: representativeToPersist,
+            actorProfileId: user.id,
+            action: 'update',
+            details: {
+                source: 'representative_customer_update',
+                customerTypeId: customerTypeId || null,
+                city: city || null,
+                state: state || null,
+            },
+        })
+
+        const qualityAssessment = buildInputDataQualityAssessment({
+            cnpj,
+            phone,
+            email: normalizedEmail,
+            city,
+            state,
+            customerTypeId,
+            address,
+            tradeName,
+        })
+
+        if (qualityAssessment.issues.length > 0) {
+            await appendRepresentativeCustomerAuditLog(admin, {
+                storeId,
+                representativeId: representativeToPersist,
+                actorProfileId: user.id,
+                action: 'quality_flag',
+                details: {
+                    source: 'representative_customer_update',
+                    score: qualityAssessment.score,
+                    issues: qualityAssessment.issues,
+                },
+            })
+        }
+
+        if (qualityAssessment.score < 70) {
+            await appendRepresentativeCustomerAuditLog(admin, {
+                storeId,
+                representativeId: representativeToPersist,
+                actorProfileId: user.id,
+                action: 'automated_alert',
+                details: {
+                    source: 'representative_customer_update',
+                    priority: 'medium',
+                    alert: 'Cadastro com baixa qualidade',
+                    score: qualityAssessment.score,
+                },
+            })
         }
 
         revalidateRepresentativeSegments(scopeRepresentativeId, ['customers', 'dashboard', 'builder'])

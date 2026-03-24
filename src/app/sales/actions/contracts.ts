@@ -28,6 +28,13 @@ export const customersPageInputSchema = z
     page: positiveIntOptionalSchema,
     pageSize: positiveIntOptionalSchema,
     query: optionalSearchSchema,
+    state: emptyStringToNull(z.string().trim().min(1).max(60).nullable()).optional(),
+    customerTypeId: emptyStringToNull(idSchema.nullable()).optional(),
+    inactivityBucket: emptyStringToNull(z.enum(['30', '60', '90', 'no_order']).nullable()).optional(),
+    sort: emptyStringToNull(z.enum(['inactivity_desc', 'name_asc', 'recent_order_desc']).nullable()).optional(),
+    segment: emptyStringToNull(
+      z.enum(['reactivation_90', 'hot_30', 'never_ordered']).nullable()
+    ).optional(),
   })
   .strict()
 
