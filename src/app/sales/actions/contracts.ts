@@ -21,6 +21,8 @@ const emptyStringToNull = <T extends z.ZodTypeAny>(schema: T) =>
 
 export const idSchema = z.string().trim().min(1)
 
+export const quoteStatusSchema = z.enum(['draft', 'sent', 'approved', 'converted', 'cancelled'])
+
 export const customersPageInputSchema = z
   .object({
     page: positiveIntOptionalSchema,
@@ -33,6 +35,29 @@ export const ordersPageInputSchema = z
   .object({
     page: positiveIntOptionalSchema,
     pageSize: positiveIntOptionalSchema,
+  })
+  .strict()
+
+export const quotesPageInputSchema = z
+  .object({
+    page: positiveIntOptionalSchema,
+    pageSize: positiveIntOptionalSchema,
+    query: optionalSearchSchema,
+    status: emptyStringToNull(
+      quoteStatusSchema.nullable()
+    ).optional(),
+  })
+  .strict()
+
+export const visitsPageInputSchema = z
+  .object({
+    page: positiveIntOptionalSchema,
+    pageSize: positiveIntOptionalSchema,
+    query: optionalSearchSchema,
+    outcome: emptyStringToNull(
+      z.enum(['planned', 'completed', 'follow_up', 'converted_quote', 'converted_order']).nullable()
+    ).optional(),
+    storeId: emptyStringToNull(idSchema.nullable()).optional(),
   })
   .strict()
 
@@ -95,6 +120,8 @@ export const representativeDraftLineSchema = z
 
 export const representativeDocumentPayloadSchema = z
   .object({
+    quoteId: emptyStringToNull(idSchema.nullable()).optional(),
+    sourceVisitId: emptyStringToNull(idSchema.nullable()).optional(),
     storeId: idSchema,
     priceTableId: emptyStringToNull(idSchema.nullable()).optional(),
     selectedPaymentId: emptyStringToNull(idSchema.nullable()).optional(),
@@ -150,6 +177,21 @@ export const representativeVisitPayloadSchema = z
   })
   .strict()
 
+export const representativeVisitUpdatePayloadSchema = z
+  .object({
+    id: idSchema,
+    visitedAt: emptyStringToNull(z.string().trim().nullable()).optional(),
+    notes: emptyStringToNull(z.string().trim().nullable()).optional(),
+    resultSummary: emptyStringToNull(z.string().trim().nullable()).optional(),
+    nextStep: emptyStringToNull(z.string().trim().nullable()).optional(),
+    outcome: z
+      .enum(['planned', 'completed', 'follow_up', 'converted_quote', 'converted_order'])
+      .optional(),
+    generatedQuoteId: emptyStringToNull(idSchema.nullable()).optional(),
+    generatedOrderId: emptyStringToNull(idSchema.nullable()).optional(),
+  })
+  .strict()
+
 function formatIssuePath(path: Array<PropertyKey>) {
   if (path.length === 0) return 'input'
   return path.map((entry) => String(entry)).join('.')
@@ -179,3 +221,4 @@ export function parseWithSchema<T extends z.ZodTypeAny>(
 
   return parsed.data
 }
+

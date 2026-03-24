@@ -1,7 +1,7 @@
-import Link from 'next/link'
+﻿import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { FileText, MapPinned, Scale, UserRound, Wallet } from 'lucide-react'
-import { getRepresentativeQuoteDetail } from '@/app/sales/actions'
+import { Activity, FileText, MapPinned, Scale, UserRound, Wallet } from 'lucide-react'
+import { getRepresentativeQuoteTimeline } from '@/app/sales/actions'
 import { SalesInfoPill } from '@/components/sales/sales-ui'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,11 +10,19 @@ function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
 
+function getSlaTone(isOverdue: boolean, agingDays: number) {
+  if (isOverdue) return 'text-red-700 bg-red-50 border-red-200'
+  if (agingDays > 3) return 'text-amber-700 bg-amber-50 border-amber-200'
+  return 'text-emerald-700 bg-emerald-50 border-emerald-200'
+}
+
 export default async function SalesQuoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const quote = await getRepresentativeQuoteDetail(id)
+  const timelineData = await getRepresentativeQuoteTimeline(id)
 
-  if (!quote) notFound()
+  if (!timelineData?.quote) notFound()
+
+  const { quote, sla, events, warning } = timelineData
 
   return (
     <div className="space-y-6">
@@ -26,6 +34,9 @@ export default async function SalesQuoteDetailPage({ params }: { params: Promise
             </span>
             <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
               {quote.status}
+            </span>
+            <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${getSlaTone(sla.isOverdue, sla.agingDays)}`}>
+              SLA {sla.agingDays}d / {sla.slaDays}d
             </span>
           </div>
           <div>
@@ -122,18 +133,26 @@ export default async function SalesQuoteDetailPage({ params }: { params: Promise
         <div className="space-y-6 xl:sticky xl:top-24 xl:self-start">
           <Card className="rounded-[32px] border border-slate-200 bg-white/95 shadow-sm">
             <CardHeader>
-              <CardTitle>Pagamento</CardTitle>
+              <CardTitle>Timeline</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Meio</p>
-                <p className="mt-2 text-sm font-semibold text-slate-950">{quote.payment_method_name || 'Nao definido'}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Condicao</p>
-                <p className="mt-2 text-sm font-semibold text-slate-950">{quote.payment_condition_name || 'Nao definida'}</p>
-                {quote.payment_condition_description ? <p className="mt-2 text-xs leading-5 text-slate-500">{quote.payment_condition_description}</p> : null}
-              </div>
+              {warning && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">{warning}</p>
+              )}
+              {events.length === 0 ? (
+                <p className="text-xs text-slate-500">Sem eventos adicionais para este orcamento.</p>
+              ) : (
+                events.map((event) => (
+                  <div key={event.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <Activity className="h-4 w-4" />
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em]">{event.label}</p>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{new Date(event.timestamp).toLocaleString('pt-BR')}</p>
+                    {event.details ? <p className="mt-2 text-xs text-slate-700">{event.details}</p> : null}
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
 

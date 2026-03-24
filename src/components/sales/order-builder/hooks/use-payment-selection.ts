@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useMemo, useState } from 'react'
 import type { DiscountType, NegotiationSummary, PaymentOption } from '@/components/sales/order-builder/types'
@@ -26,14 +26,22 @@ function computeNegotiation(
 export function usePaymentSelection({
   subtotal,
   selectedPaymentOption,
+  initialDiscountType,
+  initialDiscountValue,
+  initialSurchargeValue,
+  initialNegotiationReason,
 }: {
   subtotal: number
   selectedPaymentOption: PaymentOption | null
+  initialDiscountType?: DiscountType
+  initialDiscountValue?: string
+  initialSurchargeValue?: string
+  initialNegotiationReason?: string
 }) {
-  const [discountType, setDiscountType] = useState<DiscountType>('none')
-  const [discountValue, setDiscountValue] = useState('')
-  const [surchargeValue, setSurchargeValue] = useState('')
-  const [negotiationReason, setNegotiationReason] = useState('')
+  const [discountType, setDiscountType] = useState<DiscountType>(initialDiscountType || 'none')
+  const [discountValue, setDiscountValue] = useState(initialDiscountValue || '')
+  const [surchargeValue, setSurchargeValue] = useState(initialSurchargeValue || '')
+  const [negotiationReason, setNegotiationReason] = useState(initialNegotiationReason || '')
 
   const negotiation = useMemo(
     () => computeNegotiation(subtotal, discountType, Number(discountValue || 0), Number(surchargeValue || 0)),

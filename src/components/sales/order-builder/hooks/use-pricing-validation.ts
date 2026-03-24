@@ -60,15 +60,19 @@ export function usePricingValidation({
   selectedPriceTableId,
   items,
   setItems,
+  initialSelectedPaymentMethodId,
+  initialSelectedPaymentId,
 }: {
   selectedStoreId: string
   selectedPriceTableId: string
   items: DraftItem[]
   setItems: React.Dispatch<React.SetStateAction<DraftItem[]>>
+  initialSelectedPaymentMethodId?: string | null
+  initialSelectedPaymentId?: string | null
 }) {
   const [paymentGroups, setPaymentGroups] = useState<PaymentMethodGroup[]>([])
-  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState('')
-  const [selectedPaymentId, setSelectedPaymentId] = useState('')
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(initialSelectedPaymentMethodId || '')
+  const [selectedPaymentId, setSelectedPaymentId] = useState(initialSelectedPaymentId || '')
   const [pricingPending, setPricingPending] = useState(false)
 
   const revalidationSequenceRef = useRef(0)

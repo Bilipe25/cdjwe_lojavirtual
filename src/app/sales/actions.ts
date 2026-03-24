@@ -19,10 +19,16 @@ import {
   getRepresentativeOrdersPageData as getRepresentativeOrdersPageDataByDomain,
 } from './actions/orders'
 import {
+  cancelRepresentativeQuoteAction as cancelRepresentativeQuoteActionByDomain,
   convertRepresentativeQuoteToOrderAction as convertRepresentativeQuoteToOrderActionByDomain,
+  deleteRepresentativeQuoteAction as deleteRepresentativeQuoteActionByDomain,
+  duplicateRepresentativeQuoteAction as duplicateRepresentativeQuoteActionByDomain,
   getRepresentativeQuoteDetail as getRepresentativeQuoteDetailByDomain,
+  getRepresentativeQuoteTimeline as getRepresentativeQuoteTimelineByDomain,
+  getRepresentativeQuotesPageData as getRepresentativeQuotesPageDataByDomain,
   getRepresentativeQuotesData as getRepresentativeQuotesDataByDomain,
   saveRepresentativeQuoteAction as saveRepresentativeQuoteActionByDomain,
+  updateRepresentativeQuoteStatusAction as updateRepresentativeQuoteStatusActionByDomain,
 } from './actions/quotes'
 import {
   getRepresentativeCatalogProductsPageAction as getRepresentativeCatalogProductsPageActionByDomain,
@@ -32,7 +38,10 @@ import {
 } from './actions/pricing'
 import {
   createRepresentativeVisitAction as createRepresentativeVisitActionByDomain,
+  deleteRepresentativeVisitAction as deleteRepresentativeVisitActionByDomain,
+  getRepresentativeVisitsPageData as getRepresentativeVisitsPageDataByDomain,
   getRepresentativeVisitsData as getRepresentativeVisitsDataByDomain,
+  updateRepresentativeVisitAction as updateRepresentativeVisitActionByDomain,
 } from './actions/visits'
 
 export async function getRepresentativeShellData() {
@@ -79,14 +88,32 @@ export async function getRepresentativeQuotesData() {
   return getRepresentativeQuotesDataByDomain()
 }
 
+export async function getRepresentativeQuotesPageData(
+  ...args: Parameters<typeof getRepresentativeQuotesPageDataByDomain>
+) {
+  return getRepresentativeQuotesPageDataByDomain(...args)
+}
+
 export async function getRepresentativeQuoteDetail(
   ...args: Parameters<typeof getRepresentativeQuoteDetailByDomain>
 ) {
   return getRepresentativeQuoteDetailByDomain(...args)
 }
 
+export async function getRepresentativeQuoteTimeline(
+  ...args: Parameters<typeof getRepresentativeQuoteTimelineByDomain>
+) {
+  return getRepresentativeQuoteTimelineByDomain(...args)
+}
+
 export async function getRepresentativeVisitsData() {
   return getRepresentativeVisitsDataByDomain()
+}
+
+export async function getRepresentativeVisitsPageData(
+  ...args: Parameters<typeof getRepresentativeVisitsPageDataByDomain>
+) {
+  return getRepresentativeVisitsPageDataByDomain(...args)
 }
 
 export async function getRepresentativeOrderBuilderData() {
@@ -139,6 +166,42 @@ export async function convertRepresentativeQuoteToOrderAction(
   ...args: Parameters<typeof convertRepresentativeQuoteToOrderActionByDomain>
 ) {
   return convertRepresentativeQuoteToOrderActionByDomain(...args)
+}
+
+export async function cancelRepresentativeQuoteAction(
+  ...args: Parameters<typeof cancelRepresentativeQuoteActionByDomain>
+) {
+  return cancelRepresentativeQuoteActionByDomain(...args)
+}
+
+export async function duplicateRepresentativeQuoteAction(
+  ...args: Parameters<typeof duplicateRepresentativeQuoteActionByDomain>
+) {
+  return duplicateRepresentativeQuoteActionByDomain(...args)
+}
+
+export async function deleteRepresentativeQuoteAction(
+  ...args: Parameters<typeof deleteRepresentativeQuoteActionByDomain>
+) {
+  return deleteRepresentativeQuoteActionByDomain(...args)
+}
+
+export async function updateRepresentativeQuoteStatusAction(
+  ...args: Parameters<typeof updateRepresentativeQuoteStatusActionByDomain>
+) {
+  return updateRepresentativeQuoteStatusActionByDomain(...args)
+}
+
+export async function deleteRepresentativeVisitAction(
+  ...args: Parameters<typeof deleteRepresentativeVisitActionByDomain>
+) {
+  return deleteRepresentativeVisitActionByDomain(...args)
+}
+
+export async function updateRepresentativeVisitAction(
+  ...args: Parameters<typeof updateRepresentativeVisitActionByDomain>
+) {
+  return updateRepresentativeVisitActionByDomain(...args)
 }
 
 export async function createCustomerAsRepresentativeTx(

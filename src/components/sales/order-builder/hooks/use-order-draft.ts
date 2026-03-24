@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useMemo, useState } from 'react'
 import type { BuilderCustomer, DraftItem } from '@/components/sales/order-builder/types'
@@ -16,17 +16,27 @@ export function useOrderDraft({
   customers,
   priceTables,
   initialCustomerId,
+  initialItems,
+  initialAddressId,
+  initialPriceTableId,
 }: {
   customers: BuilderCustomer[]
   priceTables: PriceTable[]
   initialCustomerId?: string
+  initialItems?: DraftItem[]
+  initialAddressId?: string | null
+  initialPriceTableId?: string | null
 }) {
   const initialStore = customers.find((customer) => customer.id === initialCustomerId) || null
 
   const [selectedStoreId, setSelectedStoreId] = useState(initialCustomerId || '')
-  const [selectedAddressId, setSelectedAddressId] = useState(() => getDefaultAddressId(initialStore))
-  const [selectedPriceTableId, setSelectedPriceTableId] = useState(() => getDefaultPriceTableId(initialStore, priceTables))
-  const [items, setItems] = useState<DraftItem[]>([])
+  const [selectedAddressId, setSelectedAddressId] = useState(
+    () => initialAddressId || getDefaultAddressId(initialStore)
+  )
+  const [selectedPriceTableId, setSelectedPriceTableId] = useState(
+    () => initialPriceTableId || getDefaultPriceTableId(initialStore, priceTables)
+  )
+  const [items, setItems] = useState<DraftItem[]>(() => initialItems || [])
 
   const selectedStore = useMemo(
     () => customers.find((customer) => customer.id === selectedStoreId) || null,

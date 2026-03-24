@@ -68,11 +68,64 @@ type RepresentativeOrdersPageInput = {
     pageSize?: number
 }
 
+type RepresentativeQuotesPageInput = {
+    page?: number
+    pageSize?: number
+    query?: string
+    status?: SalesQuote['status'] | null
+}
+
+type RepresentativeVisitsPageInput = {
+    page?: number
+    pageSize?: number
+    query?: string
+    outcome?: RepresentativeVisit['outcome'] | null
+    storeId?: string | null
+}
+
+type VisitsAgendaSummary = {
+    overdue: number
+    dueToday: number
+    dueNext7Days: number
+    convertedThisMonth: number
+    completedLast7Days: number
+}
+
+type RepresentativeVisitsPageData = PaginatedResult<RepresentativeVisit> & {
+    agenda: VisitsAgendaSummary
+}
+
 type RepresentativeCatalogProductsPageInput = {
     page?: number
     pageSize?: number
     search?: string
     categoryId?: string | null
+}
+
+type QuotePipelineSummary = {
+    status: SalesQuote['status']
+    count: number
+    totalValue: number
+}
+
+type QuoteAgingSummary = {
+    bucket: '0_3' | '4_7' | '8_14' | '15_plus'
+    label: string
+    count: number
+}
+
+type QuoteIndicatorsSummary = {
+    totalQuotes: number
+    totalValue: number
+    convertedQuotes: number
+    conversionRate: number
+    avgAgingDays: number
+}
+
+type RepresentativeQuotesPageData = PaginatedResult<SalesQuote> & {
+    indicators: QuoteIndicatorsSummary
+    pipeline: QuotePipelineSummary[]
+    aging: QuoteAgingSummary[]
 }
 
 type RepresentativeDraftLine = {
@@ -89,6 +142,8 @@ type RepresentativeDraftLine = {
 }
 
 type RepresentativeDocumentPayload = {
+    quoteId?: string | null
+    sourceVisitId?: string | null
     storeId: string
     priceTableId?: string | null
     selectedPaymentId?: string | null
@@ -129,6 +184,8 @@ function getAdminClient() {
 const SALES_REPRESENTATIVE_CACHE_NAMESPACE = 'sales:representative'
 const DEFAULT_CUSTOMERS_PAGE_SIZE = 20
 const DEFAULT_ORDERS_PAGE_SIZE = 20
+const DEFAULT_QUOTES_PAGE_SIZE = 20
+const DEFAULT_VISITS_PAGE_SIZE = 20
 const DEFAULT_PRODUCTS_PAGE_SIZE = 24
 
 type RepresentativeCacheSegment =
@@ -154,6 +211,17 @@ function normalizePageSize(value: number | undefined, fallback: number, max: num
 
 function normalizeSearchTerm(value?: string | null) {
     return (value || '').trim().toLowerCase()
+}
+
+function escapeIlike(value: string) {
+    return value.replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
+function calculateAgingDays(createdAt: string, now = Date.now()) {
+    const createdTime = new Date(createdAt).getTime()
+    if (!Number.isFinite(createdTime)) return 0
+    const diff = Math.max(0, now - createdTime)
+    return Math.floor(diff / (1000 * 60 * 60 * 24))
 }
 
 function getRepresentativeScopeCacheKey(scopeRepresentativeId?: string | null) {
@@ -934,7 +1002,7 @@ export async function getRepresentativeQuotesData() {
             store:stores(*),
             customer_profile:profiles!sales_quotes_customer_profile_id_fkey(*),
             representative:profiles!sales_quotes_representative_id_fkey(*),
-            items:sales_quote_items(*)
+            items:sales_quote_items(*, product_variant:product_variants(product_id, image_url))
         `)
         .order('created_at', { ascending: false })
 
@@ -946,6 +1014,169 @@ export async function getRepresentativeQuotesData() {
     return (data || []) as SalesQuote[]
 }
 
+export async function getRepresentativeQuotesPageData(
+    input: RepresentativeQuotesPageInput = {}
+) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const page = normalizePage(input.page, 1)
+    const pageSize = normalizePageSize(input.pageSize, DEFAULT_QUOTES_PAGE_SIZE, 80)
+    const queryTerm = normalizeSearchTerm(input.query)
+    const status = input.status || null
+    const offset = (page - 1) * pageSize
+    const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
+
+    const loadQuotesPage = unstable_cache(
+        async () => {
+            const pageQuery = admin
+                .from('sales_quotes')
+                .select(
+                    `
+                        *,
+                        store:stores(*),
+                        customer_profile:profiles!sales_quotes_customer_profile_id_fkey(*),
+                        representative:profiles!sales_quotes_representative_id_fkey(*),
+                        items:sales_quote_items(*, product_variant:product_variants(product_id, image_url))
+                    `,
+                    { count: 'exact' }
+                )
+                .order('created_at', { ascending: false })
+                .range(offset, offset + pageSize - 1)
+
+            if (scopeRepresentativeId) {
+                pageQuery.eq('representative_id', scopeRepresentativeId)
+            }
+
+            if (status) {
+                pageQuery.eq('status', status)
+            }
+
+            if (queryTerm) {
+                const escaped = escapeIlike(queryTerm)
+                pageQuery.or(`quote_number.ilike.%${escaped}%,company_name_snapshot.ilike.%${escaped}%`)
+            }
+
+            const { data, count, error } = await pageQuery
+            if (error) {
+                throw new Error(error.message || 'Falha ao carregar orcamentos paginados.')
+            }
+
+            const summaryQuery = admin
+                .from('sales_quotes')
+                .select('id, status, total, created_at', { count: 'exact' })
+
+            if (scopeRepresentativeId) {
+                summaryQuery.eq('representative_id', scopeRepresentativeId)
+            }
+
+            if (status) {
+                summaryQuery.eq('status', status)
+            }
+
+            if (queryTerm) {
+                const escaped = escapeIlike(queryTerm)
+                summaryQuery.or(`quote_number.ilike.%${escaped}%,company_name_snapshot.ilike.%${escaped}%`)
+            }
+
+            const { data: summaryRows, error: summaryError } = await summaryQuery
+            if (summaryError) {
+                throw new Error(summaryError.message || 'Falha ao carregar indicadores de orcamentos.')
+            }
+
+            const total = count || 0
+            const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+            const normalizedSummary = (summaryRows || []) as Array<{
+                id: string
+                status: SalesQuote['status']
+                total: number
+                created_at: string
+            }>
+
+            const now = Date.now()
+            const statuses: SalesQuote['status'][] = ['draft', 'sent', 'approved', 'converted', 'cancelled']
+
+            const pipeline: QuotePipelineSummary[] = statuses.map((statusKey) => {
+                const statusRows = normalizedSummary.filter((row) => row.status === statusKey)
+                const totalValue = statusRows.reduce((sum, row) => sum + toNumber(row.total), 0)
+                return {
+                    status: statusKey,
+                    count: statusRows.length,
+                    totalValue,
+                }
+            })
+
+            const openQuotes = normalizedSummary.filter(
+                (row) => row.status !== 'converted' && row.status !== 'cancelled'
+            )
+            const openAgingDays = openQuotes.map((row) => calculateAgingDays(row.created_at, now))
+
+            const aging: QuoteAgingSummary[] = [
+                { bucket: '0_3', label: '0-3 dias', count: 0 },
+                { bucket: '4_7', label: '4-7 dias', count: 0 },
+                { bucket: '8_14', label: '8-14 dias', count: 0 },
+                { bucket: '15_plus', label: '15+ dias', count: 0 },
+            ]
+
+            openAgingDays.forEach((days) => {
+                if (days <= 3) {
+                    aging[0].count += 1
+                    return
+                }
+                if (days <= 7) {
+                    aging[1].count += 1
+                    return
+                }
+                if (days <= 14) {
+                    aging[2].count += 1
+                    return
+                }
+                aging[3].count += 1
+            })
+
+            const convertedQuotes = normalizedSummary.filter((row) => row.status === 'converted').length
+            const totalValue = normalizedSummary.reduce((sum, row) => sum + toNumber(row.total), 0)
+            const conversionRate = total > 0 ? (convertedQuotes / total) * 100 : 0
+            const avgAgingDays =
+                openAgingDays.length > 0
+                    ? openAgingDays.reduce((sum, days) => sum + days, 0) / openAgingDays.length
+                    : 0
+
+            const indicators: QuoteIndicatorsSummary = {
+                totalQuotes: total,
+                totalValue,
+                convertedQuotes,
+                conversionRate: Number(conversionRate.toFixed(1)),
+                avgAgingDays: Number(avgAgingDays.toFixed(1)),
+            }
+
+            return {
+                items: (data || []) as SalesQuote[],
+                total,
+                page: Math.min(page, totalPages),
+                pageSize,
+                totalPages,
+                indicators,
+                pipeline,
+                aging,
+            } satisfies RepresentativeQuotesPageData
+        },
+        [
+            'rep-quotes-page-v1',
+            scopeKey,
+            String(page),
+            String(pageSize),
+            queryTerm,
+            status || 'all',
+        ],
+        {
+            tags: [getRepresentativeCacheTag(scopeKey, 'quotes')],
+            revalidate: 60,
+        }
+    )
+
+    return loadQuotesPage()
+}
+
 export async function getRepresentativeQuoteDetail(quoteId: string) {
     const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
     const query = admin
@@ -955,7 +1186,7 @@ export async function getRepresentativeQuoteDetail(quoteId: string) {
             store:stores(*),
             customer_profile:profiles!sales_quotes_customer_profile_id_fkey(*),
             representative:profiles!sales_quotes_representative_id_fkey(*),
-            items:sales_quote_items(*)
+            items:sales_quote_items(*, product_variant:product_variants(product_id, image_url))
         `)
         .eq('id', quoteId)
 
@@ -965,6 +1196,149 @@ export async function getRepresentativeQuoteDetail(quoteId: string) {
 
     const { data } = await query.single()
     return (data || null) as SalesQuote | null
+}
+
+export async function getRepresentativeQuoteTimeline(quoteId: string) {
+    const quote = await getRepresentativeQuoteDetail(quoteId)
+    if (!quote) return null
+
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+    const visitsQuery = admin
+        .from('sales_visits')
+        .select('id, visited_at, created_at, outcome, result_summary, next_step, generated_order_id')
+        .eq('generated_quote_id', quoteId)
+        .order('visited_at', { ascending: false })
+
+    if (scopeRepresentativeId) {
+        visitsQuery.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data: visits, error: visitsError } = await visitsQuery
+    if (visitsError) {
+        return {
+            quote,
+            sla: {
+                agingDays: calculateAgingDays(quote.created_at),
+                slaDays: 7,
+                isOverdue:
+                    quote.status !== 'converted' &&
+                    quote.status !== 'cancelled' &&
+                    calculateAgingDays(quote.created_at) > 7,
+            },
+            events: [],
+            warning: visitsError.message || 'Falha ao carregar timeline de visitas.',
+        }
+    }
+
+    const events: Array<{
+        id: string
+        type: 'quote_created' | 'quote_updated' | 'quote_converted' | 'visit'
+        label: string
+        timestamp: string
+        details?: string | null
+    }> = [
+        {
+            id: `${quote.id}:created`,
+            type: 'quote_created',
+            label: 'Orcamento criado',
+            timestamp: quote.created_at,
+            details: quote.company_name_snapshot || quote.store?.company_name || null,
+        },
+    ]
+
+    if (quote.updated_at !== quote.created_at) {
+        events.push({
+            id: `${quote.id}:updated`,
+            type: 'quote_updated',
+            label: 'Orcamento atualizado',
+            timestamp: quote.updated_at,
+            details: `Status atual: ${quote.status}`,
+        })
+    }
+
+    if (quote.status === 'converted' && quote.converted_order_id) {
+        events.push({
+            id: `${quote.id}:converted`,
+            type: 'quote_converted',
+            label: 'Orcamento convertido em pedido',
+            timestamp: quote.updated_at,
+            details: `Pedido: ${quote.converted_order_id}`,
+        })
+    }
+
+    ;(visits || []).forEach((visit) => {
+        events.push({
+            id: visit.id,
+            type: 'visit',
+            label: 'Visita comercial vinculada',
+            timestamp: visit.visited_at || visit.created_at,
+            details: visit.result_summary || visit.next_step || visit.outcome,
+        })
+    })
+
+    events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+    const agingDays = calculateAgingDays(quote.created_at)
+    const slaDays = 7
+    const isOverdue = quote.status !== 'converted' && quote.status !== 'cancelled' && agingDays > slaDays
+
+    return {
+        quote,
+        sla: {
+            agingDays,
+            slaDays,
+            isOverdue,
+        },
+        events,
+        warning: null as string | null,
+    }
+}
+
+export async function updateRepresentativeQuoteStatusAction(
+    quoteId: string,
+    targetStatus: Exclude<SalesQuote['status'], 'converted'>
+) {
+    try {
+        const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+        const quoteQuery = admin
+            .from('sales_quotes')
+            .select('id, status')
+            .eq('id', quoteId)
+
+        if (scopeRepresentativeId) {
+            quoteQuery.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { data: quote, error: quoteError } = await quoteQuery.maybeSingle()
+        if (quoteError) {
+            return { error: quoteError.message || 'Falha ao localizar orcamento.' }
+        }
+        if (!quote) {
+            return { error: 'Orcamento nao encontrado para este representante.' }
+        }
+        if (quote.status === 'converted') {
+            return { error: 'Nao e possivel alterar status de um orcamento convertido.' }
+        }
+        if (quote.status === targetStatus) {
+            return { success: true, status: targetStatus }
+        }
+
+        const { error: updateError } = await admin
+            .from('sales_quotes')
+            .update({ status: targetStatus })
+            .eq('id', quoteId)
+
+        if (updateError) {
+            return { error: updateError.message || 'Falha ao atualizar status do orcamento.' }
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'dashboard'])
+        return { success: true, status: targetStatus }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao atualizar status do orcamento.' }
+    }
 }
 
 export async function getRepresentativeVisitsData() {
@@ -985,6 +1359,147 @@ export async function getRepresentativeVisitsData() {
 
     const { data } = await query
     return (data || []) as RepresentativeVisit[]
+}
+
+export async function getRepresentativeVisitsPageData(
+    input: RepresentativeVisitsPageInput = {}
+) {
+    const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const page = normalizePage(input.page, 1)
+    const pageSize = normalizePageSize(input.pageSize, DEFAULT_VISITS_PAGE_SIZE, 80)
+    const queryTerm = normalizeSearchTerm(input.query)
+    const outcome = input.outcome || null
+    const storeId = input.storeId || null
+    const offset = (page - 1) * pageSize
+    const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
+
+    const loadVisitsPage = unstable_cache(
+        async () => {
+            const query = admin
+                .from('sales_visits')
+                .select(
+                    `
+                        *,
+                        store:stores(*),
+                        customer_profile:profiles!sales_visits_customer_profile_id_fkey(*),
+                        representative:profiles!sales_visits_representative_id_fkey(*)
+                    `,
+                    { count: 'exact' }
+                )
+                .order('visited_at', { ascending: false })
+                .range(offset, offset + pageSize - 1)
+
+            const agendaQuery = admin
+                .from('sales_visits')
+                .select('id, visited_at, outcome')
+
+            if (scopeRepresentativeId) {
+                query.eq('representative_id', scopeRepresentativeId)
+                agendaQuery.eq('representative_id', scopeRepresentativeId)
+            }
+
+            if (outcome) {
+                query.eq('outcome', outcome)
+            }
+
+            if (storeId) {
+                query.eq('store_id', storeId)
+                agendaQuery.eq('store_id', storeId)
+            }
+
+            if (queryTerm) {
+                const escaped = escapeIlike(queryTerm)
+                query.or(`result_summary.ilike.%${escaped}%,next_step.ilike.%${escaped}%,notes.ilike.%${escaped}%`)
+            }
+
+            const [{ data, count, error }, { data: agendaRows, error: agendaError }] = await Promise.all([
+                query,
+                agendaQuery,
+            ])
+
+            if (error) {
+                throw new Error(error.message || 'Falha ao carregar visitas paginadas.')
+            }
+            if (agendaError) {
+                throw new Error(agendaError.message || 'Falha ao carregar agenda de visitas.')
+            }
+
+            const now = new Date()
+            const startOfToday = new Date(now)
+            startOfToday.setHours(0, 0, 0, 0)
+            const endOfToday = new Date(now)
+            endOfToday.setHours(23, 59, 59, 999)
+            const next7DaysLimit = new Date(endOfToday)
+            next7DaysLimit.setDate(next7DaysLimit.getDate() + 7)
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+            const last7DaysLimit = new Date(now)
+            last7DaysLimit.setDate(last7DaysLimit.getDate() - 7)
+
+            const agenda = (agendaRows || []).reduce<VisitsAgendaSummary>(
+                (acc, row) => {
+                    const visitedTime = new Date(row.visited_at)
+                    if (!Number.isFinite(visitedTime.getTime())) return acc
+
+                    const isOpenFollowUp = row.outcome === 'planned' || row.outcome === 'follow_up'
+                    if (isOpenFollowUp) {
+                        if (visitedTime < startOfToday) {
+                            acc.overdue += 1
+                        } else if (visitedTime <= endOfToday) {
+                            acc.dueToday += 1
+                        } else if (visitedTime <= next7DaysLimit) {
+                            acc.dueNext7Days += 1
+                        }
+                    }
+
+                    if (
+                        (row.outcome === 'converted_quote' || row.outcome === 'converted_order') &&
+                        visitedTime >= startOfMonth
+                    ) {
+                        acc.convertedThisMonth += 1
+                    }
+
+                    if (row.outcome === 'completed' && visitedTime >= last7DaysLimit) {
+                        acc.completedLast7Days += 1
+                    }
+
+                    return acc
+                },
+                {
+                    overdue: 0,
+                    dueToday: 0,
+                    dueNext7Days: 0,
+                    convertedThisMonth: 0,
+                    completedLast7Days: 0,
+                }
+            )
+
+            const total = count || 0
+            const totalPages = Math.max(1, Math.ceil(total / pageSize))
+            return {
+                items: (data || []) as RepresentativeVisit[],
+                total,
+                page: Math.min(page, totalPages),
+                pageSize,
+                totalPages,
+                agenda,
+            } satisfies RepresentativeVisitsPageData
+        },
+        [
+            'rep-visits-page-v2',
+            scopeKey,
+            String(page),
+            String(pageSize),
+            queryTerm,
+            outcome || 'all',
+            storeId || 'all',
+        ],
+        {
+            tags: [getRepresentativeCacheTag(scopeKey, 'visits')],
+            revalidate: 60,
+        }
+    )
+
+    return loadVisitsPage()
 }
 
 export async function getRepresentativeOrderBuilderData() {
@@ -1224,6 +1739,69 @@ export async function validateRepresentativeDraftPricingAction(input: {
     )
 }
 
+async function resolveSourceVisitForDocument(
+    admin: ReturnType<typeof getAdminClient>,
+    scopeRepresentativeId: string | null | undefined,
+    sourceVisitId: string | null | undefined,
+    storeId: string
+) {
+    if (!sourceVisitId) {
+        return { visit: null as null | Pick<RepresentativeVisit, 'id' | 'store_id' | 'generated_quote_id' | 'generated_order_id'> }
+    }
+
+    const visitQuery = admin
+        .from('sales_visits')
+        .select('id, store_id, generated_quote_id, generated_order_id')
+        .eq('id', sourceVisitId)
+
+    if (scopeRepresentativeId) {
+        visitQuery.eq('representative_id', scopeRepresentativeId)
+    }
+
+    const { data: visit, error: visitError } = await visitQuery.maybeSingle()
+    if (visitError) {
+        return { error: visitError.message || 'Falha ao localizar visita de origem.' }
+    }
+    if (!visit) {
+        return { error: 'Visita de origem nao encontrada para este representante.' }
+    }
+    if (visit.store_id !== storeId) {
+        return { error: 'A visita de origem nao pertence ao cliente selecionado.' }
+    }
+
+    return { visit }
+}
+
+async function syncVisitDocumentLinks(
+    admin: ReturnType<typeof getAdminClient>,
+    visit: Pick<RepresentativeVisit, 'id' | 'generated_quote_id' | 'generated_order_id'>,
+    updates: {
+        generatedQuoteId?: string | null
+        generatedOrderId?: string | null
+    }
+) {
+    const nextGeneratedQuoteId = updates.generatedQuoteId ?? visit.generated_quote_id ?? null
+    const nextGeneratedOrderId = updates.generatedOrderId ?? visit.generated_order_id ?? null
+    const nextOutcome: RepresentativeVisit['outcome'] = nextGeneratedOrderId
+        ? 'converted_order'
+        : nextGeneratedQuoteId
+            ? 'converted_quote'
+            : 'follow_up'
+
+    const { error } = await admin
+        .from('sales_visits')
+        .update({
+            generated_quote_id: nextGeneratedQuoteId,
+            generated_order_id: nextGeneratedOrderId,
+            outcome: nextOutcome,
+        })
+        .eq('id', visit.id)
+
+    if (error) {
+        throw new Error(error.message || 'Falha ao atualizar vinculo da visita com documento comercial.')
+    }
+}
+
 export async function createRepresentativeVisitAction(payload: {
     storeId: string
     visitedAt?: string | null
@@ -1274,6 +1852,120 @@ export async function createRepresentativeVisitAction(payload: {
     }
 }
 
+export async function updateRepresentativeVisitAction(payload: {
+    id: string
+    visitedAt?: string | null
+    notes?: string | null
+    resultSummary?: string | null
+    nextStep?: string | null
+    outcome?: RepresentativeVisit['outcome']
+    generatedQuoteId?: string | null
+    generatedOrderId?: string | null
+}) {
+    try {
+        const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+
+        const query = admin
+            .from('sales_visits')
+            .select('id, generated_quote_id, generated_order_id')
+            .eq('id', payload.id)
+
+        if (scopeRepresentativeId) {
+            query.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { data: existingVisit, error: loadError } = await query.maybeSingle()
+        if (loadError) {
+            return { error: loadError.message || 'Falha ao localizar visita para atualizacao.' }
+        }
+        if (!existingVisit) {
+            return { error: 'Visita nao encontrada para este representante.' }
+        }
+
+        const updateData: Record<string, unknown> = {}
+        if (payload.visitedAt !== undefined) updateData.visited_at = payload.visitedAt || new Date().toISOString()
+        if (payload.notes !== undefined) updateData.notes = payload.notes || null
+        if (payload.resultSummary !== undefined) updateData.result_summary = payload.resultSummary || null
+        if (payload.nextStep !== undefined) updateData.next_step = payload.nextStep || null
+        if (payload.outcome !== undefined) updateData.outcome = payload.outcome
+        if (payload.generatedQuoteId !== undefined) updateData.generated_quote_id = payload.generatedQuoteId || null
+        if (payload.generatedOrderId !== undefined) updateData.generated_order_id = payload.generatedOrderId || null
+
+        if (Object.keys(updateData).length === 0) {
+            return { success: true }
+        }
+
+        const generatedQuoteId =
+            payload.generatedQuoteId !== undefined
+                ? payload.generatedQuoteId
+                : (existingVisit.generated_quote_id as string | null)
+        const generatedOrderId =
+            payload.generatedOrderId !== undefined
+                ? payload.generatedOrderId
+                : (existingVisit.generated_order_id as string | null)
+
+        if (payload.outcome === undefined && (payload.generatedQuoteId !== undefined || payload.generatedOrderId !== undefined)) {
+            if (generatedOrderId) {
+                updateData.outcome = 'converted_order'
+            } else if (generatedQuoteId) {
+                updateData.outcome = 'converted_quote'
+            }
+        }
+
+        const { data: updatedVisit, error: updateError } = await admin
+            .from('sales_visits')
+            .update(updateData)
+            .eq('id', payload.id)
+            .select('*')
+            .single()
+
+        if (updateError || !updatedVisit) {
+            return { error: updateError?.message || 'Falha ao atualizar visita.' }
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['visits', 'dashboard'])
+        return { success: true, visit: updatedVisit }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao atualizar visita.' }
+    }
+}
+
+export async function deleteRepresentativeVisitAction(visitId: string) {
+    try {
+        const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+        const query = admin
+            .from('sales_visits')
+            .select('id')
+            .eq('id', visitId)
+
+        if (scopeRepresentativeId) {
+            query.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { data: visit, error: visitError } = await query.maybeSingle()
+        if (visitError) {
+            return { error: visitError.message || 'Falha ao localizar visita para exclusao.' }
+        }
+        if (!visit) {
+            return { error: 'Visita nao encontrada para este representante.' }
+        }
+
+        const { error: deleteError } = await admin
+            .from('sales_visits')
+            .delete()
+            .eq('id', visitId)
+
+        if (deleteError) {
+            return { error: deleteError.message || 'Falha ao excluir visita.' }
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['visits', 'dashboard'])
+        return { success: true }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao excluir visita.' }
+    }
+}
+
 async function persistRepresentativeDocument(
     mode: 'order' | 'quote',
     payload: RepresentativeDocumentPayload
@@ -1285,6 +1977,17 @@ async function persistRepresentativeDocument(
         if (!store) {
             return { error: 'Cliente nao disponivel para este representante.' }
         }
+
+        const sourceVisitResult = await resolveSourceVisitForDocument(
+            admin,
+            scopeRepresentativeId,
+            payload.sourceVisitId || null,
+            store.id
+        )
+        if (sourceVisitResult.error) {
+            return { error: sourceVisitResult.error }
+        }
+        const sourceVisit = sourceVisitResult.visit
 
         const representativePolicy = scopeRepresentativeId
             ? await getRepresentativeCommercialPolicy(admin, scopeRepresentativeId)
@@ -1500,8 +2203,178 @@ async function persistRepresentativeDocument(
                 return { error: error?.message || 'Falha ao criar pedido do representante.' }
             }
 
-            revalidateRepresentativeSegments(scopeRepresentativeId, ['orders', 'customers', 'dashboard'])
+            if (sourceVisit) {
+                await syncVisitDocumentLinks(admin, sourceVisit, {
+                    generatedOrderId: result.order_id,
+                })
+            }
+
+            revalidateRepresentativeSegments(scopeRepresentativeId, ['orders', 'customers', 'visits', 'dashboard'])
             return { success: true, orderId: result.order_id, orderNumber: result.order_number }
+        }
+
+        if (payload.quoteId) {
+            const quoteQuery = admin
+                .from('sales_quotes')
+                .select('id, quote_number, status, representative_id, items:sales_quote_items(*)')
+                .eq('id', payload.quoteId)
+
+            if (scopeRepresentativeId) {
+                quoteQuery.eq('representative_id', scopeRepresentativeId)
+            }
+
+            const { data: existingQuote, error: existingQuoteError } = await quoteQuery.maybeSingle()
+            if (existingQuoteError) {
+                return { error: existingQuoteError.message || 'Falha ao localizar orcamento para edicao.' }
+            }
+            if (!existingQuote) {
+                return { error: 'Orcamento nao encontrado para este representante.' }
+            }
+            if (existingQuote.status === 'converted') {
+                return { error: 'Nao e possivel editar um orcamento convertido em pedido.' }
+            }
+            if (existingQuote.status === 'cancelled') {
+                return { error: 'Nao e possivel editar um orcamento cancelado.' }
+            }
+
+            const [storeSnapshotRes, customerProfileRes, priceTableRes] = await Promise.all([
+                admin
+                    .from('stores')
+                    .select('company_name, customer_code')
+                    .eq('id', store.id)
+                    .maybeSingle(),
+                admin
+                    .from('profiles')
+                    .select('full_name')
+                    .eq('id', store.profile_id)
+                    .maybeSingle(),
+                effectivePriceTableId
+                    ? admin
+                        .from('price_tables')
+                        .select('name')
+                        .eq('id', effectivePriceTableId)
+                        .maybeSingle()
+                    : Promise.resolve({ data: null, error: null } as const),
+            ])
+
+            if (storeSnapshotRes.error) {
+                return { error: storeSnapshotRes.error.message || 'Falha ao carregar dados do cliente para atualizar o orcamento.' }
+            }
+            if (customerProfileRes.error) {
+                return { error: customerProfileRes.error.message || 'Falha ao carregar dados de contato do cliente para atualizar o orcamento.' }
+            }
+            if (priceTableRes.error) {
+                return { error: priceTableRes.error.message || 'Falha ao carregar tabela de preco para atualizar o orcamento.' }
+            }
+
+            const { error: updateQuoteError } = await admin
+                .from('sales_quotes')
+                .update({
+                    store_id: store.id,
+                    customer_profile_id: store.profile_id,
+                    representative_id: existingQuote.representative_id,
+                    price_table_id: effectivePriceTableId,
+                    status: 'draft',
+                    payment_method_id: paymentSelection.data?.paymentMethodId || null,
+                    payment_condition_id: paymentSelection.data?.paymentConditionId || null,
+                    payment_rule_id: paymentSelection.data?.paymentRuleId || null,
+                    payment_method_condition_id: paymentSelection.data?.paymentMethodConditionId || null,
+                    payment_method_code: paymentSelection.data?.paymentMethodCode || null,
+                    payment_method_name: paymentSelection.data?.paymentMethodName || null,
+                    payment_condition_name: paymentSelection.data?.paymentConditionName || null,
+                    payment_condition_description: paymentSelection.data?.paymentConditionDescription || null,
+                    payment_installments: paymentSelection.data?.paymentInstallments || null,
+                    payment_discount_percentage: paymentDiscountPercentage,
+                    payment_surcharge_percentage: paymentSurchargePercentage,
+                    subtotal,
+                    payment_discount_amount: paymentDiscountAmount,
+                    negotiation_discount_percentage: effectiveNegotiationDiscountPercentage,
+                    negotiation_discount_amount: negotiation.discountAmount,
+                    negotiation_surcharge_amount: negotiation.surchargeAmount,
+                    total,
+                    notes: payload.notes || null,
+                    shipping_address: shippingAddress,
+                    negotiation_reason: payload.negotiationReason || null,
+                    converted_order_id: null,
+                    customer_name_snapshot: customerProfileRes.data?.full_name || null,
+                    customer_code_snapshot: storeSnapshotRes.data?.customer_code || null,
+                    company_name_snapshot: storeSnapshotRes.data?.company_name || null,
+                    price_table_name_snapshot: priceTableRes.data?.name || null,
+                })
+                .eq('id', payload.quoteId)
+
+            if (updateQuoteError) {
+                return { error: updateQuoteError.message || 'Falha ao atualizar orcamento.' }
+            }
+
+            const previousItems = (existingQuote.items || []) as Array<{
+                product_variant_id: string
+                size_option_id: string | null
+                product_name: string
+                fabric_name: string
+                color_name: string
+                size: string | null
+                size_name: string | null
+                quantity: number
+                unit_price: number
+                product_price: number | null
+                size_price: number | null
+                variation_price: number | null
+                final_price: number | null
+                subtotal: number
+            }>
+
+            const { error: deleteItemsError } = await admin
+                .from('sales_quote_items')
+                .delete()
+                .eq('quote_id', payload.quoteId)
+
+            if (deleteItemsError) {
+                return { error: deleteItemsError.message || 'Falha ao atualizar itens do orcamento.' }
+            }
+
+            const { error: insertItemsError } = await admin
+                .from('sales_quote_items')
+                .insert(itemsPayload.map((item) => ({ ...item, quote_id: payload.quoteId })))
+
+            if (insertItemsError) {
+                if (previousItems.length > 0) {
+                    await admin.from('sales_quote_items').insert(
+                        previousItems.map((item) => ({
+                            quote_id: payload.quoteId as string,
+                            product_variant_id: item.product_variant_id,
+                            size_option_id: item.size_option_id,
+                            product_name: item.product_name,
+                            fabric_name: item.fabric_name,
+                            color_name: item.color_name,
+                            size: item.size,
+                            size_name: item.size_name,
+                            quantity: item.quantity,
+                            unit_price: item.unit_price,
+                            product_price: item.product_price,
+                            size_price: item.size_price,
+                            variation_price: item.variation_price,
+                            final_price: item.final_price,
+                            subtotal: item.subtotal,
+                        }))
+                    )
+                }
+
+                return { error: insertItemsError.message || 'Falha ao salvar os novos itens do orcamento.' }
+            }
+
+            if (sourceVisit) {
+                await syncVisitDocumentLinks(admin, sourceVisit, {
+                    generatedQuoteId: payload.quoteId,
+                })
+            }
+
+            revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'visits', 'dashboard'])
+            return {
+                success: true,
+                quoteId: payload.quoteId,
+                quoteNumber: existingQuote.quote_number,
+            }
         }
 
         const { data, error } = await supabase.rpc('representative_create_quote_atomic', {
@@ -1536,7 +2409,13 @@ async function persistRepresentativeDocument(
             return { error: error?.message || 'Falha ao criar orcamento do representante.' }
         }
 
-        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'dashboard'])
+        if (sourceVisit) {
+            await syncVisitDocumentLinks(admin, sourceVisit, {
+                generatedQuoteId: result.quote_id,
+            })
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'visits', 'dashboard'])
         return { success: true, quoteId: result.quote_id, quoteNumber: result.quote_number }
     } catch (error) {
         return { error: error instanceof Error ? error.message : 'Falha ao salvar documento comercial.' }
@@ -1551,9 +2430,208 @@ export async function saveRepresentativeQuoteAction(payload: RepresentativeDocum
     return persistRepresentativeDocument('quote', payload)
 }
 
+export async function cancelRepresentativeQuoteAction(quoteId: string) {
+    try {
+        const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+        const query = admin
+            .from('sales_quotes')
+            .select('id, status')
+            .eq('id', quoteId)
+
+        if (scopeRepresentativeId) {
+            query.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { data: quote, error: quoteError } = await query.maybeSingle()
+        if (quoteError) {
+            return { error: quoteError.message || 'Falha ao localizar orcamento.' }
+        }
+        if (!quote) {
+            return { error: 'Orcamento nao encontrado para este representante.' }
+        }
+        if (quote.status === 'converted') {
+            return { error: 'Nao e possivel cancelar um orcamento ja convertido.' }
+        }
+        if (quote.status === 'cancelled') {
+            return { success: true }
+        }
+
+        const { error: updateError } = await admin
+            .from('sales_quotes')
+            .update({ status: 'cancelled' })
+            .eq('id', quoteId)
+
+        if (updateError) {
+            return { error: updateError.message || 'Falha ao cancelar orcamento.' }
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'dashboard'])
+        return { success: true }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao cancelar orcamento.' }
+    }
+}
+
+export async function duplicateRepresentativeQuoteAction(quoteId: string) {
+    try {
+        const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+        const query = admin
+            .from('sales_quotes')
+            .select('*, items:sales_quote_items(*, product_variant:product_variants(product_id, image_url))')
+            .eq('id', quoteId)
+
+        if (scopeRepresentativeId) {
+            query.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { data: quote, error: quoteError } = await query.maybeSingle()
+        if (quoteError) {
+            return { error: quoteError.message || 'Falha ao localizar orcamento para duplicacao.' }
+        }
+        if (!quote) {
+            return { error: 'Orcamento nao encontrado para este representante.' }
+        }
+
+        const { data: duplicatedQuote, error: duplicatedQuoteError } = await admin
+            .from('sales_quotes')
+            .insert({
+                store_id: quote.store_id,
+                customer_profile_id: quote.customer_profile_id,
+                representative_id: quote.representative_id,
+                price_table_id: quote.price_table_id,
+                status: 'draft',
+                payment_method_id: quote.payment_method_id,
+                payment_condition_id: quote.payment_condition_id,
+                payment_rule_id: quote.payment_rule_id,
+                payment_method_condition_id: quote.payment_method_condition_id,
+                payment_method_code: quote.payment_method_code,
+                payment_method_name: quote.payment_method_name,
+                payment_condition_name: quote.payment_condition_name,
+                payment_condition_description: quote.payment_condition_description,
+                payment_installments: quote.payment_installments,
+                payment_discount_percentage: quote.payment_discount_percentage,
+                payment_surcharge_percentage: quote.payment_surcharge_percentage,
+                subtotal: quote.subtotal,
+                payment_discount_amount: quote.payment_discount_amount,
+                negotiation_discount_percentage: quote.negotiation_discount_percentage,
+                negotiation_discount_amount: quote.negotiation_discount_amount,
+                negotiation_surcharge_amount: quote.negotiation_surcharge_amount,
+                total: quote.total,
+                notes: quote.notes,
+                shipping_address: quote.shipping_address,
+                negotiation_reason: quote.negotiation_reason,
+                converted_order_id: null,
+                customer_name_snapshot: quote.customer_name_snapshot,
+                customer_code_snapshot: quote.customer_code_snapshot,
+                company_name_snapshot: quote.company_name_snapshot,
+                price_table_name_snapshot: quote.price_table_name_snapshot,
+            })
+            .select('id, quote_number')
+            .single()
+
+        if (duplicatedQuoteError || !duplicatedQuote) {
+            return { error: duplicatedQuoteError?.message || 'Falha ao duplicar orcamento.' }
+        }
+
+        const sourceItems = (quote.items || []) as Array<{
+            product_variant_id: string
+            size_option_id: string | null
+            product_name: string
+            fabric_name: string
+            color_name: string
+            size: string | null
+            size_name: string | null
+            quantity: number
+            unit_price: number
+            product_price: number | null
+            size_price: number | null
+            variation_price: number | null
+            final_price: number | null
+            subtotal: number
+        }>
+
+        if (sourceItems.length > 0) {
+            const { error: itemsError } = await admin
+                .from('sales_quote_items')
+                .insert(
+                    sourceItems.map((item) => ({
+                        quote_id: duplicatedQuote.id,
+                        product_variant_id: item.product_variant_id,
+                        size_option_id: item.size_option_id,
+                        product_name: item.product_name,
+                        fabric_name: item.fabric_name,
+                        color_name: item.color_name,
+                        size: item.size,
+                        size_name: item.size_name,
+                        quantity: item.quantity,
+                        unit_price: item.unit_price,
+                        product_price: item.product_price,
+                        size_price: item.size_price,
+                        variation_price: item.variation_price,
+                        final_price: item.final_price,
+                        subtotal: item.subtotal,
+                    }))
+                )
+
+            if (itemsError) {
+                await admin.from('sales_quotes').delete().eq('id', duplicatedQuote.id)
+                return { error: itemsError.message || 'Falha ao duplicar itens do orcamento.' }
+            }
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'dashboard'])
+        return {
+            success: true,
+            quoteId: duplicatedQuote.id as string,
+            quoteNumber: duplicatedQuote.quote_number as string | null,
+        }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao duplicar orcamento.' }
+    }
+}
+
+export async function deleteRepresentativeQuoteAction(quoteId: string) {
+    try {
+        const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
+        const query = admin
+            .from('sales_quotes')
+            .select('id, status')
+            .eq('id', quoteId)
+
+        if (scopeRepresentativeId) {
+            query.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { data: quote, error: quoteError } = await query.maybeSingle()
+        if (quoteError) {
+            return { error: quoteError.message || 'Falha ao localizar orcamento para exclusao.' }
+        }
+        if (!quote) {
+            return { error: 'Orcamento nao encontrado para este representante.' }
+        }
+        if (quote.status === 'converted') {
+            return { error: 'Nao e possivel excluir um orcamento convertido em pedido.' }
+        }
+
+        const { error: deleteError } = await admin
+            .from('sales_quotes')
+            .delete()
+            .eq('id', quoteId)
+
+        if (deleteError) {
+            return { error: deleteError.message || 'Falha ao excluir orcamento.' }
+        }
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'visits', 'dashboard'])
+        return { success: true }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Falha ao excluir orcamento.' }
+    }
+}
+
 export async function convertRepresentativeQuoteToOrderAction(quoteId: string) {
     try {
-        const { supabase, scopeRepresentativeId } = await requireRepresentativeContext()
+        const { admin, supabase, scopeRepresentativeId } = await requireRepresentativeContext()
 
         const { data, error } = await supabase.rpc('representative_convert_quote_to_order_atomic', {
             p_quote_id: quoteId,
@@ -1565,7 +2643,20 @@ export async function convertRepresentativeQuoteToOrderAction(quoteId: string) {
             return { error: error?.message || 'Falha ao converter orcamento em pedido.' }
         }
 
-        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'orders', 'customers', 'dashboard'])
+        const linkedVisitsQuery = admin
+            .from('sales_visits')
+            .update({
+                generated_order_id: result.order_id,
+                outcome: 'converted_order',
+            })
+            .eq('generated_quote_id', quoteId)
+
+        if (scopeRepresentativeId) {
+            linkedVisitsQuery.eq('representative_id', scopeRepresentativeId)
+        }
+        await linkedVisitsQuery
+
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'orders', 'customers', 'visits', 'dashboard'])
         return { success: true, orderId: result.order_id, orderNumber: result.order_number }
     } catch (error) {
         return { error: error instanceof Error ? error.message : 'Falha ao converter orcamento.' }
@@ -1609,7 +2700,7 @@ export async function createCustomerAsRepresentativeTx(data: {
     } = data
 
     if (!email || !fullName || !companyName || !cnpj) {
-        return { error: 'Campos obrigatórios faltando.' }
+        return { error: 'Campos obrigatÃƒÂ³rios faltando.' }
     }
 
     try {
@@ -1625,7 +2716,7 @@ export async function createCustomerAsRepresentativeTx(data: {
             .maybeSingle()
 
         if (existingProfileByEmail?.id) {
-            return { error: 'Este email já está cadastrado.' }
+            return { error: 'Este email jÃƒÂ¡ estÃƒÂ¡ cadastrado.' }
         }
 
         // 2. Create user in Auth
@@ -1640,9 +2731,9 @@ export async function createCustomerAsRepresentativeTx(data: {
         })
 
         if (authError || !authData?.user?.id) {
-            let errorMsg = 'Falha ao criar usuário.'
+            let errorMsg = 'Falha ao criar usuÃƒÂ¡rio.'
             if (authError?.message?.toLowerCase().includes('already registered')) {
-                errorMsg = 'Este email já está cadastrado.'
+                errorMsg = 'Este email jÃƒÂ¡ estÃƒÂ¡ cadastrado.'
             }
             throw new Error(errorMsg)
         }
@@ -1718,7 +2809,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
     } = data
 
     if (!email || !fullName || !companyName || !cnpj) {
-        return { error: 'Campos obrigatórios faltando.' }
+        return { error: 'Campos obrigatÃƒÂ³rios faltando.' }
     }
 
     try {
@@ -1736,7 +2827,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
         }
 
         if (!profileId) {
-            return { error: 'Cadastro base do cliente não encontrado.' }
+            return { error: 'Cadastro base do cliente nÃƒÂ£o encontrado.' }
         }
 
         // 2. Verify if it belongs to representative
@@ -1748,7 +2839,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
             .single()
 
         if (loadError || !storeToUpdate) {
-            return { error: 'Cliente não encontrado.' }
+            return { error: 'Cliente nÃƒÂ£o encontrado.' }
         }
 
         if (scopeRepresentativeId && storeToUpdate.representative_id && storeToUpdate.representative_id !== scopeRepresentativeId) {
@@ -1765,7 +2856,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
             .single()
 
         if (currentProfileError || !currentProfile) {
-            return { error: 'Cadastro base do cliente não encontrado.' }
+            return { error: 'Cadastro base do cliente nÃƒÂ£o encontrado.' }
         }
 
         if ((currentProfile.email || '').toLowerCase() !== normalizedEmail) {
@@ -1778,7 +2869,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
                 .maybeSingle()
 
             if (existingProfileByEmail?.id) {
-                return { error: 'Este email já está sendo utilizado por outro cadastro.' }
+                return { error: 'Este email jÃƒÂ¡ estÃƒÂ¡ sendo utilizado por outro cadastro.' }
             }
 
             const { error: authUpdateError } = await admin.auth.admin.updateUserById(profileId, {
@@ -1824,3 +2915,4 @@ export async function updateCustomerAsRepresentativeTx(data: {
         return { error: msg }
     }
 }
+

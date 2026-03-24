@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2, ChevronLeft, ChevronRight, Copy, FileDown, FileText, Home, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Plus, Search, Share2, ShoppingBag, Users } from 'lucide-react'
 import { toast } from 'sonner'
@@ -37,7 +37,22 @@ import { usePricingValidation } from '@/components/sales/order-builder/hooks/use
 import { SectionRow } from '@/components/sales/order-builder/components/section-row'
 import { CompletionActionRow } from '@/components/sales/order-builder/components/completion-action-row'
 import { ItemsList } from '@/components/sales/order-builder/components/items-list'
-import type { BuilderCustomer, BuilderProduct } from '@/components/sales/order-builder/types'
+import type { BuilderCustomer, BuilderProduct, DiscountType, DraftItem } from '@/components/sales/order-builder/types'
+
+export type RepresentativeOrderBuilderInitialDraft = {
+  quoteId?: string | null
+  sourceVisitId?: string | null
+  items?: DraftItem[]
+  notes?: string
+  selectedPriceTableId?: string | null
+  selectedAddressId?: string | null
+  discountType?: DiscountType
+  discountValue?: string
+  surchargeValue?: string
+  negotiationReason?: string
+  selectedPaymentMethodId?: string | null
+  selectedPaymentId?: string | null
+}
 
 type CompletionData = {
   order: Order
@@ -53,6 +68,7 @@ function formatCurrency(value: number) {
 export function RepresentativeOrderBuilder({
   mode,
   initialCustomerId,
+  initialDraft,
   customers,
   products,
   categories,
@@ -61,6 +77,7 @@ export function RepresentativeOrderBuilder({
 }: {
   mode: 'order' | 'quote'
   initialCustomerId?: string
+  initialDraft?: RepresentativeOrderBuilderInitialDraft
   customers: BuilderCustomer[]
   products: BuilderProduct[]
   categories: Category[]
@@ -68,7 +85,7 @@ export function RepresentativeOrderBuilder({
   customerTypes: CustomerType[]
 }) {
   const router = useRouter()
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes] = useState(initialDraft?.notes || '')
   const [customerSearch, setCustomerSearch] = useState('')
   const [isCustomerSearchActive, setIsCustomerSearchActive] = useState(false)
   const [isCustomerSheetOpen, setIsCustomerSheetOpen] = useState(false)
@@ -83,9 +100,11 @@ export function RepresentativeOrderBuilder({
   const [completionPdfLoading, setCompletionPdfLoading] = useState(false)
   const [completionWhatsAppLoading, setCompletionWhatsAppLoading] = useState(false)
   const [completionShareLoading, setCompletionShareLoading] = useState(false)
+  const [sourceVisitId, setSourceVisitId] = useState(initialDraft?.sourceVisitId || null)
 
   /* --- Mobile section visibility --- */
   const [openSection, setOpenSection] = useState<'customer' | 'products' | 'negotiation' | 'payment' | 'notes' | null>(null)
+
 
   const {
     selectedStore,
@@ -102,11 +121,25 @@ export function RepresentativeOrderBuilder({
     customers,
     priceTables,
     initialCustomerId,
+    initialItems: initialDraft?.items,
+    initialAddressId: initialDraft?.selectedAddressId,
+    initialPriceTableId: initialDraft?.selectedPriceTableId,
   })
+
+  useEffect(() => {
+    if (!sourceVisitId) return
+    if (!initialCustomerId) return
+    if (!selectedStoreId) return
+    if (selectedStoreId !== initialCustomerId) {
+      setSourceVisitId(null)
+    }
+  }, [initialCustomerId, selectedStoreId, sourceVisitId])
 
   const {
     pricingPending,
-    paymentGroups,    setSelectedPaymentMethodId,    setSelectedPaymentId,
+    paymentGroups,
+    setSelectedPaymentMethodId,
+    setSelectedPaymentId,
     effectivePaymentMethodId,
     selectedMethodGroup,
     paymentOptions,
@@ -117,6 +150,8 @@ export function RepresentativeOrderBuilder({
     selectedPriceTableId,
     items,
     setItems,
+    initialSelectedPaymentMethodId: initialDraft?.selectedPaymentMethodId,
+    initialSelectedPaymentId: initialDraft?.selectedPaymentId,
   })
 
   const filteredCustomers = useMemo(() => customers.filter((c) => {
@@ -147,6 +182,10 @@ export function RepresentativeOrderBuilder({
   } = usePaymentSelection({
     subtotal,
     selectedPaymentOption,
+    initialDiscountType: initialDraft?.discountType,
+    initialDiscountValue: initialDraft?.discountValue,
+    initialSurchargeValue: initialDraft?.surchargeValue,
+    initialNegotiationReason: initialDraft?.negotiationReason,
   })
 
   const handleCatalogConfirm = (payload: CatalogOverlayConfirmPayload) => {
@@ -307,6 +346,8 @@ export function RepresentativeOrderBuilder({
     startSubmitting(async () => {
       try {
         const payload = {
+          quoteId: target === 'quote' ? initialDraft?.quoteId || null : null,
+          sourceVisitId,
           storeId: selectedStoreId,
           priceTableId: selectedPriceTableId || null,
           selectedPaymentId: effectivePaymentId || null,
