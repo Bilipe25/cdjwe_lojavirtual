@@ -64,6 +64,36 @@ type InactivityFilter = 'all' | '30' | '60' | '90' | 'no_order'
 type SortMode = 'inactivity_desc' | 'name_asc' | 'recent_order_desc'
 type SegmentMode = 'all' | 'reactivation_90' | 'hot_30' | 'never_ordered'
 
+const stateLabelMap: Record<string, string> = {
+  AC: 'Acre',
+  AL: 'Alagoas',
+  AP: 'Amapa',
+  AM: 'Amazonas',
+  BA: 'Bahia',
+  CE: 'Ceara',
+  DF: 'Distrito Federal',
+  ES: 'Espirito Santo',
+  GO: 'Goias',
+  MA: 'Maranhao',
+  MT: 'Mato Grosso',
+  MS: 'Mato Grosso do Sul',
+  MG: 'Minas Gerais',
+  PA: 'Para',
+  PB: 'Paraiba',
+  PR: 'Parana',
+  PE: 'Pernambuco',
+  PI: 'Piaui',
+  RJ: 'Rio de Janeiro',
+  RN: 'Rio Grande do Norte',
+  RS: 'Rio Grande do Sul',
+  RO: 'Rondonia',
+  RR: 'Roraima',
+  SC: 'Santa Catarina',
+  SP: 'Sao Paulo',
+  SE: 'Sergipe',
+  TO: 'Tocantins',
+}
+
 function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
@@ -87,6 +117,27 @@ function getSegmentLabel(segment: SegmentMode) {
   if (segment === 'hot_30') return 'Ativos 30d'
   if (segment === 'never_ordered') return 'Nunca comprou'
   return 'Todos'
+}
+
+function getStateLabel(stateCode: string) {
+  const normalized = stateCode.trim().toUpperCase()
+  if (!normalized) return ''
+  const label = stateLabelMap[normalized]
+  return label ? `${label} (${normalized})` : normalized
+}
+
+function getInactivityFilterLabel(value: InactivityFilter) {
+  if (value === '30') return 'Sem pedido 30+ dias'
+  if (value === '60') return 'Sem pedido 60+ dias'
+  if (value === '90') return 'Sem pedido 90+ dias'
+  if (value === 'no_order') return 'Nunca comprou'
+  return 'Todas as faixas'
+}
+
+function getSortModeLabel(value: SortMode) {
+  if (value === 'recent_order_desc') return 'Compra mais recente'
+  if (value === 'name_asc') return 'Nome (A-Z)'
+  return 'Maior inatividade'
 }
 
 function getPriorityBadge(level?: 'high' | 'medium' | 'low') {
@@ -254,6 +305,10 @@ export function RepresentativeCustomersPage({
   }
 
   const compactStates = useMemo(() => ['all', ...availableStates], [availableStates])
+  const selectedCustomerTypeLabel = useMemo(() => {
+    if (customerTypeFilter === 'all') return 'Todos os tipos'
+    return availableCustomerTypes.find((item) => item.id === customerTypeFilter)?.name || 'Tipo selecionado'
+  }, [availableCustomerTypes, customerTypeFilter])
 
   return (
     <div className="space-y-4">
@@ -332,12 +387,12 @@ export function RepresentativeCustomersPage({
             }}
           >
             <SelectTrigger className="h-10 rounded-xl border-border text-sm">
-              <SelectValue placeholder="Estado" />
+              <SelectValue placeholder="Estado">{stateFilter === 'all' ? 'Todos os estados' : getStateLabel(stateFilter)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {compactStates.map((stateCode) => (
                 <SelectItem key={stateCode} value={stateCode}>
-                  {stateCode === 'all' ? 'Todos os estados' : stateCode}
+                  {stateCode === 'all' ? 'Todos os estados' : getStateLabel(stateCode)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -352,7 +407,7 @@ export function RepresentativeCustomersPage({
             }}
           >
             <SelectTrigger className="h-10 rounded-xl border-border text-sm">
-              <SelectValue placeholder="Tipo de cliente" />
+              <SelectValue placeholder="Tipo de cliente">{selectedCustomerTypeLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os tipos</SelectItem>
@@ -374,7 +429,7 @@ export function RepresentativeCustomersPage({
             }}
           >
             <SelectTrigger className="h-10 rounded-xl border-border text-sm">
-              <SelectValue placeholder="Inatividade" />
+              <SelectValue placeholder="Inatividade">{getInactivityFilterLabel(inactivityFilter)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas as faixas</SelectItem>
@@ -394,7 +449,7 @@ export function RepresentativeCustomersPage({
             }}
           >
             <SelectTrigger className="h-10 rounded-xl border-border text-sm">
-              <SelectValue placeholder="Ordenacao" />
+              <SelectValue placeholder="Ordenacao">{getSortModeLabel(sortMode)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="inactivity_desc">Maior inatividade</SelectItem>
@@ -540,6 +595,11 @@ export function RepresentativeCustomersPage({
     </div>
   )
 }
+
+
+
+
+
 
 
 

@@ -61,6 +61,11 @@ const statusLabel: Record<SalesQuoteStatus, string> = {
   cancelled: 'Cancelado',
 }
 
+function getStatusFilterLabel(value: SalesQuoteStatus | 'all') {
+  if (value === 'all') return 'Todos os status'
+  return statusLabel[value]
+}
+
 function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
@@ -331,7 +336,7 @@ export function RepresentativeQuotesPage({
 
           <Select value={status} onValueChange={(value) => setStatusFilter((value || 'all') as SalesQuoteStatus | 'all')}>
             <SelectTrigger className="h-10 w-full rounded-xl border-border text-sm sm:w-[180px]">
-              <SelectValue placeholder="Status" />
+              <SelectValue placeholder="Status">{getStatusFilterLabel(status)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os status</SelectItem>
@@ -497,3 +502,4 @@ export function RepresentativeQuotesPage({
     </div>
   )
 }
+

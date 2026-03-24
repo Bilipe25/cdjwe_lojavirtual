@@ -66,6 +66,11 @@ const outcomeDot: Record<RepresentativeVisit['outcome'], string> = {
   converted_order: 'bg-bronze',
 }
 
+function getOutcomeFilterLabel(value: RepresentativeVisitOutcome | 'all') {
+  if (value === 'all') return 'Todos os resultados'
+  return outcomeLabels[value]
+}
+
 function toDateTimeLocalValue(value: string) {
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return ''
@@ -127,6 +132,10 @@ export function RepresentativeVisitsPage({
     () => [...customers].sort((a, b) => a.company_name.localeCompare(b.company_name, 'pt-BR')),
     [customers]
   )
+  const selectedCustomerFilterLabel = useMemo(() => {
+    if (customerFilter === 'all') return 'Todos os clientes'
+    return sortedCustomers.find((customer) => customer.id === customerFilter)?.company_name || 'Cliente selecionado'
+  }, [customerFilter, sortedCustomers])
 
   useEffect(() => {
     setSearch(initialQuery)
@@ -406,7 +415,7 @@ export function RepresentativeVisitsPage({
             onValueChange={(value) => setOutcomeUrlFilter((value || 'all') as RepresentativeVisitOutcome | 'all')}
           >
             <SelectTrigger className="h-10 w-full rounded-xl border-border text-sm sm:w-[180px]">
-              <SelectValue placeholder="Resultado" />
+              <SelectValue placeholder="Resultado">{getOutcomeFilterLabel(outcomeFilter)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os resultados</SelectItem>
@@ -420,7 +429,7 @@ export function RepresentativeVisitsPage({
 
           <Select value={customerFilter} onValueChange={(value) => setCustomerUrlFilter(value || 'all')}>
             <SelectTrigger className="h-10 w-full rounded-xl border-border text-sm sm:w-[220px]">
-              <SelectValue placeholder="Cliente" />
+              <SelectValue placeholder="Cliente">{selectedCustomerFilterLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os clientes</SelectItem>
@@ -749,3 +758,5 @@ export function RepresentativeVisitsPage({
     </div>
   )
 }
+
+
