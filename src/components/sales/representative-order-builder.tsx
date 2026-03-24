@@ -2,8 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
-import { CheckCircle2, ChevronLeft, ChevronRight, Copy, FileDown, FileText, Home, Loader2, Mail, MapPin, MessageCircle, Minus, Package, Pencil, Phone, Plus, Search, Share2, ShoppingBag, Trash2, Users } from 'lucide-react'
+import { CheckCircle2, ChevronLeft, ChevronRight, Copy, FileDown, FileText, Home, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Plus, Search, Share2, ShoppingBag, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
   Category,
@@ -35,7 +34,10 @@ import { cn, getWhatsAppLink } from '@/lib/utils'
 import { useOrderDraft } from '@/components/sales/order-builder/hooks/use-order-draft'
 import { usePaymentSelection } from '@/components/sales/order-builder/hooks/use-payment-selection'
 import { usePricingValidation } from '@/components/sales/order-builder/hooks/use-pricing-validation'
-import type { BuilderCustomer, BuilderProduct, DraftItem } from '@/components/sales/order-builder/types'
+import { SectionRow } from '@/components/sales/order-builder/components/section-row'
+import { CompletionActionRow } from '@/components/sales/order-builder/components/completion-action-row'
+import { ItemsList } from '@/components/sales/order-builder/components/items-list'
+import type { BuilderCustomer, BuilderProduct } from '@/components/sales/order-builder/types'
 
 type CompletionData = {
   order: Order
@@ -47,63 +49,7 @@ function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Section row (mobile native style Ã¢â‚¬â€ label + chevron) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
-function SectionRow({ label, value, highlight, onClick }: { label: string; value?: string; highlight?: boolean; onClick?: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'flex w-full items-center justify-between gap-3 border-b border-border/30 px-4 py-3.5 text-left transition-colors hover:bg-muted/40',
-        highlight && 'bg-primary/5'
-      )}
-    >
-      <div className="min-w-0">
-        <p className="text-[11px] text-muted-foreground">{label}</p>
-        {value && <p className={cn('mt-0.5 text-sm font-semibold', highlight ? 'text-primary' : 'text-foreground')}>{value}</p>}
-      </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-    </button>
-  )
-}
-
-function CompletionActionRow({
-  icon: Icon,
-  label,
-  description,
-  onClick,
-  busy,
-  last,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  description?: string
-  onClick: () => void
-  busy?: boolean
-  last?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={Boolean(busy)}
-      className={cn(
-        'group flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60',
-        !last && 'border-b border-border/40'
-      )}
-    >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-        {busy ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <Icon className="h-5 w-5 text-primary" />}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-foreground">{label}</p>
-        {description ? <p className="mt-0.5 text-xs text-muted-foreground">{description}</p> : null}
-      </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
-    </button>
-  )
-}
-
+/* --- Section row (mobile native style - label + chevron) --- */
 export function RepresentativeOrderBuilder({
   mode,
   initialCustomerId,
@@ -138,7 +84,7 @@ export function RepresentativeOrderBuilder({
   const [completionWhatsAppLoading, setCompletionWhatsAppLoading] = useState(false)
   const [completionShareLoading, setCompletionShareLoading] = useState(false)
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Mobile section visibility Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* --- Mobile section visibility --- */
   const [openSection, setOpenSection] = useState<'customer' | 'products' | 'negotiation' | 'payment' | 'notes' | null>(null)
 
   const {
@@ -257,7 +203,7 @@ export function RepresentativeOrderBuilder({
         toast.error(result.error || 'Erro ao salvar cliente.')
       }
     } catch {
-      toast.error('Erro de conexÃƒÂ£o ao salvar cliente.')
+      toast.error('Erro de conexao ao salvar cliente.')
     } finally {
       setCustomerSaving(false)
     }
@@ -425,7 +371,7 @@ export function RepresentativeOrderBuilder({
     })
   }
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Mobile view (list of sections with chevrons) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* --- Mobile view (list of sections with chevrons) --- */
   const mobileContent = (
     <div className="flex flex-col min-h-[calc(100dvh-140px)] xl:hidden">
       <div className="flex-1 divide-y divide-border/30 rounded-2xl border border-border/40 bg-card">
@@ -444,7 +390,7 @@ export function RepresentativeOrderBuilder({
               </div>
               <Button variant="outline" size="sm" onClick={() => { setEditingStore(selectedStore); setIsCustomerFormOpen(true) }} className="h-9 rounded-xl border-border bg-card text-primary font-semibold">Editar</Button>
             </div>
-            <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm"><SelectValue placeholder="EndereÃƒÂ§o">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select>
+            <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm"><SelectValue placeholder="Endereco">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select>
           </div>
         )}
 
@@ -459,7 +405,7 @@ export function RepresentativeOrderBuilder({
 
         {/* Negotiation */}
         <SectionRow
-          label="NegociaÃƒÂ§ÃƒÂ£o"
+          label="Negociacao"
           value={discountType !== 'none' ? `${discountType === 'percent' ? `${discountValue}%` : formatCurrency(Number(discountValue || 0))} desc.` : undefined}
           onClick={() => setOpenSection(openSection === 'negotiation' ? null : 'negotiation')}
         />
@@ -473,7 +419,7 @@ export function RepresentativeOrderBuilder({
               </SelectTrigger>
               <SelectContent><SelectItem value="none">Sem desconto</SelectItem><SelectItem value="percent">Percentual</SelectItem><SelectItem value="value">Valor</SelectItem></SelectContent></Select></div>
             <div className="space-y-1.5"><Label className="text-xs">{discountType === 'percent' ? '% desc.' : 'Valor desc.'}</Label><Input value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
-            <div className="space-y-1.5"><Label className="text-xs">AcrÃƒÂ©scimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">Acrescimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
             <div className="space-y-1.5"><Label className="text-xs">Motivo</Label><Input value={negotiationReason} onChange={(e) => setNegotiationReason(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
           </div>
         )}
@@ -494,7 +440,7 @@ export function RepresentativeOrderBuilder({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>{paymentGroups.map((g) => <SelectItem key={g.method.id} value={g.method.id}>{g.method.name}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-1.5"><Label className="text-xs">CondiÃƒÂ§ÃƒÂ£o</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
+            <div className="space-y-1.5"><Label className="text-xs">Condicao</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
               <SelectTrigger className="h-9 rounded-xl border-border text-sm">
                 <SelectValue placeholder="Selecione">
                   {selectedPaymentOption?.label}
@@ -506,13 +452,13 @@ export function RepresentativeOrderBuilder({
 
         {/* Notes */}
         <SectionRow
-          label="ObservaÃƒÂ§ÃƒÂµes"
+          label="Observacoes"
           value={notes ? notes.substring(0, 40) + (notes.length > 40 ? '...' : '') : undefined}
           onClick={() => setOpenSection(openSection === 'notes' ? null : 'notes')}
         />
         {openSection === 'notes' && (
           <div className="bg-muted/20 px-4 py-4">
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" placeholder="ObservaÃƒÂ§ÃƒÂµes do pedido..." />
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" placeholder="Observacoes do pedido..." />
           </div>
         )}
       </div>
@@ -531,14 +477,14 @@ export function RepresentativeOrderBuilder({
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'order' ? (
             <><ShoppingBag className="mr-2 h-4 w-4" />CONFIRMAR PEDIDO</>
           ) : (
-            <><FileText className="mr-2 h-4 w-4" />SALVAR ORÃƒâ€¡AMENTO</>
+            <><FileText className="mr-2 h-4 w-4" />SALVAR ORCAMENTO</>
           )}
         </Button>
       </div>
     </div>
   )
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Desktop view (two-column) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* --- Desktop view (two-column) --- */
   const desktopContent = (
     <div className="hidden xl:grid xl:grid-cols-[minmax(0,1fr)_340px] xl:gap-5">
       <div className="space-y-5">
@@ -562,9 +508,9 @@ export function RepresentativeOrderBuilder({
                </div>
             ) : (
                <div className="grid gap-4 md:grid-cols-2">
-                 <div className="space-y-1.5 md:col-span-2"><Label className="text-xs text-muted-foreground">Cliente VÃƒÂ­nculado</Label><div className="h-10 px-3 border border-border bg-muted/30 rounded-xl flex items-center cursor-pointer hover:bg-muted/50 transition"><span className="font-semibold text-foreground text-sm">{selectedStore?.company_name}</span></div></div>
-                 <div className="space-y-1.5"><Label className="text-xs">Tabela de preÃƒÂ§o</Label><Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Tabela">{availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}</SelectValue></SelectTrigger><SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
-                 <div className="space-y-1.5"><Label className="text-xs">Entrega</Label><Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="EndereÃƒÂ§o">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select></div>
+                 <div className="space-y-1.5 md:col-span-2"><Label className="text-xs text-muted-foreground">Cliente Vinculado</Label><div className="h-10 px-3 border border-border bg-muted/30 rounded-xl flex items-center cursor-pointer hover:bg-muted/50 transition"><span className="font-semibold text-foreground text-sm">{selectedStore?.company_name}</span></div></div>
+                 <div className="space-y-1.5"><Label className="text-xs">Tabela de preco</Label><Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Tabela">{availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}</SelectValue></SelectTrigger><SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
+                 <div className="space-y-1.5"><Label className="text-xs">Entrega</Label><Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Endereco">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select></div>
                </div>
             )}
           </div>
@@ -589,7 +535,7 @@ export function RepresentativeOrderBuilder({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>{paymentGroups.map((g) => <SelectItem key={g.method.id} value={g.method.id}>{g.method.name}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-1.5"><Label className="text-xs">CondiÃƒÂ§ÃƒÂ£o</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
+            <div className="space-y-1.5"><Label className="text-xs">Condicao</Label><Select value={effectivePaymentId} onValueChange={(v) => setSelectedPaymentId(v || '')}>
               <SelectTrigger className="h-9 rounded-xl border-border text-sm">
                 <SelectValue placeholder="Selecione">
                   {selectedPaymentOption?.label}
@@ -604,9 +550,9 @@ export function RepresentativeOrderBuilder({
               </SelectTrigger>
               <SelectContent><SelectItem value="none">Sem desconto</SelectItem><SelectItem value="percent">Percentual</SelectItem><SelectItem value="value">Valor</SelectItem></SelectContent></Select></div>
             <div className="space-y-1.5"><Label className="text-xs">{discountType === 'percent' ? '% desc.' : 'Valor desc.'}</Label><Input value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
-            <div className="space-y-1.5"><Label className="text-xs">AcrÃƒÂ©scimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">Acrescimo</Label><Input value={surchargeValue} onChange={(e) => setSurchargeValue(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
             <div className="space-y-1.5"><Label className="text-xs">Motivo</Label><Input value={negotiationReason} onChange={(e) => setNegotiationReason(e.target.value)} className="h-9 rounded-xl border-border text-sm" /></div>
-            <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">ObservaÃƒÂ§ÃƒÂµes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" /></div>
+            <div className="space-y-1.5 md:col-span-2"><Label className="text-xs">Observacoes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[80px] rounded-xl border-border text-sm" /></div>
           </div>
         </section>
       </div>
@@ -618,9 +564,9 @@ export function RepresentativeOrderBuilder({
           <div className="space-y-3 p-4">
             <div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">Subtotal</span><span className="font-semibold text-foreground">{formatCurrency(subtotal)}</span></div>
             {negotiation.discountAmount > 0 && <div className="flex items-center justify-between text-xs text-emerald-700"><span>Desc. negociado</span><span className="font-semibold">- {formatCurrency(negotiation.discountAmount)}</span></div>}
-            {negotiation.surchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>AcrÃƒÂ©scimo</span><span className="font-semibold">+ {formatCurrency(negotiation.surchargeAmount)}</span></div>}
+            {negotiation.surchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>Acrescimo</span><span className="font-semibold">+ {formatCurrency(negotiation.surchargeAmount)}</span></div>}
             {paymentDiscountAmount > 0 && <div className="flex items-center justify-between text-xs text-emerald-700"><span>Desc. pagamento</span><span className="font-semibold">- {formatCurrency(paymentDiscountAmount)}</span></div>}
-            {paymentSurchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>AcrÃƒÂ©sc. pagamento</span><span className="font-semibold">+ {formatCurrency(paymentSurchargeAmount)}</span></div>}
+            {paymentSurchargeAmount > 0 && <div className="flex items-center justify-between text-xs text-amber-700"><span>Acresc. pagamento</span><span className="font-semibold">+ {formatCurrency(paymentSurchargeAmount)}</span></div>}
             <div className="rounded-xl gradient-navy px-4 py-3 text-white">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-white/70">Total estimado</p>
               <p className="mt-1 text-2xl font-bold font-heading tracking-tight">{formatCurrency(total)}</p>
@@ -637,7 +583,7 @@ export function RepresentativeOrderBuilder({
               disabled={submitting || pricingPending || !selectedStoreId || items.length === 0}
               onClick={() => handleSubmit('quote')}
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><FileText className="mr-2 h-4 w-4" />Salvar orÃƒÂ§amento</>}
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><FileText className="mr-2 h-4 w-4" />Salvar orcamento</>}
             </Button>
           </div>
         </div>
@@ -745,14 +691,14 @@ export function RepresentativeOrderBuilder({
         </div>
       )}
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Customer Selection Fullpage Overlay Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* --- Customer Selection Fullpage Overlay --- */}
       {isCustomerSheetOpen && (
         <div className="fixed inset-0 z-50 flex flex-col bg-background">
 
-          {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ View: Customer Detail Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+          {/* --- View: Customer Detail --- */}
           {previewCustomer ? (
             <>
-              {/* Header Ã¢â‚¬â€ navy bar with back + title + edit */}
+              {/* Header - navy bar with back + title + edit */}
               <div className="shrink-0 gradient-navy px-4 py-3 text-white flex items-center justify-between h-14">
                 <div className="flex items-center gap-3">
                   <button
@@ -773,14 +719,14 @@ export function RepresentativeOrderBuilder({
                 </button>
               </div>
 
-              {/* Body Ã¢â‚¬â€ customer info */}
+              {/* Body - customer info */}
               <div className="flex-1 overflow-y-auto overscroll-y-contain bg-background" style={{ WebkitOverflowScrolling: 'touch' }}>
                 {/* Company header */}
                 <div className="px-5 pt-5 pb-4">
                   <h3 className="text-lg font-bold text-foreground leading-snug">{previewCustomer.company_name}</h3>
                   {previewCustomer.cnpj && <p className="text-sm text-muted-foreground mt-0.5">CNPJ: {previewCustomer.cnpj}</p>}
-                  {previewCustomer.state_registration && <p className="text-sm text-muted-foreground">InscriÃƒÂ§ÃƒÂ£o Estadual: {previewCustomer.state_registration}</p>}
-                  {previewCustomer.customer_code && <p className="text-sm text-muted-foreground">CÃƒÂ³digo: #{previewCustomer.customer_code}</p>}
+                  {previewCustomer.state_registration && <p className="text-sm text-muted-foreground">Inscricao Estadual: {previewCustomer.state_registration}</p>}
+                  {previewCustomer.customer_code && <p className="text-sm text-muted-foreground">Codigo: #{previewCustomer.customer_code}</p>}
                 </div>
 
                 <Separator />
@@ -833,7 +779,7 @@ export function RepresentativeOrderBuilder({
                 {previewCustomer.assigned_price_tables && previewCustomer.assigned_price_tables.length > 0 && (
                   <>
                     <div className="px-5 pt-5 pb-2">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tabelas de preÃƒÂ§o</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tabelas de preco</p>
                     </div>
                     <div className="px-5 pb-4 flex flex-wrap gap-2">
                       {previewCustomer.assigned_price_tables.map(t => (
@@ -847,14 +793,14 @@ export function RepresentativeOrderBuilder({
                 {previewCustomer.addresses && previewCustomer.addresses.length > 1 && (
                   <>
                     <div className="px-5 pt-3 pb-2">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">EndereÃƒÂ§os ({previewCustomer.addresses.length})</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Enderecos ({previewCustomer.addresses.length})</p>
                     </div>
                     {previewCustomer.addresses.map(addr => (
                       <div key={addr.id} className="flex items-start gap-4 px-5 py-3 border-b border-border/20">
                         <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-foreground">{addr.title}{addr.is_main ? ' (Principal)' : ''}</p>
-                          <p className="text-xs text-muted-foreground">{addr.address}{addr.number ? `, ${addr.number}` : ''} Ã¢â‚¬â€ {addr.city}/{addr.state}</p>
+                          <p className="text-xs text-muted-foreground">{addr.address}{addr.number ? `, ${addr.number}` : ''} - {addr.city}/{addr.state}</p>
                         </div>
                       </div>
                     ))}
@@ -873,7 +819,7 @@ export function RepresentativeOrderBuilder({
               </div>
             </>
           ) : (
-            /* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ View: Customer List Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+            /* --- View: Customer List --- */
             <>
               {/* Header Profissional com Busca Animada */}
               <div className="shrink-0 gradient-navy px-4 py-3 text-white flex items-center justify-between relative overflow-hidden h-14">
@@ -897,7 +843,7 @@ export function RepresentativeOrderBuilder({
                     <Input
                       value={customerSearch}
                       onChange={(e) => setCustomerSearch(e.target.value)}
-                      placeholder="Buscar por RazÃƒÂ£o Social..."
+                      placeholder="Buscar por Razao Social..."
                       className="h-10 rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/40 pl-10 focus:bg-white/20 transition-all border-0 focus-visible:ring-1 focus-visible:ring-white/30"
                       autoFocus={isCustomerSearchActive}
                     />
@@ -978,42 +924,3 @@ export function RepresentativeOrderBuilder({
     </>
   )
 }
-
-/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Shared items list Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
-function ItemsList({ items, setItems, pricingPending }: { items: DraftItem[]; setItems: React.Dispatch<React.SetStateAction<DraftItem[]>>; pricingPending: boolean }) {
-  function formatCurrency(value: number) {
-    return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-  }
-
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-foreground">Itens ({items.length})</h3>
-        {pricingPending && <span className="text-[10px] text-muted-foreground">Revalidando...</span>}
-      </div>
-      {items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border/50 bg-muted/30 px-4 py-6 text-center text-xs text-muted-foreground">Nenhum item adicionado.</div>
-      ) : (
-        <div className="divide-y divide-border/30 rounded-xl border border-border/40">
-          {items.map((item) => (
-            <div key={item.cartKey} className="flex items-center gap-3 px-3 py-2.5">
-              <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted/40">{item.imageUrl ? <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><Package className="h-4 w-4" /></div>}</div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold text-foreground">{item.productName}</p>
-                <p className="text-[10px] text-muted-foreground">{item.fabricName} / {item.colorName}{item.sizeName ? ` / ${item.sizeName}` : ''}</p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Button type="button" variant="outline" size="icon" className="h-7 w-7 rounded-lg border-border" onClick={() => setItems((cur) => cur.map((i) => i.cartKey === item.cartKey ? { ...i, quantity: Math.max(1, i.quantity - 1) } : i))}><Minus className="h-3.5 w-3.5" /></Button>
-                <span className="min-w-[24px] text-center text-xs font-semibold">{item.quantity}</span>
-                <Button type="button" variant="outline" size="icon" className="h-7 w-7 rounded-lg border-border" onClick={() => setItems((cur) => cur.map((i) => i.cartKey === item.cartKey ? { ...i, quantity: i.quantity + 1 } : i))}><Plus className="h-3.5 w-3.5" /></Button>
-              </div>
-              <div className="w-[90px] text-right"><p className="text-xs font-semibold text-foreground">{formatCurrency(item.unitPrice * item.quantity)}</p><p className="text-[10px] text-muted-foreground">{formatCurrency(item.unitPrice)} un.</p></div>
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => setItems((cur) => cur.filter((i) => i.cartKey !== item.cartKey))}><Trash2 className="h-3.5 w-3.5" /></Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-

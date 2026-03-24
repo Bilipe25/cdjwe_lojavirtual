@@ -25,7 +25,7 @@ function buildPaymentOptions(group: PaymentMethodGroup | null): PaymentOption[] 
       .filter((link) => link.is_active && link.payment_condition?.is_active)
       .map((link) => ({
         id: link.payment_condition_id,
-        label: link.payment_condition?.name || 'CondiÃƒÂ§ÃƒÂ£o',
+        label: link.payment_condition?.name || 'Condicao',
         description: link.payment_condition?.description || group.method.description || null,
         discountPercentage: link.payment_condition?.discount_percentage || 0,
         surchargePercentage: link.payment_condition?.surcharge_percentage || 0,
@@ -146,7 +146,7 @@ export function usePricingValidation({
       } catch {
         if (cancelled || sequence !== revalidationSequenceRef.current) return
         resetPaymentState()
-        toast.error('NÃƒÂ£o foi possÃƒÂ­vel revalidar preÃƒÂ§os e pagamentos.')
+        toast.error('Nao foi possivel revalidar precos e pagamentos.')
       } finally {
         if (!cancelled && sequence === revalidationSequenceRef.current) {
           setPricingPending(false)
@@ -192,5 +192,6 @@ export function usePricingValidation({
     selectedMethodGroup,
     paymentOptions,
     effectivePaymentId,
-    selectedPaymentOption,  }
+    selectedPaymentOption,
+  }
 }
