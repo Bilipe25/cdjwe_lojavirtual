@@ -1,4 +1,4 @@
-﻿import { z } from 'zod'
+import { z } from 'zod'
 
 const positiveIntOptionalSchema = z.coerce.number().int().min(1).optional()
 const optionalSearchSchema = z.string().trim().optional()
@@ -89,6 +89,7 @@ export const representativeDraftLineSchema = z
     sizeOptionId: emptyStringToNull(idSchema.nullable()).optional(),
     imageUrl: emptyStringToNull(z.string().trim().min(1).nullable()).optional(),
     quantity: z.coerce.number().int().min(1),
+    unitPrice: z.coerce.number().finite().optional(),
   })
   .strict()
 
@@ -158,6 +159,14 @@ function formatIssues(error: z.ZodError) {
   return error.issues.map((issue) => `${formatIssuePath(issue.path)}: ${issue.message}`).join('; ')
 }
 
+
+export function getActionErrorMessage(error: unknown, fallback = 'Unexpected action validation error.') {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+
+  return fallback
+}
 export function parseWithSchema<T extends z.ZodTypeAny>(
   schema: T,
   input: unknown,
