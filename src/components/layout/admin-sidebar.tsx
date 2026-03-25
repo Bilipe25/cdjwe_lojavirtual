@@ -65,6 +65,7 @@ const marketingNavItems = [
 
 const financeiroNavItems = [
     { href: '/admin/financeiro/contas-a-receber', label: 'Contas a Receber', icon: Wallet },
+    { href: '/admin/financeiro/relatorio', label: 'Relatório', icon: BarChart3 },
 ]
 
 const bottomNavItems = [

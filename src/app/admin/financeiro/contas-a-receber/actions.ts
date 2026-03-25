@@ -327,3 +327,166 @@ export async function getClientFinancialSummary() {
     }
 }
 
+// ==================== Payment Write-off ====================
+
+export async function recordInstallmentPayment(params: {
+    installmentId: string
+    amount: number
+    paidDate?: string | null
+    notes?: string | null
+}) {
+    try {
+        const supabase = await createServerClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return { error: 'Nao autenticado.' }
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+
+        if (profile?.role !== 'admin') return { error: 'Permissao negada.' }
+
+        const { data, error } = await supabase.rpc('admin_record_installment_payment', {
+            p_installment_id: params.installmentId,
+            p_amount: params.amount,
+            p_paid_date: params.paidDate || new Date().toISOString().split('T')[0],
+            p_notes: params.notes || null,
+        })
+
+        if (error) {
+            console.error('[PAYMENT WRITEOFF] RPC error:', error)
+            return { error: error.message || 'Erro ao registrar pagamento.' }
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = Array.isArray(data) ? (data as any[])[0] : data
+        return { data: result }
+    } catch (e) {
+        console.error('[PAYMENT WRITEOFF] Erro inesperado:', e)
+        return { error: 'Erro inesperado ao registrar pagamento.' }
+    }
+}
+
+// ==================== Invoice Detail ====================
+
+export async function getInvoiceDetail(invoiceId: string) {
+    try {
+        const supabase = await createServerClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return { error: 'Nao autenticado.' }
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+
+        if (profile?.role !== 'admin') return { error: 'Permissao negada.' }
+
+        const { data, error } = await supabase
+            .from('invoices')
+            .select(`
+                *,
+                installments:invoice_installments(*),
+                events:invoice_events(*),
+                order:orders(id, order_number, status),
+                store:stores(id, company_name, cnpj),
+                profile:profiles!invoices_profile_id_fkey(id, full_name, email)
+            `)
+            .eq('id', invoiceId)
+            .single()
+
+        if (error) {
+            console.error('[INVOICE DETAIL] Erro:', error)
+            return { error: 'Erro ao carregar detalhes da fatura.' }
+        }
+
+        return { data }
+    } catch (e) {
+        console.error('[INVOICE DETAIL] Erro inesperado:', e)
+        return { error: 'Erro inesperado.' }
+    }
+}
+
+// ==================== Customer Financial Data ====================
+
+export async function getCustomerFinancialData(profileId: string) {
+    try {
+        const supabase = await createServerClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return { error: 'Nao autenticado.' }
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+
+        if (profile?.role !== 'admin') return { error: 'Permissao negada.' }
+
+        const { data: invoices, error } = await supabase
+            .from('invoices')
+            .select(`
+                *,
+                installments:invoice_installments(*)
+            `)
+            .eq('profile_id', profileId)
+            .order('created_at', { ascending: false })
+
+        if (error) {
+            console.error('[CUSTOMER FINANCIAL] Erro:', error)
+            return { error: 'Erro ao carregar dados financeiros.' }
+        }
+
+        // Calculate summary
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+
+        let totalOpen = 0
+        let totalOverdue = 0
+        let totalPaid = 0
+
+        for (const inv of invoices || []) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            for (const inst of (inv.installments || []) as any[]) {
+                const remaining = Number(inst.amount || 0) - Number(inst.paid_amount || 0)
+                if (inst.status === 'paid') {
+                    totalPaid += Number(inst.amount || 0)
+                } else if (inst.status === 'open') {
+                    const dueDate = new Date(inst.due_date + 'T00:00:00')
+                    if (dueDate < today) {
+                        totalOverdue += remaining
+                    } else {
+                        totalOpen += remaining
+                    }
+                }
+            }
+        }
+
+        // Get credit limit from store
+        const { data: storeData } = await supabase
+            .from('stores')
+            .select('credit_limit')
+            .eq('profile_id', profileId)
+            .limit(1)
+            .single()
+
+        return {
+            data: {
+                invoices: invoices || [],
+                summary: {
+                    totalOpen,
+                    totalOverdue,
+                    totalPaid,
+                    creditLimit: Number(storeData?.credit_limit || 0),
+                    invoiceCount: (invoices || []).length,
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[CUSTOMER FINANCIAL] Erro inesperado:', e)
+        return { error: 'Erro inesperado.' }
+    }
+}

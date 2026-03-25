@@ -1,9 +1,9 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState, useMemo, use, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ChevronRight, Building2, ShoppingBag, Shield, Pencil, Key, FileText, Ban, Check, MapPin, CreditCard } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Building2, ShoppingBag, Shield, Pencil, Key, FileText, Ban, Check, MapPin, CreditCard, Wallet } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,6 +23,7 @@ import { CustomerAccessTab } from '../components/CustomerAccessTab'
 import { CustomerAddressManager } from '../components/CustomerAddressManager'
 import { CustomerCommercialTab } from '../components/CustomerCommercialTab'
 import { CustomerRepresentativeTab } from '../components/CustomerRepresentativeTab'
+import { CustomerFinancialTab } from '../components/CustomerFinancialTab'
 
 const statusConfig: Record<string, { label: string; color: string }> = {
     pending: { label: 'Pendente', color: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -41,7 +42,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
     const [customer, setCustomer] = useState<CustomerWithStore | null>(null)
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
-    const [activeTab, setActiveTab] = useState<'general' | 'access' | 'orders' | 'audit' | 'addresses' | 'commercial' | 'representative'>('general')
+    const [activeTab, setActiveTab] = useState<'general' | 'access' | 'orders' | 'audit' | 'addresses' | 'commercial' | 'representative' | 'financial'>('general')
 
     // Lookup data states for Edit Drawer
     const [customerTypes, setCustomerTypes] = useState<CustomerType[]>([])
@@ -386,6 +387,16 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                         <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                         Financeiro/Comercial
                     </button>
+                    <button
+                        onClick={() => setActiveTab('financial')}
+                        className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            activeTab === 'financial' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        <span className="hidden sm:inline">Contas a Receber</span>
+                        <span className="sm:hidden">Faturas</span>
+                    </button>
                     {isRepresentativeProfile && (
                         <button
                             onClick={() => setActiveTab('representative')}
@@ -462,6 +473,16 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                                 Cliente nao possui loja associada para configuracao comercial.
                             </p>
                         )}
+                    </div>
+                )}
+
+                {activeTab === 'financial' && (
+                    <div className="bg-white rounded-2xl border p-6 shadow-sm">
+                        <CustomerFinancialTab
+                            profileId={customer.id}
+                            profileName={customer.full_name}
+                            companyName={store?.company_name || ''}
+                        />
                     </div>
                 )}
                 

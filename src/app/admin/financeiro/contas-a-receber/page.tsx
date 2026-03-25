@@ -11,6 +11,7 @@ import {
     FileText,
     RefreshCw,
     Receipt,
+    Banknote,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { getAccountsReceivable, type AccountReceivableItem } from './actions'
 import { formatDateBR, daysOverdue as calcDaysOverdue } from '@/lib/financial/installment-calculator'
+import { PaymentWriteoffModal, type InstallmentForPayment } from './components/PaymentWriteoffModal'
 
 // ==================== Status Config ====================
 
@@ -78,6 +80,7 @@ export default function ContasAReceberPage() {
     const [error, setError] = useState<string | null>(null)
     const [statusFilter, setStatusFilter] = useState('all')
     const [search, setSearch] = useState('')
+    const [paymentModal, setPaymentModal] = useState<InstallmentForPayment | null>(null)
 
     const loadData = useCallback(async () => {
         setLoading(true)
@@ -271,8 +274,8 @@ export default function ContasAReceberPage() {
                                             <th className="px-4 py-3 text-center font-semibold text-muted-foreground text-xs uppercase tracking-wider">
                                                 Atraso
                                             </th>
-                                            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wider">
-                                                Pgto
+                                            <th className="px-4 py-3 text-center font-semibold text-muted-foreground text-xs uppercase tracking-wider">
+                                                Ação
                                             </th>
                                         </tr>
                                     </thead>
@@ -351,10 +354,32 @@ export default function ContasAReceberPage() {
                                                             <span className="text-xs text-muted-foreground">—</span>
                                                         )}
                                                     </td>
-                                                    <td className="px-4 py-3">
-                                                        <span className="text-xs text-muted-foreground truncate block max-w-[120px]">
-                                                            {row.payment_condition_name || row.payment_method_name || '—'}
-                                                        </span>
+                                                    <td className="px-4 py-3 text-center">
+                                                        {row.installment_status === 'open' ? (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="h-7 px-2.5 text-[10px] rounded-md text-emerald-700 border-emerald-200 hover:bg-emerald-50 gap-1 font-semibold"
+                                                                onClick={() => setPaymentModal({
+                                                                    id: row.installment_id,
+                                                                    installment_number: row.installment_number,
+                                                                    due_date: row.due_date,
+                                                                    amount: row.installment_amount,
+                                                                    paid_amount: row.installment_paid_amount,
+                                                                    status: row.installment_status,
+                                                                    invoice_id: row.invoice_id,
+                                                                    invoice_number: row.invoice_number,
+                                                                    invoice_total: row.total_amount,
+                                                                    client_name: row.client_name,
+                                                                    company_name: row.company_name,
+                                                                })}
+                                                            >
+                                                                <Banknote className="h-3 w-3" />
+                                                                Baixar
+                                                            </Button>
+                                                        ) : (
+                                                            <span className="text-xs text-muted-foreground">—</span>
+                                                        )}
                                                     </td>
                                                 </tr>
                                             )
@@ -369,6 +394,16 @@ export default function ContasAReceberPage() {
                     )}
                 </>
             )}
+
+            <PaymentWriteoffModal
+                installment={paymentModal}
+                open={!!paymentModal}
+                onOpenChange={(o) => { if (!o) setPaymentModal(null) }}
+                onSuccess={() => {
+                    setPaymentModal(null)
+                    void loadData()
+                }}
+            />
         </div>
     )
 }

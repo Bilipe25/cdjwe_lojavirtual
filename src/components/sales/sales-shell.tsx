@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   FileText,
   LayoutDashboard,
+  LogOut,
   MapPinned,
   MoreHorizontal,
   Palette,
@@ -21,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { setViewAsRepresentativeAction } from '@/app/admin/actions/view-as-customer'
+import { logoutAction } from '@/app/(auth)/login/actions'
 import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
 import { cn } from '@/lib/utils'
 import type { Profile } from '@/lib/types'
@@ -83,6 +85,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
   const title = useMemo(() => matchPageTitle(pathname), [pathname])
   const firstName = profile.full_name?.split(' ')[0] || 'Representante'
   const [moreOpen, setMoreOpen] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   const isDashboard = pathname === '/sales/dashboard'
   const showBack = !isDashboard
@@ -90,6 +93,17 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
   const handleBackToAdmin = async () => {
     await setViewAsRepresentativeAction(false)
     router.push('/admin/dashboard')
+  }
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return
+    setIsLoggingOut(true)
+    try {
+      await logoutAction()
+      router.push('/login')
+    } finally {
+      setIsLoggingOut(false)
+    }
   }
 
   const isActive = (href: string) => {
@@ -127,6 +141,7 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold" style={{ color: 'var(--sidebar-foreground)' }}>{profile.full_name}</p>
             <p className="truncate text-[11px]" style={{ color: 'var(--sidebar-primary)' }}>Representante</p>
+            <p className="truncate text-[10px] opacity-70" style={{ color: 'var(--sidebar-foreground)' }}>{profile.email}</p>
           </div>
         </div>
 
@@ -162,8 +177,19 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
           })}
         </nav>
 
-        {isAdminPreview && (
-          <div className="border-t px-3 py-3" style={{ borderColor: 'var(--sidebar-border)' }}>
+        <div className="space-y-2 border-t px-3 py-3" style={{ borderColor: 'var(--sidebar-border)' }}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 w-full rounded-xl border-white/10 bg-white/5 text-xs font-medium hover:bg-white/10"
+            style={{ color: 'var(--sidebar-foreground)' }}
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+          >
+            <LogOut className="mr-1.5 h-3.5 w-3.5" />
+            {isLoggingOut ? 'Saindo...' : 'Sair da sessao'}
+          </Button>
+          {isAdminPreview && (
             <Button
               variant="outline"
               size="sm"
@@ -174,8 +200,8 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
               <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
               Voltar ao Admin
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </aside>
 
       <header
@@ -329,6 +355,21 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
                   )
                 })}
               </div>
+              <div className="border-t border-border/30 px-4 py-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 w-full rounded-xl text-sm"
+                  onClick={() => {
+                    setMoreOpen(false)
+                    void handleLogout()
+                  }}
+                  disabled={isLoggingOut}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  {isLoggingOut ? 'Saindo...' : 'Sair da sessao'}
+                </Button>
+              </div>
             </SheetContent>
           </Sheet>
         </div>
@@ -336,3 +377,6 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
     </div>
   )
 }
+
+
+
