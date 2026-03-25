@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Image from 'next/image'
 import { Package, Heart, ShoppingCart } from 'lucide-react'
@@ -17,9 +17,16 @@ interface ProductListItemProps {
     }
     onQuickView?: (productId: string) => void
     hidePrices?: boolean
+    readOnly?: boolean
+    detailsBasePath?: string
 }
 
-export function ProductListItem({ product, onQuickView, hidePrices = false }: ProductListItemProps) {
+export function ProductListItem({
+    product,
+    onQuickView,
+    hidePrices = false,
+    detailsBasePath = '/catalog',
+}: ProductListItemProps) {
     const router = useRouter()
     const isMobile = useIsMobile()
     const primaryImage = product.images?.find((img) => img.is_primary) || product.images?.[0]
@@ -48,7 +55,7 @@ export function ProductListItem({ product, onQuickView, hidePrices = false }: Pr
             onQuickView(product.id)
             return
         }
-        router.push(`/catalog/${product.id}`)
+        router.push(`${detailsBasePath}/${product.id}`)
     }
 
     return (
@@ -119,7 +126,7 @@ export function ProductListItem({ product, onQuickView, hidePrices = false }: Pr
                 {/* Price Column */}
                 <div className="mt-1 md:mt-0 md:w-32 md:shrink-0 md:text-right">
                     {hidePrices ? (
-                        <p className="text-[10px] italic text-muted-foreground md:text-xs">Faça login para ver preços</p>
+                        <p className="text-[10px] italic text-muted-foreground md:text-xs">Faca login para ver precos</p>
                     ) : (
                         <div className="flex items-baseline gap-1 md:block">
                             <span className="text-[10px] text-muted-foreground md:block md:text-xs">A partir de</span>
@@ -181,7 +188,7 @@ export function ProductListItem({ product, onQuickView, hidePrices = false }: Pr
                         <Button
                             size="icon"
                             className="h-8 w-8 rounded-full gradient-bronze border-0 shadow-sm"
-                            aria-label="Comprar rápido"
+                            aria-label="Comprar rapido"
                             onClick={(event) => {
                                 event.preventDefault()
                                 event.stopPropagation()
@@ -206,4 +213,6 @@ export function ProductListItem({ product, onQuickView, hidePrices = false }: Pr
         </article>
     )
 }
+
+
 

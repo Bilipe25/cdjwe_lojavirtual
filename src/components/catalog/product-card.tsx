@@ -1,6 +1,7 @@
-'use client'
+﻿'use client'
 
 import Image from 'next/image'
+import Link from 'next/link'
 import { Package, Heart, ShoppingCart } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -19,9 +20,16 @@ interface ProductCardProps {
     }
     onQuickView?: (productId: string) => void
     hidePrices?: boolean
+    readOnly?: boolean
+    detailsBasePath?: string
 }
 
-export function ProductCard({ product, onQuickView, hidePrices = false }: ProductCardProps) {
+export function ProductCard({
+    product,
+    onQuickView,
+    hidePrices = false,
+    detailsBasePath = '/catalog',
+}: ProductCardProps) {
     const router = useRouter()
     const isMobile = useIsMobile()
     const primaryImage = product.images?.find((img) => img.is_primary) || product.images?.[0]
@@ -49,7 +57,7 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
         if (isMobile && onQuickView) {
             onQuickView(product.id)
         } else {
-            router.push(`/catalog/${product.id}`)
+            router.push(`${detailsBasePath}/${product.id}`)
         }
     }
 
@@ -120,7 +128,7 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
                                 Comprar
                             </Button>
                         )}
-                        <a href={`/catalog/${product.id}`}>
+                        <Link href={`${detailsBasePath}/${product.id}`}>
                             <Button
                                 size="sm"
                                 variant="secondary"
@@ -128,7 +136,7 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
                             >
                                 Detalhes
                             </Button>
-                        </a>
+                        </Link>
                     </div>
                 </div>
             </div>
@@ -151,7 +159,7 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
                     <div className="mt-2 sm:mt-3 flex items-end justify-between">
                         <div>
                             {hidePrices ? (
-                                <p className="text-xs text-muted-foreground italic">Faça login para ver preços</p>
+                                <p className="text-xs text-muted-foreground italic">Faca login para ver precos</p>
                             ) : (
                                 <>
                                     <p className="text-[10px] sm:text-xs text-muted-foreground">A partir de</p>
@@ -167,3 +175,5 @@ export function ProductCard({ product, onQuickView, hidePrices = false }: Produc
         </Card>
     )
 }
+
+

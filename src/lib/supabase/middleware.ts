@@ -1,4 +1,4 @@
-﻿import { createServerClient } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getDefaultRouteByRole, requiresBlockedRedirect, requiresPendingRedirect } from '@/lib/auth/role-routing'
 
@@ -93,7 +93,19 @@ export async function updateSession(request: NextRequest) {
             }
 
             if (role === 'representative') {
+                const pathname = request.nextUrl.pathname
                 const url = request.nextUrl.clone()
+
+                if (pathname === '/catalog' || pathname.startsWith('/catalog/')) {
+                    url.pathname = pathname.replace('/catalog', '/sales/catalog')
+                    return NextResponse.redirect(url)
+                }
+
+                if (pathname === '/fabrics' || pathname.startsWith('/fabrics/')) {
+                    url.pathname = pathname.replace('/fabrics', '/sales/fabrics')
+                    return NextResponse.redirect(url)
+                }
+
                 url.pathname = '/sales/dashboard'
                 return NextResponse.redirect(url)
             }
@@ -102,3 +114,7 @@ export async function updateSession(request: NextRequest) {
 
     return supabaseResponse
 }
+
+
+
+

@@ -1,7 +1,7 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
 import { Search, Filter, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
@@ -60,6 +60,7 @@ function CatalogContentInner() {
     const [currentPage, setCurrentPage] = useState(1)
     
     // Filter State
+    const pathname = usePathname()
     const searchParams = useSearchParams()
     const initialSearch = searchParams.get('search') || ''
     const [search, setSearch] = useState(initialSearch)
@@ -76,6 +77,13 @@ function CatalogContentInner() {
     const [filtersOpen, setFiltersOpen] = useState(false)
     const [quickViewId, setQuickViewId] = useState<string | null>(null)
     const [hidePrices, setHidePrices] = useState(false)
+    const [isRepresentativeView] = useState(
+        () =>
+            typeof document !== 'undefined' &&
+            (document.cookie.includes('jwt_role=representative') ||
+                document.cookie.includes('view_as_representative=true'))
+    )
+    const detailsBasePath = pathname.startsWith('/sales/catalog') ? '/sales/catalog' : '/catalog'
     const isMobile = useIsMobile()
     const greetingData = useCustomerGreeting()
 
@@ -201,7 +209,7 @@ function CatalogContentInner() {
                     // Deduplicate product IDs
                     filteredProductIds = [...new Set(variantLinks.map(v => v.product_id))]
                 } else {
-                    // No products match this fabric — short-circuit
+                    // No products match this fabric, short-circuit
                     setProducts([])
                     setTotalCount(0)
                     setLoading(false)
@@ -475,14 +483,18 @@ function CatalogContentInner() {
                                         {viewMode === 'grid' ? (
                                             <ProductCard
                                                 product={product}
-                                                onQuickView={(id) => setQuickViewId(id)}
+                                                onQuickView={isRepresentativeView ? undefined : (id) => setQuickViewId(id)}
                                                 hidePrices={hidePrices}
+                                                readOnly={isRepresentativeView}
+                                                detailsBasePath={detailsBasePath}
                                             />
                                         ) : (
                                             <ProductListItem
                                                 product={product}
-                                                onQuickView={(id) => setQuickViewId(id)}
+                                                onQuickView={isRepresentativeView ? undefined : (id) => setQuickViewId(id)}
                                                 hidePrices={hidePrices}
+                                                readOnly={isRepresentativeView}
+                                                detailsBasePath={detailsBasePath}
                                             />
                                         )}
                                     </motion.div>
@@ -501,7 +513,7 @@ function CatalogContentInner() {
                                         <ChevronLeft className="h-4 w-4 mr-2" /> Anterior
                                     </Button>
                                     <span className="text-sm text-muted-foreground font-medium">
-                                        Página {currentPage} de {totalPages}
+                                        Pagina {currentPage} de {totalPages}
                                     </span>
                                     <Button
                                         variant="outline"
@@ -509,7 +521,7 @@ function CatalogContentInner() {
                                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                         disabled={currentPage === totalPages}
                                     >
-                                        Próxima <ChevronRight className="h-4 w-4 ml-2" />
+                                        Proxima <ChevronRight className="h-4 w-4 ml-2" />
                                     </Button>
                                 </div>
                             )}
@@ -519,20 +531,27 @@ function CatalogContentInner() {
             </div>
 
             {/* Responsive QuickView: Bottom Sheet on mobile, Modal on desktop */}
-            {isMobile ? (
-                <QuickViewBottomSheet
-                    productId={quickViewId}
-                    open={!!quickViewId}
-                    onClose={() => setQuickViewId(null)}
-                />
-            ) : (
-                <QuickViewModal
-                    productId={quickViewId}
-                    open={!!quickViewId}
-                    onClose={() => setQuickViewId(null)}
-                />
+            {!isRepresentativeView && (
+                isMobile ? (
+                    <QuickViewBottomSheet
+                        productId={quickViewId}
+                        open={!!quickViewId}
+                        onClose={() => setQuickViewId(null)}
+                    />
+                ) : (
+                    <QuickViewModal
+                        productId={quickViewId}
+                        open={!!quickViewId}
+                        onClose={() => setQuickViewId(null)}
+                    />
+                )
             )}
             </div>
         </PullToRefresh>
     )
 }
+
+
+
+
+

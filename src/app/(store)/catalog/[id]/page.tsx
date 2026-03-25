@@ -2,7 +2,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, usePathname, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
     ArrowLeft,
@@ -47,6 +47,7 @@ function buildCartKey(variantId: string, sizeOptionId: string | null) {
 
 export default function ProductDetailPage() {
     const params = useParams()
+    const pathname = usePathname()
     const router = useRouter()
     const productId =
         typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : ''
@@ -60,6 +61,8 @@ export default function ProductDetailPage() {
         enabled: !!productId,
     })
     const [addingToCart, setAddingToCart] = useState(false)
+    const isRepresentativeView = pathname.startsWith('/sales/catalog')
+    const catalogBasePath = isRepresentativeView ? '/sales/catalog' : '/catalog'
     const selection = useProductSelectionState({
         scopeKey: productId || null,
         fabrics,
@@ -115,7 +118,7 @@ export default function ProductDetailPage() {
                     </p>
                 </div>
                 <div className="flex justify-center gap-2">
-                    <Button variant="outline" onClick={() => router.push('/catalog')}>
+                    <Button variant="outline" onClick={() => router.push(catalogBasePath)}>
                         Voltar ao catalogo
                     </Button>
                     <Button onClick={() => void reload()}>Tentar novamente</Button>
@@ -208,6 +211,10 @@ export default function ProductDetailPage() {
     }
 
     const handleAddToCart = () => {
+        if (isRepresentativeView) {
+            toast.info('Modo somente visualizacao para representante.')
+            return
+        }
         if (isSalesBlocked) {
             toast.error('Este cliente esta com vendas restritas no momento.')
             return
@@ -276,7 +283,7 @@ export default function ProductDetailPage() {
 
     return (
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-            <Button variant="ghost" className="mb-4 gap-2" onClick={() => router.push('/catalog')}>
+            <Button variant="ghost" className="mb-4 gap-2" onClick={() => router.push(catalogBasePath)}>
                 <ArrowLeft className="h-4 w-4" />
                 Voltar ao catalogo
             </Button>
@@ -429,7 +436,7 @@ export default function ProductDetailPage() {
                                                 render={
                                                     <button
                                                         onClick={() => setSelectedFabric(fabric.id)}
-                                                        disabled={!canSelectVariants}
+                                                        disabled={!canSelectVariants || isRepresentativeView}
                                                         className={`rounded-lg border px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                                                             selectedFabric === fabric.id
                                                                 ? 'border-primary bg-primary/10 font-medium text-primary shadow-sm'
@@ -586,7 +593,7 @@ export default function ProductDetailPage() {
                                                                 quantity - 1
                                                             )
                                                         }
-                                                        disabled={!canSelectVariants}
+                                                        disabled={!canSelectVariants || isRepresentativeView}
                                                     >
                                                         <Minus className="h-4 w-4" />
                                                     </Button>
@@ -603,7 +610,7 @@ export default function ProductDetailPage() {
                                                                 quantity + 1
                                                             )
                                                         }
-                                                        disabled={!canSelectVariants}
+                                                        disabled={!canSelectVariants || isRepresentativeView}
                                                     >
                                                         <Plus className="h-4 w-4" />
                                                     </Button>
@@ -666,27 +673,33 @@ export default function ProductDetailPage() {
                             </p>
                         </div>
 
-                        <Button
-                            size="lg"
-                            className="h-14 w-full border-0 bg-white text-slate-950 shadow-md hover:bg-white/92 disabled:bg-white/70"
-                            onClick={handleAddToCart}
-                            disabled={
-                                isSalesBlocked ||
-                                !selectedFabric ||
-                                totalSelectedQuantity === 0 ||
-                                addingToCart ||
-                                !canSelectVariants
-                            }
-                        >
-                            <ShoppingCart className="mr-2 h-5 w-5" />
-                            {isSalesBlocked
-                                ? 'Vendas restritas'
-                                : !canSelectVariants
-                                ? 'Selecione o tamanho'
-                                : totalSelectedQuantity === 0
-                                  ? 'Selecione as quantidades'
-                                  : `Adicionar ${totalSelectedQuantity} itens ao carrinho`}
-                        </Button>
+                        {isRepresentativeView ? (
+                            <div className="rounded-xl border border-white/20 bg-white/5 px-4 py-3 text-sm text-white/85">
+                                Catalogo em modo somente visualizacao para representante.
+                            </div>
+                        ) : (
+                            <Button
+                                size="lg"
+                                className="h-14 w-full border-0 bg-white text-slate-950 shadow-md hover:bg-white/92 disabled:bg-white/70"
+                                onClick={handleAddToCart}
+                                disabled={
+                                    isSalesBlocked ||
+                                    !selectedFabric ||
+                                    totalSelectedQuantity === 0 ||
+                                    addingToCart ||
+                                    !canSelectVariants
+                                }
+                            >
+                                <ShoppingCart className="mr-2 h-5 w-5" />
+                                {isSalesBlocked
+                                    ? 'Vendas restritas'
+                                    : !canSelectVariants
+                                    ? 'Selecione o tamanho'
+                                    : totalSelectedQuantity === 0
+                                      ? 'Selecione as quantidades'
+                                      : `Adicionar ${totalSelectedQuantity} itens ao carrinho`}
+                            </Button>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-3">
