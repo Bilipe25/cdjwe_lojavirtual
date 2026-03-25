@@ -490,3 +490,52 @@ export async function getCustomerFinancialData(profileId: string) {
         return { error: 'Erro inesperado.' }
     }
 }
+
+// ==================== Delete Invoice ====================
+
+export async function deleteInvoice(invoiceId: string) {
+    try {
+        const supabase = await createServerClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return { error: 'Não autenticado.' }
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+
+        if (profile?.role !== 'admin') return { error: 'Permissão negada.' }
+
+        // Fetch invoice to check if it has payments
+        const { data: invoice, error: fetchErr } = await supabase
+            .from('invoices')
+            .select('paid_amount, invoice_number')
+            .eq('id', invoiceId)
+            .single()
+
+        if (fetchErr || !invoice) {
+            return { error: 'Fatura não encontrada.' }
+        }
+
+        if (Number(invoice.paid_amount) > 0) {
+            return { error: `A fatura ${invoice.invoice_number} já possui pagamentos baixados. Remova os pagamentos antes de excluir a fatura inteira.` }
+        }
+
+        // Delete invoice (cascade handles installments and events)
+        const { error: deleteErr } = await supabase
+            .from('invoices')
+            .delete()
+            .eq('id', invoiceId)
+
+        if (deleteErr) {
+            console.error('[DELETE INVOICE] Erro:', deleteErr)
+            return { error: 'Não foi possível excluir a fatura. Ela pode estar vinculada a outros registros bloqueantes.' }
+        }
+
+        return { success: true }
+    } catch (e) {
+        console.error('[DELETE INVOICE] Erro inesperado:', e)
+        return { error: 'Erro inesperado ao excluir fatura.' }
+    }
+}

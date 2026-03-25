@@ -9,13 +9,24 @@ import {
     Receipt,
     Wallet,
     Banknote,
+    Trash2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { formatDateBR, daysOverdue } from '@/lib/financial/installment-calculator'
-import { getCustomerFinancialData } from '@/app/admin/financeiro/contas-a-receber/actions'
+import { getCustomerFinancialData, deleteInvoice } from '@/app/admin/financeiro/contas-a-receber/actions'
 import { PaymentWriteoffModal, type InstallmentForPayment } from '@/app/admin/financeiro/contas-a-receber/components/PaymentWriteoffModal'
 
 // ==================== Types ====================
@@ -45,6 +56,27 @@ export function CustomerFinancialTab({ profileId, profileName, companyName }: Cu
     const [error, setError] = useState<string | null>(null)
     const [paymentModal, setPaymentModal] = useState<InstallmentForPayment | null>(null)
     const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null)
+    const [deletingInvoice, setDeletingInvoice] = useState<{ id: string; number: string } | null>(null)
+    const [isDeleting, setIsDeleting] = useState(false)
+
+    const handleDeleteInvoice = async () => {
+        if (!deletingInvoice) return
+        setIsDeleting(true)
+        setError(null)
+        try {
+            const res = await deleteInvoice(deletingInvoice.id)
+            if (res.error) {
+                setError(res.error)
+            } else {
+                void loadData()
+            }
+        } catch {
+            setError('Erro ao excluir fatura.')
+        } finally {
+            setIsDeleting(false)
+            setDeletingInvoice(null)
+        }
+    }
 
     const loadData = useCallback(async () => {
         setLoading(true)
@@ -100,29 +132,29 @@ export function CustomerFinancialTab({ profileId, profileName, companyName }: Cu
     return (
         <div className="space-y-6">
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="rounded-xl border bg-white p-4 space-y-1">
+            <div className="flex overflow-x-auto snap-x snap-mandatory gap-3 pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 md:grid-cols-4 scrollbar-hide">
+                <div className="rounded-xl border bg-white p-4 space-y-1 min-w-[240px] sm:min-w-0 snap-center shrink-0 w-full">
                     <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                         <Clock className="h-3.5 w-3.5 text-blue-500" />
                         Em Aberto
                     </div>
                     <p className="text-xl font-black text-blue-700">{fmt(summary.totalOpen)}</p>
                 </div>
-                <div className="rounded-xl border bg-white p-4 space-y-1">
+                <div className="rounded-xl border bg-white p-4 space-y-1 min-w-[240px] sm:min-w-0 snap-center shrink-0 w-full">
                     <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                         <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
                         Vencido
                     </div>
                     <p className={cn("text-xl font-black", summary.totalOverdue > 0 ? "text-red-600" : "text-foreground")}>{fmt(summary.totalOverdue)}</p>
                 </div>
-                <div className="rounded-xl border bg-white p-4 space-y-1">
+                <div className="rounded-xl border bg-white p-4 space-y-1 min-w-[240px] sm:min-w-0 snap-center shrink-0 w-full">
                     <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                         <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                         Pago
                     </div>
                     <p className="text-xl font-black text-emerald-600">{fmt(summary.totalPaid)}</p>
                 </div>
-                <div className="rounded-xl border bg-white p-4 space-y-1">
+                <div className="rounded-xl border bg-white p-4 space-y-1 min-w-[240px] sm:min-w-0 snap-center shrink-0 w-full">
                     <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                         <Wallet className="h-3.5 w-3.5 text-navy" />
                         Limite de Crédito
@@ -191,6 +223,18 @@ export function CustomerFinancialTab({ profileId, profileName, companyName }: Cu
                                         </div>
                                         <div className="flex items-center gap-3 shrink-0">
                                             <span className="font-bold text-sm">{fmt(Number(inv.total_amount))}</span>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-7 w-7 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-md"
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    setDeletingInvoice({ id: inv.id, number: inv.invoice_number })
+                                                }}
+                                                title="Excluir Fatura"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                            </Button>
                                             <span className={cn(
                                                 "text-xs transition-transform",
                                                 isExpanded ? "rotate-180" : ""
@@ -276,6 +320,31 @@ export function CustomerFinancialTab({ profileId, profileName, companyName }: Cu
                     void loadData()
                 }}
             />
+
+            <AlertDialog open={!!deletingInvoice} onOpenChange={(open) => !open && !isDeleting && setDeletingInvoice(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir Fatura Inteira?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Você está prestes a excluir a fatura <strong className="text-foreground">{deletingInvoice?.number}</strong>. isso apagará <strong className="text-foreground">todas</strong> as parcelas dessa fatura. <br/><br/>
+                            Faturas que já possuem baixas de pagamento não podem ser excluídas por segurança. Se houver pagamentos, remova-os primeiro.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault()
+                                void handleDeleteInvoice()
+                            }}
+                            disabled={isDeleting}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                            {isDeleting ? 'Excluindo...' : 'Sim, Excluir Fatura'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     )
 }

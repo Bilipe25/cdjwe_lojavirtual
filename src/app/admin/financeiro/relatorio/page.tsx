@@ -146,8 +146,8 @@ export default function FinancialReportPage() {
             ) : data ? (
                 <>
                     {/* KPI Cards */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="rounded-xl border bg-white p-4 shadow-sm space-y-1 relative overflow-hidden">
+                    <div className="flex overflow-x-auto snap-x snap-mandatory gap-3 pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 md:grid-cols-4 scrollbar-hide">
+                        <div className="rounded-xl border bg-white p-4 shadow-sm space-y-1 relative overflow-hidden min-w-[240px] sm:min-w-0 snap-center shrink-0 w-full">
                             <div className="absolute top-0 right-0 h-16 w-16 bg-blue-500/5 rounded-bl-[2rem]" />
                             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                                 <DollarSign className="h-3.5 w-3.5 text-blue-500" />
@@ -156,7 +156,7 @@ export default function FinancialReportPage() {
                             <p className="text-xl sm:text-2xl font-black text-blue-700">{fmt(data.kpis.totalReceivable)}</p>
                             <p className="text-[10px] text-muted-foreground">Parcelas em aberto</p>
                         </div>
-                        <div className="rounded-xl border bg-white p-4 shadow-sm space-y-1 relative overflow-hidden">
+                        <div className="rounded-xl border bg-white p-4 shadow-sm space-y-1 relative overflow-hidden min-w-[240px] sm:min-w-0 snap-center shrink-0 w-full">
                             <div className="absolute top-0 right-0 h-16 w-16 bg-red-500/5 rounded-bl-[2rem]" />
                             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                                 <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
@@ -167,7 +167,7 @@ export default function FinancialReportPage() {
                             </p>
                             <p className="text-[10px] text-muted-foreground">Parcelas em atraso</p>
                         </div>
-                        <div className="rounded-xl border bg-white p-4 shadow-sm space-y-1 relative overflow-hidden">
+                        <div className="rounded-xl border bg-white p-4 shadow-sm space-y-1 relative overflow-hidden min-w-[240px] sm:min-w-0 snap-center shrink-0 w-full">
                             <div className="absolute top-0 right-0 h-16 w-16 bg-emerald-500/5 rounded-bl-[2rem]" />
                             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                                 <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
@@ -180,7 +180,7 @@ export default function FinancialReportPage() {
                                     : 'Período selecionado'}
                             </p>
                         </div>
-                        <div className="rounded-xl border bg-white p-4 shadow-sm space-y-1 relative overflow-hidden">
+                        <div className="rounded-xl border bg-white p-4 shadow-sm space-y-1 relative overflow-hidden min-w-[240px] sm:min-w-0 snap-center shrink-0 w-full">
                             <div className="absolute top-0 right-0 h-16 w-16 bg-amber-500/5 rounded-bl-[2rem]" />
                             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                                 <BarChart3 className="h-3.5 w-3.5 text-amber-500" />

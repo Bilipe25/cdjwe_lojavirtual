@@ -12,12 +12,23 @@ import {
     RefreshCw,
     Receipt,
     Banknote,
+    Trash2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
-import { getAccountsReceivable, type AccountReceivableItem } from './actions'
+import { getAccountsReceivable, deleteInvoice, type AccountReceivableItem } from './actions'
 import { formatDateBR, daysOverdue as calcDaysOverdue } from '@/lib/financial/installment-calculator'
 import { PaymentWriteoffModal, type InstallmentForPayment } from './components/PaymentWriteoffModal'
 
@@ -46,15 +57,17 @@ function SummaryCard({
     icon: Icon,
     color,
     accent,
+    className,
 }: {
     title: string
     value: string
     icon: React.ElementType
     color: string
     accent: string
+    className?: string
 }) {
     return (
-        <div className={cn('rounded-2xl border p-4 transition-all duration-200', color)}>
+        <div className={cn('rounded-2xl border p-4 transition-all duration-200 min-w-[240px] sm:min-w-0 snap-center shrink-0 w-full', color, className)}>
             <div className="flex items-center gap-3">
                 <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl', accent)}>
                     <Icon className="h-5 w-5 text-white" />
@@ -81,6 +94,27 @@ export default function ContasAReceberPage() {
     const [statusFilter, setStatusFilter] = useState('all')
     const [search, setSearch] = useState('')
     const [paymentModal, setPaymentModal] = useState<InstallmentForPayment | null>(null)
+    const [deletingInvoice, setDeletingInvoice] = useState<{ id: string; number: string } | null>(null)
+    const [isDeleting, setIsDeleting] = useState(false)
+
+    const handleDeleteInvoice = async () => {
+        if (!deletingInvoice) return
+        setIsDeleting(true)
+        setError(null)
+        try {
+            const res = await deleteInvoice(deletingInvoice.id)
+            if (res.error) {
+                setError(res.error)
+            } else {
+                void loadData()
+            }
+        } catch {
+            setError('Erro ao excluir fatura.')
+        } finally {
+            setIsDeleting(false)
+            setDeletingInvoice(null)
+        }
+    }
 
     const loadData = useCallback(async () => {
         setLoading(true)
@@ -148,7 +182,7 @@ export default function ContasAReceberPage() {
             </div>
 
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <div className="flex overflow-x-auto pb-4 gap-3 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 xl:grid-cols-4 snap-x snap-mandatory scrollbar-hide">
                 <SummaryCard
                     title="Em Aberto"
                     value={fmt(summaries.totalOpen)}
@@ -253,7 +287,7 @@ export default function ContasAReceberPage() {
                                             <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wider">
                                                 Cliente
                                             </th>
-                                            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wider">
+                                            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wider hidden sm:table-cell">
                                                 Pedido
                                             </th>
                                             <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wider">
@@ -271,7 +305,7 @@ export default function ContasAReceberPage() {
                                             <th className="px-4 py-3 text-center font-semibold text-muted-foreground text-xs uppercase tracking-wider">
                                                 Status
                                             </th>
-                                            <th className="px-4 py-3 text-center font-semibold text-muted-foreground text-xs uppercase tracking-wider">
+                                            <th className="px-4 py-3 text-center font-semibold text-muted-foreground text-xs uppercase tracking-wider hidden sm:table-cell">
                                                 Atraso
                                             </th>
                                             <th className="px-4 py-3 text-center font-semibold text-muted-foreground text-xs uppercase tracking-wider">
@@ -305,7 +339,7 @@ export default function ContasAReceberPage() {
                                                             )}
                                                         </div>
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className="px-4 py-3 hidden sm:table-cell">
                                                         <span className="font-mono text-xs font-medium text-navy">
                                                             {row.order_number}
                                                         </span>
@@ -345,7 +379,7 @@ export default function ContasAReceberPage() {
                                                             {effectiveStatus.label}
                                                         </Badge>
                                                     </td>
-                                                    <td className="px-4 py-3 text-center">
+                                                    <td className="px-4 py-3 text-center hidden sm:table-cell">
                                                         {overdue ? (
                                                             <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
                                                                 {row.days_overdue}d
@@ -355,31 +389,42 @@ export default function ContasAReceberPage() {
                                                         )}
                                                     </td>
                                                     <td className="px-4 py-3 text-center">
-                                                        {row.installment_status === 'open' ? (
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            {row.installment_status === 'open' ? (
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="h-7 px-2.5 text-[10px] rounded-md text-emerald-700 border-emerald-200 hover:bg-emerald-50 gap-1 font-semibold"
+                                                                    onClick={() => setPaymentModal({
+                                                                        id: row.installment_id,
+                                                                        installment_number: row.installment_number,
+                                                                        due_date: row.due_date,
+                                                                        amount: row.installment_amount,
+                                                                        paid_amount: row.installment_paid_amount,
+                                                                        status: row.installment_status,
+                                                                        invoice_id: row.invoice_id,
+                                                                        invoice_number: row.invoice_number,
+                                                                        invoice_total: row.total_amount,
+                                                                        client_name: row.client_name,
+                                                                        company_name: row.company_name,
+                                                                    })}
+                                                                >
+                                                                    <Banknote className="h-3 w-3" />
+                                                                    Baixar
+                                                                </Button>
+                                                            ) : (
+                                                                <span className="text-xs text-muted-foreground">—</span>
+                                                            )}
                                                             <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="h-7 px-2.5 text-[10px] rounded-md text-emerald-700 border-emerald-200 hover:bg-emerald-50 gap-1 font-semibold"
-                                                                onClick={() => setPaymentModal({
-                                                                    id: row.installment_id,
-                                                                    installment_number: row.installment_number,
-                                                                    due_date: row.due_date,
-                                                                    amount: row.installment_amount,
-                                                                    paid_amount: row.installment_paid_amount,
-                                                                    status: row.installment_status,
-                                                                    invoice_id: row.invoice_id,
-                                                                    invoice_number: row.invoice_number,
-                                                                    invoice_total: row.total_amount,
-                                                                    client_name: row.client_name,
-                                                                    company_name: row.company_name,
-                                                                })}
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-7 w-7 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-md"
+                                                                onClick={() => setDeletingInvoice({ id: row.invoice_id, number: row.invoice_number })}
+                                                                title="Excluir Fatura (Todas as Parcelas)"
                                                             >
-                                                                <Banknote className="h-3 w-3" />
-                                                                Baixar
+                                                                <Trash2 className="h-3.5 w-3.5" />
                                                             </Button>
-                                                        ) : (
-                                                            <span className="text-xs text-muted-foreground">—</span>
-                                                        )}
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             )
@@ -404,6 +449,31 @@ export default function ContasAReceberPage() {
                     void loadData()
                 }}
             />
+
+            <AlertDialog open={!!deletingInvoice} onOpenChange={(open) => !open && !isDeleting && setDeletingInvoice(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir Fatura Inteira?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Você está prestes a excluir a fatura <strong className="text-foreground">{deletingInvoice?.number}</strong>. isso apagará <strong className="text-foreground">todas</strong> as parcelas dessa fatura. <br/><br/>
+                            Faturas que já possuem baixas de pagamento não podem ser excluídas por segurança. Se houver pagamentos, remova-os primeiro.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault()
+                                void handleDeleteInvoice()
+                            }}
+                            disabled={isDeleting}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                            {isDeleting ? 'Excluindo...' : 'Sim, Excluir Fatura'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     )
 }
