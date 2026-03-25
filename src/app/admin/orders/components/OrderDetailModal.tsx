@@ -10,7 +10,7 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Building, User, Clock, History, Printer, Loader2, Trash2, AlertCircle } from 'lucide-react'
+import { Building, User, Clock, History, Printer, Loader2, Trash2, AlertCircle, Receipt, CheckCircle2 } from 'lucide-react'
 import { statusConfig } from './OrderFilters'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import type { OrderStatus, OrderItem, SystemSettings } from '@/lib/types'
+import { InvoiceOrderModal } from '@/app/admin/financeiro/contas-a-receber/components/InvoiceOrderModal'
 
 type AdminOrderHistoryRecord = {
     id: string
@@ -102,6 +103,8 @@ export function OrderDetailModal({
     const [isPrinting, setIsPrinting] = useState(false)
     const [settings, setSettings] = useState<SystemSettings | null>(null)
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+    const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
+    const [hasInvoice, setHasInvoice] = useState(false)
 
     const fetchOrderDetail = useCallback(async (orderId: string) => {
         setLoadingOrder(true)
@@ -187,16 +190,28 @@ export function OrderDetailModal({
         setLoadingHistory(false)
     }
 
+    const checkInvoiceExists = useCallback(async (orderId: string) => {
+        const supabase = createClient()
+        const { data } = await supabase
+            .from('invoices')
+            .select('id')
+            .eq('order_id', orderId)
+            .limit(1)
+        setHasInvoice((data?.length ?? 0) > 0)
+    }, [])
+
     useEffect(() => {
         if (open && order?.id) {
             fetchOrderDetail(order.id)
             fetchHistory(order.id)
             fetchSettings()
+            checkInvoiceExists(order.id)
         } else {
             setOrderData(null)
             setHistory([])
+            setHasInvoice(false)
         }
-    }, [open, order?.id, fetchOrderDetail])
+    }, [open, order?.id, fetchOrderDetail, checkInvoiceExists])
 
     const handlePrint = async () => {
         if (!orderData) return
@@ -239,6 +254,29 @@ export function OrderDetailModal({
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
+                            {/* Fatura button - shows status or lets admin generate */}
+                            {resolvedOrder.status !== 'pending' && resolvedOrder.status !== 'cancelled' && (
+                                hasInvoice ? (
+                                    <Badge
+                                        variant="outline"
+                                        className="h-9 px-3 gap-1.5 rounded-lg text-emerald-700 bg-emerald-50 border-emerald-200 font-bold text-xs cursor-default"
+                                    >
+                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                        <span className="hidden sm:inline">Faturado</span>
+                                    </Badge>
+                                ) : (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-9 w-9 sm:w-auto px-0 sm:px-3 text-bronze hover:bg-bronze/5 border-bronze/20 gap-2 shrink-0 rounded-lg font-bold"
+                                        onClick={() => setIsInvoiceModalOpen(true)}
+                                    >
+                                        <Receipt className="h-4 w-4" />
+                                        <span className="hidden sm:inline">Gerar Fatura</span>
+                                    </Button>
+                                )
+                            )}
+
                             {onDelete && (
                                 <Button 
                                     variant="outline" 
@@ -418,6 +456,29 @@ export function OrderDetailModal({
                     <div className="h-4"></div>
                 </div>
             </DialogContent>
+
+
+            <InvoiceOrderModal
+                order={orderData ? {
+                    id: orderData.id,
+                    order_number: orderData.order_number,
+                    total: orderData.total,
+                    payment_method_id: undefined,
+                    payment_method_name: orderData.payment_method_name,
+                    payment_condition_id: undefined,
+                    payment_condition_name: orderData.payment_condition_name,
+                    payment_installments: orderData.payment_installments,
+                    store: orderData.store,
+                } : null}
+                open={isInvoiceModalOpen}
+                onOpenChange={setIsInvoiceModalOpen}
+                onSuccess={() => {
+                    if (order?.id) {
+                        fetchOrderDetail(order.id)
+                        checkInvoiceExists(order.id)
+                    }
+                }}
+            />
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                 <AlertDialogContent className="w-[95vw] max-w-md rounded-2xl border-0 shadow-2xl">

@@ -9,12 +9,15 @@ import {
     Scissors,
     User,
     Info,
+    Receipt,
+    AlertTriangle,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { NoticeCard } from '@/components/store/NoticeCard'
 import { useSettings } from '@/components/providers/settings-provider'
 import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
+import { getClientFinancialSummary } from '@/app/admin/financeiro/contas-a-receber/actions'
 
 interface DashboardCard {
     title: string
@@ -41,6 +44,14 @@ const dashboardCards: DashboardCard[] = [
         href: '/orders',
         color: 'bg-bronze/10 hover:bg-bronze/20',
         iconColor: 'text-bronze',
+        enabled: true,
+    },
+    {
+        title: 'Minhas Faturas',
+        icon: Receipt,
+        href: '/invoices',
+        color: 'bg-emerald-500/5 hover:bg-emerald-500/10',
+        iconColor: 'text-emerald-600',
         enabled: true,
     },
     {
@@ -97,6 +108,7 @@ export default function DashboardPage() {
     const { isStandalone } = usePwaRuntime()
     const [userName, setUserName] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
+    const [finSummary, setFinSummary] = useState<{ totalOpen: number; totalOverdue: number } | null>(null)
 
     useEffect(() => {
         const loadUser = async () => {
@@ -116,6 +128,13 @@ export default function DashboardPage() {
             } catch { /* silent */ } finally {
                 setLoading(false)
             }
+            // Load financial summary
+            try {
+                const finResult = await getClientFinancialSummary()
+                if ('data' in finResult && finResult.data) {
+                    setFinSummary(finResult.data)
+                }
+            } catch { /* silent */ }
         }
         loadUser()
     }, [])
@@ -175,6 +194,51 @@ export default function DashboardPage() {
                     </div>
                 )}
             </motion.div>
+
+
+            {/* Financial Alerts */}
+            {finSummary && (finSummary.totalOverdue > 0 || finSummary.totalOpen > 0) && (
+                <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mb-5 space-y-2"
+                >
+                    {finSummary.totalOverdue > 0 && (
+                        <a href="/invoices" className="block">
+                            <div className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 p-3.5">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-100">
+                                    <AlertTriangle className="h-4.5 w-4.5 text-red-600" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-red-800">
+                                        Faturas vencidas
+                                    </p>
+                                    <p className="text-xs text-red-600">
+                                        Voce tem {finSummary.totalOverdue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} em faturas vencidas.
+                                    </p>
+                                </div>
+                            </div>
+                        </a>
+                    )}
+                    {finSummary.totalOpen > 0 && finSummary.totalOverdue === 0 && (
+                        <a href="/invoices" className="block">
+                            <div className="flex items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-3.5">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100">
+                                    <Receipt className="h-4.5 w-4.5 text-blue-600" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-blue-800">
+                                        Faturas em aberto
+                                    </p>
+                                    <p className="text-xs text-blue-600">
+                                        Voce tem {finSummary.totalOpen.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} em faturas pendentes.
+                                    </p>
+                                </div>
+                            </div>
+                        </a>
+                    )}
+                </motion.div>
+            )}
 
             {/* Quick Access Grid */}
             <motion.div

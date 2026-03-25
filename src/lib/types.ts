@@ -376,6 +376,80 @@ export interface OrderStatusHistory {
   created_at: string
 }
 
+
+// ==================== FINANCIAL / ACCOUNTS RECEIVABLE ====================
+
+export type InvoiceStatus = 'open' | 'partial' | 'paid' | 'overdue' | 'cancelled' | 'renegotiated'
+
+export type InstallmentStatus = 'open' | 'paid' | 'overdue' | 'cancelled'
+
+export interface Invoice {
+  id: string
+  invoice_number: string
+  order_id: string
+  store_id: string
+  profile_id: string
+  status: InvoiceStatus
+  issue_date: string
+  total_amount: number
+  paid_amount: number
+  open_amount: number
+  installment_count: number
+  payment_method_id: string | null
+  payment_method_name: string | null
+  payment_condition_id: string | null
+  payment_condition_name: string | null
+  notes: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+  // Relations
+  order?: Order
+  store?: Store
+  profile?: Profile
+  installments?: InvoiceInstallment[]
+  events?: InvoiceEvent[]
+}
+
+export interface InvoiceInstallment {
+  id: string
+  invoice_id: string
+  installment_number: number
+  due_date: string
+  amount: number
+  paid_amount: number
+  status: InstallmentStatus
+  paid_at: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  // Relations
+  invoice?: Invoice
+}
+
+export type InvoiceEventType =
+  | 'created'
+  | 'payment_received'
+  | 'partial_payment'
+  | 'cancelled'
+  | 'overdue_marked'
+  | 'renegotiated'
+  | 'note_added'
+
+export interface InvoiceEvent {
+  id: string
+  invoice_id: string
+  event_type: InvoiceEventType
+  description: string
+  amount: number | null
+  metadata: Record<string, unknown> | null
+  created_by: string
+  created_at: string
+  // Relations
+  invoice?: Invoice
+  profile?: Profile
+}
+
 // ==================== PAYMENT & CONFIG ====================
 
 export interface PaymentCondition {
