@@ -853,3 +853,285 @@ export async function deleteRoute(routeId: string) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
     }
 }
+
+// ==================== DELETE CENTER ====================
+
+export async function deleteCenter(centerId: string) {
+    try {
+        const { supabase } = await requireAdmin()
+        const { error } = await supabase
+            .from('route_centers')
+            .delete()
+            .eq('id', centerId)
+
+        if (error) return { error: 'Erro ao excluir centro. Verifique se não há rotas vinculadas.' }
+        return { success: true }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+// ==================== APPLY OPTIMIZATION RESULT ====================
+
+export async function applyOptimizationResult(
+    routeId: string,
+    result: {
+        orderedStops: Array<{ id: string; position: number; arrival: number; distance: number }>
+        summary: { totalDistance: number; totalDuration: number; totalStops: number }
+    }
+) {
+    try {
+        const { supabase, userId } = await requireAdmin()
+
+        // Update each stop's position
+        for (const stop of result.orderedStops) {
+            await supabase
+                .from('delivery_route_stops')
+                .update({ stop_position: stop.position + 1 })
+                .eq('id', stop.id)
+        }
+
+        // Update route totals
+        const { error } = await supabase
+            .from('delivery_routes')
+            .update({
+                total_distance_km: result.summary.totalDistance,
+                total_duration_min: result.summary.totalDuration,
+                total_stops: result.summary.totalStops,
+                optimization_result: result,
+                status: 'optimized',
+                updated_by: userId,
+            })
+            .eq('id', routeId)
+
+        if (error) return { error: 'Erro ao salvar resultado da otimização.' }
+
+        // Audit
+        await supabase.from('route_events').insert({
+            route_id: routeId,
+            event_type: 'route_optimized',
+            actor_id: userId,
+            metadata: { totalDistance: result.summary.totalDistance, totalDuration: result.summary.totalDuration },
+        })
+
+        return { success: true }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+// ==================== UPDATE ROUTE ASSIGNMENT ====================
+
+export async function updateRouteAssignment(
+    routeId: string,
+    updates: {
+        driver_id?: string | null
+        vehicle_id?: string | null
+        center_id?: string | null
+        region_id?: string | null
+    }
+) {
+    try {
+        const { supabase, userId } = await requireAdmin()
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const payload: any = { updated_by: userId }
+        if ('driver_id' in updates) payload.driver_id = updates.driver_id || null
+        if ('vehicle_id' in updates) payload.vehicle_id = updates.vehicle_id || null
+        if ('center_id' in updates) payload.center_id = updates.center_id || null
+        if ('region_id' in updates) payload.region_id = updates.region_id || null
+
+        const { error } = await supabase
+            .from('delivery_routes')
+            .update(payload)
+            .eq('id', routeId)
+
+        if (error) return { error: 'Erro ao atualizar atribuição.' }
+
+        // Audit events
+        if ('driver_id' in updates) {
+            await supabase.from('route_events').insert({
+                route_id: routeId, event_type: 'driver_assigned', actor_id: userId,
+                metadata: { driver_id: updates.driver_id },
+            })
+        }
+        if ('vehicle_id' in updates) {
+            await supabase.from('route_events').insert({
+                route_id: routeId, event_type: 'vehicle_assigned', actor_id: userId,
+                metadata: { vehicle_id: updates.vehicle_id },
+            })
+        }
+
+        return { success: true }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+// ==================== ROUTE HISTORY ====================
+
+export interface RouteHistoryItem extends RouteListItem {
+    delivered_stops: number
+    failed_stops: number
+    region_name: string | null
+}
+
+export async function getRouteHistory(filters?: {
+    status?: string
+    dateFrom?: string
+    dateTo?: string
+    driverId?: string
+    vehicleId?: string
+}) {
+    try {
+        const { supabase } = await requireAdmin()
+
+        let query = supabase.from('delivery_routes').select(`
+            id,
+            route_number,
+            status,
+            planned_date,
+            total_stops,
+            total_distance_km,
+            total_duration_min,
+            created_at,
+            started_at,
+            completed_at,
+            drivers ( profiles ( full_name ) ),
+            vehicles ( name, plate ),
+            route_centers ( name ),
+            delivery_regions ( name ),
+            delivery_route_stops ( status )
+        `)
+
+        if (filters?.status && filters.status !== 'all') {
+            query = query.eq('status', filters.status)
+        }
+        if (filters?.dateFrom) {
+            query = query.gte('planned_date', filters.dateFrom)
+        }
+        if (filters?.dateTo) {
+            query = query.lte('planned_date', filters.dateTo)
+        }
+        if (filters?.driverId && filters.driverId !== 'all') {
+            query = query.eq('driver_id', filters.driverId)
+        }
+        if (filters?.vehicleId && filters.vehicleId !== 'all') {
+            query = query.eq('vehicle_id', filters.vehicleId)
+        }
+
+        query = query.order('planned_date', { ascending: false }).limit(200)
+
+        const { data, error } = await query
+
+        if (error) {
+            console.error('[ROUTE HISTORY]', error)
+            return { error: 'Erro ao carregar histórico.' }
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result: RouteHistoryItem[] = (data || []).map((row: any) => {
+            const stops = row.delivery_route_stops || []
+            return {
+                id: row.id,
+                route_number: row.route_number,
+                status: row.status,
+                planned_date: row.planned_date,
+                total_stops: row.total_stops,
+                total_distance_km: row.total_distance_km,
+                total_duration_min: row.total_duration_min,
+                driver_name: row.drivers?.profiles?.full_name || null,
+                vehicle_name: row.vehicles?.name || null,
+                vehicle_plate: row.vehicles?.plate || null,
+                center_name: row.route_centers?.name || null,
+                region_name: row.delivery_regions?.name || null,
+                created_at: row.created_at,
+                delivered_stops: stops.filter((s: { status: string }) => s.status === 'delivered').length,
+                failed_stops: stops.filter((s: { status: string }) => s.status === 'failed').length,
+            }
+        })
+
+        // Aggregate metrics
+        const metrics = {
+            totalRoutes: result.length,
+            completedRoutes: result.filter(r => r.status === 'completed').length,
+            totalDeliveries: result.reduce((acc, r) => acc + r.delivered_stops, 0),
+            totalFailures: result.reduce((acc, r) => acc + r.failed_stops, 0),
+            totalKm: result.reduce((acc, r) => acc + (r.total_distance_km || 0), 0),
+        }
+
+        return { data: result, metrics }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+// ==================== DISTINCT CITIES (for filters) ====================
+
+export async function getDistinctCities() {
+    try {
+        const { supabase } = await requireAdmin()
+        const { data, error } = await supabase
+            .from('stores')
+            .select('city')
+            .not('city', 'is', null)
+            .order('city')
+
+        if (error) return { data: [] }
+
+        const unique = [...new Set((data || []).map((r: { city: string }) => r.city).filter(Boolean))]
+        return { data: unique }
+    } catch (e) {
+        return { data: [] }
+    }
+}
+
+// ==================== UPDATE STOP COORDINATES ====================
+
+export async function updateStopCoordinates(
+    stopId: string,
+    lat: number,
+    lng: number,
+) {
+    try {
+        const { supabase, userId } = await requireAdmin()
+
+        // Update the stop itself
+        const { data: stop, error } = await supabase
+            .from('delivery_route_stops')
+            .update({ latitude: lat, longitude: lng })
+            .eq('id', stopId)
+            .select('route_id, address_id')
+            .single()
+
+        if (error || !stop) return { error: 'Erro ao atualizar coordenadas da parada.' }
+
+        // Also cache coordinates in store_addresses if linked
+        if (stop.address_id) {
+            await supabase
+                .from('store_addresses')
+                .update({
+                    latitude: lat,
+                    longitude: lng,
+                    geocoded_at: new Date().toISOString(),
+                    geocoding_source: 'manual_adjustment',
+                })
+                .eq('id', stop.address_id)
+        }
+
+        // Audit
+        await supabase.from('route_events').insert({
+            route_id: stop.route_id,
+            stop_id: stopId,
+            event_type: 'stop_arrived', // reuse existing type for geo update
+            actor_id: userId,
+            metadata: { action: 'geocoded', lat, lng },
+        })
+
+        return { success: true }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+

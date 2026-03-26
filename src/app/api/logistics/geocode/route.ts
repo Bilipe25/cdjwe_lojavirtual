@@ -9,8 +9,11 @@ const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.o
  * 
  * Geocodes an address and caches the result in store_addresses.
  * If the address already has coordinates, returns them from cache.
+ * 
+ * Uses OpenRouteService when ORS_API_KEY is configured,
+ * otherwise falls back to Nominatim (OpenStreetMap) — free, no key required.
  *
- * Body: { addressId: string } | { address: string, city: string, state: string, zipCode?: string }
+ * Body: { addressId: string } | { address: string, city?: string, state?: string, zipCode?: string }
  */
 export async function POST(request: NextRequest) {
     try {
@@ -52,20 +55,21 @@ export async function POST(request: NextRequest) {
             }
 
             const searchText = buildSearchText(addr.address, addr.number, addr.neighborhood, addr.city, addr.state, addr.zip_code)
-            const coords = await geocodeWithORS(searchText)
+            const coords = await geocode(searchText)
 
             if (!coords) {
                 return NextResponse.json({ error: 'Não foi possível geocodificar este endereço.' }, { status: 422 })
             }
 
             // Save to cache
+            const source = ORS_API_KEY ? 'openrouteservice' : 'nominatim'
             await supabase
                 .from('store_addresses')
                 .update({
                     latitude: coords.lat,
                     longitude: coords.lng,
                     geocoded_at: new Date().toISOString(),
-                    geocoding_source: 'openrouteservice',
+                    geocoding_source: source,
                 })
                 .eq('id', addressId)
 
@@ -73,12 +77,12 @@ export async function POST(request: NextRequest) {
         }
 
         // Freeform geocoding (no caching)
-        if (!address || !city) {
-            return NextResponse.json({ error: 'Informe addressId ou address + city.' }, { status: 400 })
+        if (!address) {
+            return NextResponse.json({ error: 'Informe addressId ou address.' }, { status: 400 })
         }
 
         const searchText = buildSearchText(address, undefined, undefined, city, state, zipCode)
-        const coords = await geocodeWithORS(searchText)
+        const coords = await geocode(searchText)
 
         if (!coords) {
             return NextResponse.json({ error: 'Não foi possível geocodificar este endereço.' }, { status: 422 })
@@ -93,6 +97,16 @@ export async function POST(request: NextRequest) {
 
 // ==================== Helpers ====================
 
+function cleanSearchText(text: string): string {
+    return text
+        .replace(/\[.*?\]\s*/g, '')       // Remove [Endereco Principal] etc
+        .replace(/CEP:\s*/gi, '')          // Remove "CEP:" prefix
+        .replace(/,\s*,/g, ',')            // Remove double commas
+        .replace(/,\s*$/g, '')             // Remove trailing comma
+        .replace(/\s+/g, ' ')             // Normalize whitespace
+        .trim()
+}
+
 function buildSearchText(
     address?: string | null,
     number?: string | null,
@@ -102,29 +116,90 @@ function buildSearchText(
     zipCode?: string | null,
 ): string {
     const parts = [address, number, neighborhood, city, state, zipCode].filter(Boolean)
-    return parts.join(', ') + ', Brasil'
+    const raw = parts.join(', ') + ', Brasil'
+    return cleanSearchText(raw)
 }
 
+/**
+ * Smart geocoder: uses ORS when API key is configured, 
+ * otherwise falls back to Nominatim (free, no key).
+ */
+async function geocode(searchText: string): Promise<{ lat: number; lng: number } | null> {
+    if (ORS_API_KEY) {
+        const result = await geocodeWithORS(searchText)
+        if (result) return result
+        // If ORS fails, try Nominatim as fallback
+    }
+    return geocodeWithNominatim(searchText)
+}
+
+// ==================== ORS Geocoder ====================
+
 async function geocodeWithORS(searchText: string): Promise<{ lat: number; lng: number } | null> {
-    const url = `${ORS_BASE_URL}/geocode/search?api_key=${ORS_API_KEY}&text=${encodeURIComponent(searchText)}&boundary.country=BR&size=1`
+    try {
+        const url = `${ORS_BASE_URL}/geocode/search?api_key=${ORS_API_KEY}&text=${encodeURIComponent(searchText)}&boundary.country=BR&size=1`
 
-    const response = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
-    })
+        const response = await fetch(url, {
+            headers: { 'Accept': 'application/json' },
+        })
 
-    if (!response.ok) {
-        console.error('[ORS GEOCODE] HTTP error:', response.status, await response.text())
+        if (!response.ok) {
+            console.error('[ORS GEOCODE] HTTP error:', response.status, await response.text())
+            return null
+        }
+
+        const data = await response.json()
+        const feature = data?.features?.[0]
+
+        if (!feature?.geometry?.coordinates) {
+            return null
+        }
+
+        // ORS returns [lng, lat]
+        const [lng, lat] = feature.geometry.coordinates
+        return { lat, lng }
+    } catch (e) {
+        console.error('[ORS GEOCODE] Exception:', e)
         return null
     }
+}
 
-    const data = await response.json()
-    const feature = data?.features?.[0]
+// ==================== Nominatim Geocoder (Free OSM) ====================
 
-    if (!feature?.geometry?.coordinates) {
+async function geocodeWithNominatim(searchText: string): Promise<{ lat: number; lng: number } | null> {
+    try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchText)}&countrycodes=BR&limit=1&addressdetails=0`
+
+        const response = await fetch(url, {
+            headers: {
+                'Accept': 'application/json',
+                'User-Agent': 'CDJWE-Logistics/1.0',
+            },
+        })
+
+        if (!response.ok) {
+            console.error('[NOMINATIM] HTTP error:', response.status)
+            return null
+        }
+
+        const data = await response.json()
+        
+        if (!Array.isArray(data) || data.length === 0) {
+            console.error('[NOMINATIM] No results for:', searchText)
+            return null
+        }
+
+        const result = data[0]
+        const lat = parseFloat(result.lat)
+        const lng = parseFloat(result.lon)
+
+        if (isNaN(lat) || isNaN(lng)) {
+            return null
+        }
+
+        return { lat, lng }
+    } catch (e) {
+        console.error('[NOMINATIM] Exception:', e)
         return null
     }
-
-    // ORS returns [lng, lat]
-    const [lng, lat] = feature.geometry.coordinates
-    return { lat, lng }
 }

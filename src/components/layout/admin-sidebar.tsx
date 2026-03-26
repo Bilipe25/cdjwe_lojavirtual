@@ -31,6 +31,7 @@ import {
     Route,
     PackageCheck,
     UserCircle,
+    Warehouse,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -76,8 +77,10 @@ const financeiroNavItems = [
 const logisticaNavItems = [
     { href: '/admin/logistica/pedidos', label: 'Pedidos p/ Rota', icon: PackageCheck },
     { href: '/admin/logistica/rotas', label: 'Central de Rotas', icon: Route },
+    { href: '/admin/logistica/historico', label: 'Histórico', icon: History },
     { href: '/admin/logistica/veiculos', label: 'Veículos', icon: Truck },
     { href: '/admin/logistica/motoristas', label: 'Motoristas', icon: UserCircle },
+    { href: '/admin/logistica/centros', label: 'Centros', icon: Warehouse },
     { href: '/admin/logistica/regioes', label: 'Regiões', icon: MapPin },
 ]
 
