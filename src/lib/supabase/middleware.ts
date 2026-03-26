@@ -42,7 +42,7 @@ export async function updateSession(request: NextRequest) {
     }
 
     if (user) {
-        const role = (request.cookies.get('jwt_role')?.value || 'client') as 'admin' | 'client' | 'representative'
+        const role = (request.cookies.get('jwt_role')?.value || 'client') as 'admin' | 'client' | 'representative' | 'driver'
         const status = (request.cookies.get('jwt_status')?.value || 'approved') as 'pending' | 'approved' | 'blocked' | 'imported'
         const viewAsRepresentative = request.cookies.get('view_as_representative')?.value === 'true'
 
@@ -63,6 +63,15 @@ export async function updateSession(request: NextRequest) {
         if (request.nextUrl.pathname.startsWith('/sales')) {
             const canAccessSales = role === 'representative' || (role === 'admin' && viewAsRepresentative)
             if (!canAccessSales) {
+                const url = request.nextUrl.clone()
+                url.pathname = getDefaultRouteByRole(role, status)
+                return NextResponse.redirect(url)
+            }
+        }
+
+        if (request.nextUrl.pathname.startsWith('/motorista')) {
+            const canAccessDriver = role === 'driver' || role === 'admin'
+            if (!canAccessDriver) {
                 const url = request.nextUrl.clone()
                 url.pathname = getDefaultRouteByRole(role, status)
                 return NextResponse.redirect(url)

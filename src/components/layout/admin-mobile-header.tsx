@@ -25,6 +25,11 @@ import {
     Wallet,
     ChevronDown,
     FolderClosed,
+    Truck,
+    MapPin,
+    Route,
+    PackageCheck,
+    UserCircle,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -61,6 +66,14 @@ const financeiroNavItems = [
     { href: '/admin/financeiro/relatorio', label: 'Relatório', icon: BarChart3 },
 ]
 
+const logisticaNavItems = [
+    { href: '/admin/logistica/pedidos', label: 'Pedidos p/ Rota', icon: PackageCheck },
+    { href: '/admin/logistica/rotas', label: 'Central de Rotas', icon: Route },
+    { href: '/admin/logistica/veiculos', label: 'Veículos', icon: Truck },
+    { href: '/admin/logistica/motoristas', label: 'Motoristas', icon: UserCircle },
+    { href: '/admin/logistica/regioes', label: 'Regiões', icon: MapPin },
+]
+
 const bottomNavItems = [
     { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
     { href: '/admin/customers', label: 'Clientes', icon: Users },
@@ -76,6 +89,7 @@ export function AdminMobileHeader() {
     const [cadastrosOpen, setCadastrosOpen] = useState(false)
     const [marketingOpen, setMarketingOpen] = useState(false)
     const [financeiroOpen, setFinanceiroOpen] = useState(false)
+    const [logisticaOpen, setLogisticaOpen] = useState(false)
 
     const isCadastroActive = cadastrosNavItems.some(item => pathname.startsWith(item.href))
     const isMarketingActive = marketingNavItems.some(item => pathname.startsWith(item.href))
@@ -83,6 +97,8 @@ export function AdminMobileHeader() {
     const effectiveMarketingOpen = marketingOpen || isMarketingActive
     const isFinanceiroActive = financeiroNavItems.some(item => pathname.startsWith(item.href))
     const effectiveFinanceiroOpen = financeiroOpen || isFinanceiroActive
+    const isLogisticaActive = logisticaNavItems.some(item => pathname.startsWith(item.href))
+    const effectiveLogisticaOpen = logisticaOpen || isLogisticaActive
 
     useEffect(() => {
         const loadSettings = async () => {
@@ -110,7 +126,7 @@ export function AdminMobileHeader() {
     }
 
     // Find active page title
-    const activeItem = [...topNavItems, ...cadastrosNavItems, ...marketingNavItems, ...bottomNavItems].find(item => pathname.startsWith(item.href))
+    const activeItem = [...topNavItems, ...cadastrosNavItems, ...marketingNavItems, ...financeiroNavItems, ...logisticaNavItems, ...bottomNavItems].find(item => pathname.startsWith(item.href))
 
     return (
         <header className="md:hidden sticky top-0 z-50 glass border-b px-4 h-14 flex items-center justify-between">
@@ -276,6 +292,51 @@ export function AdminMobileHeader() {
                                     <div className="overflow-hidden">
                                         <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
                                             {financeiroNavItems.map((item) => {
+                                                const isActive = pathname.startsWith(item.href)
+                                                return (
+                                                    <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className="block relative">
+                                                        {isActive && (
+                                                            <div className="absolute -left-[17px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                        )}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className={cn(
+                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                            )}
+                                                        >
+                                                            <span className="truncate">{item.label}</span>
+                                                        </Button>
+                                                    </Link>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Logística Group */}
+                            <div className="pt-1">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setLogisticaOpen(!logisticaOpen)}
+                                    className={cn(
+                                        'w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                        isLogisticaActive && !logisticaOpen && 'text-sidebar-foreground font-medium'
+                                    )}
+                                >
+                                    <Truck className="h-5 w-5 shrink-0" />
+                                    <span className="flex-1 text-left truncate">Logística</span>
+                                    <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", effectiveLogisticaOpen && "rotate-180")} />
+                                </Button>
+                                <div className={cn(
+                                    "grid transition-all duration-200 ease-in-out",
+                                    effectiveLogisticaOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                                )}>
+                                    <div className="overflow-hidden">
+                                        <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
+                                            {logisticaNavItems.map((item) => {
                                                 const isActive = pathname.startsWith(item.href)
                                                 return (
                                                     <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className="block relative">

@@ -3,6 +3,7 @@ import type { ApprovalStatus, UserRole } from '@/lib/types'
 export function getDefaultRouteByRole(role: UserRole, status: ApprovalStatus) {
     if (role === 'admin') return '/admin/dashboard'
     if (role === 'representative') return '/sales/dashboard'
+    if (role === 'driver') return '/motorista'
 
     if (status === 'pending' || status === 'imported') return '/pending-approval'
     if (status === 'blocked') return '/blocked'

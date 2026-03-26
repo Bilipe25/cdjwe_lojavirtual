@@ -2,7 +2,7 @@
 
 // ==================== AUTH & USERS ====================
 
-export type UserRole = 'admin' | 'client' | 'representative'
+export type UserRole = 'admin' | 'client' | 'representative' | 'driver'
 
 export type ApprovalStatus = 'pending' | 'approved' | 'blocked' | 'imported'
 
