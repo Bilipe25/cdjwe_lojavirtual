@@ -878,30 +878,44 @@ export async function applyOptimizationResult(
     result: {
         orderedStops: Array<{ id: string; position: number; arrival: number; distance: number }>
         summary: { totalDistance: number; totalDuration: number; totalStops: number }
+        engine?: string
+        polyline?: string
     }
 ) {
     try {
         const { supabase, userId } = await requireAdmin()
 
-        // Update each stop's position
+        // Update each stop's position, ETA and cumulative distance
         for (const stop of result.orderedStops) {
             await supabase
                 .from('delivery_route_stops')
-                .update({ stop_position: stop.position + 1 })
+                .update({
+                    stop_position: stop.position + 1,
+                    estimated_arrival_min: Math.round(stop.arrival / 60),
+                    estimated_distance_km: stop.distance,
+                })
                 .eq('id', stop.id)
         }
 
-        // Update route totals
+        // Update route totals + polyline + engine
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const routeUpdate: any = {
+            total_distance_km: result.summary.totalDistance,
+            total_duration_min: result.summary.totalDuration,
+            total_stops: result.summary.totalStops,
+            optimization_result: result,
+            optimization_engine: result.engine || 'unknown',
+            status: 'optimized',
+            updated_by: userId,
+        }
+
+        if (result.polyline) {
+            routeUpdate.route_polyline = result.polyline
+        }
+
         const { error } = await supabase
             .from('delivery_routes')
-            .update({
-                total_distance_km: result.summary.totalDistance,
-                total_duration_min: result.summary.totalDuration,
-                total_stops: result.summary.totalStops,
-                optimization_result: result,
-                status: 'optimized',
-                updated_by: userId,
-            })
+            .update(routeUpdate)
             .eq('id', routeId)
 
         if (error) return { error: 'Erro ao salvar resultado da otimização.' }
@@ -911,9 +925,47 @@ export async function applyOptimizationResult(
             route_id: routeId,
             event_type: 'route_optimized',
             actor_id: userId,
-            metadata: { totalDistance: result.summary.totalDistance, totalDuration: result.summary.totalDuration },
+            metadata: {
+                engine: result.engine,
+                totalDistance: result.summary.totalDistance,
+                totalDuration: result.summary.totalDuration,
+                stopsOptimized: result.summary.totalStops,
+            },
         })
 
+        return { success: true }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+// ==================== UPDATE ROUTE POLYLINE ====================
+
+export async function updateRoutePolyline(
+    routeId: string,
+    polyline: string,
+    directionsEngine?: string,
+) {
+    try {
+        const { supabase, userId } = await requireAdmin()
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const update: any = {
+            route_polyline: polyline,
+            updated_by: userId,
+        }
+
+        // Only set optimization_engine if the column exists (post-migration 043)
+        if (directionsEngine) {
+            update.optimization_engine = directionsEngine
+        }
+
+        const { error } = await supabase
+            .from('delivery_routes')
+            .update(update)
+            .eq('id', routeId)
+
+        if (error) return { error: 'Erro ao salvar trajeto da rota.' }
         return { success: true }
     } catch (e) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
