@@ -44,7 +44,7 @@ export const MAP_TILE_LAYERS = {
 export type MapTileLayerKey = keyof typeof MAP_TILE_LAYERS
 
 function resolveActiveBasemap() {
-    const fallback = MAP_TILE_LAYERS.cartoVoyager
+    const fallback = MAP_TILE_LAYERS.osm
     const requested = process.env.NEXT_PUBLIC_LOGISTICS_BASEMAP
 
     if (!requested) return fallback
@@ -57,7 +57,7 @@ function resolveActiveBasemap() {
     return MAP_TILE_LAYERS[requested as MapTileLayerKey]
 }
 
-// Default: Carto Voyager. To use Stadia in production, set:
+// Default: OSM (highest compatibility). To use Stadia in production, set:
 // NEXT_PUBLIC_LOGISTICS_BASEMAP=stadiaOsmBright
 // NEXT_PUBLIC_STADIA_MAPS_API_KEY=<your_key>
 export const ACTIVE_BASEMAP = resolveActiveBasemap()

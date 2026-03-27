@@ -97,6 +97,15 @@ export default function RouteMap({
     const mapRef = useRef<HTMLDivElement>(null)
     const mapInstanceRef = useRef<L.Map | null>(null)
     const markersRef = useRef<Map<string, L.Marker>>(new Map())
+    const invalidateMapSize = useCallback(() => {
+        const map = mapInstanceRef.current
+        if (!map) return
+        try {
+            map.invalidateSize()
+        } catch {
+            // no-op
+        }
+    }, [])
 
     useEffect(() => {
         if (!mapRef.current) return
@@ -364,6 +373,18 @@ export default function RouteMap({
             mapInstanceRef.current.flyTo(marker.getLatLng(), Math.max(mapInstanceRef.current.getZoom(), 15), { duration: 0.5 })
         }
     }, [highlightStopId])
+
+    // Fullscreen/responsive transitions may not be fully captured by ResizeObserver alone.
+    // Re-run invalidateSize across the transition window to avoid gray/blank map areas.
+    useEffect(() => {
+        const timeouts = [0, 120, 280, 480].map((delay) => (
+            setTimeout(() => invalidateMapSize(), delay)
+        ))
+
+        return () => {
+            timeouts.forEach((id) => clearTimeout(id))
+        }
+    }, [height, className, invalidateMapSize])
 
     return (
         <div className="relative">
