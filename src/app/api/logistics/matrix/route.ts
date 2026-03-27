@@ -1,20 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireLogisticsOperatorSession } from '../_auth'
 
 const ORS_API_KEY = process.env.ORS_API_KEY || ''
 const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.org'
 
+type MatrixResult = {
+    durations: Array<Array<number | null>>
+    distances: Array<Array<number | null>>
+    engine: 'ors_matrix' | 'osrm_table'
+}
+
 /**
  * POST /api/logistics/matrix
- * 
- * Computes time/distance matrix between a set of coordinates using ORS.
- * 
- * Body: { coordinates: [number, number][] }
- *   where each coordinate is [lng, lat] (ORS format)
- * 
- * Returns: { durations: number[][], distances: number[][] }
+ *
+ * Body: { coordinates: [number, number][] } where each coordinate is [lng, lat]
+ * Returns: { durations, distances, engine }
  */
 export async function POST(request: NextRequest) {
     try {
+        const auth = await requireLogisticsOperatorSession()
+        if (!auth.ok) return auth.response
+
         const body = await request.json()
         const { coordinates } = body
 
@@ -27,42 +33,104 @@ export async function POST(request: NextRequest) {
 
         if (coordinates.length > 50) {
             return NextResponse.json(
-                { error: 'Máximo de 50 pontos por requisição.' },
+                { error: 'Maximo de 50 pontos por requisicao.' },
                 { status: 400 }
             )
         }
 
-        const response = await fetch(`${ORS_BASE_URL}/v2/matrix/driving-car`, {
-            method: 'POST',
-            headers: {
-                'Authorization': ORS_API_KEY,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-            },
-            body: JSON.stringify({
-                locations: coordinates,
-                metrics: ['duration', 'distance'],
-                units: 'km',
-            }),
-        })
+        const normalizedCoordinates: Array<[number, number]> = []
+        for (const coordinate of coordinates) {
+            if (!Array.isArray(coordinate) || coordinate.length !== 2) {
+                return NextResponse.json(
+                    { error: 'Cada coordenada deve ser [lng, lat].' },
+                    { status: 400 }
+                )
+            }
 
-        if (!response.ok) {
-            const errText = await response.text()
-            console.error('[ORS MATRIX] HTTP error:', response.status, errText)
-            return NextResponse.json(
-                { error: 'Erro ao calcular matriz de distância.' },
-                { status: 502 }
-            )
+            const lng = Number(coordinate[0])
+            const lat = Number(coordinate[1])
+            if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+                return NextResponse.json(
+                    { error: 'Todas as coordenadas devem conter valores numericos validos.' },
+                    { status: 400 }
+                )
+            }
+
+            normalizedCoordinates.push([lng, lat])
         }
 
-        const data = await response.json()
+        if (ORS_API_KEY) {
+            try {
+                const result = await matrixWithORS(normalizedCoordinates)
+                return NextResponse.json(result)
+            } catch (error) {
+                console.warn('[MATRIX] ORS failed, falling back to OSRM:', error)
+            }
+        }
 
-        return NextResponse.json({
-            durations: data.durations,   // seconds
-            distances: data.distances,   // km
-        })
+        const fallbackResult = await matrixWithOSRM(normalizedCoordinates)
+        return NextResponse.json(fallbackResult)
     } catch (error) {
         console.error('[MATRIX API] Error:', error)
         return NextResponse.json({ error: 'Erro interno na matrix.' }, { status: 500 })
+    }
+}
+
+async function matrixWithORS(coordinates: Array<[number, number]>): Promise<MatrixResult> {
+    const response = await fetch(`${ORS_BASE_URL}/v2/matrix/driving-car`, {
+        method: 'POST',
+        headers: {
+            Authorization: ORS_API_KEY,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+        },
+        body: JSON.stringify({
+            locations: coordinates,
+            metrics: ['duration', 'distance'],
+            units: 'km',
+        }),
+    })
+
+    if (!response.ok) {
+        const errText = await response.text()
+        throw new Error(`ORS matrix failed: ${response.status} - ${errText}`)
+    }
+
+    const data = await response.json()
+    return {
+        durations: data.durations || [],
+        distances: data.distances || [],
+        engine: 'ors_matrix',
+    }
+}
+
+async function matrixWithOSRM(coordinates: Array<[number, number]>): Promise<MatrixResult> {
+    const coordsStr = coordinates.map(([lng, lat]) => `${lng},${lat}`).join(';')
+    const url = `https://router.project-osrm.org/table/v1/driving/${coordsStr}?annotations=distance,duration`
+
+    const response = await fetch(url, {
+        headers: { 'User-Agent': 'CDJWE-Logistics/1.0' },
+    })
+
+    if (!response.ok) {
+        throw new Error(`OSRM table failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+    if (data.code !== 'Ok') {
+        throw new Error(`OSRM table error: ${data.code || 'unknown'}`)
+    }
+
+    const distances = (data.distances || []).map((row: Array<number | null>) =>
+        row.map((value: number | null) => {
+            if (typeof value !== 'number' || !Number.isFinite(value)) return null
+            return Math.round((value / 1000) * 100) / 100 // meters -> km
+        })
+    )
+
+    return {
+        durations: data.durations || [],
+        distances,
+        engine: 'osrm_table',
     }
 }

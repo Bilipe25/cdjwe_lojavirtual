@@ -104,6 +104,37 @@ async function requireAdmin() {
     return { supabase, userId: user.id }
 }
 
+const ROUTE_STATUSES = ['draft', 'optimized', 'confirmed', 'in_progress', 'completed', 'cancelled'] as const
+type RouteStatus = typeof ROUTE_STATUSES[number]
+
+const STOP_STATUSES = ['pending', 'arrived', 'delivered', 'failed', 'skipped'] as const
+type StopStatus = typeof STOP_STATUSES[number]
+
+const ROUTE_TRANSITIONS: Record<RouteStatus, RouteStatus[]> = {
+    draft: ['optimized', 'confirmed', 'cancelled'],
+    optimized: ['confirmed', 'cancelled'],
+    confirmed: ['in_progress', 'cancelled'],
+    in_progress: ['completed', 'cancelled'],
+    completed: [],
+    cancelled: [],
+}
+
+const STOP_TRANSITIONS: Record<StopStatus, StopStatus[]> = {
+    pending: ['arrived', 'delivered', 'failed', 'skipped'],
+    arrived: ['delivered', 'failed', 'skipped'],
+    delivered: [],
+    failed: [],
+    skipped: [],
+}
+
+function isRouteStatus(value: string): value is RouteStatus {
+    return ROUTE_STATUSES.includes(value as RouteStatus)
+}
+
+function isStopStatus(value: string): value is StopStatus {
+    return STOP_STATUSES.includes(value as StopStatus)
+}
+
 // ==================== ROUTABLE ORDERS ====================
 
 export async function getRoutableOrders(filters?: {
@@ -122,15 +153,19 @@ export async function getRoutableOrders(filters?: {
             status,
             total,
             created_at,
-            shipping_address,
-            shipping_address_id,
-            stores!inner (
-                company_name,
-                city,
-                state,
-                region,
-                profiles!stores_profile_id_fkey!inner ( full_name )
-            )
+                shipping_address,
+                shipping_address_id,
+                stores!inner (
+                    company_name,
+                    city,
+                    state,
+                    region,
+                    profiles!stores_profile_id_fkey!inner ( full_name )
+                ),
+                store_addresses!orders_shipping_address_id_fkey (
+                    latitude,
+                    longitude
+                )
         `)
 
         // Only orders ready for routing (approved or in_production)
@@ -161,24 +196,52 @@ export async function getRoutableOrders(filters?: {
             return { error: 'Erro ao carregar pedidos.' }
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result: RoutableOrder[] = (data || []).map((row: any) => ({
-            order_id: row.id,
-            order_number: row.order_number,
-            store_id: row.store_id,
-            company_name: row.stores?.company_name || '',
-            client_name: row.stores?.profiles?.full_name || '',
-            city: row.stores?.city || '',
-            state: row.stores?.state || '',
-            region: row.stores?.region || null,
-            total: Number(row.total || 0),
-            status: row.status,
-            created_at: row.created_at,
-            shipping_address: row.shipping_address,
-            shipping_address_id: row.shipping_address_id,
-            address_lat: null,
-            address_lng: null,
-        }))
+        const orderIds = (data || []).map((row) => row.id)
+        const blockedOrderIds = new Set<string>()
+
+        if (orderIds.length > 0) {
+            const { data: assignments, error: assignmentErr } = await supabase
+                .from('delivery_route_stops')
+                .select(`
+                    order_id,
+                    delivery_routes!inner (
+                        status
+                    )
+                `)
+                .in('order_id', orderIds)
+                .in('delivery_routes.status', ['draft', 'optimized', 'confirmed', 'in_progress'])
+
+            if (assignmentErr) {
+                console.error('[ROUTABLE ORDERS] Active assignment lookup error:', assignmentErr)
+                return { error: 'Erro ao validar pedidos ja roteirizados.' }
+            }
+
+            for (const assignment of assignments || []) {
+                if (assignment.order_id) {
+                    blockedOrderIds.add(assignment.order_id)
+                }
+            }
+        }
+
+        const result: RoutableOrder[] = (data || [])
+            .filter((row) => !blockedOrderIds.has(row.id))
+            .map((row) => ({
+                order_id: row.id,
+                order_number: row.order_number,
+                store_id: row.store_id,
+                company_name: row.stores?.company_name || '',
+                client_name: row.stores?.profiles?.full_name || '',
+                city: row.stores?.city || '',
+                state: row.stores?.state || '',
+                region: row.stores?.region || null,
+                total: Number(row.total || 0),
+                status: row.status,
+                created_at: row.created_at,
+                shipping_address: row.shipping_address,
+                shipping_address_id: row.shipping_address_id,
+                address_lat: row.store_addresses?.latitude ? Number(row.store_addresses.latitude) : null,
+                address_lng: row.store_addresses?.longitude ? Number(row.store_addresses.longitude) : null,
+            }))
 
         return { data: result }
     } catch (e) {
@@ -596,7 +659,93 @@ export async function createRoute(input: {
     try {
         const { supabase, userId } = await requireAdmin()
 
-        // Create route
+        const uniqueOrderIds = [...new Set(input.orderIds.map((id) => id.trim()).filter(Boolean))]
+        if (uniqueOrderIds.length === 0) {
+            return { error: 'Selecione pelo menos um pedido para criar a rota.' }
+        }
+
+        const { data: orderRows, error: ordersErr } = await supabase
+            .from('orders')
+            .select(`
+                id,
+                order_number,
+                store_id,
+                status,
+                shipping_address,
+                shipping_address_id,
+                stores ( company_name, city, state )
+            `)
+            .in('id', uniqueOrderIds)
+
+        if (ordersErr) {
+            console.error('[CREATE ROUTE] Orders lookup error:', ordersErr)
+            return { error: 'Erro ao validar pedidos selecionados.' }
+        }
+
+        if (!orderRows || orderRows.length !== uniqueOrderIds.length) {
+            return { error: 'Um ou mais pedidos selecionados nao foram encontrados.' }
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ordersById = new Map(orderRows.map((order: any) => [order.id, order]))
+
+        const invalidOrders = orderRows.filter((order) => !['approved', 'in_production'].includes(order.status))
+        if (invalidOrders.length > 0) {
+            const sample = invalidOrders.slice(0, 3).map((o) => o.order_number).join(', ')
+            return {
+                error: `Somente pedidos em status Aprovado ou Em Producao podem ser roteirizados. Exemplo: ${sample}.`,
+            }
+        }
+
+        // Prevent assignment of the same order to multiple active routes.
+        const { data: activeAssignments, error: assignmentErr } = await supabase
+            .from('delivery_route_stops')
+            .select(`
+                order_id,
+                delivery_routes!inner (
+                    id,
+                    route_number,
+                    status
+                )
+            `)
+            .in('order_id', uniqueOrderIds)
+            .in('delivery_routes.status', ['draft', 'optimized', 'confirmed', 'in_progress'])
+
+        if (assignmentErr) {
+            console.error('[CREATE ROUTE] Active assignment check error:', assignmentErr)
+            return { error: 'Erro ao validar conflitos de roteirizacao.' }
+        }
+
+        if (activeAssignments && activeAssignments.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const firstConflict = activeAssignments[0] as any
+            const conflictOrder = ordersById.get(firstConflict.order_id)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const conflictRoute = firstConflict.delivery_routes as any
+            return {
+                error: `O pedido ${conflictOrder?.order_number || firstConflict.order_id} ja esta vinculado a rota ativa ${conflictRoute?.route_number || ''}.`,
+            }
+        }
+
+        const addressIds = orderRows
+            .map((order) => order.shipping_address_id)
+            .filter((id): id is string => Boolean(id))
+
+        const addressCoords = new Map<string, { lat: number | null; lng: number | null }>()
+        if (addressIds.length > 0) {
+            const { data: addresses } = await supabase
+                .from('store_addresses')
+                .select('id, latitude, longitude')
+                .in('id', addressIds)
+
+            for (const address of addresses || []) {
+                addressCoords.set(address.id, {
+                    lat: address.latitude ? Number(address.latitude) : null,
+                    lng: address.longitude ? Number(address.longitude) : null,
+                })
+            }
+        }
+
         const { data: route, error: routeErr } = await supabase
             .from('delivery_routes')
             .insert({
@@ -607,8 +756,8 @@ export async function createRoute(input: {
                 center_id: input.centerId,
                 region_id: input.regionId,
                 planned_date: input.plannedDate,
-                total_stops: input.orderIds.length,
-                notes: input.notes,
+                total_stops: uniqueOrderIds.length,
+                notes: input.notes?.trim() || null,
                 created_by: userId,
             })
             .select('id, route_number')
@@ -619,73 +768,41 @@ export async function createRoute(input: {
             return { error: 'Erro ao criar rota.' }
         }
 
-        // Create stops (initial order = order of selection)
-        const stops = []
-        for (let i = 0; i < input.orderIds.length; i++) {
-            const orderId = input.orderIds[i]
+        const stops = uniqueOrderIds.map((orderId, index) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const order = ordersById.get(orderId) as any
+            const coord = order?.shipping_address_id ? addressCoords.get(order.shipping_address_id) : null
 
-            // Fetch order + store data for snapshot
-            const { data: order } = await supabase
-                .from('orders')
-                .select(`
-                    store_id,
-                    shipping_address,
-                    shipping_address_id,
-                    stores ( company_name, city, state )
-                `)
-                .eq('id', orderId)
-                .single()
-
-            let lat: number | null = null
-            let lng: number | null = null
-            let addressId: string | null = null
-
-            if (order?.shipping_address_id) {
-                addressId = order.shipping_address_id
-                const { data: addr } = await supabase
-                    .from('store_addresses')
-                    .select('latitude, longitude')
-                    .eq('id', order.shipping_address_id)
-                    .single()
-
-                lat = addr?.latitude || null
-                lng = addr?.longitude || null
-            }
-
-            stops.push({
+            return {
                 route_id: route.id,
                 order_id: orderId,
-                store_id: order?.store_id || '',
-                address_id: addressId,
-                stop_position: i,
-                latitude: lat,
-                longitude: lng,
+                store_id: order.store_id,
+                address_id: order.shipping_address_id || null,
+                stop_position: index + 1,
+                latitude: coord?.lat || null,
+                longitude: coord?.lng || null,
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                address_snapshot: order?.shipping_address || `${(order?.stores as any)?.city || ''}, ${(order?.stores as any)?.state || ''}`,
+                address_snapshot: order.shipping_address || `${(order?.stores as any)?.city || ''}, ${(order?.stores as any)?.state || ''}`,
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 customer_name: (order?.stores as any)?.company_name || '',
-            })
-        }
-
-        if (stops.length > 0) {
-            const { error: stopsErr } = await supabase
-                .from('delivery_route_stops')
-                .insert(stops)
-
-            if (stopsErr) {
-                console.error('[CREATE ROUTE STOPS] Error:', stopsErr)
-                // Cleanup the route
-                await supabase.from('delivery_routes').delete().eq('id', route.id)
-                return { error: 'Erro ao criar paradas da rota.' }
             }
+        })
+
+        const { error: stopsErr } = await supabase
+            .from('delivery_route_stops')
+            .insert(stops)
+
+        if (stopsErr) {
+            console.error('[CREATE ROUTE STOPS] Error:', stopsErr)
+            await supabase.from('delivery_routes').delete().eq('id', route.id)
+            return { error: 'Erro ao criar paradas da rota.' }
         }
 
-        // Insert audit event
         await supabase.from('route_events').insert({
             route_id: route.id,
             event_type: 'route_created',
             actor_id: userId,
-            metadata: { order_count: input.orderIds.length },
+            metadata: { order_count: uniqueOrderIds.length },
         })
 
         return { data: { routeId: route.id, routeNumber: route.route_number } }
@@ -744,18 +861,97 @@ export async function updateRouteStatus(routeId: string, newStatus: string, reas
     try {
         const { supabase, userId } = await requireAdmin()
 
+        const normalizedStatus = newStatus.trim().toLowerCase()
+        if (!isRouteStatus(normalizedStatus)) {
+            return { error: 'Status de rota invalido.' }
+        }
+
+        const { data: route, error: routeErr } = await supabase
+            .from('delivery_routes')
+            .select(`
+                id,
+                status,
+                driver_id,
+                vehicle_id,
+                center_id,
+                route_centers ( latitude, longitude )
+            `)
+            .eq('id', routeId)
+            .single()
+
+        if (routeErr || !route) {
+            return { error: 'Rota nao encontrada.' }
+        }
+
+        const currentStatus = route.status as RouteStatus
+        if (!isRouteStatus(currentStatus)) {
+            return { error: 'Status atual da rota invalido.' }
+        }
+
+        if (currentStatus === normalizedStatus) {
+            return { success: true }
+        }
+
+        if (!ROUTE_TRANSITIONS[currentStatus].includes(normalizedStatus)) {
+            return { error: `Transicao de status invalida: ${currentStatus} -> ${normalizedStatus}.` }
+        }
+
+        if (normalizedStatus === 'confirmed') {
+            if (!route.driver_id || !route.vehicle_id || !route.center_id) {
+                return { error: 'Para confirmar a rota, atribua motorista, veiculo e centro de saida.' }
+            }
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const center = route.route_centers as any
+            if (!center?.latitude || !center?.longitude) {
+                return { error: 'Centro de saida sem coordenadas. Geocodifique o centro antes de confirmar.' }
+            }
+
+            const { count: ungeocodedStops, error: stopErr } = await supabase
+                .from('delivery_route_stops')
+                .select('id', { count: 'exact', head: true })
+                .eq('route_id', routeId)
+                .or('latitude.is.null,longitude.is.null')
+
+            if (stopErr) {
+                return { error: 'Erro ao validar geocodificacao das paradas.' }
+            }
+            if ((ungeocodedStops || 0) > 0) {
+                return { error: 'Todas as paradas precisam de coordenadas antes de confirmar a rota.' }
+            }
+        }
+
+        if (normalizedStatus === 'completed') {
+            const { count: openStops, error: openStopsErr } = await supabase
+                .from('delivery_route_stops')
+                .select('id', { count: 'exact', head: true })
+                .eq('route_id', routeId)
+                .in('status', ['pending', 'arrived'])
+
+            if (openStopsErr) {
+                return { error: 'Erro ao validar paradas pendentes.' }
+            }
+            if ((openStops || 0) > 0) {
+                return { error: 'Nao e possivel concluir rota com paradas pendentes.' }
+            }
+        }
+
+        if (normalizedStatus === 'cancelled' && !reason?.trim()) {
+            return { error: 'Informe o motivo do cancelamento da rota.' }
+        }
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updates: any = {
-            status: newStatus,
+            status: normalizedStatus,
             updated_by: userId,
         }
 
-        if (newStatus === 'in_progress') {
+        if (normalizedStatus === 'in_progress') {
             updates.started_at = new Date().toISOString()
-        } else if (newStatus === 'completed') {
+        } else if (normalizedStatus === 'completed') {
             updates.completed_at = new Date().toISOString()
-        } else if (newStatus === 'cancelled') {
-            updates.cancellation_reason = reason || null
+        } else if (normalizedStatus === 'cancelled') {
+            updates.cancellation_reason = reason?.trim() || null
         }
 
         const { error } = await supabase
@@ -776,9 +972,9 @@ export async function updateRouteStatus(routeId: string, newStatus: string, reas
 
         await supabase.from('route_events').insert({
             route_id: routeId,
-            event_type: eventTypeMap[newStatus] || 'notes_updated',
+            event_type: eventTypeMap[normalizedStatus] || 'notes_updated',
             actor_id: userId,
-            metadata: reason ? { reason } : null,
+            metadata: reason ? { reason: reason.trim() } : null,
         })
 
         return { success: true }
@@ -795,35 +991,85 @@ export async function updateStopStatus(
     try {
         const { supabase, userId } = await requireAdmin()
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updates: any = {
-            status: newStatus,
+        if (!isStopStatus(newStatus)) {
+            return { error: 'Status de parada invalido.' }
         }
 
+        const { data: currentStop, error: currentStopErr } = await supabase
+            .from('delivery_route_stops')
+            .select(`
+                id,
+                route_id,
+                status,
+                delivery_routes!inner ( status )
+            `)
+            .eq('id', stopId)
+            .single()
+
+        if (currentStopErr || !currentStop) {
+            return { error: 'Parada nao encontrada.' }
+        }
+
+        const currentStopStatus = currentStop.status as string
+        if (!isStopStatus(currentStopStatus)) {
+            return { error: 'Status atual da parada invalido.' }
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const routeStatus = (currentStop.delivery_routes as any)?.status as string | undefined
+        if (routeStatus !== 'in_progress') {
+            return { error: 'Apenas rotas em andamento permitem atualizacao de paradas.' }
+        }
+
+        if (currentStopStatus === newStatus) {
+            return { success: true }
+        }
+
+        if (!STOP_TRANSITIONS[currentStopStatus].includes(newStatus)) {
+            return { error: `Transicao de parada invalida: ${currentStopStatus} -> ${newStatus}.` }
+        }
+
+        if (newStatus === 'failed' && !data?.failureReason?.trim()) {
+            return { error: 'Informe o motivo do insucesso para marcar a parada como falha.' }
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updates: any = { status: newStatus }
         if (newStatus === 'delivered') {
             updates.delivered_at = new Date().toISOString()
+            updates.failure_reason = null
+        } else if (newStatus === 'failed') {
+            updates.failure_reason = data?.failureReason?.trim() || null
+        } else {
+            updates.delivered_at = null
+            updates.failure_reason = null
         }
-        if (newStatus === 'failed' && data?.failureReason) {
-            updates.failure_reason = data.failureReason
-        }
-        if (data?.notes) {
-            updates.notes = data.notes
+        if (data?.notes?.trim()) {
+            updates.notes = data.notes.trim()
         }
 
         const { data: stop, error } = await supabase
             .from('delivery_route_stops')
             .update(updates)
             .eq('id', stopId)
+            .eq('status', currentStopStatus)
             .select('route_id')
             .single()
 
         if (error || !stop) return { error: 'Erro ao atualizar status da parada.' }
 
+        const eventTypeMap: Record<'arrived' | 'delivered' | 'failed' | 'skipped', string> = {
+            arrived: 'stop_arrived',
+            delivered: 'stop_delivered',
+            failed: 'stop_failed',
+            skipped: 'stop_skipped',
+        }
+
         // Audit event
         await supabase.from('route_events').insert({
             route_id: stop.route_id,
             stop_id: stopId,
-            event_type: `stop_${newStatus}`,
+            event_type: eventTypeMap[newStatus],
             actor_id: userId,
             metadata: data || null,
         })
@@ -1046,6 +1292,55 @@ export async function updateRouteAssignment(
     try {
         const { supabase, userId } = await requireAdmin()
 
+        const { data: route, error: routeErr } = await supabase
+            .from('delivery_routes')
+            .select('id, status')
+            .eq('id', routeId)
+            .single()
+
+        if (routeErr || !route) {
+            return { error: 'Rota nao encontrada.' }
+        }
+
+        if (!['draft', 'optimized', 'confirmed'].includes(route.status)) {
+            return { error: 'Atribuicoes so podem ser alteradas em rotas nao iniciadas.' }
+        }
+
+        if (updates.driver_id) {
+            const { data: driver } = await supabase
+                .from('drivers')
+                .select('id, status')
+                .eq('id', updates.driver_id)
+                .single()
+
+            if (!driver) return { error: 'Motorista selecionado nao encontrado.' }
+            if (driver.status === 'inactive') return { error: 'Motorista inativo nao pode ser atribuido a rota.' }
+        }
+
+        if (updates.vehicle_id) {
+            const { data: vehicle } = await supabase
+                .from('vehicles')
+                .select('id, status')
+                .eq('id', updates.vehicle_id)
+                .single()
+
+            if (!vehicle) return { error: 'Veiculo selecionado nao encontrado.' }
+            if (vehicle.status === 'inactive' || vehicle.status === 'maintenance') {
+                return { error: 'Veiculo indisponivel para atribuicao (inativo ou em manutencao).' }
+            }
+        }
+
+        if (updates.center_id) {
+            const { data: center } = await supabase
+                .from('route_centers')
+                .select('id, is_active')
+                .eq('id', updates.center_id)
+                .single()
+
+            if (!center) return { error: 'Centro selecionado nao encontrado.' }
+            if (!center.is_active) return { error: 'Centro inativo nao pode ser usado na rota.' }
+        }
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const payload: any = { updated_by: userId }
         if ('driver_id' in updates) payload.driver_id = updates.driver_id || null
@@ -1193,7 +1488,7 @@ export async function getDistinctCities() {
 
         const unique = [...new Set((data || []).map((r: { city: string }) => r.city).filter(Boolean))]
         return { data: unique }
-    } catch (e) {
+    } catch {
         return { data: [] }
     }
 }
@@ -1235,7 +1530,7 @@ export async function updateStopCoordinates(
         await supabase.from('route_events').insert({
             route_id: stop.route_id,
             stop_id: stopId,
-            event_type: 'stop_arrived', // reuse existing type for geo update
+            event_type: 'notes_updated',
             actor_id: userId,
             metadata: { action: 'geocoded', lat, lng },
         })

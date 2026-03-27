@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
@@ -105,6 +105,7 @@ export default function RouteDetailPage() {
     const [error, setError] = useState<string | null>(null)
     const [actionLoading, setActionLoading] = useState(false)
     const [confirmAction, setConfirmAction] = useState<{ type: string; label: string; newStatus: string } | null>(null)
+    const [cancelReason, setCancelReason] = useState('')
     const [optimizing, setOptimizing] = useState(false)
     const [activeTab, setActiveTab] = useState<'stops' | 'timeline' | 'costs'>('stops')
     // Cost Estimate
@@ -191,12 +192,13 @@ export default function RouteDetailPage() {
         void loadResources()
     }, [])
 
-    const handleStatusChange = async (newStatus: string) => {
+    const handleStatusChange = async (newStatus: string, reason?: string) => {
         setActionLoading(true)
         setError(null)
-        const res = await updateRouteStatus(routeId, newStatus)
+        const res = await updateRouteStatus(routeId, newStatus, reason)
         setActionLoading(false)
         setConfirmAction(null)
+        setCancelReason('')
         if (res.error) setError(res.error)
         else void loadData()
     }
@@ -448,6 +450,32 @@ export default function RouteDetailPage() {
     const ungeocodedStops = stops.length - geocodedStops
     const hasVehicle = !!route?.vehicle_id
     const hasDriver = !!route?.driver_id
+    const routeCenter = route?.route_centers
+
+    // Map data (memoized to avoid expensive Leaflet remounts on unrelated renders)
+    const mapCenter = useMemo(() => {
+        if (!routeCenter?.latitude || !routeCenter?.longitude) return null
+        return {
+            lat: Number(routeCenter.latitude),
+            lng: Number(routeCenter.longitude),
+            name: routeCenter.name,
+        }
+    }, [routeCenter])
+
+    const mapStops = useMemo(() => (
+        stops.map((s: { id: string; stop_position: number; latitude: number | null; longitude: number | null; customer_name: string; status: string; address_snapshot: string; estimated_arrival_min?: number; estimated_distance_km?: number; orders?: { total?: number } }) => ({
+            id: s.id,
+            position: s.stop_position,
+            latitude: s.latitude ? Number(s.latitude) : null,
+            longitude: s.longitude ? Number(s.longitude) : null,
+            customer_name: s.customer_name,
+            status: s.status,
+            address_snapshot: s.address_snapshot,
+            estimated_arrival_min: s.estimated_arrival_min,
+            estimated_distance_km: s.estimated_distance_km,
+            order_total: s.orders?.total ? Number(s.orders.total) : null,
+        }))
+    ), [stops])
 
     if (loading) {
         return (
@@ -475,26 +503,6 @@ export default function RouteDetailPage() {
     }
 
     const st = routeStatusConfig[route.status] || routeStatusConfig.draft
-
-    // Map data
-    const mapCenter = route.route_centers?.latitude && route.route_centers?.longitude ? {
-        lat: Number(route.route_centers.latitude),
-        lng: Number(route.route_centers.longitude),
-        name: route.route_centers.name,
-    } : null
-
-    const mapStops = stops.map((s: { id: string; stop_position: number; latitude: number | null; longitude: number | null; customer_name: string; status: string; address_snapshot: string; estimated_arrival_min?: number; estimated_distance_km?: number; orders?: { total?: number } }) => ({
-        id: s.id,
-        position: s.stop_position,
-        latitude: s.latitude ? Number(s.latitude) : null,
-        longitude: s.longitude ? Number(s.longitude) : null,
-        customer_name: s.customer_name,
-        status: s.status,
-        address_snapshot: s.address_snapshot,
-        estimated_arrival_min: s.estimated_arrival_min,
-        estimated_distance_km: s.estimated_distance_km,
-        order_total: s.orders?.total ? Number(s.orders.total) : null,
-    }))
 
     return (
         <div className="space-y-5">
@@ -563,7 +571,7 @@ export default function RouteDetailPage() {
                         )}
                         {!['completed', 'cancelled'].includes(route.status) && (
                             <Button size="sm" variant="ghost" className="h-8 gap-1 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => setConfirmAction({ type: 'cancel', label: 'Cancelar rota?', newStatus: 'cancelled' })}>
+                                onClick={() => { setCancelReason(''); setConfirmAction({ type: 'cancel', label: 'Cancelar rota?', newStatus: 'cancelled' }) }}>
                                 <Ban className="h-3 w-3" /> Cancelar
                             </Button>
                         )}
@@ -1050,7 +1058,7 @@ export default function RouteDetailPage() {
             </Dialog>
 
             {/* Status Change Alert */}
-            <AlertDialog open={!!confirmAction} onOpenChange={(o) => !o && setConfirmAction(null)}>
+            <AlertDialog open={!!confirmAction} onOpenChange={(o) => { if (!o) { setConfirmAction(null); setCancelReason('') } }}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>{confirmAction?.label}</AlertDialogTitle>
@@ -1058,11 +1066,26 @@ export default function RouteDetailPage() {
                             Esta ação irá alterar o status da rota <strong>{route.route_number}</strong>.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
+                    {confirmAction?.type === 'cancel' && (
+                        <div className="space-y-2">
+                            <label className="text-xs font-medium text-muted-foreground">Motivo do cancelamento *</label>
+                            <Textarea
+                                rows={3}
+                                placeholder="Ex.: problema operacional, replanejamento, indisponibilidade do motorista..."
+                                value={cancelReason}
+                                onChange={(e) => setCancelReason(e.target.value)}
+                            />
+                        </div>
+                    )}
                     <AlertDialogFooter>
-                        <AlertDialogCancel disabled={actionLoading}>Cancelar</AlertDialogCancel>
+                        <AlertDialogCancel disabled={actionLoading} onClick={() => setCancelReason('')}>Cancelar</AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={(e) => { e.preventDefault(); void handleStatusChange(confirmAction!.newStatus) }}
-                            disabled={actionLoading}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                const reason = confirmAction?.type === 'cancel' ? cancelReason.trim() : undefined
+                                void handleStatusChange(confirmAction!.newStatus, reason)
+                            }}
+                            disabled={actionLoading || (confirmAction?.type === 'cancel' && !cancelReason.trim())}
                             className={cn(confirmAction?.type === 'cancel' && 'bg-red-600 hover:bg-red-700 text-white')}
                         >
                             {actionLoading ? 'Processando...' : 'Confirmar'}

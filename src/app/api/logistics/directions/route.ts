@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireLogisticsOperatorSession } from '../_auth'
 
 const ORS_API_KEY = process.env.ORS_API_KEY || ''
 const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.org'
@@ -15,6 +16,9 @@ const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.o
  */
 export async function POST(request: NextRequest) {
     try {
+        const auth = await requireLogisticsOperatorSession()
+        if (!auth.ok) return auth.response
+
         const body = await request.json()
         const { waypoints } = body
 
@@ -25,9 +29,18 @@ export async function POST(request: NextRequest) {
             )
         }
 
+        if (waypoints.length > 120) {
+            return NextResponse.json(
+                { error: 'Maximo de 120 waypoints por requisicao.' },
+                { status: 400 }
+            )
+        }
+
         // Validate all waypoints
         for (const wp of waypoints) {
-            if (!wp.lat || !wp.lng) {
+            const lat = Number(wp?.lat)
+            const lng = Number(wp?.lng)
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
                 return NextResponse.json(
                     { error: 'Todos os waypoints devem ter lat e lng.' },
                     { status: 400 }
@@ -35,17 +48,22 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        const normalizedWaypoints = waypoints.map((wp) => ({
+            lat: Number(wp.lat),
+            lng: Number(wp.lng),
+        }))
+
         let result: DirectionsResult
 
         if (ORS_API_KEY) {
             try {
-                result = await directionsWithORS(waypoints)
+                result = await directionsWithORS(normalizedWaypoints)
             } catch (e) {
                 console.warn('[DIRECTIONS] ORS failed, falling back to OSRM:', e)
-                result = await directionsWithOSRM(waypoints)
+                result = await directionsWithOSRM(normalizedWaypoints)
             }
         } else {
-            result = await directionsWithOSRM(waypoints)
+            result = await directionsWithOSRM(normalizedWaypoints)
         }
 
         return NextResponse.json(result)
@@ -203,3 +221,4 @@ function encodeValue(value: number): string {
     encoded += String.fromCharCode(v + 63)
     return encoded
 }
+

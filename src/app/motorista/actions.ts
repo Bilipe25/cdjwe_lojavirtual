@@ -5,8 +5,10 @@ import { createClient as createServerClient } from '@/lib/supabase/server'
 // ==================== Helper: verify driver ====================
 async function requireDriver() {
     const supabase = await createServerClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) throw new Error('Não autenticado.')
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) throw new Error('Nao autenticado.')
 
     const { data: profile } = await supabase
         .from('profiles')
@@ -17,7 +19,7 @@ async function requireDriver() {
     const isDriver = profile?.role === 'driver'
     const isAdmin = profile?.role === 'admin'
 
-    if (!isDriver && !isAdmin) throw new Error('Permissão negada.')
+    if (!isDriver && !isAdmin) throw new Error('Permissao negada.')
 
     // Find driver record
     const { data: driver } = await supabase
@@ -132,7 +134,7 @@ export async function getDriverRouteDetail(routeId: string) {
             .eq('id', routeId)
             .single()
 
-        if (error || !route) return { error: 'Rota não encontrada.' }
+        if (error || !route) return { error: 'Rota nao encontrada.' }
 
         // Verify access: must be assigned to this driver (or admin)
         if (!ctx.isAdmin && route.driver_id !== ctx.driverId) {
@@ -168,7 +170,7 @@ export async function driverStartRoute(routeId: string) {
             .eq('id', routeId)
             .single()
 
-        if (!route) return { error: 'Rota não encontrada.' }
+        if (!route) return { error: 'Rota nao encontrada.' }
         if (!ctx.isAdmin && route.driver_id !== ctx.driverId) return { error: 'Acesso negado.' }
         if (route.status !== 'confirmed') return { error: 'Apenas rotas confirmadas podem ser iniciadas.' }
 
@@ -200,14 +202,35 @@ export async function driverDeliverStop(stopId: string, notes?: string) {
         const ctx = await requireDriver()
         const { supabase } = ctx
 
+        const { data: stopContext } = await supabase
+            .from('delivery_route_stops')
+            .select(`
+                id,
+                status,
+                route_id,
+                delivery_routes!inner ( status, driver_id )
+            `)
+            .eq('id', stopId)
+            .single()
+
+        if (!stopContext) return { error: 'Parada nao encontrada.' }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const route = stopContext.delivery_routes as any
+        if (!ctx.isAdmin && route?.driver_id !== ctx.driverId) return { error: 'Acesso negado.' }
+        if (route?.status !== 'in_progress') return { error: 'A rota precisa estar em andamento para registrar entrega.' }
+        if (!['pending', 'arrived'].includes(stopContext.status)) return { error: 'Esta parada ja foi processada.' }
+
         const { data: stop, error } = await supabase
             .from('delivery_route_stops')
             .update({
                 status: 'delivered',
                 delivered_at: new Date().toISOString(),
                 notes: notes || null,
+                failure_reason: null,
             })
             .eq('id', stopId)
+            .eq('status', stopContext.status)
             .select('route_id')
             .single()
 
@@ -232,14 +255,37 @@ export async function driverFailStop(stopId: string, reason: string) {
         const ctx = await requireDriver()
         const { supabase } = ctx
 
+        if (!reason.trim()) return { error: 'Informe o motivo do insucesso.' }
+
+        const { data: stopContext } = await supabase
+            .from('delivery_route_stops')
+            .select(`
+                id,
+                status,
+                route_id,
+                delivery_routes!inner ( status, driver_id )
+            `)
+            .eq('id', stopId)
+            .single()
+
+        if (!stopContext) return { error: 'Parada nao encontrada.' }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const route = stopContext.delivery_routes as any
+        if (!ctx.isAdmin && route?.driver_id !== ctx.driverId) return { error: 'Acesso negado.' }
+        if (route?.status !== 'in_progress') return { error: 'A rota precisa estar em andamento para registrar insucesso.' }
+        if (!['pending', 'arrived'].includes(stopContext.status)) return { error: 'Esta parada ja foi processada.' }
+
         const { data: stop, error } = await supabase
             .from('delivery_route_stops')
             .update({
                 status: 'failed',
-                failure_reason: reason,
-                notes: reason,
+                failure_reason: reason.trim(),
+                notes: reason.trim(),
+                delivered_at: null,
             })
             .eq('id', stopId)
+            .eq('status', stopContext.status)
             .select('route_id')
             .single()
 
@@ -250,7 +296,7 @@ export async function driverFailStop(stopId: string, reason: string) {
             stop_id: stopId,
             event_type: 'stop_failed',
             actor_id: ctx.userId,
-            metadata: { reason },
+            metadata: { reason: reason.trim() },
         })
 
         return { success: true }
@@ -270,9 +316,18 @@ export async function driverCompleteRoute(routeId: string) {
             .eq('id', routeId)
             .single()
 
-        if (!route) return { error: 'Rota não encontrada.' }
+        if (!route) return { error: 'Rota nao encontrada.' }
         if (!ctx.isAdmin && route.driver_id !== ctx.driverId) return { error: 'Acesso negado.' }
         if (route.status !== 'in_progress') return { error: 'Apenas rotas em andamento podem ser finalizadas.' }
+
+        const { count: pendingStops, error: stopsErr } = await supabase
+            .from('delivery_route_stops')
+            .select('id', { count: 'exact', head: true })
+            .eq('route_id', routeId)
+            .in('status', ['pending', 'arrived'])
+
+        if (stopsErr) return { error: 'Erro ao validar paradas da rota.' }
+        if ((pendingStops || 0) > 0) return { error: 'Ainda existem paradas pendentes nesta rota.' }
 
         const { error } = await supabase
             .from('delivery_routes')
@@ -322,7 +377,7 @@ export async function getDriverKpis() {
             .eq('driver_id', ctx.driverId)
             .eq('planned_date', today)
 
-        const routeIds = (todayRouteData || []).map(r => r.id)
+        const routeIds = (todayRouteData || []).map((r) => r.id)
 
         let pendingStops = 0
         let deliveredToday = 0
@@ -358,7 +413,7 @@ export async function getDriverKpis() {
                 pendingStops,
                 deliveredToday,
                 failedToday,
-            }
+            },
         }
     } catch (e) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }

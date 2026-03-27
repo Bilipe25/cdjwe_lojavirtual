@@ -1,48 +1,74 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdminLogisticsSession } from '../_auth'
 
 const ORS_API_KEY = process.env.ORS_API_KEY || ''
 const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.org'
 
 /**
- * Route Optimization Service — Dual Engine
- * 
- * Engine 1 (preferred): ORS Optimization (Vroom-based) — requires ORS_API_KEY
- * Engine 2 (fallback):  OSRM + Nearest-Neighbor — free, no key required
- * 
- * Architecture: Abstraction layer for route optimization.
- * In V2, swap to OR-Tools, your own Vroom instance, etc.
- * 
+ * Route Optimization Service - Dual Engine
+ *
+ * Engine 1 (preferred): ORS Optimization (Vroom-based) - requires ORS_API_KEY
+ * Engine 2 (fallback):  OSRM + Nearest-Neighbor - free, no key required
+ *
  * POST /api/logistics/optimize
  */
 export async function POST(request: NextRequest) {
     try {
+        const auth = await requireAdminLogisticsSession()
+        if (!auth.ok) return auth.response
+
         const body = await request.json()
         const { center, stops, vehicle } = body
 
-        if (!center?.lat || !center?.lng) {
-            return NextResponse.json({ error: 'Centro de saída obrigatório com coordenadas.' }, { status: 400 })
+        const centerLat = Number(center?.lat)
+        const centerLng = Number(center?.lng)
+        if (!Number.isFinite(centerLat) || !Number.isFinite(centerLng)) {
+            return NextResponse.json({ error: 'Centro de saida obrigatorio com coordenadas.' }, { status: 400 })
         }
         if (!stops || !Array.isArray(stops) || stops.length < 1) {
             return NextResponse.json({ error: 'Informe pelo menos 1 parada com coordenadas.' }, { status: 400 })
+        }
+        if (stops.length > 200) {
+            return NextResponse.json({ error: 'Maximo de 200 paradas por rota.' }, { status: 400 })
+        }
+
+        const normalizedStops: StopInput[] = stops.map((stop: StopInput) => ({
+            ...stop,
+            id: String(stop.id),
+            lat: Number(stop.lat),
+            lng: Number(stop.lng),
+            serviceTime: stop.serviceTime ? Number(stop.serviceTime) : undefined,
+            priority: stop.priority ? Number(stop.priority) : undefined,
+        }))
+
+        for (const stop of normalizedStops) {
+            if (!stop.id || !Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) {
+                return NextResponse.json({ error: 'Todas as paradas devem ter id, lat e lng validos.' }, { status: 400 })
+            }
+        }
+
+        const uniqueStopIds = new Set(normalizedStops.map((stop) => stop.id))
+        if (uniqueStopIds.size !== normalizedStops.length) {
+            return NextResponse.json({ error: 'A lista de paradas possui IDs duplicados.' }, { status: 400 })
         }
 
         let result: OptimizationResult
 
         if (ORS_API_KEY) {
             try {
-                result = await optimizeWithORS(center, stops, vehicle)
+                result = await optimizeWithORS({ lat: centerLat, lng: centerLng }, normalizedStops, vehicle)
             } catch (e) {
                 console.warn('[OPTIMIZE] ORS failed, falling back to OSRM:', e)
-                result = await optimizeWithOSRM(center, stops)
+                result = await optimizeWithOSRM({ lat: centerLat, lng: centerLng }, normalizedStops)
             }
         } else {
-            result = await optimizeWithOSRM(center, stops)
+            result = await optimizeWithOSRM({ lat: centerLat, lng: centerLng }, normalizedStops)
         }
 
         return NextResponse.json(result)
     } catch (error) {
         console.error('[OPTIMIZE API] Error:', error)
-        return NextResponse.json({ error: 'Erro interno na otimização.' }, { status: 500 })
+        return NextResponse.json({ error: 'Erro interno na otimizacao.' }, { status: 500 })
     }
 }
 
@@ -63,6 +89,23 @@ interface VehicleInput {
     maxStops?: number
 }
 
+interface ORSJob {
+    id: number
+    location: [number, number]
+    service: number
+    priority?: number
+    time_windows?: [[number, number]]
+}
+
+interface ORSVehicle {
+    id: number
+    profile: string
+    start: [number, number]
+    end: [number, number]
+    capacity?: [number]
+    max_tasks?: number
+}
+
 interface OptimizationResult {
     orderedStops: Array<{ id: string; position: number; arrival: number; distance: number }>
     unassigned: Array<{ id: string; reason: string }>
@@ -77,10 +120,8 @@ async function optimizeWithORS(
     stops: StopInput[],
     vehicle?: VehicleInput,
 ): Promise<OptimizationResult> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const jobs = stops.map((stop, idx) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const job: any = {
+    const jobs: ORSJob[] = stops.map((stop, idx) => {
+        const job: ORSJob = {
             id: idx + 1,
             location: [stop.lng, stop.lat],
             service: (stop.serviceTime || 15) * 60,
@@ -95,9 +136,9 @@ async function optimizeWithORS(
         return job
     })
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const orsVehicle: any = {
-        id: 1, profile: 'driving-car',
+    const orsVehicle: ORSVehicle = {
+        id: 1,
+        profile: 'driving-car',
         start: [center.lng, center.lat],
         end: [center.lng, center.lat],
     }
@@ -107,9 +148,9 @@ async function optimizeWithORS(
     const response = await fetch(`${ORS_BASE_URL}/optimization`, {
         method: 'POST',
         headers: {
-            'Authorization': ORS_API_KEY,
+            Authorization: ORS_API_KEY,
             'Content-Type': 'application/json',
-            'Accept': 'application/json',
+            Accept: 'application/json',
         },
         body: JSON.stringify({ jobs, vehicles: [orsVehicle] }),
     })
@@ -141,7 +182,7 @@ async function optimizeWithORS(
         orderedStops,
         unassigned: (data.unassigned || []).map((u: { id: number; description?: string }) => ({
             id: stops[u.id - 1]?.id || String(u.id),
-            reason: u.description || 'Não foi possível incluir na rota',
+            reason: u.description || 'Nao foi possivel incluir na rota',
         })),
         summary: {
             totalDistance: Math.round((route?.distance || 0) / 10) / 100,
@@ -159,8 +200,8 @@ async function optimizeWithOSRM(
     stops: StopInput[],
 ): Promise<OptimizationResult> {
     // Step 1: Get distance/duration matrix from OSRM
-    const allPoints = [center, ...stops.map(s => ({ lat: s.lat, lng: s.lng }))]
-    const coordsStr = allPoints.map(p => `${p.lng},${p.lat}`).join(';')
+    const allPoints = [center, ...stops.map((s) => ({ lat: s.lat, lng: s.lng }))]
+    const coordsStr = allPoints.map((p) => `${p.lng},${p.lat}`).join(';')
 
     const matrixUrl = `https://router.project-osrm.org/table/v1/driving/${coordsStr}?annotations=distance,duration`
 
@@ -211,8 +252,8 @@ async function optimizeWithOSRM(
     let prev = 0 // depot
 
     const orderedStops: OptimizationResult['orderedStops'] = order.map((stopIdx, pos) => {
-        const legDistance = distances[prev][stopIdx] / 1000 // m → km
-        const legDuration = durations[prev][stopIdx] / 60   // s → min
+        const legDistance = distances[prev][stopIdx] / 1000 // m -> km
+        const legDuration = durations[prev][stopIdx] / 60 // s -> min
         totalDistance += legDistance
         totalDuration += legDuration
 
@@ -220,13 +261,12 @@ async function optimizeWithOSRM(
         const arrivalMin = totalDuration
 
         totalDuration += serviceTime // add service time
-
         prev = stopIdx
 
         return {
             id: stops[stopIdx - 1].id,
             position: pos,
-            arrival: Math.round(arrivalMin * 60), // convert to seconds for consistency
+            arrival: Math.round(arrivalMin * 60), // keep seconds for consistency
             distance: Math.round(totalDistance * 100) / 100,
         }
     })
@@ -239,8 +279,8 @@ async function optimizeWithOSRM(
     }
 
     // Step 4: Get actual driving route polyline from OSRM
-    const routePoints = [center, ...order.map(i => ({ lat: stops[i - 1].lat, lng: stops[i - 1].lng })), center]
-    const routeCoordsStr = routePoints.map(p => `${p.lng},${p.lat}`).join(';')
+    const routePoints = [center, ...order.map((i) => ({ lat: stops[i - 1].lat, lng: stops[i - 1].lng })), center]
+    const routeCoordsStr = routePoints.map((p) => `${p.lng},${p.lat}`).join(';')
 
     let routeGeometry: string | undefined
     try {
@@ -255,7 +295,7 @@ async function optimizeWithOSRM(
             }
         }
     } catch {
-        // Polyline fetch failed — non-critical
+        // Polyline fetch failed - non-critical
     }
 
     return {

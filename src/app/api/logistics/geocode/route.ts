@@ -1,30 +1,51 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireLogisticsOperatorSession } from '../_auth'
 
 const ORS_API_KEY = process.env.ORS_API_KEY || ''
 const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.org'
 
 /**
  * POST /api/logistics/geocode
- * 
+ *
  * Geocodes an address and caches the result in store_addresses.
  * If the address already has coordinates, returns them from cache.
- * 
+ *
  * Uses OpenRouteService when ORS_API_KEY is configured,
- * otherwise falls back to Nominatim (OpenStreetMap) — free, no key required.
+ * otherwise falls back to Nominatim (OpenStreetMap) - free, no key required.
  *
  * Body: { addressId: string } | { address: string, city?: string, state?: string, zipCode?: string }
  */
 export async function POST(request: NextRequest) {
     try {
-        const supabase = await createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
-            return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 })
+        const auth = await requireLogisticsOperatorSession()
+        if (!auth.ok) {
+            return auth.response
         }
 
-        const body = await request.json()
-        const { addressId, address, city, state, zipCode } = body
+        let body: unknown
+        try {
+            body = await request.json()
+        } catch {
+            return NextResponse.json({ error: 'Body JSON invalido.' }, { status: 400 })
+        }
+
+        if (!body || typeof body !== 'object') {
+            return NextResponse.json({ error: 'Body invalido.' }, { status: 400 })
+        }
+
+        const payload = body as Record<string, unknown>
+        const addressId = typeof payload.addressId === 'string' ? payload.addressId.trim() : ''
+        const address = typeof payload.address === 'string' ? payload.address.trim() : ''
+        const city = typeof payload.city === 'string' ? payload.city.trim() : undefined
+        const state = typeof payload.state === 'string' ? payload.state.trim() : undefined
+        const zipCode = typeof payload.zipCode === 'string' ? payload.zipCode.trim() : undefined
+
+        if (addressId && !/^[0-9a-fA-F-]{36}$/.test(addressId)) {
+            return NextResponse.json({ error: 'addressId invalido.' }, { status: 400 })
+        }
+
+        const supabase = await createClient()
 
         // If addressId provided, check cache first
         if (addressId) {
@@ -51,14 +72,14 @@ export async function POST(request: NextRequest) {
                 .single()
 
             if (!addr) {
-                return NextResponse.json({ error: 'Endereço não encontrado.' }, { status: 404 })
+                return NextResponse.json({ error: 'Endereco nao encontrado.' }, { status: 404 })
             }
 
             const searchText = buildSearchText(addr.address, addr.number, addr.neighborhood, addr.city, addr.state, addr.zip_code)
             const coords = await geocode(searchText)
 
             if (!coords) {
-                return NextResponse.json({ error: 'Não foi possível geocodificar este endereço.' }, { status: 422 })
+                return NextResponse.json({ error: 'Nao foi possivel geocodificar este endereco.' }, { status: 422 })
             }
 
             // Save to cache
@@ -85,7 +106,7 @@ export async function POST(request: NextRequest) {
         const coords = await geocode(searchText)
 
         if (!coords) {
-            return NextResponse.json({ error: 'Não foi possível geocodificar este endereço.' }, { status: 422 })
+            return NextResponse.json({ error: 'Nao foi possivel geocodificar este endereco.' }, { status: 422 })
         }
 
         return NextResponse.json({ lat: coords.lat, lng: coords.lng, cached: false })
@@ -121,7 +142,7 @@ function buildSearchText(
 }
 
 /**
- * Smart geocoder: uses ORS when API key is configured, 
+ * Smart geocoder: uses ORS when API key is configured,
  * otherwise falls back to Nominatim (free, no key).
  */
 async function geocode(searchText: string): Promise<{ lat: number; lng: number } | null> {
@@ -140,7 +161,7 @@ async function geocodeWithORS(searchText: string): Promise<{ lat: number; lng: n
         const url = `${ORS_BASE_URL}/geocode/search?api_key=${ORS_API_KEY}&text=${encodeURIComponent(searchText)}&boundary.country=BR&size=1`
 
         const response = await fetch(url, {
-            headers: { 'Accept': 'application/json' },
+            headers: { Accept: 'application/json' },
         })
 
         if (!response.ok) {
@@ -172,7 +193,7 @@ async function geocodeWithNominatim(searchText: string): Promise<{ lat: number; 
 
         const response = await fetch(url, {
             headers: {
-                'Accept': 'application/json',
+                Accept: 'application/json',
                 'User-Agent': 'CDJWE-Logistics/1.0',
             },
         })
@@ -183,7 +204,7 @@ async function geocodeWithNominatim(searchText: string): Promise<{ lat: number; 
         }
 
         const data = await response.json()
-        
+
         if (!Array.isArray(data) || data.length === 0) {
             console.error('[NOMINATIM] No results for:', searchText)
             return null
