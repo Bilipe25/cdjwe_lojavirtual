@@ -945,9 +945,23 @@ export async function updateRoutePolyline(
     routeId: string,
     polyline: string,
     directionsEngine?: string,
+    distanceKm?: number,
+    durationMin?: number,
+    directionsStops?: Array<{ id: string; estimated_distance_km: number; estimated_arrival_min: number }>,
 ) {
     try {
         const { supabase, userId } = await requireAdmin()
+
+        // First, read existing optimization_result to merge
+        let existingResult = null
+        if (directionsStops?.length) {
+            const { data: routeData } = await supabase
+                .from('delivery_routes')
+                .select('optimization_result')
+                .eq('id', routeId)
+                .single()
+            existingResult = routeData?.optimization_result || {}
+        }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const update: any = {
@@ -955,9 +969,23 @@ export async function updateRoutePolyline(
             updated_by: userId,
         }
 
-        // Only set optimization_engine if the column exists (post-migration 043)
         if (directionsEngine) {
             update.optimization_engine = directionsEngine
+        }
+
+        if (distanceKm && distanceKm > 0) {
+            update.total_distance_km = distanceKm
+        }
+        if (durationMin && durationMin > 0) {
+            update.total_duration_min = durationMin
+        }
+
+        // Merge directionsStops into optimization_result JSONB
+        if (directionsStops?.length && existingResult) {
+            update.optimization_result = {
+                ...existingResult,
+                directionsStops,
+            }
         }
 
         const { error } = await supabase
@@ -966,6 +994,30 @@ export async function updateRoutePolyline(
             .eq('id', routeId)
 
         if (error) return { error: 'Erro ao salvar trajeto da rota.' }
+        return { success: true }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+// ==================== UPDATE STOP METRICS (per-stop distance/ETA) ====================
+
+export async function updateStopMetrics(
+    stopUpdates: Array<{ id: string; estimated_distance_km: number; estimated_arrival_min: number }>
+) {
+    try {
+        const { supabase } = await requireAdmin()
+
+        for (const stop of stopUpdates) {
+            await supabase
+                .from('delivery_route_stops')
+                .update({
+                    estimated_distance_km: stop.estimated_distance_km,
+                    estimated_arrival_min: stop.estimated_arrival_min,
+                })
+                .eq('id', stop.id)
+        }
+
         return { success: true }
     } catch (e) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }

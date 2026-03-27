@@ -65,6 +65,7 @@ interface DirectionsResult {
     distance_km: number
     duration_min: number
     engine: string
+    legs: Array<{ distance_km: number; duration_min: number }>
 }
 
 // ==================== Engine 1: ORS Directions ====================
@@ -84,7 +85,7 @@ async function directionsWithORS(
         },
         body: JSON.stringify({
             coordinates,
-            instructions: false,
+            instructions: true,
             geometry: true,
             elevation: false,
         }),
@@ -108,11 +109,18 @@ async function directionsWithORS(
         ? route.geometry
         : encodeGeoJSONToPolyline(route.geometry)
 
+    // Extract per-leg data from segments
+    const legs = (route.segments || []).map((seg: { distance: number; duration: number }) => ({
+        distance_km: Math.round((seg.distance || 0) / 10) / 100,
+        duration_min: Math.round((seg.duration || 0) / 60 * 10) / 10,
+    }))
+
     return {
         polyline,
         distance_km: Math.round((route.summary?.distance || 0) / 10) / 100,
         duration_min: Math.round((route.summary?.duration || 0) / 60 * 10) / 10,
         engine: 'ors_directions',
+        legs,
     }
 }
 
@@ -141,11 +149,18 @@ async function directionsWithOSRM(
 
     const route = data.routes[0]
 
+    // Extract per-leg data
+    const legs = (route.legs || []).map((leg: { distance: number; duration: number }) => ({
+        distance_km: Math.round((leg.distance || 0) / 10) / 100,
+        duration_min: Math.round((leg.duration || 0) / 60 * 10) / 10,
+    }))
+
     return {
         polyline: route.geometry,
         distance_km: Math.round((route.distance || 0) / 10) / 100,
         duration_min: Math.round((route.duration || 0) / 60 * 10) / 10,
         engine: 'osrm',
+        legs,
     }
 }
 

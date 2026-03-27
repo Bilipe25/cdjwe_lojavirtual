@@ -61,6 +61,7 @@ import {
     applyOptimizationResult,
     updateRouteAssignment,
     updateRoutePolyline,
+    updateStopMetrics,
     getDrivers,
     getVehicles,
     getCenters,
@@ -134,18 +135,30 @@ export default function RouteDetailPage() {
         else if ('data' in res && res.data) {
             const rte = res.data.route
             const rawStops = res.data.stops
-            // Enrich stops: prefer native columns, fallback to optimization_result JSONB
+            // Enrich stops with per-stop distance/ETA data
+            // Priority: 1) native DB columns, 2) directionsStops JSONB, 3) orderedStops JSONB
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const dirStops = rte?.optimization_result?.directionsStops || []
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const optStops = rte?.optimization_result?.orderedStops || []
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const enrichedStops = rawStops.map((s: any) => {
-                if (!s.estimated_arrival_min && !s.estimated_distance_km) {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const found = optStops.find((os: any) => os.id === s.id)
-                    if (found) {
-                        s.estimated_arrival_min = Math.round((found.arrival || 0) / 60)
-                        s.estimated_distance_km = found.distance
-                    }
+                // Try native DB columns first
+                if (s.estimated_arrival_min > 0 && s.estimated_distance_km > 0) return s
+                // Try directions leg data (real road distances)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const dirFound = dirStops.find((ds: any) => ds.id === s.id)
+                if (dirFound) {
+                    s.estimated_arrival_min = dirFound.estimated_arrival_min || s.estimated_arrival_min
+                    s.estimated_distance_km = dirFound.estimated_distance_km || s.estimated_distance_km
+                    return s
+                }
+                // Fallback: Vroom optimizer data
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const optFound = optStops.find((os: any) => os.id === s.id)
+                if (optFound) {
+                    if (!s.estimated_arrival_min) s.estimated_arrival_min = Math.round((optFound.arrival || 0) / 60)
+                    if (!s.estimated_distance_km) s.estimated_distance_km = optFound.distance
                 }
                 return s
             })
@@ -187,14 +200,16 @@ export default function RouteDetailPage() {
         else void loadData()
     }
 
-    // Fetch real road directions for the ordered waypoints
-    const fetchDirections = async (centerCoords: { lat: number; lng: number }, orderedStopCoords: Array<{ lat: number; lng: number }>) => {
+    // Fetch real road directions for the ordered waypoints and save per-stop metrics
+    const fetchDirections = async (
+        centerCoords: { lat: number; lng: number },
+        orderedStops: Array<{ id: string; lat: number; lng: number }>
+    ) => {
         try {
-            // Build waypoints: depot → stops in order → depot
             const waypoints = [
                 centerCoords,
-                ...orderedStopCoords,
-                centerCoords, // return to depot
+                ...orderedStops.map(s => ({ lat: s.lat, lng: s.lng })),
+                centerCoords,
             ]
 
             const dirRes = await fetch('/api/logistics/directions', {
@@ -206,7 +221,39 @@ export default function RouteDetailPage() {
             if (dirRes.ok) {
                 const dirData = await dirRes.json()
                 if (dirData.polyline) {
-                    await updateRoutePolyline(routeId, dirData.polyline, dirData.engine)
+                    // Compute per-stop cumulative distances from legs
+                    let stopMetrics: Array<{ id: string; estimated_distance_km: number; estimated_arrival_min: number }> = []
+                    if (dirData.legs?.length && orderedStops.length > 0) {
+                        let cumulativeKm = 0
+                        let cumulativeMin = 0
+                        for (let i = 0; i < orderedStops.length; i++) {
+                            if (dirData.legs[i]) {
+                                cumulativeKm += dirData.legs[i].distance_km
+                                cumulativeMin += dirData.legs[i].duration_min
+                            }
+                            stopMetrics.push({
+                                id: orderedStops[i].id,
+                                estimated_distance_km: Math.round(cumulativeKm * 100) / 100,
+                                estimated_arrival_min: Math.round(cumulativeMin),
+                            })
+                        }
+                    }
+
+                    // Save polyline, distance, duration AND per-stop metrics in one call
+                    await updateRoutePolyline(
+                        routeId,
+                        dirData.polyline,
+                        dirData.engine,
+                        dirData.distance_km,
+                        dirData.duration_min,
+                        stopMetrics.length > 0 ? stopMetrics : undefined,
+                    )
+
+                    // Also try saving to native DB columns (works after migration 043)
+                    if (stopMetrics.length > 0) {
+                        await updateStopMetrics(stopMetrics).catch(() => { /* non-critical if columns don't exist */ })
+                    }
+
                     return true
                 }
             }
@@ -231,7 +278,7 @@ export default function RouteDetailPage() {
         setError(null)
         const ok = await fetchDirections(
             { lat: Number(center.latitude), lng: Number(center.longitude) },
-            validStops.map((s: { latitude: number; longitude: number }) => ({ lat: Number(s.latitude), lng: Number(s.longitude) }))
+            validStops.map((s: { id: string; latitude: number; longitude: number }) => ({ id: s.id, lat: Number(s.latitude), lng: Number(s.longitude) }))
         )
         if (ok) {
             void loadData()
@@ -301,14 +348,14 @@ export default function RouteDetailPage() {
                 const orderedIds = result.orderedStops
                     .sort((a: { position: number }, b: { position: number }) => a.position - b.position)
                     .map((os: { id: string }) => os.id)
-                const orderedCoords = orderedIds.map((id: string) => {
+                const orderedWithIds = orderedIds.map((id: string) => {
                     const s = validStops.find((st: { id: string }) => st.id === id)
-                    return s ? { lat: Number(s.latitude), lng: Number(s.longitude) } : null
+                    return s ? { id, lat: Number(s.latitude), lng: Number(s.longitude) } : null
                 }).filter(Boolean)
 
                 await fetchDirections(
                     { lat: Number(center.latitude), lng: Number(center.longitude) },
-                    orderedCoords
+                    orderedWithIds
                 )
 
                 void loadData()
@@ -770,8 +817,8 @@ export default function RouteDetailPage() {
                                             <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground flex-wrap">
                                                 <span className="flex items-center gap-0.5"><Package className="h-2.5 w-2.5" /> {stop.orders?.order_number || '—'}</span>
                                                 {stop.orders?.total && <span className="font-semibold text-navy">R$ {Number(stop.orders.total).toFixed(2)}</span>}
-                                                {stop.estimated_arrival_min && <span className="flex items-center gap-0.5 text-indigo-600"><Timer className="h-2.5 w-2.5" /> ETA {stop.estimated_arrival_min} min</span>}
-                                                {stop.estimated_distance_km && <span className="flex items-center gap-0.5"><Navigation className="h-2.5 w-2.5" /> {stop.estimated_distance_km} km</span>}
+                                                {stop.estimated_arrival_min != null && stop.estimated_arrival_min > 0 && <span className="flex items-center gap-0.5 text-indigo-600"><Timer className="h-2.5 w-2.5" /> ETA {stop.estimated_arrival_min} min</span>}
+                                                {stop.estimated_distance_km != null && stop.estimated_distance_km > 0 && <span className="flex items-center gap-0.5"><Navigation className="h-2.5 w-2.5" /> {stop.estimated_distance_km} km</span>}
                                                 {stop.delivered_at && <span className="flex items-center gap-0.5 text-emerald-600"><CheckCircle2 className="h-2.5 w-2.5" /> {formatDateTime(stop.delivered_at)}</span>}
                                                 {stop.failure_reason && <span className="text-red-500">{stop.failure_reason}</span>}
                                             </div>
