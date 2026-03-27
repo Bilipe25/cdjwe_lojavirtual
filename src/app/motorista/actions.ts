@@ -202,47 +202,14 @@ export async function driverDeliverStop(stopId: string, notes?: string) {
         const ctx = await requireDriver()
         const { supabase } = ctx
 
-        const { data: stopContext } = await supabase
-            .from('delivery_route_stops')
-            .select(`
-                id,
-                status,
-                route_id,
-                delivery_routes!inner ( status, driver_id )
-            `)
-            .eq('id', stopId)
-            .single()
-
-        if (!stopContext) return { error: 'Parada nao encontrada.' }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const route = stopContext.delivery_routes as any
-        if (!ctx.isAdmin && route?.driver_id !== ctx.driverId) return { error: 'Acesso negado.' }
-        if (route?.status !== 'in_progress') return { error: 'A rota precisa estar em andamento para registrar entrega.' }
-        if (!['pending', 'arrived'].includes(stopContext.status)) return { error: 'Esta parada ja foi processada.' }
-
-        const { data: stop, error } = await supabase
-            .from('delivery_route_stops')
-            .update({
-                status: 'delivered',
-                delivered_at: new Date().toISOString(),
-                notes: notes || null,
-                failure_reason: null,
-            })
-            .eq('id', stopId)
-            .eq('status', stopContext.status)
-            .select('route_id')
-            .single()
-
-        if (error || !stop) return { error: 'Erro ao registrar entrega.' }
-
-        await supabase.from('route_events').insert({
-            route_id: stop.route_id,
-            stop_id: stopId,
-            event_type: 'stop_delivered',
-            actor_id: ctx.userId,
-            metadata: notes ? { notes } : null,
+        const { error } = await supabase.rpc('logistics_update_stop_status_atomic', {
+            p_stop_id: stopId,
+            p_new_status: 'delivered',
+            p_failure_reason: null,
+            p_notes: notes?.trim() || null,
         })
+
+        if (error) return { error: error.message || 'Erro ao registrar entrega.' }
 
         return { success: true }
     } catch (e) {
@@ -257,47 +224,14 @@ export async function driverFailStop(stopId: string, reason: string) {
 
         if (!reason.trim()) return { error: 'Informe o motivo do insucesso.' }
 
-        const { data: stopContext } = await supabase
-            .from('delivery_route_stops')
-            .select(`
-                id,
-                status,
-                route_id,
-                delivery_routes!inner ( status, driver_id )
-            `)
-            .eq('id', stopId)
-            .single()
-
-        if (!stopContext) return { error: 'Parada nao encontrada.' }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const route = stopContext.delivery_routes as any
-        if (!ctx.isAdmin && route?.driver_id !== ctx.driverId) return { error: 'Acesso negado.' }
-        if (route?.status !== 'in_progress') return { error: 'A rota precisa estar em andamento para registrar insucesso.' }
-        if (!['pending', 'arrived'].includes(stopContext.status)) return { error: 'Esta parada ja foi processada.' }
-
-        const { data: stop, error } = await supabase
-            .from('delivery_route_stops')
-            .update({
-                status: 'failed',
-                failure_reason: reason.trim(),
-                notes: reason.trim(),
-                delivered_at: null,
-            })
-            .eq('id', stopId)
-            .eq('status', stopContext.status)
-            .select('route_id')
-            .single()
-
-        if (error || !stop) return { error: 'Erro ao registrar insucesso.' }
-
-        await supabase.from('route_events').insert({
-            route_id: stop.route_id,
-            stop_id: stopId,
-            event_type: 'stop_failed',
-            actor_id: ctx.userId,
-            metadata: { reason: reason.trim() },
+        const { error } = await supabase.rpc('logistics_update_stop_status_atomic', {
+            p_stop_id: stopId,
+            p_new_status: 'failed',
+            p_failure_reason: reason.trim(),
+            p_notes: reason.trim(),
         })
+
+        if (error) return { error: error.message || 'Erro ao registrar insucesso.' }
 
         return { success: true }
     } catch (e) {
@@ -310,41 +244,13 @@ export async function driverCompleteRoute(routeId: string) {
         const ctx = await requireDriver()
         const { supabase } = ctx
 
-        const { data: route } = await supabase
-            .from('delivery_routes')
-            .select('id, driver_id, status')
-            .eq('id', routeId)
-            .single()
-
-        if (!route) return { error: 'Rota nao encontrada.' }
-        if (!ctx.isAdmin && route.driver_id !== ctx.driverId) return { error: 'Acesso negado.' }
-        if (route.status !== 'in_progress') return { error: 'Apenas rotas em andamento podem ser finalizadas.' }
-
-        const { count: pendingStops, error: stopsErr } = await supabase
-            .from('delivery_route_stops')
-            .select('id', { count: 'exact', head: true })
-            .eq('route_id', routeId)
-            .in('status', ['pending', 'arrived'])
-
-        if (stopsErr) return { error: 'Erro ao validar paradas da rota.' }
-        if ((pendingStops || 0) > 0) return { error: 'Ainda existem paradas pendentes nesta rota.' }
-
-        const { error } = await supabase
-            .from('delivery_routes')
-            .update({
-                status: 'completed',
-                completed_at: new Date().toISOString(),
-                updated_by: ctx.userId,
-            })
-            .eq('id', routeId)
-
-        if (error) return { error: 'Erro ao concluir rota.' }
-
-        await supabase.from('route_events').insert({
-            route_id: routeId,
-            event_type: 'route_completed',
-            actor_id: ctx.userId,
+        const { error } = await supabase.rpc('logistics_complete_route_atomic', {
+            p_route_id: routeId,
+            p_close_open_stops_as: 'failed',
+            p_close_reason: 'Parada encerrada automaticamente pelo motorista ao concluir a rota.',
         })
+
+        if (error) return { error: error.message || 'Erro ao concluir rota.' }
 
         return { success: true }
     } catch (e) {

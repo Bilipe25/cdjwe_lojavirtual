@@ -119,14 +119,6 @@ const ROUTE_TRANSITIONS: Record<RouteStatus, RouteStatus[]> = {
     cancelled: [],
 }
 
-const STOP_TRANSITIONS: Record<StopStatus, StopStatus[]> = {
-    pending: ['arrived', 'delivered', 'failed', 'skipped'],
-    arrived: ['delivered', 'failed', 'skipped'],
-    delivered: [],
-    failed: [],
-    skipped: [],
-}
-
 function isRouteStatus(value: string): value is RouteStatus {
     return ROUTE_STATUSES.includes(value as RouteStatus)
 }
@@ -657,155 +649,39 @@ export async function createRoute(input: {
     notes?: string | null
 }) {
     try {
-        const { supabase, userId } = await requireAdmin()
+        const { supabase } = await requireAdmin()
 
         const uniqueOrderIds = [...new Set(input.orderIds.map((id) => id.trim()).filter(Boolean))]
         if (uniqueOrderIds.length === 0) {
             return { error: 'Selecione pelo menos um pedido para criar a rota.' }
         }
 
-        const { data: orderRows, error: ordersErr } = await supabase
-            .from('orders')
-            .select(`
-                id,
-                order_number,
-                store_id,
-                status,
-                shipping_address,
-                shipping_address_id,
-                stores ( company_name, city, state )
-            `)
-            .in('id', uniqueOrderIds)
-
-        if (ordersErr) {
-            console.error('[CREATE ROUTE] Orders lookup error:', ordersErr)
-            return { error: 'Erro ao validar pedidos selecionados.' }
+        const plannedDate = input.plannedDate?.trim()
+        if (!plannedDate) {
+            return { error: 'Informe a data planejada da rota.' }
         }
 
-        if (!orderRows || orderRows.length !== uniqueOrderIds.length) {
-            return { error: 'Um ou mais pedidos selecionados nao foram encontrados.' }
+        const { data, error } = await supabase.rpc('admin_create_delivery_route_atomic', {
+            p_order_ids: uniqueOrderIds,
+            p_planned_date: plannedDate,
+            p_vehicle_id: input.vehicleId || null,
+            p_driver_id: input.driverId || null,
+            p_center_id: input.centerId || null,
+            p_region_id: input.regionId || null,
+            p_notes: input.notes?.trim() || null,
+        })
+
+        if (error) {
+            console.error('[CREATE ROUTE] RPC error:', error)
+            return { error: error.message || 'Erro ao criar rota.' }
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ordersById = new Map(orderRows.map((order: any) => [order.id, order]))
-
-        const invalidOrders = orderRows.filter((order) => !['approved', 'in_production'].includes(order.status))
-        if (invalidOrders.length > 0) {
-            const sample = invalidOrders.slice(0, 3).map((o) => o.order_number).join(', ')
-            return {
-                error: `Somente pedidos em status Aprovado ou Em Producao podem ser roteirizados. Exemplo: ${sample}.`,
-            }
-        }
-
-        // Prevent assignment of the same order to multiple active routes.
-        const { data: activeAssignments, error: assignmentErr } = await supabase
-            .from('delivery_route_stops')
-            .select(`
-                order_id,
-                delivery_routes!inner (
-                    id,
-                    route_number,
-                    status
-                )
-            `)
-            .in('order_id', uniqueOrderIds)
-            .in('delivery_routes.status', ['draft', 'optimized', 'confirmed', 'in_progress'])
-
-        if (assignmentErr) {
-            console.error('[CREATE ROUTE] Active assignment check error:', assignmentErr)
-            return { error: 'Erro ao validar conflitos de roteirizacao.' }
-        }
-
-        if (activeAssignments && activeAssignments.length > 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const firstConflict = activeAssignments[0] as any
-            const conflictOrder = ordersById.get(firstConflict.order_id)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const conflictRoute = firstConflict.delivery_routes as any
-            return {
-                error: `O pedido ${conflictOrder?.order_number || firstConflict.order_id} ja esta vinculado a rota ativa ${conflictRoute?.route_number || ''}.`,
-            }
-        }
-
-        const addressIds = orderRows
-            .map((order) => order.shipping_address_id)
-            .filter((id): id is string => Boolean(id))
-
-        const addressCoords = new Map<string, { lat: number | null; lng: number | null }>()
-        if (addressIds.length > 0) {
-            const { data: addresses } = await supabase
-                .from('store_addresses')
-                .select('id, latitude, longitude')
-                .in('id', addressIds)
-
-            for (const address of addresses || []) {
-                addressCoords.set(address.id, {
-                    lat: address.latitude ? Number(address.latitude) : null,
-                    lng: address.longitude ? Number(address.longitude) : null,
-                })
-            }
-        }
-
-        const { data: route, error: routeErr } = await supabase
-            .from('delivery_routes')
-            .insert({
-                route_number: '', // trigger will set it
-                status: 'draft',
-                driver_id: input.driverId,
-                vehicle_id: input.vehicleId,
-                center_id: input.centerId,
-                region_id: input.regionId,
-                planned_date: input.plannedDate,
-                total_stops: uniqueOrderIds.length,
-                notes: input.notes?.trim() || null,
-                created_by: userId,
-            })
-            .select('id, route_number')
-            .single()
-
-        if (routeErr || !route) {
-            console.error('[CREATE ROUTE] Error:', routeErr)
+        const row = Array.isArray(data) ? data[0] : data
+        if (!row?.route_id || !row?.route_number) {
             return { error: 'Erro ao criar rota.' }
         }
 
-        const stops = uniqueOrderIds.map((orderId, index) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const order = ordersById.get(orderId) as any
-            const coord = order?.shipping_address_id ? addressCoords.get(order.shipping_address_id) : null
-
-            return {
-                route_id: route.id,
-                order_id: orderId,
-                store_id: order.store_id,
-                address_id: order.shipping_address_id || null,
-                stop_position: index + 1,
-                latitude: coord?.lat || null,
-                longitude: coord?.lng || null,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                address_snapshot: order.shipping_address || `${(order?.stores as any)?.city || ''}, ${(order?.stores as any)?.state || ''}`,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                customer_name: (order?.stores as any)?.company_name || '',
-            }
-        })
-
-        const { error: stopsErr } = await supabase
-            .from('delivery_route_stops')
-            .insert(stops)
-
-        if (stopsErr) {
-            console.error('[CREATE ROUTE STOPS] Error:', stopsErr)
-            await supabase.from('delivery_routes').delete().eq('id', route.id)
-            return { error: 'Erro ao criar paradas da rota.' }
-        }
-
-        await supabase.from('route_events').insert({
-            route_id: route.id,
-            event_type: 'route_created',
-            actor_id: userId,
-            metadata: { order_count: uniqueOrderIds.length },
-        })
-
-        return { data: { routeId: route.id, routeNumber: route.route_number } }
+        return { data: { routeId: row.route_id as string, routeNumber: row.route_number as string } }
     } catch (e) {
         console.error('[CREATE ROUTE] Unexpected:', e)
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
@@ -921,23 +797,23 @@ export async function updateRouteStatus(routeId: string, newStatus: string, reas
             }
         }
 
-        if (normalizedStatus === 'completed') {
-            const { count: openStops, error: openStopsErr } = await supabase
-                .from('delivery_route_stops')
-                .select('id', { count: 'exact', head: true })
-                .eq('route_id', routeId)
-                .in('status', ['pending', 'arrived'])
-
-            if (openStopsErr) {
-                return { error: 'Erro ao validar paradas pendentes.' }
-            }
-            if ((openStops || 0) > 0) {
-                return { error: 'Nao e possivel concluir rota com paradas pendentes.' }
-            }
-        }
-
         if (normalizedStatus === 'cancelled' && !reason?.trim()) {
             return { error: 'Informe o motivo do cancelamento da rota.' }
+        }
+
+        if (normalizedStatus === 'completed') {
+            const { error: completeErr } = await supabase.rpc('logistics_complete_route_atomic', {
+                p_route_id: routeId,
+                p_close_open_stops_as: 'failed',
+                p_close_reason: reason?.trim() || null,
+            })
+
+            if (completeErr) {
+                console.error('[ROUTE COMPLETE] RPC error:', completeErr)
+                return { error: completeErr.message || 'Erro ao concluir rota.' }
+            }
+
+            return { success: true }
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -948,8 +824,6 @@ export async function updateRouteStatus(routeId: string, newStatus: string, reas
 
         if (normalizedStatus === 'in_progress') {
             updates.started_at = new Date().toISOString()
-        } else if (normalizedStatus === 'completed') {
-            updates.completed_at = new Date().toISOString()
         } else if (normalizedStatus === 'cancelled') {
             updates.cancellation_reason = reason?.trim() || null
         }
@@ -989,90 +863,27 @@ export async function updateStopStatus(
     data?: { failureReason?: string; notes?: string }
 ) {
     try {
-        const { supabase, userId } = await requireAdmin()
+        const { supabase } = await requireAdmin()
 
         if (!isStopStatus(newStatus)) {
             return { error: 'Status de parada invalido.' }
-        }
-
-        const { data: currentStop, error: currentStopErr } = await supabase
-            .from('delivery_route_stops')
-            .select(`
-                id,
-                route_id,
-                status,
-                delivery_routes!inner ( status )
-            `)
-            .eq('id', stopId)
-            .single()
-
-        if (currentStopErr || !currentStop) {
-            return { error: 'Parada nao encontrada.' }
-        }
-
-        const currentStopStatus = currentStop.status as string
-        if (!isStopStatus(currentStopStatus)) {
-            return { error: 'Status atual da parada invalido.' }
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const routeStatus = (currentStop.delivery_routes as any)?.status as string | undefined
-        if (routeStatus !== 'in_progress') {
-            return { error: 'Apenas rotas em andamento permitem atualizacao de paradas.' }
-        }
-
-        if (currentStopStatus === newStatus) {
-            return { success: true }
-        }
-
-        if (!STOP_TRANSITIONS[currentStopStatus].includes(newStatus)) {
-            return { error: `Transicao de parada invalida: ${currentStopStatus} -> ${newStatus}.` }
         }
 
         if (newStatus === 'failed' && !data?.failureReason?.trim()) {
             return { error: 'Informe o motivo do insucesso para marcar a parada como falha.' }
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updates: any = { status: newStatus }
-        if (newStatus === 'delivered') {
-            updates.delivered_at = new Date().toISOString()
-            updates.failure_reason = null
-        } else if (newStatus === 'failed') {
-            updates.failure_reason = data?.failureReason?.trim() || null
-        } else {
-            updates.delivered_at = null
-            updates.failure_reason = null
-        }
-        if (data?.notes?.trim()) {
-            updates.notes = data.notes.trim()
-        }
-
-        const { data: stop, error } = await supabase
-            .from('delivery_route_stops')
-            .update(updates)
-            .eq('id', stopId)
-            .eq('status', currentStopStatus)
-            .select('route_id')
-            .single()
-
-        if (error || !stop) return { error: 'Erro ao atualizar status da parada.' }
-
-        const eventTypeMap: Record<'arrived' | 'delivered' | 'failed' | 'skipped', string> = {
-            arrived: 'stop_arrived',
-            delivered: 'stop_delivered',
-            failed: 'stop_failed',
-            skipped: 'stop_skipped',
-        }
-
-        // Audit event
-        await supabase.from('route_events').insert({
-            route_id: stop.route_id,
-            stop_id: stopId,
-            event_type: eventTypeMap[newStatus],
-            actor_id: userId,
-            metadata: data || null,
+        const { error } = await supabase.rpc('logistics_update_stop_status_atomic', {
+            p_stop_id: stopId,
+            p_new_status: newStatus,
+            p_failure_reason: data?.failureReason?.trim() || null,
+            p_notes: data?.notes?.trim() || null,
         })
+
+        if (error) {
+            console.error('[STOP STATUS] RPC error:', error)
+            return { error: error.message || 'Erro ao atualizar status da parada.' }
+        }
 
         return { success: true }
     } catch (e) {
