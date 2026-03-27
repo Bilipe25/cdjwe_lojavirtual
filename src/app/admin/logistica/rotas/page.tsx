@@ -24,13 +24,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select'
-import {
     AlertDialog,
     AlertDialogAction,
     AlertDialogCancel,
@@ -41,7 +34,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
-import { getRoutes, deleteRoute, type RouteListItem } from '../actions'
+import { getRoutes, deleteRoute, type PaginationMeta, type RouteListItem } from '../services'
 
 const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
     draft: { label: 'Rascunho', color: 'bg-slate-50 text-slate-600 border-slate-200', icon: Clock },
@@ -54,6 +47,14 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.E
 
 export default function CentralDeRotasPage() {
     const [data, setData] = useState<RouteListItem[]>([])
+    const [pagination, setPagination] = useState<PaginationMeta>({
+        page: 1,
+        pageSize: 20,
+        total: 0,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+    })
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [statusFilter, setStatusFilter] = useState('all')
@@ -64,12 +65,22 @@ export default function CentralDeRotasPage() {
     const loadData = useCallback(async () => {
         setLoading(true)
         setError(null)
-        const res = await getRoutes({ status: statusFilter })
+        const res = await getRoutes({
+            status: statusFilter,
+            page: pagination.page,
+            pageSize: pagination.pageSize,
+        })
         if ('error' in res && res.error) setError(res.error)
-        else if ('data' in res && res.data) setData(res.data)
+        else if ('data' in res && res.data) {
+            setData(res.data)
+            if ('pagination' in res && res.pagination) {
+                setPagination(res.pagination)
+            }
+        }
         setLoading(false)
-    }, [statusFilter])
+    }, [statusFilter, pagination.page, pagination.pageSize])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     const handleDelete = async () => {
@@ -153,10 +164,10 @@ export default function CentralDeRotasPage() {
                                 ? 'bg-indigo-600 text-white border-indigo-600'
                                 : 'bg-white text-muted-foreground border-slate-200 hover:border-slate-300 hover:text-foreground'
                         )}
-                        onClick={() => setStatusFilter(tab.key)}>
+                        onClick={() => { setStatusFilter(tab.key); setPagination((prev) => ({ ...prev, page: 1 })) }}>
                         {tab.label}
                         <span className={cn('ml-1 text-[10px]', statusFilter === tab.key ? 'text-indigo-200' : 'text-muted-foreground/50')}>
-                            {counts[tab.key as keyof typeof counts] || 0}
+                            {tab.key === 'all' ? pagination.total : counts[tab.key as keyof typeof counts] || 0}
                         </span>
                     </button>
                 ))}
@@ -252,6 +263,31 @@ export default function CentralDeRotasPage() {
                             </Link>
                         )
                     })}
+                    <div className="rounded-xl border bg-white px-4 py-3 flex items-center justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">
+                            Pagina {pagination.page} de {pagination.totalPages} • {pagination.total} rotas
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                disabled={!pagination.hasPreviousPage || loading}
+                                onClick={() => setPagination((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+                            >
+                                Anterior
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                disabled={!pagination.hasNextPage || loading}
+                                onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))}
+                            >
+                                Proxima
+                            </Button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -275,3 +311,5 @@ export default function CentralDeRotasPage() {
         </div>
     )
 }
+
+

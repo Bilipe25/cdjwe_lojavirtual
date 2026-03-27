@@ -33,7 +33,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
-import { getCenters, upsertCenter, deleteCenter, type CenterItem } from '../actions'
+import { getCenters, upsertCenter, deleteCenter, type CenterItem } from '../services'
 
 const emptyForm = {
     name: '',
@@ -67,6 +67,7 @@ export default function CentrosPage() {
         setLoading(false)
     }, [])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     const openNew = () => {
@@ -282,3 +283,4 @@ export default function CentrosPage() {
         </div>
     )
 }
+

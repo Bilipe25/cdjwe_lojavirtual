@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireLogisticsOperatorSession } from '../_auth'
+import { readLogisticsApiCache, writeLogisticsApiCache } from '@/lib/logistics/api-cache'
 
 const ORS_API_KEY = process.env.ORS_API_KEY || ''
 const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.org'
@@ -53,6 +54,20 @@ export async function POST(request: NextRequest) {
             lng: Number(wp.lng),
         }))
 
+        const cacheSignature = {
+            version: 1,
+            waypoints: normalizedWaypoints.map((wp) => ({
+                lat: Number(wp.lat.toFixed(6)),
+                lng: Number(wp.lng.toFixed(6)),
+            })),
+            orsEnabled: Boolean(ORS_API_KEY),
+        }
+
+        const cached = await readLogisticsApiCache<DirectionsResult>('directions', cacheSignature)
+        if (cached) {
+            return NextResponse.json(cached)
+        }
+
         let result: DirectionsResult
 
         if (ORS_API_KEY) {
@@ -65,6 +80,11 @@ export async function POST(request: NextRequest) {
         } else {
             result = await directionsWithOSRM(normalizedWaypoints)
         }
+
+        await writeLogisticsApiCache('directions', cacheSignature, result, {
+            createdBy: auth.userId,
+            ttlSeconds: 60 * 60 * 6,
+        })
 
         return NextResponse.json(result)
     } catch (error) {

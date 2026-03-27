@@ -27,7 +27,15 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { getRouteHistory, getDrivers, getVehicles, type RouteHistoryItem, type DriverItem, type VehicleItem } from '../actions'
+import {
+    getRouteHistory,
+    getDrivers,
+    getVehicles,
+    type PaginationMeta,
+    type RouteHistoryItem,
+    type DriverItem,
+    type VehicleItem,
+} from '../services'
 
 const statusConfig: Record<string, { label: string; color: string }> = {
     draft: { label: 'Rascunho', color: 'bg-slate-50 text-slate-600 border-slate-200' },
@@ -40,6 +48,14 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 
 export default function HistoricoRotasPage() {
     const [data, setData] = useState<RouteHistoryItem[]>([])
+    const [pagination, setPagination] = useState<PaginationMeta>({
+        page: 1,
+        pageSize: 20,
+        total: 0,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+    })
     const [metrics, setMetrics] = useState({ totalRoutes: 0, completedRoutes: 0, totalDeliveries: 0, totalFailures: 0, totalKm: 0 })
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -61,13 +77,17 @@ export default function HistoricoRotasPage() {
             vehicleId: vehicleFilter,
             dateFrom: dateFrom || undefined,
             dateTo: dateTo || undefined,
+            page: pagination.page,
+            pageSize: pagination.pageSize,
         })
         if ('error' in res && res.error) setError(res.error)
         if ('data' in res && res.data) setData(res.data)
         if ('metrics' in res && res.metrics) setMetrics(res.metrics)
+        if ('pagination' in res && res.pagination) setPagination(res.pagination)
         setLoading(false)
-    }, [statusFilter, driverFilter, vehicleFilter, dateFrom, dateTo])
+    }, [statusFilter, driverFilter, vehicleFilter, dateFrom, dateTo, pagination.page, pagination.pageSize])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     useEffect(() => {
@@ -140,7 +160,10 @@ export default function HistoricoRotasPage() {
 
             {/* Filters */}
             <div className="flex flex-wrap gap-2">
-                <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v || 'all')}>
+                <Select value={statusFilter} onValueChange={(v) => {
+                    setStatusFilter(v || 'all')
+                    setPagination((prev) => ({ ...prev, page: 1 }))
+                }}>
                     <SelectTrigger className="w-40">
                         <SelectValue placeholder="Status" />
                     </SelectTrigger>
@@ -151,7 +174,10 @@ export default function HistoricoRotasPage() {
                         ))}
                     </SelectContent>
                 </Select>
-                <Select value={driverFilter} onValueChange={(v) => setDriverFilter(v || 'all')}>
+                <Select value={driverFilter} onValueChange={(v) => {
+                    setDriverFilter(v || 'all')
+                    setPagination((prev) => ({ ...prev, page: 1 }))
+                }}>
                     <SelectTrigger className="w-44">
                         <SelectValue placeholder="Motorista" />
                     </SelectTrigger>
@@ -162,7 +188,10 @@ export default function HistoricoRotasPage() {
                         ))}
                     </SelectContent>
                 </Select>
-                <Select value={vehicleFilter} onValueChange={(v) => setVehicleFilter(v || 'all')}>
+                <Select value={vehicleFilter} onValueChange={(v) => {
+                    setVehicleFilter(v || 'all')
+                    setPagination((prev) => ({ ...prev, page: 1 }))
+                }}>
                     <SelectTrigger className="w-44">
                         <SelectValue placeholder="Veículo" />
                     </SelectTrigger>
@@ -174,9 +203,25 @@ export default function HistoricoRotasPage() {
                     </SelectContent>
                 </Select>
                 <div className="flex items-center gap-1.5">
-                    <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36 text-xs" />
+                    <Input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => {
+                            setDateFrom(e.target.value)
+                            setPagination((prev) => ({ ...prev, page: 1 }))
+                        }}
+                        className="w-36 text-xs"
+                    />
                     <span className="text-xs text-muted-foreground">até</span>
-                    <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36 text-xs" />
+                    <Input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => {
+                            setDateTo(e.target.value)
+                            setPagination((prev) => ({ ...prev, page: 1 }))
+                        }}
+                        className="w-36 text-xs"
+                    />
                 </div>
             </div>
 
@@ -267,10 +312,36 @@ export default function HistoricoRotasPage() {
                         </table>
                     </div>
                     <div className="px-4 py-2 border-t bg-slate-50/40 text-xs text-muted-foreground">
-                        {data.length} rotas encontradas
+                        {pagination.total} rotas encontradas
+                    </div>
+                    <div className="px-4 py-3 border-t bg-white flex items-center justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">
+                            Pagina {pagination.page} de {pagination.totalPages}
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                disabled={!pagination.hasPreviousPage || loading}
+                                onClick={() => setPagination((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+                            >
+                                Anterior
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                disabled={!pagination.hasNextPage || loading}
+                                onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))}
+                            >
+                                Proxima
+                            </Button>
+                        </div>
                     </div>
                 </div>
             )}
         </div>
     )
 }
+

@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getCostSettings, saveCostSettings, type CostSettings } from '../actions'
+import { getCostSettings, saveCostSettings } from '../services'
 
 export default function CustosPage() {
     const [loading, setLoading] = useState(true)
@@ -49,6 +49,7 @@ export default function CustosPage() {
         setLoading(false)
     }, [])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     const handleSave = async () => {
@@ -245,3 +246,4 @@ export default function CustosPage() {
         </div>
     )
 }
+

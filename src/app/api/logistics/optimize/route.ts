@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdminLogisticsSession } from '../_auth'
+import { readLogisticsApiCache, writeLogisticsApiCache } from '@/lib/logistics/api-cache'
 
 const ORS_API_KEY = process.env.ORS_API_KEY || ''
 const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.org'
@@ -52,6 +53,35 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'A lista de paradas possui IDs duplicados.' }, { status: 400 })
         }
 
+        const cacheSignature = {
+            version: 1,
+            center: {
+                lat: Number(centerLat.toFixed(6)),
+                lng: Number(centerLng.toFixed(6)),
+            },
+            stops: normalizedStops.map((stop) => ({
+                id: stop.id,
+                lat: Number(stop.lat.toFixed(6)),
+                lng: Number(stop.lng.toFixed(6)),
+                serviceTime: stop.serviceTime || 15,
+                priority: stop.priority || null,
+                timeWindowStart: stop.timeWindowStart || null,
+                timeWindowEnd: stop.timeWindowEnd || null,
+            })),
+            vehicle: vehicle
+                ? {
+                    capacityKg: Number(vehicle.capacityKg || 0),
+                    maxStops: Number(vehicle.maxStops || 0),
+                }
+                : null,
+            orsEnabled: Boolean(ORS_API_KEY),
+        }
+
+        const cached = await readLogisticsApiCache<OptimizationResult>('optimize', cacheSignature)
+        if (cached) {
+            return NextResponse.json(cached)
+        }
+
         let result: OptimizationResult
 
         if (ORS_API_KEY) {
@@ -64,6 +94,11 @@ export async function POST(request: NextRequest) {
         } else {
             result = await optimizeWithOSRM({ lat: centerLat, lng: centerLng }, normalizedStops)
         }
+
+        await writeLogisticsApiCache('optimize', cacheSignature, result, {
+            createdBy: auth.userId,
+            ttlSeconds: 60 * 30,
+        })
 
         return NextResponse.json(result)
     } catch (error) {

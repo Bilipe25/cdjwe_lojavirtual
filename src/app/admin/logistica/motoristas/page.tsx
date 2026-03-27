@@ -37,7 +37,7 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { getDrivers, upsertDriver, deleteDriver, getVehicles, type DriverItem, type VehicleItem } from '../actions'
+import { getDrivers, upsertDriver, deleteDriver, getVehicles, type DriverItem, type VehicleItem } from '../services'
 
 const statusConfig: Record<string, { label: string; color: string }> = {
     available: { label: 'Disponível', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -76,6 +76,7 @@ export default function MotoristasPage() {
         setLoading(false)
     }, [])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     const openNew = () => {
@@ -305,3 +306,4 @@ export default function MotoristasPage() {
         </div>
     )
 }
+

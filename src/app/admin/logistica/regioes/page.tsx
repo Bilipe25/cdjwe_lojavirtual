@@ -30,7 +30,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
-import { getRegions, upsertRegion, deleteRegion, getCenters, type RegionItem, type CenterItem } from '../actions'
+import { getRegions, upsertRegion, deleteRegion, getCenters, type RegionItem, type CenterItem } from '../services'
 import {
     Select,
     SelectContent,
@@ -69,6 +69,7 @@ export default function RegioesPage() {
         setLoading(false)
     }, [])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     const openNew = () => {
@@ -282,3 +283,4 @@ export default function RegioesPage() {
         </div>
     )
 }
+

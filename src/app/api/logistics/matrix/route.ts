@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireLogisticsOperatorSession } from '../_auth'
+import { readLogisticsApiCache, writeLogisticsApiCache } from '@/lib/logistics/api-cache'
 
 const ORS_API_KEY = process.env.ORS_API_KEY || ''
 const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.org'
@@ -59,9 +60,27 @@ export async function POST(request: NextRequest) {
             normalizedCoordinates.push([lng, lat])
         }
 
+        const cacheSignature = {
+            version: 1,
+            coordinates: normalizedCoordinates.map(([lng, lat]) => [
+                Number(lng.toFixed(6)),
+                Number(lat.toFixed(6)),
+            ]),
+            orsEnabled: Boolean(ORS_API_KEY),
+        }
+
+        const cached = await readLogisticsApiCache<MatrixResult>('matrix', cacheSignature)
+        if (cached) {
+            return NextResponse.json(cached)
+        }
+
         if (ORS_API_KEY) {
             try {
                 const result = await matrixWithORS(normalizedCoordinates)
+                await writeLogisticsApiCache('matrix', cacheSignature, result, {
+                    createdBy: auth.userId,
+                    ttlSeconds: 60 * 60 * 2,
+                })
                 return NextResponse.json(result)
             } catch (error) {
                 console.warn('[MATRIX] ORS failed, falling back to OSRM:', error)
@@ -69,6 +88,10 @@ export async function POST(request: NextRequest) {
         }
 
         const fallbackResult = await matrixWithOSRM(normalizedCoordinates)
+        await writeLogisticsApiCache('matrix', cacheSignature, fallbackResult, {
+            createdBy: auth.userId,
+            ttlSeconds: 60 * 60 * 2,
+        })
         return NextResponse.json(fallbackResult)
     } catch (error) {
         console.error('[MATRIX API] Error:', error)

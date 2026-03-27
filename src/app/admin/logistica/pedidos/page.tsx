@@ -9,10 +9,8 @@ import {
     CheckSquare,
     Square,
     MapPin,
-    Calendar,
     Filter,
     ShoppingCart,
-    DollarSign,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -41,12 +39,13 @@ import {
     getDrivers,
     getRegions,
     getDistinctCities,
+    type PaginationMeta,
     type RoutableOrder,
     type CenterItem,
     type VehicleItem,
     type DriverItem,
     type RegionItem,
-} from '../actions'
+} from '../services'
 import { useRouter } from 'next/navigation'
 
 const statusLabels: Record<string, { label: string; color: string }> = {
@@ -57,6 +56,14 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 export default function PedidosParaRotaPage() {
     const router = useRouter()
     const [data, setData] = useState<RoutableOrder[]>([])
+    const [pagination, setPagination] = useState<PaginationMeta>({
+        page: 1,
+        pageSize: 20,
+        total: 0,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+    })
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [search, setSearch] = useState('')
@@ -83,17 +90,24 @@ export default function PedidosParaRotaPage() {
     const loadData = useCallback(async () => {
         setLoading(true)
         setError(null)
-        const res = await getRoutableOrders({ status: statusFilter, search, city: cityFilter, region: regionFilter })
+        const res = await getRoutableOrders({
+            status: statusFilter,
+            search,
+            city: cityFilter,
+            region: regionFilter,
+            date: dateFilter || undefined,
+            page: pagination.page,
+            pageSize: pagination.pageSize,
+        })
         if ('error' in res && res.error) setError(res.error)
         else if ('data' in res && res.data) {
-            let filtered = res.data
-            if (dateFilter) {
-                filtered = filtered.filter(o => o.created_at.startsWith(dateFilter))
+            setData(res.data)
+            if ('pagination' in res && res.pagination) {
+                setPagination(res.pagination)
             }
-            setData(filtered)
         }
         setLoading(false)
-    }, [statusFilter, search, cityFilter, regionFilter, dateFilter])
+    }, [statusFilter, search, cityFilter, regionFilter, dateFilter, pagination.page, pagination.pageSize])
 
     useEffect(() => {
         const loadFilters = async () => {
@@ -104,6 +118,7 @@ export default function PedidosParaRotaPage() {
         void loadFilters()
     }, [])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     const loadResources = async () => {
@@ -186,7 +201,7 @@ export default function PedidosParaRotaPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="rounded-xl border bg-white p-3">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Disponíveis</p>
-                    <p className="text-xl font-black text-navy">{data.length}</p>
+                    <p className="text-xl font-black text-navy">{pagination.total}</p>
                 </div>
                 <div className="rounded-xl border bg-white p-3">
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Aprovados</p>
@@ -206,9 +221,9 @@ export default function PedidosParaRotaPage() {
             <div className="flex flex-wrap gap-2 items-center">
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input className="pl-9 h-9" placeholder="Buscar por número ou empresa..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    <Input className="pl-9 h-9" placeholder="Buscar por número ou empresa..." value={search} onChange={(e) => { setSearch(e.target.value); setPagination((prev) => ({ ...prev, page: 1 })) }} />
                 </div>
-                <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v || 'all')}>
+                <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v || 'all'); setPagination((prev) => ({ ...prev, page: 1 })) }}>
                     <SelectTrigger className="w-36 h-9">
                         <SelectValue placeholder="Status" />
                     </SelectTrigger>
@@ -230,7 +245,7 @@ export default function PedidosParaRotaPage() {
                 <div className="rounded-xl border bg-slate-50/50 p-3 space-y-2">
                     <p className="text-xs font-semibold text-navy">Filtros Avançados</p>
                     <div className="flex flex-wrap gap-2">
-                        <Select value={cityFilter || 'all'} onValueChange={(v) => setCityFilter(!v || v === 'all' ? '' : v)}>
+                        <Select value={cityFilter || 'all'} onValueChange={(v) => { setCityFilter(!v || v === 'all' ? '' : v); setPagination((prev) => ({ ...prev, page: 1 })) }}>
                             <SelectTrigger className="w-40 h-8 text-xs">
                                 <SelectValue placeholder="Cidade" />
                             </SelectTrigger>
@@ -239,7 +254,7 @@ export default function PedidosParaRotaPage() {
                                 {cities.map(c => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
                             </SelectContent>
                         </Select>
-                        <Select value={regionFilter || 'all'} onValueChange={(v) => setRegionFilter(!v || v === 'all' ? '' : v)}>
+                        <Select value={regionFilter || 'all'} onValueChange={(v) => { setRegionFilter(!v || v === 'all' ? '' : v); setPagination((prev) => ({ ...prev, page: 1 })) }}>
                             <SelectTrigger className="w-40 h-8 text-xs">
                                 <SelectValue placeholder="Região" />
                             </SelectTrigger>
@@ -248,9 +263,9 @@ export default function PedidosParaRotaPage() {
                                 {regions.map(r => (<SelectItem key={r.id} value={r.name}>{r.name}</SelectItem>))}
                             </SelectContent>
                         </Select>
-                        <Input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-36 h-8 text-xs" />
+                        <Input type="date" value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); setPagination((prev) => ({ ...prev, page: 1 })) }} className="w-36 h-8 text-xs" />
                         {hasActiveFilters && (
-                            <Button variant="ghost" size="sm" className="h-8 text-xs text-red-500" onClick={() => { setCityFilter(''); setRegionFilter(''); setDateFilter('') }}>
+                            <Button variant="ghost" size="sm" className="h-8 text-xs text-red-500" onClick={() => { setCityFilter(''); setRegionFilter(''); setDateFilter(''); setPagination((prev) => ({ ...prev, page: 1 })) }}>
                                 Limpar filtros
                             </Button>
                         )}
@@ -327,6 +342,31 @@ export default function PedidosParaRotaPage() {
                     </div>
                     <div className="px-4 py-2 border-t bg-slate-50/40 text-xs text-muted-foreground">
                         {selected.size} de {data.length} pedidos selecionados
+                    </div>
+                    <div className="px-4 py-3 border-t bg-white flex items-center justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">
+                            Pagina {pagination.page} de {pagination.totalPages} • {pagination.total} pedidos
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                disabled={!pagination.hasPreviousPage || loading}
+                                onClick={() => { setSelected(new Set()); setPagination((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) })) }}
+                            >
+                                Anterior
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-xs"
+                                disabled={!pagination.hasNextPage || loading}
+                                onClick={() => { setSelected(new Set()); setPagination((prev) => ({ ...prev, page: prev.page + 1 })) }}
+                            >
+                                Proxima
+                            </Button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -419,3 +459,5 @@ export default function PedidosParaRotaPage() {
         </div>
     )
 }
+
+

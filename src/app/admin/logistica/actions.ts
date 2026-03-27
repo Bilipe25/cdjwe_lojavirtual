@@ -88,6 +88,42 @@ export interface CenterItem {
     is_active: boolean
 }
 
+export interface PaginationMeta {
+    page: number
+    pageSize: number
+    total: number
+    totalPages: number
+    hasNextPage: boolean
+    hasPreviousPage: boolean
+}
+
+function normalizePagination(input?: { page?: number; pageSize?: number }): PaginationMeta {
+    const page = Math.max(1, Math.floor(Number(input?.page || 1)))
+    const pageSize = Math.min(100, Math.max(1, Math.floor(Number(input?.pageSize || 25))))
+    return {
+        page,
+        pageSize,
+        total: 0,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: page > 1,
+    }
+}
+
+function withTotal(meta: PaginationMeta, total: number): PaginationMeta {
+    const safeTotal = Math.max(0, Number(total || 0))
+    const totalPages = Math.max(1, Math.ceil(safeTotal / meta.pageSize))
+    const safePage = Math.min(meta.page, totalPages)
+    return {
+        page: safePage,
+        pageSize: meta.pageSize,
+        total: safeTotal,
+        totalPages,
+        hasNextPage: safePage < totalPages,
+        hasPreviousPage: safePage > 1,
+    }
+}
+
 // ==================== Helper: verify admin ====================
 async function requireAdmin() {
     const supabase = await createServerClient()
@@ -134,9 +170,35 @@ export async function getRoutableOrders(filters?: {
     city?: string
     region?: string
     search?: string
+    date?: string
+    page?: number
+    pageSize?: number
 }) {
     try {
         const { supabase } = await requireAdmin()
+        const basePagination = normalizePagination({ page: filters?.page, pageSize: filters?.pageSize })
+
+        const blockedOrderIds = new Set<string>()
+        const { data: activeAssignments, error: assignmentErr } = await supabase
+            .from('delivery_route_stops')
+            .select(`
+                order_id,
+                delivery_routes!inner (
+                    status
+                )
+            `)
+            .in('delivery_routes.status', ['draft', 'optimized', 'confirmed', 'in_progress'])
+
+        if (assignmentErr) {
+            console.error('[ROUTABLE ORDERS] Active assignment lookup error:', assignmentErr)
+            return { error: 'Erro ao validar pedidos ja roteirizados.' }
+        }
+
+        for (const assignment of activeAssignments || []) {
+            if (assignment.order_id) {
+                blockedOrderIds.add(assignment.order_id)
+            }
+        }
 
         let query = supabase.from('orders').select(`
             id,
@@ -158,7 +220,7 @@ export async function getRoutableOrders(filters?: {
                     latitude,
                     longitude
                 )
-        `)
+        `, { count: 'exact' })
 
         // Only orders ready for routing (approved or in_production)
         if (filters?.status && filters.status !== 'all') {
@@ -179,44 +241,34 @@ export async function getRoutableOrders(filters?: {
             )
         }
 
-        query = query.order('created_at', { ascending: false }).limit(200)
+        if (filters?.date) {
+            const dateValue = filters.date.trim()
+            if (dateValue) {
+                query = query
+                    .gte('created_at', `${dateValue}T00:00:00`)
+                    .lt('created_at', `${dateValue}T23:59:59.999`)
+            }
+        }
 
-        const { data, error } = await query
+        if (blockedOrderIds.size > 0) {
+            const blockedFilter = `(${Array.from(blockedOrderIds).map((id) => `"${id}"`).join(',')})`
+            query = query.not('id', 'in', blockedFilter)
+        }
+
+        const start = (basePagination.page - 1) * basePagination.pageSize
+        const end = start + basePagination.pageSize - 1
+        query = query
+            .order('created_at', { ascending: false })
+            .range(start, end)
+
+        const { data, error, count } = await query
 
         if (error) {
             console.error('[ROUTABLE ORDERS] Error:', error)
             return { error: 'Erro ao carregar pedidos.' }
         }
 
-        const orderIds = (data || []).map((row) => row.id)
-        const blockedOrderIds = new Set<string>()
-
-        if (orderIds.length > 0) {
-            const { data: assignments, error: assignmentErr } = await supabase
-                .from('delivery_route_stops')
-                .select(`
-                    order_id,
-                    delivery_routes!inner (
-                        status
-                    )
-                `)
-                .in('order_id', orderIds)
-                .in('delivery_routes.status', ['draft', 'optimized', 'confirmed', 'in_progress'])
-
-            if (assignmentErr) {
-                console.error('[ROUTABLE ORDERS] Active assignment lookup error:', assignmentErr)
-                return { error: 'Erro ao validar pedidos ja roteirizados.' }
-            }
-
-            for (const assignment of assignments || []) {
-                if (assignment.order_id) {
-                    blockedOrderIds.add(assignment.order_id)
-                }
-            }
-        }
-
         const result: RoutableOrder[] = (data || [])
-            .filter((row) => !blockedOrderIds.has(row.id))
             .map((row) => ({
                 order_id: row.id,
                 order_number: row.order_number,
@@ -235,7 +287,8 @@ export async function getRoutableOrders(filters?: {
                 address_lng: row.store_addresses?.longitude ? Number(row.store_addresses.longitude) : null,
             }))
 
-        return { data: result }
+        const pagination = withTotal(basePagination, count || 0)
+        return { data: result, pagination }
     } catch (e) {
         console.error('[ROUTABLE ORDERS] Unexpected:', e)
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
@@ -586,9 +639,10 @@ export async function upsertCenter(center: {
 
 // ==================== ROUTE MANAGEMENT ====================
 
-export async function getRoutes(filters?: { status?: string }) {
+export async function getRoutes(filters?: { status?: string; page?: number; pageSize?: number }) {
     try {
         const { supabase } = await requireAdmin()
+        const basePagination = normalizePagination({ page: filters?.page, pageSize: filters?.pageSize })
 
         let query = supabase.from('delivery_routes').select(`
             id,
@@ -602,15 +656,21 @@ export async function getRoutes(filters?: { status?: string }) {
             drivers ( profiles ( full_name ) ),
             vehicles ( name, plate ),
             route_centers ( name )
-        `)
+        `, { count: 'exact' })
 
         if (filters?.status && filters.status !== 'all') {
             query = query.eq('status', filters.status)
         }
 
-        query = query.order('planned_date', { ascending: false }).limit(100)
+        const start = (basePagination.page - 1) * basePagination.pageSize
+        const end = start + basePagination.pageSize - 1
 
-        const { data, error } = await query
+        query = query
+            .order('planned_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(start, end)
+
+        const { data, error, count } = await query
 
         if (error) {
             console.error('[GET ROUTES] Error:', error)
@@ -633,7 +693,8 @@ export async function getRoutes(filters?: { status?: string }) {
             created_at: row.created_at,
         }))
 
-        return { data: result }
+        const pagination = withTotal(basePagination, count || 0)
+        return { data: result, pagination }
     } catch (e) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
     }
@@ -948,55 +1009,30 @@ export async function applyOptimizationResult(
     }
 ) {
     try {
-        const { supabase, userId } = await requireAdmin()
+        const { supabase } = await requireAdmin()
 
-        // Update each stop's position, ETA and cumulative distance
-        for (const stop of result.orderedStops) {
-            await supabase
-                .from('delivery_route_stops')
-                .update({
-                    stop_position: stop.position + 1,
-                    estimated_arrival_min: Math.round(stop.arrival / 60),
-                    estimated_distance_km: stop.distance,
-                })
-                .eq('id', stop.id)
-        }
+        const orderedStopsPayload = result.orderedStops.map((stop) => ({
+            id: stop.id,
+            position: stop.position,
+            arrival: stop.arrival,
+            distance: stop.distance,
+        }))
 
-        // Update route totals + polyline + engine
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const routeUpdate: any = {
-            total_distance_km: result.summary.totalDistance,
-            total_duration_min: result.summary.totalDuration,
-            total_stops: result.summary.totalStops,
-            optimization_result: result,
-            optimization_engine: result.engine || 'unknown',
-            status: 'optimized',
-            updated_by: userId,
-        }
-
-        if (result.polyline) {
-            routeUpdate.route_polyline = result.polyline
-        }
-
-        const { error } = await supabase
-            .from('delivery_routes')
-            .update(routeUpdate)
-            .eq('id', routeId)
-
-        if (error) return { error: 'Erro ao salvar resultado da otimização.' }
-
-        // Audit
-        await supabase.from('route_events').insert({
-            route_id: routeId,
-            event_type: 'route_optimized',
-            actor_id: userId,
-            metadata: {
-                engine: result.engine,
-                totalDistance: result.summary.totalDistance,
-                totalDuration: result.summary.totalDuration,
-                stopsOptimized: result.summary.totalStops,
-            },
+        const { error } = await supabase.rpc('logistics_apply_optimization_result_atomic', {
+            p_route_id: routeId,
+            p_ordered_stops: orderedStopsPayload,
+            p_total_distance_km: result.summary.totalDistance,
+            p_total_duration_min: result.summary.totalDuration,
+            p_total_stops: result.summary.totalStops,
+            p_engine: result.engine || 'unknown',
+            p_polyline: result.polyline || null,
+            p_optimization_result: result,
         })
+
+        if (error) {
+            console.error('[APPLY OPTIMIZATION] RPC error:', error)
+            return { error: error.message || 'Erro ao salvar resultado da otimizacao.' }
+        }
 
         return { success: true }
     } catch (e) {
@@ -1073,14 +1109,23 @@ export async function updateStopMetrics(
     try {
         const { supabase } = await requireAdmin()
 
-        for (const stop of stopUpdates) {
-            await supabase
-                .from('delivery_route_stops')
-                .update({
-                    estimated_distance_km: stop.estimated_distance_km,
-                    estimated_arrival_min: stop.estimated_arrival_min,
-                })
-                .eq('id', stop.id)
+        if (!Array.isArray(stopUpdates) || stopUpdates.length === 0) {
+            return { success: true }
+        }
+
+        const sanitized = stopUpdates.map((stop) => ({
+            id: stop.id,
+            estimated_distance_km: Number(stop.estimated_distance_km || 0),
+            estimated_arrival_min: Math.max(0, Math.round(Number(stop.estimated_arrival_min || 0))),
+        }))
+
+        const { error } = await supabase.rpc('logistics_batch_update_stop_metrics_atomic', {
+            p_stop_updates: sanitized,
+        })
+
+        if (error) {
+            console.error('[STOP METRICS] RPC error:', error)
+            return { error: error.message || 'Erro ao atualizar metricas de parada.' }
         }
 
         return { success: true }
@@ -1200,9 +1245,12 @@ export async function getRouteHistory(filters?: {
     dateTo?: string
     driverId?: string
     vehicleId?: string
+    page?: number
+    pageSize?: number
 }) {
     try {
         const { supabase } = await requireAdmin()
+        const basePagination = normalizePagination({ page: filters?.page, pageSize: filters?.pageSize })
 
         let query = supabase.from('delivery_routes').select(`
             id,
@@ -1220,7 +1268,7 @@ export async function getRouteHistory(filters?: {
             route_centers ( name ),
             delivery_regions ( name ),
             delivery_route_stops ( status )
-        `)
+        `, { count: 'exact' })
 
         if (filters?.status && filters.status !== 'all') {
             query = query.eq('status', filters.status)
@@ -1238,13 +1286,19 @@ export async function getRouteHistory(filters?: {
             query = query.eq('vehicle_id', filters.vehicleId)
         }
 
-        query = query.order('planned_date', { ascending: false }).limit(200)
+        const start = (basePagination.page - 1) * basePagination.pageSize
+        const end = start + basePagination.pageSize - 1
 
-        const { data, error } = await query
+        query = query
+            .order('planned_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range(start, end)
+
+        const { data, error, count } = await query
 
         if (error) {
             console.error('[ROUTE HISTORY]', error)
-            return { error: 'Erro ao carregar histórico.' }
+            return { error: 'Erro ao carregar historico.' }
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1269,16 +1323,18 @@ export async function getRouteHistory(filters?: {
             }
         })
 
-        // Aggregate metrics
+        const pagination = withTotal(basePagination, count || 0)
+
+        // Aggregate metrics (totals are based on the current filtered page, except totalRoutes)
         const metrics = {
-            totalRoutes: result.length,
-            completedRoutes: result.filter(r => r.status === 'completed').length,
+            totalRoutes: pagination.total,
+            completedRoutes: result.filter((r) => r.status === 'completed').length,
             totalDeliveries: result.reduce((acc, r) => acc + r.delivered_stops, 0),
             totalFailures: result.reduce((acc, r) => acc + r.failed_stops, 0),
             totalKm: result.reduce((acc, r) => acc + (r.total_distance_km || 0), 0),
         }
 
-        return { data: result, metrics }
+        return { data: result, metrics, pagination }
     } catch (e) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
     }
@@ -1475,3 +1531,6 @@ export async function getRouteCostEstimate(routeId: string) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
     }
 }
+
+
+

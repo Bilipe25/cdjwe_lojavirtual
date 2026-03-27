@@ -37,7 +37,7 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { getVehicles, upsertVehicle, deleteVehicle, type VehicleItem } from '../actions'
+import { getVehicles, upsertVehicle, deleteVehicle, type VehicleItem } from '../services'
 
 const typeLabels: Record<string, string> = {
     van: 'Van',
@@ -88,6 +88,7 @@ export default function VeiculosPage() {
         setLoading(false)
     }, [])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     const openNew = () => {
@@ -352,3 +353,4 @@ export default function VeiculosPage() {
         </div>
     )
 }
+

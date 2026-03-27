@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import {
@@ -22,7 +22,6 @@ import {
     Package,
     Navigation,
     Timer,
-    Weight,
     Hash,
     Pencil,
     Globe,
@@ -68,7 +67,7 @@ import {
     getCenters,
     updateStopCoordinates,
     getRouteCostEstimate,
-} from '../../actions'
+} from '../../services'
 
 const RouteMap = dynamic(() => import('@/components/logistics/route-map'), { ssr: false })
 const GeocodePickerDialog = dynamic(() => import('@/components/logistics/geocode-picker-dialog'), { ssr: false })
@@ -92,7 +91,6 @@ const stopStatusConfig: Record<string, { label: string; color: string; icon: Rea
 
 export default function RouteDetailPage() {
     const params = useParams()
-    const router = useRouter()
     const routeId = params.id as string
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -143,9 +141,7 @@ export default function RouteDetailPage() {
             const rawStops = res.data.stops
             // Enrich stops with per-stop distance/ETA data
             // Priority: 1) native DB columns, 2) directionsStops JSONB, 3) orderedStops JSONB
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const dirStops = rte?.optimization_result?.directionsStops || []
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const optStops = rte?.optimization_result?.orderedStops || []
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const enrichedStops = rawStops.map((s: any) => {
@@ -180,6 +176,7 @@ export default function RouteDetailPage() {
         setLoading(false)
     }, [routeId])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     useEffect(() => {
@@ -233,7 +230,7 @@ export default function RouteDetailPage() {
                 const dirData = await dirRes.json()
                 if (dirData.polyline) {
                     // Compute per-stop cumulative distances from legs
-                    let stopMetrics: Array<{ id: string; estimated_distance_km: number; estimated_arrival_min: number }> = []
+                    const stopMetrics: Array<{ id: string; estimated_distance_km: number; estimated_arrival_min: number }> = []
                     if (dirData.legs?.length && orderedStops.length > 0) {
                         let cumulativeKm = 0
                         let cumulativeMin = 0
@@ -779,7 +776,7 @@ export default function RouteDetailPage() {
                         <div className="divide-y max-h-[600px] overflow-y-auto">
                             {stops.length === 0 ? (
                                 <div className="p-12 text-center text-sm text-muted-foreground">Nenhuma parada nesta rota.</div>
-                            ) : stops.map((stop: any, idx: number) => {
+                            ) : stops.map((stop, idx: number) => {
                                 const stopSt = stopStatusConfig[stop.status] || stopStatusConfig.pending
                                 const StopIcon = stopSt.icon
                                 const isActive = route.status === 'in_progress' && stop.status === 'pending'
@@ -892,7 +889,7 @@ export default function RouteDetailPage() {
                                 <div className="relative p-4">
                                     <div className="absolute left-[27px] top-4 bottom-4 w-0.5 bg-slate-100" />
                                     <div className="space-y-4">
-                                        {events.map((ev: any) => {
+                                        {events.map((ev) => {
                                             const colors: Record<string, string> = {
                                                 route_created: 'bg-blue-500',
                                                 route_optimized: 'bg-indigo-500',
@@ -1119,3 +1116,4 @@ export default function RouteDetailPage() {
         </div>
     )
 }
+
