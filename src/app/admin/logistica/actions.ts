@@ -268,24 +268,34 @@ export async function getRoutableOrders(filters?: {
             return { error: 'Erro ao carregar pedidos.' }
         }
 
-        const result: RoutableOrder[] = (data || [])
-            .map((row) => ({
+        const pickFirst = <T>(value: T | T[] | null | undefined): T | null => {
+            if (!value) return null
+            return Array.isArray(value) ? (value[0] || null) : value
+        }
+
+        const result: RoutableOrder[] = (data || []).map((row) => {
+            const store = pickFirst(row.stores)
+            const profile = store ? pickFirst(store.profiles) : null
+            const shippingAddress = pickFirst(row.store_addresses)
+
+            return {
                 order_id: row.id,
                 order_number: row.order_number,
                 store_id: row.store_id,
-                company_name: row.stores?.company_name || '',
-                client_name: row.stores?.profiles?.full_name || '',
-                city: row.stores?.city || '',
-                state: row.stores?.state || '',
-                region: row.stores?.region || null,
+                company_name: store?.company_name || '',
+                client_name: profile?.full_name || '',
+                city: store?.city || '',
+                state: store?.state || '',
+                region: store?.region || null,
                 total: Number(row.total || 0),
                 status: row.status,
                 created_at: row.created_at,
                 shipping_address: row.shipping_address,
                 shipping_address_id: row.shipping_address_id,
-                address_lat: row.store_addresses?.latitude ? Number(row.store_addresses.latitude) : null,
-                address_lng: row.store_addresses?.longitude ? Number(row.store_addresses.longitude) : null,
-            }))
+                address_lat: shippingAddress?.latitude ? Number(shippingAddress.latitude) : null,
+                address_lng: shippingAddress?.longitude ? Number(shippingAddress.longitude) : null,
+            }
+        })
 
         const pagination = withTotal(basePagination, count || 0)
         return { data: result, pagination }
@@ -1531,6 +1541,3 @@ export async function getRouteCostEstimate(routeId: string) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
     }
 }
-
-
-
