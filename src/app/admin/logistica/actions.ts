@@ -45,6 +45,8 @@ export interface VehicleItem {
     capacity_kg: number | null
     capacity_m3: number | null
     max_stops: number | null
+    fuel_consumption_km_l: number | null
+    fuel_type: string | null
     status: string
     notes: string | null
 }
@@ -210,6 +212,8 @@ export async function upsertVehicle(vehicle: {
     capacity_kg?: number | null
     capacity_m3?: number | null
     max_stops?: number | null
+    fuel_consumption_km_l?: number | null
+    fuel_type?: string | null
     status: string
     notes?: string | null
 }) {
@@ -226,6 +230,8 @@ export async function upsertVehicle(vehicle: {
                     capacity_kg: vehicle.capacity_kg,
                     capacity_m3: vehicle.capacity_m3,
                     max_stops: vehicle.max_stops,
+                    fuel_consumption_km_l: vehicle.fuel_consumption_km_l,
+                    fuel_type: vehicle.fuel_type,
                     status: vehicle.status,
                     notes: vehicle.notes,
                 })
@@ -242,6 +248,8 @@ export async function upsertVehicle(vehicle: {
                     capacity_kg: vehicle.capacity_kg,
                     capacity_m3: vehicle.capacity_m3,
                     max_stops: vehicle.max_stops,
+                    fuel_consumption_km_l: vehicle.fuel_consumption_km_l,
+                    fuel_type: vehicle.fuel_type,
                     status: vehicle.status,
                     notes: vehicle.notes,
                 })
@@ -1238,4 +1246,126 @@ export async function updateStopCoordinates(
     }
 }
 
+// ==================== COST SETTINGS ====================
 
+export interface CostSettings {
+    id: string
+    fuel_price_per_liter: number
+    fuel_tax_pct: number
+    additional_tax: number
+    daily_rate: number
+    notes: string | null
+    updated_at: string
+}
+
+export async function getCostSettings() {
+    try {
+        const { supabase } = await requireAdmin()
+        const { data, error } = await supabase
+            .from('logistics_cost_settings')
+            .select('*')
+            .limit(1)
+            .single()
+
+        if (error && error.code !== 'PGRST116') return { error: 'Erro ao carregar configurações de custo.' }
+        return { data: (data || null) as CostSettings | null }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+export async function saveCostSettings(settings: {
+    fuel_price_per_liter: number
+    fuel_tax_pct: number
+    additional_tax: number
+    daily_rate: number
+    notes?: string | null
+}) {
+    try {
+        const { supabase, userId } = await requireAdmin()
+
+        // Try update first (singleton)
+        const { data: existing } = await supabase
+            .from('logistics_cost_settings')
+            .select('id')
+            .limit(1)
+            .single()
+
+        if (existing?.id) {
+            const { error } = await supabase
+                .from('logistics_cost_settings')
+                .update({
+                    ...settings,
+                    updated_by: userId,
+                })
+                .eq('id', existing.id)
+            if (error) return { error: 'Erro ao salvar configurações.' }
+        } else {
+            const { error } = await supabase
+                .from('logistics_cost_settings')
+                .insert({
+                    ...settings,
+                    updated_by: userId,
+                })
+            if (error) return { error: 'Erro ao criar configurações.' }
+        }
+
+        return { success: true }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+export async function getRouteCostEstimate(routeId: string) {
+    try {
+        const { supabase } = await requireAdmin()
+
+        // Fetch route with vehicle info
+        const { data: route } = await supabase
+            .from('delivery_routes')
+            .select('id, total_distance_km, vehicle_id, vehicles(fuel_consumption_km_l, fuel_type)')
+            .eq('id', routeId)
+            .single()
+
+        // Fetch cost settings
+        const { data: settings } = await supabase
+            .from('logistics_cost_settings')
+            .select('*')
+            .limit(1)
+            .single()
+
+        if (!route || !settings) return { data: null }
+
+        const distanceKm = route.total_distance_km || 0
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const vehicle = route.vehicles as any
+        const consumptionKmL = vehicle?.fuel_consumption_km_l || 0
+        const fuelType = vehicle?.fuel_type || 'diesel'
+
+        // Calculate
+        const litersUsed = consumptionKmL > 0 ? distanceKm / consumptionKmL : 0
+        const fuelCost = litersUsed * (settings.fuel_price_per_liter || 0)
+        const fuelTax = fuelCost * ((settings.fuel_tax_pct || 0) / 100)
+        const additionalTax = settings.additional_tax || 0
+        const dailyRate = settings.daily_rate || 0
+        const totalCost = fuelCost + fuelTax + additionalTax + dailyRate
+
+        return {
+            data: {
+                distance_km: distanceKm,
+                consumption_km_l: consumptionKmL,
+                fuel_type: fuelType,
+                liters_used: Math.round(litersUsed * 100) / 100,
+                fuel_price_per_liter: settings.fuel_price_per_liter,
+                fuel_cost: Math.round(fuelCost * 100) / 100,
+                fuel_tax_pct: settings.fuel_tax_pct,
+                fuel_tax_value: Math.round(fuelTax * 100) / 100,
+                additional_tax: additionalTax,
+                daily_rate: dailyRate,
+                total_cost: Math.round(totalCost * 100) / 100,
+            },
+        }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}

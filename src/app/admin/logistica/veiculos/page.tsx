@@ -61,6 +61,8 @@ const emptyForm = {
     capacity_kg: '' as string | number,
     capacity_m3: '' as string | number,
     max_stops: '' as string | number,
+    fuel_consumption_km_l: '' as string | number,
+    fuel_type: 'diesel',
     status: 'available',
     notes: '',
 }
@@ -103,6 +105,8 @@ export default function VeiculosPage() {
             capacity_kg: v.capacity_kg ?? '',
             capacity_m3: v.capacity_m3 ?? '',
             max_stops: v.max_stops ?? '',
+            fuel_consumption_km_l: v.fuel_consumption_km_l ?? '',
+            fuel_type: v.fuel_type || 'diesel',
             status: v.status,
             notes: v.notes ?? '',
         })
@@ -120,6 +124,8 @@ export default function VeiculosPage() {
             capacity_kg: form.capacity_kg ? Number(form.capacity_kg) : null,
             capacity_m3: form.capacity_m3 ? Number(form.capacity_m3) : null,
             max_stops: form.max_stops ? Number(form.max_stops) : null,
+            fuel_consumption_km_l: form.fuel_consumption_km_l ? Number(form.fuel_consumption_km_l) : null,
+            fuel_type: form.fuel_type,
             status: form.status,
             notes: form.notes || null,
         })
@@ -291,6 +297,25 @@ export default function VeiculosPage() {
                             <div>
                                 <label className="text-xs font-medium text-muted-foreground">Máx. Paradas</label>
                                 <Input type="number" value={form.max_stops} onChange={(e) => setForm({ ...form, max_stops: e.target.value })} />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-muted-foreground">Consumo (km/l)</label>
+                                <Input type="number" step="0.1" value={form.fuel_consumption_km_l} onChange={(e) => setForm({ ...form, fuel_consumption_km_l: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-muted-foreground">Combustível</label>
+                                <Select value={form.fuel_type} onValueChange={(v) => setForm({ ...form, fuel_type: v || 'diesel' })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="diesel">Diesel</SelectItem>
+                                        <SelectItem value="gasolina">Gasolina</SelectItem>
+                                        <SelectItem value="etanol">Etanol</SelectItem>
+                                        <SelectItem value="gnv">GNV</SelectItem>
+                                        <SelectItem value="eletrico">Elétrico</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                         <div>

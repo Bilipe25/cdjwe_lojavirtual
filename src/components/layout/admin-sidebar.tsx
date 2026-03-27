@@ -32,6 +32,7 @@ import {
     PackageCheck,
     UserCircle,
     Warehouse,
+    DollarSign,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -82,6 +83,7 @@ const logisticaNavItems = [
     { href: '/admin/logistica/motoristas', label: 'Motoristas', icon: UserCircle },
     { href: '/admin/logistica/centros', label: 'Centros', icon: Warehouse },
     { href: '/admin/logistica/regioes', label: 'Regiões', icon: MapPin },
+    { href: '/admin/logistica/custos', label: 'Custos', icon: DollarSign },
 ]
 
 const bottomNavItems = [

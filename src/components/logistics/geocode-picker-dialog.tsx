@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { ACTIVE_BASEMAP } from './map-config'
 import {
     MapPin,
     Search,
@@ -127,18 +128,29 @@ export default function GeocodePickerDialog({
 
     // Initialize map after dialog has fully rendered and animated
     useEffect(() => {
-        if (!open) return
+        if (!open) {
+            if (mapInstanceRef.current) {
+                try {
+                    mapInstanceRef.current.off()
+                    mapInstanceRef.current.remove()
+                } catch (e) {
+                    // Ignore cleanup errors
+                }
+                mapInstanceRef.current = null
+                markerRef.current = null
+                initDoneRef.current = false
+            }
+            return
+        }
 
         const timer = setTimeout(() => {
             if (!mapContainerRef.current || initDoneRef.current) return
             initDoneRef.current = true
 
-            // Destroy any existing map
-            if (mapInstanceRef.current) {
-                mapInstanceRef.current.remove()
-                mapInstanceRef.current = null
-                markerRef.current = null
-            }
+            // Force cleanup container to ensure fresh Leaflet instance
+            const container = mapContainerRef.current as any // eslint-disable-line @typescript-eslint/no-explicit-any
+            delete container._leaflet_id
+            container.innerHTML = ''
 
             const hasCoords = initialLat && initialLng
             const center: [number, number] = hasCoords
@@ -153,24 +165,29 @@ export default function GeocodePickerDialog({
             })
 
             // Add tile layer
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19,
-                attribution: '© CARTO',
+            L.tileLayer(ACTIVE_BASEMAP.url, {
+                maxZoom: ACTIVE_BASEMAP.maxZoom,
+                attribution: ACTIVE_BASEMAP.attribution,
             }).addTo(map)
 
             mapInstanceRef.current = map
 
             // Force recalculate map size after dialog animation
             setTimeout(() => {
-                map.invalidateSize()
-
-                if (hasCoords) {
-                    placeMarker(map, initialLat!, initialLng!)
+                if (!mapInstanceRef.current) return
+                try {
+                    mapInstanceRef.current.invalidateSize()
+                    if (hasCoords) placeMarker(mapInstanceRef.current, initialLat!, initialLng!)
+                } catch (e) {
+                    // Ignore _leaflet_pos errors
                 }
             }, 150)
 
             // Another invalidateSize for safety
-            setTimeout(() => map.invalidateSize(), 500)
+            setTimeout(() => {
+                if (!mapInstanceRef.current) return
+                try { mapInstanceRef.current.invalidateSize() } catch (e) {}
+            }, 500)
 
             // Click to place marker
             map.on('click', (e: L.LeafletMouseEvent) => {
@@ -185,7 +202,20 @@ export default function GeocodePickerDialog({
             }
         }, 400) // Wait for dialog open animation
 
-        return () => clearTimeout(timer)
+        return () => {
+            clearTimeout(timer)
+            if (mapInstanceRef.current) {
+                try {
+                    mapInstanceRef.current.off()
+                    mapInstanceRef.current.remove()
+                } catch (e) {
+                    // Ignore cleanup errors
+                }
+                mapInstanceRef.current = null
+                markerRef.current = null
+                initDoneRef.current = false
+            }
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open])
 
@@ -316,7 +346,7 @@ export default function GeocodePickerDialog({
                             style={{ height: '100%', width: '100%' }}
                         />
                         {geocoding && (
-                            <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center z-[500]">
+                            <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center z-500">
                                 <div className="flex items-center gap-2 text-sm font-medium text-indigo-700">
                                     <Loader2 className="h-5 w-5 animate-spin" />
                                     Geocodificando...

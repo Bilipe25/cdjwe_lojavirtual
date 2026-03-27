@@ -31,6 +31,7 @@ import {
     Crosshair,
     Maximize2,
     Minimize2,
+    Fuel,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -66,6 +67,7 @@ import {
     getVehicles,
     getCenters,
     updateStopCoordinates,
+    getRouteCostEstimate,
 } from '../../actions'
 
 const RouteMap = dynamic(() => import('@/components/logistics/route-map'), { ssr: false })
@@ -104,7 +106,10 @@ export default function RouteDetailPage() {
     const [actionLoading, setActionLoading] = useState(false)
     const [confirmAction, setConfirmAction] = useState<{ type: string; label: string; newStatus: string } | null>(null)
     const [optimizing, setOptimizing] = useState(false)
-    const [activeTab, setActiveTab] = useState<'stops' | 'timeline'>('stops')
+    const [activeTab, setActiveTab] = useState<'stops' | 'timeline' | 'costs'>('stops')
+    // Cost Estimate
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [costEstimate, setCostEstimate] = useState<any>(null)
     // Inline editing
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [driversList, setDriversList] = useState<any[]>([])
@@ -166,6 +171,10 @@ export default function RouteDetailPage() {
             setRoute(rte)
             setStops(enrichedStops)
             setEvents(res.data.events)
+
+            // Fetch cost estimate
+            const costRes = await getRouteCostEstimate(routeId)
+            if (costRes.data) setCostEstimate(costRes.data)
         }
         setLoading(false)
     }, [routeId])
@@ -671,11 +680,11 @@ export default function RouteDetailPage() {
                 </div>
                 <div className="rounded-xl border bg-white p-4 group hover:shadow-sm transition">
                     <div className="flex items-center gap-2 mb-1">
-                        <Weight className="h-3.5 w-3.5 text-emerald-500" />
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Peso Total</p>
+                        <Fuel className="h-3.5 w-3.5 text-emerald-500" />
+                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Custo Estimado</p>
                     </div>
-                    <p className="text-2xl font-black text-navy">{route.total_weight_kg ? `${route.total_weight_kg}` : '—'}</p>
-                    {route.total_weight_kg && <p className="text-[10px] text-muted-foreground">kg</p>}
+                    <p className="text-2xl font-black text-navy">{costEstimate ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(costEstimate.total_cost) : '—'}</p>
+                    {costEstimate && <p className="text-[10px] text-muted-foreground">Operação total</p>}
                 </div>
             </div>
 
@@ -736,6 +745,7 @@ export default function RouteDetailPage() {
                         {[
                             { key: 'stops' as const, label: 'Paradas', icon: Route, count: stops.length },
                             { key: 'timeline' as const, label: 'Histórico', icon: Clock, count: events.length },
+                            { key: 'costs' as const, label: 'Custos', icon: Fuel },
                         ].map(tab => (
                             <button key={tab.key}
                                 className={cn(
@@ -904,6 +914,60 @@ export default function RouteDetailPage() {
                                                 </div>
                                             )
                                         })}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* === COSTS TAB === */}
+                    {activeTab === 'costs' && (
+                        <div className="p-4 sm:p-6 max-h-[600px] overflow-y-auto">
+                            {!costEstimate ? (
+                                <div className="text-center p-8 text-sm text-muted-foreground">
+                                    <Fuel className="h-8 w-8 mx-auto mb-3 opacity-20" />
+                                    A estimativa de custos requer um veículo com consumo definido e rota traçada.
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="rounded-xl border bg-slate-50 p-4">
+                                            <p className="text-xs font-medium text-muted-foreground mb-1">Combustível</p>
+                                            <p className="text-lg font-black text-navy">
+                                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(costEstimate.fuel_cost)}
+                                            </p>
+                                            <p className="text-[10px] text-muted-foreground mt-1.5">
+                                                {costEstimate.liters_used}L de {costEstimate.fuel_type} a R$ {costEstimate.fuel_price_per_liter}/L
+                                            </p>
+                                        </div>
+                                        <div className="rounded-xl border bg-slate-50 p-4">
+                                            <p className="text-xs font-medium text-muted-foreground mb-1">Encargos + Diária</p>
+                                            <p className="text-lg font-black text-navy">
+                                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(costEstimate.fuel_tax_value + costEstimate.additional_tax + costEstimate.daily_rate)}
+                                            </p>
+                                            <p className="text-[10px] text-muted-foreground mt-1.5 flex flex-col gap-0.5">
+                                                <span>Taxa combust.: R$ {costEstimate.fuel_tax_value}</span>
+                                                <span>Adicional: R$ {costEstimate.additional_tax}</span>
+                                                <span>Diária: R$ {costEstimate.daily_rate}</span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="rounded-xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-100 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                        <div>
+                                            <span className="text-sm font-bold text-emerald-800 block">Custo Total Previsto</span>
+                                            <span className="text-[10px] text-emerald-600/80">Operação da rota</span>
+                                        </div>
+                                        <span className="text-2xl font-black text-emerald-700">
+                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(costEstimate.total_cost)}
+                                        </span>
+                                    </div>
+
+                                    <div className="rounded-lg bg-indigo-50/50 p-3 flex gap-2 items-start border border-indigo-100/50">
+                                        <Zap className="h-4 w-4 text-indigo-400 mt-0.5 shrink-0" />
+                                        <p className="text-[10px] text-indigo-700/70 leading-relaxed">
+                                            Valores calculados em tempo real com base nas configurações da sua última otimização de rota ({costEstimate.distance_km} km) e no rendimento do veículo atual ({costEstimate.consumption_km_l} km/l).
+                                        </p>
                                     </div>
                                 </div>
                             )}

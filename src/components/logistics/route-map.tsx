@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { ACTIVE_BASEMAP, ROUTE_STYLE, DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from './map-config'
 
 export interface RouteStop {
     id: string
@@ -101,10 +102,22 @@ export default function RouteMap({
         if (!mapRef.current) return
 
         if (mapInstanceRef.current) {
-            mapInstanceRef.current.remove()
+            try {
+                mapInstanceRef.current.off()
+                mapInstanceRef.current.remove()
+            } catch (e) {
+                // Ignore leaflet internal cleanup errors
+            }
             mapInstanceRef.current = null
             markersRef.current.clear()
         }
+
+        const container = mapRef.current
+        // Force cleanup to ensure fresh Leaflet instance
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const anyContainer = container as any
+        delete anyContainer._leaflet_id
+        container.innerHTML = ''
 
         const validStops = stops.filter(s => s.latitude && s.longitude)
         const hasCenter = center?.lat && center?.lng
@@ -128,8 +141,9 @@ export default function RouteMap({
         L.control.zoom({ position: 'topright' }).addTo(map)
 
         // Tile layer
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19,
+        L.tileLayer(ACTIVE_BASEMAP.url, {
+            maxZoom: ACTIVE_BASEMAP.maxZoom,
+            attribution: ACTIVE_BASEMAP.attribution,
         }).addTo(map)
 
         const bounds = L.latLngBounds([])
@@ -212,19 +226,9 @@ export default function RouteMap({
             try {
                 const decoded = decodePolyline(polyline)
                 // Main route line
-                L.polyline(decoded, {
-                    color: '#4f46e5',
-                    weight: 4,
-                    opacity: 0.8,
-                    smoothFactor: 1,
-                }).addTo(map)
+                L.polyline(decoded, ROUTE_STYLE.main).addTo(map)
                 // Outer glow
-                L.polyline(decoded, {
-                    color: '#4f46e5',
-                    weight: 10,
-                    opacity: 0.15,
-                    smoothFactor: 1,
-                }).addTo(map)
+                L.polyline(decoded, ROUTE_STYLE.glow).addTo(map)
                 decoded.forEach(p => bounds.extend(p))
             } catch {
                 drawStraightLines(map, center, validStops, bounds)
@@ -307,8 +311,12 @@ export default function RouteMap({
 
         // Handle resize dynamically
         const resizeObserver = new ResizeObserver(() => {
-            if (mapInstanceRef.current) {
-                mapInstanceRef.current.invalidateSize()
+            if (mapInstanceRef.current && mapRef.current?.isConnected) {
+                try {
+                    mapInstanceRef.current.invalidateSize()
+                } catch (e) {
+                    // Ignore _leaflet_pos or animation frame errors during resize
+                }
             }
         })
         resizeObserver.observe(mapRef.current)
@@ -316,7 +324,12 @@ export default function RouteMap({
         return () => {
             resizeObserver.disconnect()
             if (mapInstanceRef.current) {
-                mapInstanceRef.current.remove()
+                try {
+                    mapInstanceRef.current.off()
+                    mapInstanceRef.current.remove()
+                } catch (e) {
+                    // Ignore unmount errors
+                }
                 mapInstanceRef.current = null
                 markersRef.current.clear()
             }
