@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { ACTIVE_BASEMAP } from './map-config'
+import { ACTIVE_BASEMAP, MAP_TILE_LAYERS } from './map-config'
 import {
     MapPin,
     Search,
@@ -164,11 +164,28 @@ export default function GeocodePickerDialog({
                 attributionControl: false,
             })
 
-            // Add tile layer
-            L.tileLayer(ACTIVE_BASEMAP.url, {
+            // Add tile layer with runtime fallback to OSM if provider fails.
+            const primaryTileLayer = L.tileLayer(ACTIVE_BASEMAP.url, {
                 maxZoom: ACTIVE_BASEMAP.maxZoom,
                 attribution: ACTIVE_BASEMAP.attribution,
             }).addTo(map)
+
+            if (ACTIVE_BASEMAP !== MAP_TILE_LAYERS.osm) {
+                let switchedToFallback = false
+                primaryTileLayer.on('tileerror', () => {
+                    if (switchedToFallback) return
+                    switchedToFallback = true
+                    try {
+                        map.removeLayer(primaryTileLayer)
+                    } catch {
+                        // no-op
+                    }
+                    L.tileLayer(MAP_TILE_LAYERS.osm.url, {
+                        maxZoom: MAP_TILE_LAYERS.osm.maxZoom,
+                        attribution: MAP_TILE_LAYERS.osm.attribution,
+                    }).addTo(map)
+                })
+            }
 
             mapInstanceRef.current = map
 

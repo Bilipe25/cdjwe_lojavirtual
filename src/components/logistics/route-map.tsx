@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { ACTIVE_BASEMAP, ROUTE_STYLE, DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from './map-config'
+import { ACTIVE_BASEMAP, MAP_TILE_LAYERS, ROUTE_STYLE, DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from './map-config'
 
 export interface RouteStop {
     id: string
@@ -140,11 +140,28 @@ export default function RouteMap({
         // Zoom control top-right
         L.control.zoom({ position: 'topright' }).addTo(map)
 
-        // Tile layer
-        L.tileLayer(ACTIVE_BASEMAP.url, {
+        // Tile layer with runtime fallback to OSM on auth/provider failures.
+        const primaryTileLayer = L.tileLayer(ACTIVE_BASEMAP.url, {
             maxZoom: ACTIVE_BASEMAP.maxZoom,
             attribution: ACTIVE_BASEMAP.attribution,
         }).addTo(map)
+
+        if (ACTIVE_BASEMAP !== MAP_TILE_LAYERS.osm) {
+            let switchedToFallback = false
+            primaryTileLayer.on('tileerror', () => {
+                if (switchedToFallback) return
+                switchedToFallback = true
+                try {
+                    map.removeLayer(primaryTileLayer)
+                } catch {
+                    // no-op
+                }
+                L.tileLayer(MAP_TILE_LAYERS.osm.url, {
+                    maxZoom: MAP_TILE_LAYERS.osm.maxZoom,
+                    attribution: MAP_TILE_LAYERS.osm.attribution,
+                }).addTo(map)
+            })
+        }
 
         const bounds = L.latLngBounds([])
 
