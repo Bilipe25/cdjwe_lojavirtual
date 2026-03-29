@@ -2,6 +2,42 @@
 
 import { createClient as createServerClient } from '@/lib/supabase/server'
 
+const DRIVER_TIMEZONE = 'America/Fortaleza'
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function formatDateKeyInTimezone(date: Date) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: DRIVER_TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(date)
+
+    const year = parts.find((part) => part.type === 'year')?.value
+    const month = parts.find((part) => part.type === 'month')?.value
+    const day = parts.find((part) => part.type === 'day')?.value
+
+    if (!year || !month || !day) {
+        return date.toISOString().slice(0, 10)
+    }
+
+    return `${year}-${month}-${day}`
+}
+
+function toDateKey(value: string | null | undefined) {
+    if (!value) return null
+    if (ISO_DATE_RE.test(value)) return value
+
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return null
+
+    return formatDateKeyInTimezone(date)
+}
+
+function getTodayDateKey() {
+    return formatDateKeyInTimezone(new Date())
+}
+
 // ==================== Helper: verify driver ====================
 async function requireDriver() {
     const supabase = await createServerClient()
@@ -266,24 +302,26 @@ export async function getDriverKpis() {
         if (!ctx.driverId) return { data: { todayRoutes: 0, pendingStops: 0, deliveredToday: 0, failedToday: 0 } }
 
         const { supabase } = ctx
-        const today = new Date().toISOString().split('T')[0]
+        const todayDateKey = getTodayDateKey()
 
-        // Routes today
-        const { count: todayRoutes } = await supabase
+        // Fetch candidate routes once and classify "today" in app layer to avoid date/timestamp drift.
+        const { data: driverRoutes } = await supabase
             .from('delivery_routes')
-            .select('id', { count: 'exact', head: true })
+            .select('id, planned_date, status')
             .eq('driver_id', ctx.driverId)
-            .eq('planned_date', today)
-            .in('status', ['confirmed', 'in_progress'])
+            .in('status', ['draft', 'optimized', 'confirmed', 'in_progress', 'completed', 'cancelled'])
+            .order('planned_date', { ascending: false })
+            .limit(200)
 
-        // Get today's route IDs
-        const { data: todayRouteData } = await supabase
-            .from('delivery_routes')
-            .select('id')
-            .eq('driver_id', ctx.driverId)
-            .eq('planned_date', today)
+        const todayRoutesData = (driverRoutes || []).filter((route) => (
+            toDateKey(route.planned_date) === todayDateKey
+        ))
 
-        const routeIds = (todayRouteData || []).map((r) => r.id)
+        const todayRoutes = todayRoutesData.filter((route) => (
+            ['confirmed', 'in_progress', 'completed'].includes(route.status)
+        )).length
+
+        const routeIds = todayRoutesData.map((route) => route.id)
 
         let pendingStops = 0
         let deliveredToday = 0
@@ -334,15 +372,16 @@ export async function getDriverActiveRouteMap() {
         if (!ctx.driverId) return { data: null }
 
         const { supabase } = ctx
-        const today = new Date().toISOString().split('T')[0]
+        const todayDateKey = getTodayDateKey()
 
-        // Get the active (in_progress) or first confirmed route for today
-        const { data: route } = await supabase
+        // Get candidate routes and choose active first for today's window.
+        const { data: routeCandidates } = await supabase
             .from('delivery_routes')
             .select(`
                 id,
                 route_number,
                 status,
+                planned_date,
                 route_polyline,
                 total_distance_km,
                 total_duration_min,
@@ -351,11 +390,18 @@ export async function getDriverActiveRouteMap() {
                 route_centers ( name, latitude, longitude )
             `)
             .eq('driver_id', ctx.driverId)
-            .eq('planned_date', today)
             .in('status', ['in_progress', 'confirmed'])
-            .order('status', { ascending: true }) // in_progress first
-            .limit(1)
-            .maybeSingle()
+            .order('updated_at', { ascending: false })
+            .limit(50)
+
+        const route = (routeCandidates || [])
+            .filter((candidate) => toDateKey(candidate.planned_date) === todayDateKey)
+            .sort((a, b) => {
+                if (a.status === b.status) return 0
+                if (a.status === 'in_progress') return -1
+                if (b.status === 'in_progress') return 1
+                return 0
+            })[0]
 
         if (!route) return { data: null }
 
