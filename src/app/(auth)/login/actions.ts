@@ -116,7 +116,8 @@ export async function loginAction(data: LoginFormData) {
 
         const role = (profile?.role || 'client') as 'admin' | 'client' | 'representative' | 'driver'
         const status = profile?.status || 'approved'
-        const primaryStore = Array.isArray(profile?.stores) ? profile.stores[0] : undefined
+        const stores = profile?.stores
+        const primaryStore = Array.isArray(stores) ? stores[0] : undefined
         const companyName = primaryStore?.company_name || profile?.full_name || 'Usuario'
         const preferredIdentifier =
             role === 'client'
