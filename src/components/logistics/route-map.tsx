@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { ACTIVE_BASEMAP, MAP_TILE_LAYERS, ROUTE_STYLE, DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from './map-config'
+import { ACTIVE_BASEMAP, MAP_TILE_LAYERS, ROUTE_STYLE } from './map-config'
 
 export interface RouteStop {
     id: string
@@ -37,6 +37,177 @@ const statusColors: Record<string, { bg: string; label: string }> = {
     delivered: { bg: '#10b981', label: 'Entregue' },
     failed: { bg: '#ef4444', label: 'Insucesso' },
     skipped: { bg: '#f59e0b', label: 'Pulada' },
+}
+
+type TileLayerConfig = {
+    url: string
+    attribution: string
+    maxZoom: number
+}
+
+function createOfflineFallbackLayer() {
+    const layer = L.gridLayer({
+        maxZoom: 20,
+        attribution: '&copy; Fallback local',
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ; (layer as any).createTile = function createTile(this: L.GridLayer, coords: L.Coords) {
+        const tile = document.createElement('canvas')
+        const size = this.getTileSize()
+        tile.width = size.x
+        tile.height = size.y
+
+        const ctx = tile.getContext('2d')
+        if (ctx) {
+            ctx.fillStyle = '#f1f5f9'
+            ctx.fillRect(0, 0, size.x, size.y)
+
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)'
+            ctx.lineWidth = 1
+            const step = 64
+            for (let x = 0; x <= size.x; x += step) {
+                ctx.beginPath()
+                ctx.moveTo(x, 0)
+                ctx.lineTo(x, size.y)
+                ctx.stroke()
+            }
+            for (let y = 0; y <= size.y; y += step) {
+                ctx.beginPath()
+                ctx.moveTo(0, y)
+                ctx.lineTo(size.x, y)
+                ctx.stroke()
+            }
+
+            ctx.fillStyle = 'rgba(100, 116, 139, 0.8)'
+            ctx.font = '11px system-ui, -apple-system, sans-serif'
+            ctx.fillText('Modo fallback (sem tiles externos)', 10, 20)
+            ctx.fillStyle = 'rgba(100, 116, 139, 0.6)'
+            ctx.fillText(`z:${coords.z} x:${coords.x} y:${coords.y}`, 10, 38)
+        }
+
+        return tile
+    }
+
+    return layer
+}
+
+function setupBaseLayerWithFallback(map: L.Map, preferredLayer: TileLayerConfig) {
+    const isStadiaPreferred = preferredLayer.url.includes('tiles.stadiamaps.com')
+    const candidateLayers: TileLayerConfig[] = (
+        isStadiaPreferred
+            ? [MAP_TILE_LAYERS.osm, MAP_TILE_LAYERS.cartoVoyager, preferredLayer]
+            : [preferredLayer, MAP_TILE_LAYERS.osm, MAP_TILE_LAYERS.cartoVoyager]
+    )
+        .filter((layer, index, all) => all.findIndex((item) => item.url === layer.url) === index)
+
+    let currentLayer: L.Layer | null = null
+    let currentTileLayer: L.TileLayer | null = null
+    let healthTimeout: ReturnType<typeof setTimeout> | null = null
+    let disposed = false
+
+    const clearHealthTimeout = () => {
+        if (!healthTimeout) return
+        clearTimeout(healthTimeout)
+        healthTimeout = null
+    }
+
+    const removeCurrentLayer = () => {
+        if (!currentLayer) return
+        try {
+            map.removeLayer(currentLayer)
+        } catch {
+            // no-op
+        }
+        currentLayer = null
+        currentTileLayer = null
+    }
+
+    const mountOfflineLayer = () => {
+        clearHealthTimeout()
+        removeCurrentLayer()
+        const offlineLayer = createOfflineFallbackLayer()
+        currentLayer = offlineLayer
+        offlineLayer.addTo(map)
+    }
+
+    const mountCandidate = (candidateIndex: number) => {
+        if (disposed) return
+
+        const candidate = candidateLayers[candidateIndex]
+        if (!candidate) {
+            mountOfflineLayer()
+            return
+        }
+
+        clearHealthTimeout()
+        removeCurrentLayer()
+
+        const tileLayer = L.tileLayer(candidate.url, {
+            maxZoom: candidate.maxZoom,
+            attribution: candidate.attribution,
+        })
+
+        let loadedTiles = 0
+        let tileErrors = 0
+
+        const switchToNext = () => {
+            tileLayer.off('tileload', handleTileLoad)
+            tileLayer.off('tileerror', handleTileError)
+            mountCandidate(candidateIndex + 1)
+        }
+
+        const handleTileLoad = () => {
+            loadedTiles += 1
+            if (loadedTiles === 1) {
+                clearHealthTimeout()
+            }
+        }
+
+        const handleTileError = () => {
+            tileErrors += 1
+
+            // Fail fast when no tiles are loading at all.
+            if (loadedTiles === 0 && tileErrors >= 4) {
+                switchToNext()
+                return
+            }
+
+            // If many new requests fail (common on fullscreen expansion), fallback too.
+            if (loadedTiles > 0 && tileErrors >= 24) {
+                switchToNext()
+            }
+        }
+
+        tileLayer.on('tileload', handleTileLoad)
+        tileLayer.on('tileerror', handleTileError)
+
+        currentLayer = tileLayer
+        currentTileLayer = tileLayer
+        tileLayer.addTo(map)
+
+        // Health check: if no tile loads soon, provider is unusable in this environment.
+        healthTimeout = setTimeout(() => {
+            if (disposed) return
+            if (loadedTiles === 0) {
+                switchToNext()
+            }
+        }, 3000)
+    }
+
+    mountCandidate(0)
+
+    return {
+        dispose() {
+            disposed = true
+            clearHealthTimeout()
+            if (currentTileLayer) {
+                currentTileLayer.off('tileload')
+                currentTileLayer.off('tileerror')
+            }
+            removeCurrentLayer()
+        },
+    }
 }
 
 function createNumberedIcon(num: number, color: string, highlighted = false) {
@@ -142,6 +313,9 @@ export default function RouteMap({
             zoom: 13,
             zoomControl: false,
             attributionControl: false,
+            fadeAnimation: false,
+            zoomAnimation: false,
+            markerZoomAnimation: false,
         })
 
         mapInstanceRef.current = map
@@ -149,28 +323,7 @@ export default function RouteMap({
         // Zoom control top-right
         L.control.zoom({ position: 'topright' }).addTo(map)
 
-        // Tile layer with runtime fallback to OSM on auth/provider failures.
-        const primaryTileLayer = L.tileLayer(ACTIVE_BASEMAP.url, {
-            maxZoom: ACTIVE_BASEMAP.maxZoom,
-            attribution: ACTIVE_BASEMAP.attribution,
-        }).addTo(map)
-
-        if (ACTIVE_BASEMAP !== MAP_TILE_LAYERS.osm) {
-            let switchedToFallback = false
-            primaryTileLayer.on('tileerror', () => {
-                if (switchedToFallback) return
-                switchedToFallback = true
-                try {
-                    map.removeLayer(primaryTileLayer)
-                } catch {
-                    // no-op
-                }
-                L.tileLayer(MAP_TILE_LAYERS.osm.url, {
-                    maxZoom: MAP_TILE_LAYERS.osm.maxZoom,
-                    attribution: MAP_TILE_LAYERS.osm.attribution,
-                }).addTo(map)
-            })
-        }
+        const baseLayer = setupBaseLayerWithFallback(map, ACTIVE_BASEMAP)
 
         const bounds = L.latLngBounds([])
 
@@ -349,6 +502,7 @@ export default function RouteMap({
 
         return () => {
             resizeObserver.disconnect()
+            baseLayer.dispose()
             if (mapInstanceRef.current) {
                 try {
                     mapInstanceRef.current.off()
@@ -361,7 +515,7 @@ export default function RouteMap({
             }
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [center, stops, polyline, totalDistance, totalDuration, engine])
+    }, [center, stops, polyline, totalDistance, totalDuration, engine, height, className])
 
     // Handle highlight changes without full re-render
     useEffect(() => {
@@ -377,12 +531,18 @@ export default function RouteMap({
     // Fullscreen/responsive transitions may not be fully captured by ResizeObserver alone.
     // Re-run invalidateSize across the transition window to avoid gray/blank map areas.
     useEffect(() => {
-        const timeouts = [0, 120, 280, 480].map((delay) => (
+        const timeouts = [0, 120, 280, 480, 800, 1300, 1800].map((delay) => (
             setTimeout(() => invalidateMapSize(), delay)
         ))
 
+        const handleWindowResize = () => invalidateMapSize()
+        window.addEventListener('resize', handleWindowResize)
+        window.addEventListener('orientationchange', handleWindowResize)
+
         return () => {
             timeouts.forEach((id) => clearTimeout(id))
+            window.removeEventListener('resize', handleWindowResize)
+            window.removeEventListener('orientationchange', handleWindowResize)
         }
     }, [height, className, invalidateMapSize])
 
