@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { logoutAction } from '@/app/(auth)/login/actions'
+import { getDriverKpis } from '@/app/motorista/actions'
 
 interface DriverShellProps {
     driverName: string
@@ -34,19 +35,24 @@ export function DriverShell({ driverName, driverEmail, children }: DriverShellPr
     const [menuOpen, setMenuOpen] = useState(false)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
     const [loggingOut, setLoggingOut] = useState(false)
+    const [pendingCount, setPendingCount] = useState(0)
 
     // Check if we're on an active route page
     const isActiveRoute = pathname.startsWith('/motorista/rota/')
 
-    // Load company branding
+    // Load company branding + pending count
     useEffect(() => {
         const load = async () => {
             const supabase = createClient()
             const { data } = await supabase.from('system_settings').select('logo_url, system_name').limit(1).single()
             if (data) setSettings(data)
+
+            // Fetch pending stops count for badge
+            const kpiRes = await getDriverKpis()
+            if (kpiRes.data) setPendingCount(kpiRes.data.pendingStops)
         }
         load()
-    }, [])
+    }, [pathname]) // Re-fetch when navigating
 
     const handleLogout = async () => {
         setLoggingOut(true)
@@ -183,13 +189,20 @@ export function DriverShell({ driverName, driverEmail, children }: DriverShellPr
                         <Link
                             href="/motorista"
                             className={cn(
-                                'flex flex-col items-center gap-0.5 text-[10px] font-medium transition py-1 px-3',
+                                'flex flex-col items-center gap-0.5 text-[10px] font-medium transition py-1 px-3 relative',
                                 pathname === '/motorista'
                                     ? 'text-blue-700'
                                     : 'text-slate-400 hover:text-slate-600'
                             )}
                         >
-                            <Route className="h-5 w-5" />
+                            <div className="relative">
+                                <Route className="h-5 w-5" />
+                                {pendingCount > 0 && (
+                                    <span className="absolute -top-1.5 -right-2.5 h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center shadow-sm">
+                                        {pendingCount > 99 ? '99+' : pendingCount}
+                                    </span>
+                                )}
+                            </div>
                             Rotas
                         </Link>
                         <Link

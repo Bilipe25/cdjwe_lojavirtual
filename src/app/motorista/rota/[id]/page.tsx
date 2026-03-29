@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import { toast } from 'sonner'
 import {
     ArrowLeft,
     MapPin,
@@ -73,6 +74,11 @@ export default function DriverRoutePage() {
     const [actionLoading, setActionLoading] = useState(false)
     const [isMapExpanded, setIsMapExpanded] = useState(false)
     const [highlightStopId, setHighlightStopId] = useState<string | null>(null)
+    const [completionSummary, setCompletionSummary] = useState<{
+        routeNumber: string; delivered: number; failed: number; total: number;
+        distanceKm: number; durationMin: number;
+    } | null>(null)
+    const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     // Dialogs
     const [confirmStart, setConfirmStart] = useState(false)
@@ -80,35 +86,44 @@ export default function DriverRoutePage() {
     const [failStopId, setFailStopId] = useState<string | null>(null)
     const [failReason, setFailReason] = useState('')
 
-    const loadData = useCallback(async () => {
-        setLoading(true)
+    const loadData = useCallback(async (silent = false) => {
+        if (!silent) setLoading(true)
         setError(null)
         const res = await getDriverRouteDetail(routeId)
-        if (res.error) { setError(res.error); setLoading(false); return }
+        if (res.error) { setError(res.error); if (!silent) setLoading(false); return }
         if (res.data) {
             setRoute(res.data.route)
             setStops(res.data.stops)
         }
-        setLoading(false)
+        if (!silent) setLoading(false)
     }, [routeId])
 
     useEffect(() => { void loadData() }, [loadData])
+
+    // Item 1: Auto-refresh every 30s when route is in_progress
+    useEffect(() => {
+        if (autoRefreshRef.current) clearInterval(autoRefreshRef.current)
+        if (route?.status === 'in_progress') {
+            autoRefreshRef.current = setInterval(() => { void loadData(true) }, 30_000)
+        }
+        return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current) }
+    }, [route?.status, loadData])
 
     const handleStart = async () => {
         setActionLoading(true)
         const res = await driverStartRoute(routeId)
         setActionLoading(false)
         setConfirmStart(false)
-        if (res.error) setError(res.error)
-        else void loadData()
+        if (res.error) { toast.error(res.error); setError(res.error) }
+        else { toast.success('🚀 Rota iniciada com sucesso!'); void loadData() }
     }
 
     const handleDeliver = async (stopId: string) => {
         setActionLoading(true)
         const res = await driverDeliverStop(stopId)
         setActionLoading(false)
-        if (res.error) setError(res.error)
-        else void loadData()
+        if (res.error) { toast.error(res.error); setError(res.error) }
+        else { toast.success('✅ Entrega registrada!'); void loadData() }
     }
 
     const handleFail = async () => {
@@ -118,22 +133,111 @@ export default function DriverRoutePage() {
         setActionLoading(false)
         setFailStopId(null)
         setFailReason('')
-        if (res.error) setError(res.error)
-        else void loadData()
+        if (res.error) { toast.error(res.error); setError(res.error) }
+        else { toast.warning('Insucesso registrado.'); void loadData() }
     }
 
+    // Item 4: Post-route completion summary
     const handleComplete = async () => {
         setActionLoading(true)
         const res = await driverCompleteRoute(routeId)
         setActionLoading(false)
         setConfirmComplete(false)
-        if (res.error) setError(res.error)
-        else router.push('/motorista')
+        if (res.error) { toast.error(res.error); setError(res.error) }
+        else {
+            toast.success('🏁 Rota concluída!')
+            const delivered = stops.filter(s => s.status === 'delivered').length
+            const failed = stops.filter(s => s.status === 'failed').length
+            setCompletionSummary({
+                routeNumber: route?.route_number || '',
+                delivered,
+                failed,
+                total: stops.length,
+                distanceKm: route?.total_distance_km || 0,
+                durationMin: route?.total_duration_min || 0,
+            })
+        }
     }
 
     const openNavigation = (lat: number, lng: number) => {
         const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
         window.open(url, '_blank')
+    }
+
+    // Item 4: Completion summary screen
+    if (completionSummary) {
+        const successRate = completionSummary.total > 0
+            ? Math.round((completionSummary.delivered / completionSummary.total) * 100)
+            : 0
+
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[70vh] text-center px-4">
+                <div className="rounded-2xl bg-white border shadow-lg p-8 w-full max-w-sm space-y-6">
+                    {/* Celebration header */}
+                    <div>
+                        <div className="h-20 w-20 rounded-full bg-linear-to-br from-emerald-400 to-teal-600 flex items-center justify-center mx-auto mb-4 shadow-lg">
+                            <Flag className="h-10 w-10 text-white" />
+                        </div>
+                        <h1 className="text-2xl font-black text-slate-900">Rota Concluída!</h1>
+                        <p className="text-sm text-muted-foreground mt-1">{completionSummary.routeNumber}</p>
+                    </div>
+
+                    {/* Stats grid */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3">
+                            <CheckCircle2 className="h-5 w-5 text-emerald-600 mx-auto mb-1" />
+                            <p className="text-2xl font-black text-emerald-700">{completionSummary.delivered}</p>
+                            <p className="text-[10px] text-emerald-600 font-medium">Entregas</p>
+                        </div>
+                        <div className="rounded-xl bg-red-50 border border-red-100 p-3">
+                            <XCircle className="h-5 w-5 text-red-500 mx-auto mb-1" />
+                            <p className="text-2xl font-black text-red-600">{completionSummary.failed}</p>
+                            <p className="text-[10px] text-red-500 font-medium">Insucessos</p>
+                        </div>
+                    </div>
+
+                    {/* Success rate bar */}
+                    <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-medium text-muted-foreground">Taxa de Sucesso</span>
+                            <span className="text-sm font-bold text-slate-900">{successRate}%</span>
+                        </div>
+                        <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                                className="h-full rounded-full bg-linear-to-r from-emerald-500 to-teal-500 transition-all duration-1000"
+                                style={{ width: `${successRate}%` }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Distance/Duration */}
+                    {(completionSummary.distanceKm > 0 || completionSummary.durationMin > 0) && (
+                        <div className="flex items-center justify-center gap-6 text-sm">
+                            {completionSummary.distanceKm > 0 && (
+                                <div className="flex items-center gap-1.5 text-slate-600">
+                                    <MapPin className="h-3.5 w-3.5 text-indigo-500" />
+                                    <span className="font-semibold">{completionSummary.distanceKm.toFixed(1)} km</span>
+                                </div>
+                            )}
+                            {completionSummary.durationMin > 0 && (
+                                <div className="flex items-center gap-1.5 text-slate-600">
+                                    <Clock className="h-3.5 w-3.5 text-indigo-500" />
+                                    <span className="font-semibold">{Math.round(completionSummary.durationMin)} min</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Back button */}
+                    <Button
+                        className="w-full h-12 text-base font-bold rounded-xl gap-2"
+                        onClick={() => router.push('/motorista')}
+                    >
+                        <ArrowLeft className="h-4 w-4" /> Voltar ao Início
+                    </Button>
+                </div>
+            </div>
+        )
     }
 
     if (loading) {
