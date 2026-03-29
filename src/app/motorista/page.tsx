@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import {
     Route,
     MapPin,
@@ -13,12 +14,16 @@ import {
     Calendar,
     Package,
     RefreshCw,
+    Navigation,
+    Map as MapIcon,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { getDriverRoutes, getDriverKpis } from './actions'
+import { getDriverRoutes, getDriverKpis, getDriverActiveRouteMap } from './actions'
+
+const RouteMap = dynamic(() => import('@/components/logistics/route-map'), { ssr: false })
 
 const statusConfig: Record<string, { label: string; color: string }> = {
     draft: { label: 'Rascunho', color: 'bg-slate-100 text-slate-600 border-slate-200' },
@@ -33,19 +38,23 @@ export default function MotoristaPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [routes, setRoutes] = useState<any[]>([])
     const [kpis, setKpis] = useState({ todayRoutes: 0, pendingStops: 0, deliveredToday: 0, failedToday: 0 })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [mapData, setMapData] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     const loadData = useCallback(async () => {
         setLoading(true)
         setError(null)
-        const [routesRes, kpisRes] = await Promise.all([
+        const [routesRes, kpisRes, mapRes] = await Promise.all([
             getDriverRoutes(),
             getDriverKpis(),
+            getDriverActiveRouteMap(),
         ])
         if (routesRes.error) setError(routesRes.error)
         if (routesRes.data) setRoutes(routesRes.data)
         if (kpisRes.data) setKpis(kpisRes.data)
+        if (mapRes.data) setMapData(mapRes.data)
         setLoading(false)
     }, [])
 
@@ -71,6 +80,7 @@ export default function MotoristaPage() {
                 <div className="grid grid-cols-2 gap-3">
                     {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
                 </div>
+                <Skeleton className="h-48 rounded-xl" />
                 <Skeleton className="h-10 rounded-xl" />
                 {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
             </div>
@@ -121,6 +131,43 @@ export default function MotoristaPage() {
 
             {error && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+            )}
+
+            {/* Active Route Map */}
+            {mapData && mapData.stops.length > 0 && (
+                <div className="rounded-xl bg-white border shadow-sm overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b">
+                        <div className="flex items-center gap-2">
+                            <MapIcon className="h-3.5 w-3.5 text-indigo-500" />
+                            <p className="text-xs font-bold text-slate-900">
+                                Rota Ativa — {mapData.routeNumber}
+                            </p>
+                            <Badge variant="outline" className={cn(
+                                'text-[8px] rounded-full font-semibold',
+                                mapData.status === 'in_progress'
+                                    ? 'bg-amber-100 text-amber-700 border-amber-200'
+                                    : 'bg-blue-100 text-blue-700 border-blue-200'
+                            )}>
+                                {mapData.status === 'in_progress' ? 'Em Andamento' : 'Confirmada'}
+                            </Badge>
+                        </div>
+                        <Link href={`/motorista/rota/${mapData.routeId}`}>
+                            <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1 text-indigo-600">
+                                <Navigation className="h-3 w-3" /> Abrir
+                            </Button>
+                        </Link>
+                    </div>
+                    <RouteMap
+                        center={mapData.center}
+                        stops={mapData.stops}
+                        polyline={mapData.polyline}
+                        height="260px"
+                        className="rounded-none border-0"
+                        totalDistance={mapData.totalDistance}
+                        totalDuration={mapData.totalDuration}
+                        engine={mapData.engine}
+                    />
+                </div>
             )}
 
             {/* Routes List */}

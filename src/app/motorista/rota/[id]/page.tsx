@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import {
     ArrowLeft,
     MapPin,
@@ -15,6 +16,9 @@ import {
     Navigation,
     Truck,
     RefreshCw,
+    Map as MapIcon,
+    Maximize2,
+    Minimize2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -39,6 +43,8 @@ import {
     driverFailStop,
     driverCompleteRoute,
 } from '../../actions'
+
+const RouteMap = dynamic(() => import('@/components/logistics/route-map'), { ssr: false })
 
 const routeStatusConfig: Record<string, { label: string; color: string }> = {
     confirmed: { label: 'Confirmada', color: 'bg-blue-100 text-blue-700 border-blue-200' },
@@ -65,6 +71,8 @@ export default function DriverRoutePage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [actionLoading, setActionLoading] = useState(false)
+    const [isMapExpanded, setIsMapExpanded] = useState(false)
+    const [highlightStopId, setHighlightStopId] = useState<string | null>(null)
 
     // Dialogs
     const [confirmStart, setConfirmStart] = useState(false)
@@ -132,6 +140,7 @@ export default function DriverRoutePage() {
         return (
             <div className="space-y-4">
                 <Skeleton className="h-8 w-48 rounded-xl" />
+                <Skeleton className="h-52 rounded-xl" />
                 <Skeleton className="h-20 rounded-xl" />
                 {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
             </div>
@@ -154,6 +163,28 @@ export default function DriverRoutePage() {
     const completedCount = deliveredCount + failedCount
     const progress = totalStops > 0 ? Math.round((completedCount / totalStops) * 100) : 0
     const allDone = completedCount === totalStops && totalStops > 0
+
+    // Map data
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rc = route.route_centers as any
+    const mapCenter = rc?.latitude && rc?.longitude
+        ? { lat: Number(rc.latitude), lng: Number(rc.longitude), name: rc.name }
+        : null
+    const mapStops = stops
+        .filter((s: { latitude: number; longitude: number }) => s.latitude && s.longitude)
+        .map((s: { id: string; stop_position: number; latitude: number; longitude: number; customer_name: string; status: string; address_snapshot: string; estimated_arrival_min: number; estimated_distance_km: number; orders?: { total: number } }) => ({
+            id: s.id,
+            position: s.stop_position || 0,
+            latitude: s.latitude ? Number(s.latitude) : null,
+            longitude: s.longitude ? Number(s.longitude) : null,
+            customer_name: s.customer_name || '',
+            status: s.status || 'pending',
+            address_snapshot: s.address_snapshot,
+            estimated_arrival_min: s.estimated_arrival_min,
+            estimated_distance_km: s.estimated_distance_km,
+            order_total: s.orders?.total ? Number(s.orders.total) : null,
+        }))
+    const hasMapData = mapStops.length > 0
 
     return (
         <div className="space-y-4">
@@ -206,6 +237,43 @@ export default function DriverRoutePage() {
                 </div>
             )}
 
+            {/* Route Map */}
+            {hasMapData && (
+                <>
+                    {isMapExpanded && (
+                        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={() => setIsMapExpanded(false)} />
+                    )}
+                    <div className={cn(
+                        'bg-white overflow-hidden transition-all duration-300 flex flex-col',
+                        isMapExpanded
+                            ? 'fixed inset-3 z-50 shadow-2xl rounded-2xl border-0'
+                            : 'rounded-xl border shadow-sm relative'
+                    )}>
+                        <div className="flex items-center justify-between px-3 py-2 border-b shrink-0 bg-white">
+                            <div className="flex items-center gap-2">
+                                <MapIcon className="h-3.5 w-3.5 text-indigo-500" />
+                                <p className="text-xs font-bold text-slate-900">Mapa da Rota</p>
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={() => setIsMapExpanded(!isMapExpanded)}>
+                                {isMapExpanded ? <Minimize2 className="h-4 w-4 text-slate-600" /> : <Maximize2 className="h-4 w-4 text-slate-600" />}
+                            </Button>
+                        </div>
+                        <RouteMap
+                            center={mapCenter}
+                            stops={mapStops}
+                            polyline={route.route_polyline}
+                            height={isMapExpanded ? '100%' : '280px'}
+                            className={isMapExpanded ? 'h-full min-h-[400px] border-0 rounded-none' : 'border-0 rounded-none'}
+                            totalDistance={route.total_distance_km}
+                            totalDuration={route.total_duration_min}
+                            engine={route.optimization_engine}
+                            highlightStopId={highlightStopId}
+                            onStopClick={(id) => setHighlightStopId(id === highlightStopId ? null : id)}
+                        />
+                    </div>
+                </>
+            )}
+
             {/* Actions */}
             {route.status === 'confirmed' && (
                 <Button
@@ -240,13 +308,18 @@ export default function DriverRoutePage() {
                         const StopIcon = stopSt.icon
                         const isPending = stop.status === 'pending'
                         const hasCoords = stop.latitude && stop.longitude
+                        const isHighlighted = highlightStopId === stop.id
 
                         return (
-                            <div key={stop.id} className={cn(
-                                'rounded-xl border bg-white p-3 transition',
-                                stop.status === 'delivered' && 'opacity-60',
-                                stop.status === 'failed' && 'opacity-60',
-                            )}>
+                            <div key={stop.id}
+                                className={cn(
+                                    'rounded-xl border bg-white p-3 transition',
+                                    stop.status === 'delivered' && 'opacity-60',
+                                    stop.status === 'failed' && 'opacity-60',
+                                    isHighlighted && 'ring-2 ring-indigo-300 shadow-md',
+                                )}
+                                onClick={() => setHighlightStopId(stop.id === highlightStopId ? null : stop.id)}
+                            >
                                 <div className="flex items-start gap-3">
                                     <div className={cn(
                                         'h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5',
@@ -274,6 +347,14 @@ export default function DriverRoutePage() {
                                             </p>
                                         )}
 
+                                        {/* Distance/ETA info */}
+                                        {(stop.estimated_distance_km || stop.estimated_arrival_min) && (
+                                            <div className="flex items-center gap-2 mt-1 text-[10px] text-indigo-600">
+                                                {stop.estimated_distance_km && <span>{stop.estimated_distance_km} km</span>}
+                                                {stop.estimated_arrival_min && <span>• {stop.estimated_arrival_min} min</span>}
+                                            </div>
+                                        )}
+
                                         {/* Action buttons for pending stops in active route */}
                                         {route.status === 'in_progress' && isPending && (
                                             <div className="flex items-center gap-2 mt-2.5">
@@ -282,7 +363,7 @@ export default function DriverRoutePage() {
                                                         size="sm"
                                                         variant="outline"
                                                         className="h-9 text-xs gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50 flex-1"
-                                                        onClick={() => openNavigation(stop.latitude, stop.longitude)}
+                                                        onClick={(e) => { e.stopPropagation(); openNavigation(stop.latitude, stop.longitude) }}
                                                     >
                                                         <Navigation className="h-3 w-3" /> Navegar
                                                     </Button>
@@ -290,7 +371,7 @@ export default function DriverRoutePage() {
                                                 <Button
                                                     size="sm"
                                                     className="h-9 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white flex-1"
-                                                    onClick={() => void handleDeliver(stop.id)}
+                                                    onClick={(e) => { e.stopPropagation(); void handleDeliver(stop.id) }}
                                                     disabled={actionLoading}
                                                 >
                                                     <CheckCircle2 className="h-3 w-3" /> Entregue
@@ -299,7 +380,7 @@ export default function DriverRoutePage() {
                                                     size="sm"
                                                     variant="outline"
                                                     className="h-9 text-xs gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
-                                                    onClick={() => { setFailStopId(stop.id); setFailReason('') }}
+                                                    onClick={(e) => { e.stopPropagation(); setFailStopId(stop.id); setFailReason('') }}
                                                     disabled={actionLoading}
                                                 >
                                                     <XCircle className="h-3 w-3" />

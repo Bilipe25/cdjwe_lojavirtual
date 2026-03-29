@@ -325,3 +325,78 @@ export async function getDriverKpis() {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
     }
 }
+
+// ==================== Active Route Map Data ====================
+
+export async function getDriverActiveRouteMap() {
+    try {
+        const ctx = await requireDriver()
+        if (!ctx.driverId) return { data: null }
+
+        const { supabase } = ctx
+        const today = new Date().toISOString().split('T')[0]
+
+        // Get the active (in_progress) or first confirmed route for today
+        const { data: route } = await supabase
+            .from('delivery_routes')
+            .select(`
+                id,
+                route_number,
+                status,
+                route_polyline,
+                total_distance_km,
+                total_duration_min,
+                optimization_engine,
+                optimization_result,
+                route_centers ( name, latitude, longitude )
+            `)
+            .eq('driver_id', ctx.driverId)
+            .eq('planned_date', today)
+            .in('status', ['in_progress', 'confirmed'])
+            .order('status', { ascending: true }) // in_progress first
+            .limit(1)
+            .maybeSingle()
+
+        if (!route) return { data: null }
+
+        // Get stops with coordinates
+        const { data: stops } = await supabase
+            .from('delivery_route_stops')
+            .select('id, stop_position, latitude, longitude, customer_name, status, address_snapshot, estimated_arrival_min, estimated_distance_km')
+            .eq('route_id', route.id)
+            .order('stop_position', { ascending: true })
+
+        // Build center from route_centers
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rc = route.route_centers as any
+        const center = rc?.latitude && rc?.longitude
+            ? { lat: Number(rc.latitude), lng: Number(rc.longitude), name: rc.name }
+            : null
+
+        return {
+            data: {
+                routeId: route.id,
+                routeNumber: route.route_number,
+                status: route.status,
+                polyline: route.route_polyline,
+                totalDistance: route.total_distance_km,
+                totalDuration: route.total_duration_min,
+                engine: route.optimization_engine || route.optimization_result?.engine,
+                center,
+                stops: (stops || []).map((s) => ({
+                    id: s.id,
+                    position: s.stop_position || 0,
+                    latitude: s.latitude ? Number(s.latitude) : null,
+                    longitude: s.longitude ? Number(s.longitude) : null,
+                    customer_name: s.customer_name || '',
+                    status: s.status || 'pending',
+                    address_snapshot: s.address_snapshot,
+                    estimated_arrival_min: s.estimated_arrival_min,
+                    estimated_distance_km: s.estimated_distance_km,
+                })),
+            },
+        }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}

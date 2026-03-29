@@ -21,7 +21,10 @@ export default async function MotoristaLayout({ children }: { children: ReactNod
     if (!canAccess) redirect('/login')
 
     return (
-        <DriverShell driverName={profile.full_name || 'Motorista'}>
+        <DriverShell
+            driverName={profile.full_name || 'Motorista'}
+            driverEmail={user.email || undefined}
+        >
             {children}
         </DriverShell>
     )
