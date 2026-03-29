@@ -166,6 +166,7 @@ export default function MotoristaPage() {
                         totalDistance={mapData.totalDistance}
                         totalDuration={mapData.totalDuration}
                         engine={mapData.engine}
+                        compact
                     />
                 </div>
             )}

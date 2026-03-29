@@ -29,6 +29,8 @@ export interface RouteMapProps {
     engine?: string | null
     highlightStopId?: string | null
     onStopClick?: (stopId: string) => void
+    /** Hide stats overlay and legend — for compact mobile views */
+    compact?: boolean
 }
 
 const statusColors: Record<string, { bg: string; label: string }> = {
@@ -264,6 +266,7 @@ export default function RouteMap({
     engine,
     highlightStopId,
     onStopClick,
+    compact = false,
 }: RouteMapProps) {
     const mapRef = useRef<HTMLDivElement>(null)
     const mapInstanceRef = useRef<L.Map | null>(null)
@@ -417,7 +420,7 @@ export default function RouteMap({
         }
 
         // === STATS OVERLAY (top-left) ===
-        if (totalDistance || totalDuration) {
+        if (!compact && (totalDistance || totalDuration)) {
             const statsControl = new L.Control({ position: 'topleft' })
             statsControl.onAdd = () => {
                 const div = L.DomUtil.create('div')
@@ -455,6 +458,7 @@ export default function RouteMap({
         }
 
         // === LEGEND (bottom-left) ===
+        if (!compact) {
         const legendControl = new L.Control({ position: 'bottomleft' })
         legendControl.onAdd = () => {
             const div = L.DomUtil.create('div')
@@ -482,6 +486,7 @@ export default function RouteMap({
             return div
         }
         legendControl.addTo(map)
+        }
 
         // Fit bounds
         if (bounds.isValid()) {
@@ -547,10 +552,10 @@ export default function RouteMap({
     }, [height, className, invalidateMapSize])
 
     return (
-        <div className="relative">
+        <div className="relative isolate z-0">
             <div
                 ref={mapRef}
-                className={`rounded-xl overflow-hidden border ${className}`}
+                className={`rounded-xl overflow-hidden border z-0 ${className}`}
                 style={{ height, width: '100%' }}
             />
         </div>

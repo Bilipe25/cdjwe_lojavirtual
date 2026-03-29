@@ -373,6 +373,7 @@ export default function DriverRoutePage() {
                             engine={route.optimization_engine}
                             highlightStopId={highlightStopId}
                             onStopClick={(id) => setHighlightStopId(id === highlightStopId ? null : id)}
+                            compact
                         />
                     </div>
                 </>
