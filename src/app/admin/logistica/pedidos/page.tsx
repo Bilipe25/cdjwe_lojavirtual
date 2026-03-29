@@ -374,21 +374,21 @@ export default function PedidosParaRotaPage() {
             {/* ===== FLOATING BATCH ACTION BAR ===== */}
             {selected.size > 0 && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-                    <div className="bg-navy text-white rounded-2xl shadow-2xl shadow-navy/20 px-5 py-3 flex items-center gap-4 border border-white/10">
+                    <div className="w-fit max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-700/60 bg-slate-900/95 px-5 py-3 text-slate-50 shadow-2xl shadow-slate-900/35 backdrop-blur-sm flex items-center gap-4">
                         <div className="flex items-center gap-3 text-xs">
-                            <span className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center font-black">{selected.size}</span>
+                            <span className="h-8 w-8 rounded-full bg-slate-100 text-slate-900 flex items-center justify-center font-black shrink-0">{selected.size}</span>
                             <div className="hidden sm:block">
                                 <p className="font-semibold">pedidos selecionados</p>
-                                <p className="text-white/60 text-[10px]">
+                                <p className="text-slate-300 text-[10px]">
                                     {formatCurrency(selectedTotal)} • {selectedCities.length} cidade(s)
                                 </p>
                             </div>
                         </div>
-                        <div className="h-6 w-px bg-white/20" />
-                        <Button size="sm" className="bg-white text-navy hover:bg-white/90 font-bold gap-1.5 h-8" onClick={openCreateRoute}>
+                        <div className="h-6 w-px bg-slate-700" />
+                        <Button size="sm" className="h-8 gap-1.5 border border-white/80 bg-white text-slate-900 hover:bg-slate-100 font-bold" onClick={openCreateRoute}>
                             <Route className="h-3.5 w-3.5" /> Criar Rota
                         </Button>
-                        <Button size="sm" variant="ghost" className="text-white/60 hover:text-white hover:bg-white/10 h-8 text-xs" onClick={() => setSelected(new Set())}>
+                        <Button size="sm" variant="ghost" className="h-8 text-xs text-slate-200 hover:text-white hover:bg-slate-800" onClick={() => setSelected(new Set())}>
                             Limpar
                         </Button>
                     </div>
@@ -459,5 +459,6 @@ export default function PedidosParaRotaPage() {
         </div>
     )
 }
+
 
 
