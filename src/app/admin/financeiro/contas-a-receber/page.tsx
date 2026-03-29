@@ -13,6 +13,8 @@ import {
     Receipt,
     Banknote,
     Trash2,
+    ChevronLeft,
+    ChevronRight,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -29,7 +31,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { getAccountsReceivable, deleteInvoice, type AccountReceivableItem } from './actions'
-import { formatDateBR, daysOverdue as calcDaysOverdue } from '@/lib/financial/installment-calculator'
+import { formatDateBR } from '@/lib/financial/installment-calculator'
 import { PaymentWriteoffModal, type InstallmentForPayment } from './components/PaymentWriteoffModal'
 
 // ==================== Status Config ====================
@@ -88,11 +90,15 @@ function SummaryCard({
 // ==================== Main Page ====================
 
 export default function ContasAReceberPage() {
+    const PAGE_SIZE = 50
     const [data, setData] = useState<AccountReceivableItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [statusFilter, setStatusFilter] = useState('all')
     const [search, setSearch] = useState('')
+    const [page, setPage] = useState(1)
+    const [summary, setSummary] = useState({ totalOpen: 0, totalOverdue: 0, totalPaid: 0 })
+    const [pagination, setPagination] = useState({ page: 1, pageSize: PAGE_SIZE, totalCount: 0, totalPages: 1 })
     const [paymentModal, setPaymentModal] = useState<InstallmentForPayment | null>(null)
     const [deletingInvoice, setDeletingInvoice] = useState<{ id: string; number: string } | null>(null)
     const [isDeleting, setIsDeleting] = useState(false)
@@ -120,18 +126,29 @@ export default function ContasAReceberPage() {
         setLoading(true)
         setError(null)
         try {
-            const result = await getAccountsReceivable({ status: statusFilter, search: search.trim() || null })
+            const result = await getAccountsReceivable({
+                status: statusFilter,
+                search: search.trim() || null,
+                page,
+                pageSize: PAGE_SIZE,
+            })
             if ('error' in result && result.error) {
                 setError(result.error)
             } else if ('data' in result) {
                 setData(result.data || [])
+                if ('summary' in result && result.summary) {
+                    setSummary(result.summary)
+                }
+                if ('pagination' in result && result.pagination) {
+                    setPagination(result.pagination)
+                }
             }
         } catch {
             setError('Erro ao carregar dados.')
         } finally {
             setLoading(false)
         }
-    }, [statusFilter, search])
+    }, [statusFilter, search, page, PAGE_SIZE])
 
     useEffect(() => {
         const timeout = setTimeout(() => {
@@ -140,19 +157,9 @@ export default function ContasAReceberPage() {
         return () => clearTimeout(timeout)
     }, [loadData])
 
-    // Calculate summaries
-    const summaries = {
-        totalOpen: data
-            .filter((r) => r.installment_status === 'open')
-            .reduce((s, r) => s + r.installment_amount, 0),
-        totalOverdue: data
-            .filter((r) => r.installment_status === 'open' && r.days_overdue > 0)
-            .reduce((s, r) => s + r.installment_amount, 0),
-        totalPaid: data
-            .filter((r) => r.installment_status === 'paid')
-            .reduce((s, r) => s + r.installment_paid_amount, 0),
-        count: data.length,
-    }
+    useEffect(() => {
+        setPage(1)
+    }, [statusFilter, search])
 
     const fmt = (v: number) =>
         v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -185,28 +192,28 @@ export default function ContasAReceberPage() {
             <div className="flex overflow-x-auto pb-4 gap-3 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 xl:grid-cols-4 snap-x snap-mandatory scrollbar-hide">
                 <SummaryCard
                     title="Em Aberto"
-                    value={fmt(summaries.totalOpen)}
+                    value={fmt(summary.totalOpen)}
                     icon={Clock}
                     color="border-blue-100 bg-blue-50/50"
                     accent="bg-blue-600"
                 />
                 <SummaryCard
                     title="Vencido"
-                    value={fmt(summaries.totalOverdue)}
+                    value={fmt(summary.totalOverdue)}
                     icon={AlertTriangle}
                     color="border-red-100 bg-red-50/50"
                     accent="bg-red-600"
                 />
                 <SummaryCard
                     title="Pago"
-                    value={fmt(summaries.totalPaid)}
+                    value={fmt(summary.totalPaid)}
                     icon={CheckCircle2}
                     color="border-emerald-100 bg-emerald-50/50"
                     accent="bg-emerald-600"
                 />
                 <SummaryCard
                     title="Total de Parcelas"
-                    value={String(summaries.count)}
+                    value={String(pagination.totalCount)}
                     icon={DollarSign}
                     color="border-slate-100 bg-slate-50/50"
                     accent="bg-navy"
@@ -316,7 +323,7 @@ export default function ContasAReceberPage() {
                                     <tbody className="divide-y divide-border/40">
                                         {data.map((row) => {
                                             const stCfg = installmentStatusConfig[row.installment_status] || installmentStatusConfig.open
-                                            const overdue = row.installment_status === 'open' && row.days_overdue > 0
+                                            const overdue = row.installment_status === 'overdue' || (row.installment_status === 'open' && row.days_overdue > 0)
                                             const effectiveStatus = overdue ? installmentStatusConfig.overdue : stCfg
 
                                             return (
@@ -390,7 +397,7 @@ export default function ContasAReceberPage() {
                                                     </td>
                                                     <td className="px-4 py-3 text-center">
                                                         <div className="flex items-center justify-center gap-2">
-                                                            {row.installment_status === 'open' ? (
+                                                            {(row.installment_status === 'open' || row.installment_status === 'overdue') ? (
                                                                 <Button
                                                                     variant="outline"
                                                                     size="sm"
@@ -432,8 +439,39 @@ export default function ContasAReceberPage() {
                                     </tbody>
                                 </table>
                             </div>
-                            <div className="border-t bg-slate-50/50 px-4 py-2 text-xs text-muted-foreground">
-                                Mostrando {data.length} parcela{data.length !== 1 ? 's' : ''} no total
+                            <div className="border-t bg-slate-50/50 px-4 py-2 text-xs text-muted-foreground flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <span>
+                                    Mostrando{' '}
+                                    {pagination.totalCount === 0 ? 0 : ((pagination.page - 1) * pagination.pageSize) + 1}
+                                    {' '}a{' '}
+                                    {Math.min(pagination.page * pagination.pageSize, pagination.totalCount)}
+                                    {' '}de {pagination.totalCount} parcela{pagination.totalCount !== 1 ? 's' : ''}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 px-2 text-[11px]"
+                                        disabled={loading || pagination.page <= 1}
+                                        onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                                    >
+                                        <ChevronLeft className="h-3.5 w-3.5 mr-1" />
+                                        Anterior
+                                    </Button>
+                                    <span className="text-[11px] text-muted-foreground">
+                                        Pág. {pagination.page} de {pagination.totalPages}
+                                    </span>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 px-2 text-[11px]"
+                                        disabled={loading || pagination.page >= pagination.totalPages}
+                                        onClick={() => setPage((prev) => Math.min(pagination.totalPages, prev + 1))}
+                                    >
+                                        Próxima
+                                        <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     )}

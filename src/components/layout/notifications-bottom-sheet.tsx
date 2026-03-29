@@ -1,7 +1,24 @@
 'use client'
 
 import { Drawer } from 'vaul'
-import { X, Bell, Package, Trash2, CheckCircle2, Clock, Truck, Factory, AlertCircle, Megaphone, Gift, Info, ExternalLink, CheckCheck } from 'lucide-react'
+import {
+    X,
+    Bell,
+    Package,
+    Trash2,
+    CheckCircle2,
+    Clock,
+    Truck,
+    Factory,
+    AlertCircle,
+    Megaphone,
+    Gift,
+    Info,
+    ExternalLink,
+    CheckCheck,
+    DollarSign,
+    type LucideIcon,
+} from 'lucide-react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
@@ -18,31 +35,28 @@ import {
 } from '@/components/ui/alert-dialog'
 import type { ClientNotification } from '@/lib/hooks/use-notifications'
 
-const typeConfig: Record<string, { icon: any; color: string; bg: string; label: string }> = {
+const typeConfig: Record<string, { icon: LucideIcon; color: string; bg: string; label: string }> = {
     order_status: { icon: Package, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', label: 'Pedido' },
     campaign: { icon: Megaphone, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', label: 'Campanha' },
-    promo: { icon: Gift, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200', label: 'Promoção' },
+    promo: { icon: Gift, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200', label: 'Promocao' },
     system: { icon: Info, color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200', label: 'Sistema' },
+    financial: { icon: DollarSign, color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', label: 'Financeiro' },
 }
 
-const statusIcons: Record<string, any> = {
+const priorityConfig: Record<string, { label: string; className: string }> = {
+    low: { label: 'Baixa', className: 'bg-slate-100 text-slate-700' },
+    normal: { label: 'Normal', className: 'bg-blue-100 text-blue-700' },
+    high: { label: 'Alta', className: 'bg-amber-100 text-amber-700' },
+    critical: { label: 'Critica', className: 'bg-red-100 text-red-700' },
+}
+
+const statusIcons: Record<string, LucideIcon> = {
     pending: Clock,
     approved: CheckCircle2,
     in_production: Factory,
     shipped: Truck,
     delivered: CheckCircle2,
     cancelled: AlertCircle,
-}
-
-interface NotificationsBottomSheetProps {
-    open: boolean
-    onClose: () => void
-    notifications: ClientNotification[]
-    unreadCount: number
-    onMarkAllRead: () => void
-    onRemove: (id: string) => void
-    onClearAll: () => void
-    onMarkRead: (id: string) => void
 }
 
 function timeAgo(dateStr: string): string {
@@ -57,6 +71,36 @@ function timeAgo(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 }
 
+function getNotificationKindLabel(kind: string | null): string | null {
+    if (!kind) return null
+
+    const labels: Record<string, string> = {
+        invoice_generated: 'Fatura gerada',
+        payment_recorded: 'Pagamento registrado',
+        invoice_due_soon: 'Vencimento proximo',
+        invoice_due_today: 'Vence hoje',
+        invoice_overdue: 'Fatura vencida',
+        payment_overdue: 'Pagamento em atraso',
+        critical_overdue: 'Atraso critico',
+        sla_breach: 'SLA violado',
+        financial_update: 'Atualizacao financeira',
+        order_status_update: 'Atualizacao de pedido',
+    }
+
+    return labels[kind] || kind.replace(/_/g, ' ')
+}
+
+interface NotificationsBottomSheetProps {
+    open: boolean
+    onClose: () => void
+    notifications: ClientNotification[]
+    unreadCount: number
+    onMarkAllRead: () => void
+    onRemove: (id: string) => void
+    onClearAll: () => void
+    onMarkRead: (id: string) => void
+}
+
 export function NotificationsBottomSheet({
     open,
     onClose,
@@ -67,8 +111,8 @@ export function NotificationsBottomSheet({
     onClearAll,
     onMarkRead,
 }: NotificationsBottomSheetProps) {
-    const sortedNotifications = [...notifications].sort((a, b) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    const sortedNotifications = [...notifications].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
 
     const handleNotificationClick = (n: ClientNotification) => {
@@ -93,20 +137,18 @@ export function NotificationsBottomSheet({
                     className="fixed bottom-0 left-0 right-0 z-50 flex flex-col bg-white rounded-t-3xl focus:outline-none"
                     style={{ maxHeight: '85dvh' }}
                 >
-                    <Drawer.Title className="sr-only">Notificações</Drawer.Title>
-                    {/* Drag handle */}
+                    <Drawer.Title className="sr-only">Notificacoes</Drawer.Title>
                     <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-muted shrink-0" />
 
-                    {/* Header */}
                     <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
                         <div className="flex items-center gap-3">
                             <div className="h-9 w-9 rounded-xl gradient-bronze flex items-center justify-center shadow-sm">
                                 <Bell className="h-4.5 w-4.5 text-white" />
                             </div>
                             <div>
-                                <h2 className="text-base font-bold font-heading">Notificações</h2>
+                                <h2 className="text-base font-bold font-heading">Notificacoes</h2>
                                 {unreadCount > 0 && (
-                                    <p className="text-[11px] text-primary font-medium">{unreadCount} não lida{unreadCount > 1 ? 's' : ''}</p>
+                                    <p className="text-[11px] text-primary font-medium">{unreadCount} nao lida{unreadCount > 1 ? 's' : ''}</p>
                                 )}
                             </div>
                         </div>
@@ -117,12 +159,12 @@ export function NotificationsBottomSheet({
                                     className="h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-[11px] font-medium text-primary hover:bg-primary/5 transition-colors"
                                 >
                                     <CheckCheck className="h-3.5 w-3.5" />
-                                    Ler tudo
+                                    Marcar todas
                                 </button>
                             )}
                             {notifications.length > 0 && (
                                 <AlertDialog>
-                                    <AlertDialogTrigger 
+                                    <AlertDialogTrigger
                                         render={
                                             <button className="h-8 w-8 rounded-lg flex items-center justify-center hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground">
                                                 <Trash2 className="h-4 w-4" />
@@ -131,14 +173,14 @@ export function NotificationsBottomSheet({
                                     />
                                     <AlertDialogContent className="w-[90vw] rounded-2xl">
                                         <AlertDialogHeader>
-                                            <AlertDialogTitle>Limpar todas as notificações?</AlertDialogTitle>
+                                            <AlertDialogTitle>Limpar todas as notificacoes?</AlertDialogTitle>
                                             <AlertDialogDescription>
-                                                Esta ação irá remover permanentemente todas as notificações da sua lista.
+                                                Esta acao ira remover permanentemente todas as notificacoes da sua lista.
                                             </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
                                             <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
-                                            <AlertDialogAction 
+                                            <AlertDialogAction
                                                 onClick={onClearAll}
                                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl"
                                             >
@@ -158,16 +200,15 @@ export function NotificationsBottomSheet({
                         </div>
                     </div>
 
-                    {/* Notification List */}
                     <div className="flex-1 overflow-y-auto overscroll-contain" style={{ paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
                         {notifications.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
                                 <div className="h-16 w-16 rounded-2xl bg-muted/60 flex items-center justify-center mb-4">
                                     <Bell className="h-7 w-7 text-muted-foreground/40" />
                                 </div>
-                                <p className="text-sm font-semibold text-foreground">Nenhuma notificação</p>
+                                <p className="text-sm font-semibold text-foreground">Nenhuma notificacao</p>
                                 <p className="text-xs text-muted-foreground mt-1.5 max-w-[240px]">
-                                    Você receberá atualizações sobre pedidos, promoções e novidades aqui.
+                                    Voce recebera atualizacoes sobre pedidos, financeiro e novidades aqui.
                                 </p>
                             </div>
                         ) : (
@@ -175,7 +216,8 @@ export function NotificationsBottomSheet({
                                 <AnimatePresence initial={false}>
                                     {sortedNotifications.map((n) => {
                                         const config = typeConfig[n.type] || typeConfig.system
-                                        // For order_status, use specific status icon
+                                        const priority = priorityConfig[n.priority] || priorityConfig.normal
+                                        const kindLabel = getNotificationKindLabel(n.notification_kind)
                                         const Icon = n.type === 'order_status' && n.metadata?.status
                                             ? (statusIcons[n.metadata.status] || config.icon)
                                             : config.icon
@@ -196,12 +238,10 @@ export function NotificationsBottomSheet({
                                                             !n.is_read ? 'bg-primary/3' : 'hover:bg-muted/20'
                                                         }`}
                                                     >
-                                                        {/* Icon */}
                                                         <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 border ${config.bg}`}>
                                                             <Icon className={`h-5 w-5 ${config.color}`} />
                                                         </div>
 
-                                                        {/* Content */}
                                                         <div className="flex-1 min-w-0">
                                                             <div className="flex items-center justify-between gap-2">
                                                                 <div className="flex items-center gap-1.5 min-w-0">
@@ -221,19 +261,50 @@ export function NotificationsBottomSheet({
                                                                     {n.message}
                                                                 </p>
                                                             )}
-                                                            <div className="flex items-center gap-2 mt-1.5">
-                                                                <span className={`text-[10px] font-semibold uppercase tracking-wider ${config.color}`}>
+
+                                                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.color}`}>
                                                                     {config.label}
+                                                                </span>
+                                                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${priority.className}`}>
+                                                                    Prioridade {priority.label}
+                                                                </span>
+                                                                {kindLabel && (
+                                                                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                                                        {kindLabel}
+                                                                    </span>
+                                                                )}
+                                                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${n.is_read ? 'bg-slate-100 text-slate-600' : 'bg-blue-100 text-blue-700'}`}>
+                                                                    {n.is_read ? 'Lida' : 'Nao lida'}
                                                                 </span>
                                                                 {n.link && (
                                                                     <ExternalLink className="h-3 w-3 text-muted-foreground/50" />
                                                                 )}
                                                             </div>
+
+                                                            {!n.is_read && !n.link && (
+                                                                <div className="mt-2">
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-7 px-2 text-[10px]"
+                                                                        onClick={(event) => {
+                                                                            event.preventDefault()
+                                                                            event.stopPropagation()
+                                                                            onMarkRead(n.id)
+                                                                        }}
+                                                                    >
+                                                                        Marcar como lida
+                                                                    </Button>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <button
                                                         onClick={(e) => {
                                                             e.preventDefault()
+                                                            e.stopPropagation()
                                                             onRemove(n.id)
                                                         }}
                                                         className="px-3 flex items-center justify-center text-muted-foreground/40 hover:text-destructive hover:bg-destructive/5 transition-colors border-l border-border/10"
@@ -245,7 +316,6 @@ export function NotificationsBottomSheet({
                                             </motion.div>
                                         )
 
-                                        // Wrap in Link if notification has a link
                                         if (n.link) {
                                             return (
                                                 <Link key={n.id} href={n.link} onClick={() => handleNotificationClick(n)}>

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
-    DollarSign,
     AlertTriangle,
     CheckCircle2,
     Clock,
@@ -194,7 +193,8 @@ export function CustomerFinancialTab({ profileId, profileName, companyName }: Cu
                             const installments = inv.installments || []
                             const isExpanded = expandedInvoice === inv.id
                             const hasOverdue = installments.some(
-                                (i: { status: string; due_date: string }) => i.status === 'open' && daysOverdue(i.due_date) > 0
+                                (i: { status: string; due_date: string }) =>
+                                    i.status === 'overdue' || (i.status === 'open' && daysOverdue(i.due_date) > 0)
                             )
                             const effectiveStatus = hasOverdue && inv.status === 'open' ? 'overdue' : inv.status
                             const stCfg = statusConfig[effectiveStatus] || statusConfig.open
@@ -248,9 +248,8 @@ export function CustomerFinancialTab({ profileId, profileName, companyName }: Cu
                                             {installments
                                                 .sort((a: { installment_number: number }, b: { installment_number: number }) => a.installment_number - b.installment_number)
                                                 .map((inst: { id: string; installment_number: number; due_date: string; amount: number; paid_amount: number; status: string }) => {
-                                                    const overdue = inst.status === 'open' && daysOverdue(inst.due_date) > 0
-                                                    const remaining = inst.amount - inst.paid_amount
-                                                    const canPay = inst.status === 'open'
+                                                    const overdue = inst.status === 'overdue' || (inst.status === 'open' && daysOverdue(inst.due_date) > 0)
+                                                    const canPay = inst.status === 'open' || inst.status === 'overdue'
 
                                                     return (
                                                         <div key={inst.id} className={cn(

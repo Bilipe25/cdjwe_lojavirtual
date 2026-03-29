@@ -96,7 +96,7 @@ export function MobileBottomNav() {
                     </Link>
 
                     <button
-                        onClick={() => { setNotifOpen(true); markAllAsRead() }}
+                        onClick={() => setNotifOpen(true)}
                         className="relative flex h-full flex-1 flex-col items-center justify-center gap-0.5 mobile-touch-target"
                         aria-label={`Notificacoes${unreadCount > 0 ? ` - ${unreadCount} nao lidas` : ''}`}
                     >

@@ -52,6 +52,34 @@ interface InvoiceOrderModalProps {
     onSuccess?: () => void
 }
 
+function parseInstallmentDays(raw: string): { values: number[]; invalid: boolean } {
+    if (!raw.trim()) return { values: [], invalid: false }
+
+    const parts = raw
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+
+    if (parts.length === 0) return { values: [], invalid: false }
+
+    const values: number[] = []
+    for (const part of parts) {
+        const n = Number(part)
+        if (!Number.isInteger(n) || n <= 0) {
+            return { values: [], invalid: true }
+        }
+        values.push(n)
+    }
+
+    for (let i = 1; i < values.length; i++) {
+        if (values[i] <= values[i - 1]) {
+            return { values, invalid: true }
+        }
+    }
+
+    return { values, invalid: false }
+}
+
 // ==================== Component ====================
 
 export function InvoiceOrderModal({
@@ -68,7 +96,6 @@ export function InvoiceOrderModal({
     const [loading, setLoading] = useState(false)
     const [success, setSuccess] = useState(false)
 
-    // Reset state when modal opens with a new order
     useEffect(() => {
         if (open && order) {
             setInstallmentCount(order.payment_installments || 1)
@@ -90,11 +117,56 @@ export function InvoiceOrderModal({
         })
     }, [order, issueDate, installmentCount, installmentDays])
 
+    const parsedInstallmentDays = useMemo(
+        () => parseInstallmentDays(installmentDays),
+        [installmentDays]
+    )
+
+    const expectedInstallments = Math.max(1, Number(order?.payment_installments || 1))
+    const hasCustomDayOffsets = parsedInstallmentDays.values.length > 0
+    const installmentCountMismatch = !!order?.payment_installments && installmentCount !== expectedInstallments
+    const installmentDaysCountMismatch =
+        hasCustomDayOffsets && parsedInstallmentDays.values.length !== installmentCount
+
+    const hasNonDefaultDays = parsedInstallmentDays.values.some(
+        (day, index) => day !== (index + 1) * 30
+    )
+
+    const requiresOverrideJustification =
+        installmentCountMismatch || hasNonDefaultDays
+
+    const trimmedNotes = notes.trim()
+    const hasOverrideJustification = trimmedNotes.length >= 10
+
+    const canGenerate =
+        !loading &&
+        !!issueDate &&
+        installments.length > 0 &&
+        !parsedInstallmentDays.invalid &&
+        !installmentDaysCountMismatch &&
+        (!requiresOverrideJustification || hasOverrideJustification)
+
     const fmt = (v: number) =>
         v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
     const handleGenerate = async () => {
         if (!order) return
+
+        if (parsedInstallmentDays.invalid) {
+            toast.error('Dias personalizados inválidos. Use apenas inteiros positivos em ordem crescente.')
+            return
+        }
+
+        if (installmentDaysCountMismatch) {
+            toast.error('Informe exatamente um vencimento (em dias) para cada parcela.')
+            return
+        }
+
+        if (requiresOverrideJustification && !hasOverrideJustification) {
+            toast.error('Override detectado. Informe justificativa com pelo menos 10 caracteres em observações.')
+            return
+        }
+
         setLoading(true)
         try {
             const result = await invoiceOrderAction({
@@ -106,7 +178,7 @@ export function InvoiceOrderModal({
                 paymentConditionName: order.payment_condition_name,
                 installmentCount,
                 installmentDays: installmentDays || null,
-                notes: notes || null,
+                notes: trimmedNotes || null,
             })
 
             if ('error' in result && result.error) {
@@ -154,7 +226,7 @@ export function InvoiceOrderModal({
                                 Fatura Gerada!
                             </h3>
                             <p className="mt-2 text-sm text-muted-foreground max-w-xs">
-                                A fatura com {installmentCount} parcela{installmentCount > 1 ? 's' : ''} foi criada 
+                                A fatura com {installmentCount} parcela{installmentCount > 1 ? 's' : ''} foi criada
                                 e o cliente foi notificado.
                             </p>
                             <Button
@@ -167,7 +239,6 @@ export function InvoiceOrderModal({
                         </div>
                     ) : (
                         <>
-                            {/* Order Summary */}
                             <div className="rounded-xl border border-navy/10 bg-navy/[0.03] p-4">
                                 <div className="flex items-center justify-between">
                                     <div>
@@ -193,7 +264,6 @@ export function InvoiceOrderModal({
                                 </div>
                             </div>
 
-                            {/* Form Fields */}
                             <div className="grid gap-4 sm:grid-cols-2">
                                 <div className="space-y-2">
                                     <Label className="flex items-center gap-1.5 text-sm font-medium">
@@ -222,8 +292,16 @@ export function InvoiceOrderModal({
                                                 Math.max(1, Math.min(36, parseInt(e.target.value) || 1))
                                             )
                                         }
-                                        className="h-10 rounded-lg"
+                                        className={cn(
+                                            'h-10 rounded-lg',
+                                            installmentCountMismatch && 'border-amber-400 focus-visible:ring-amber-300'
+                                        )}
                                     />
+                                    {!!order.payment_installments && (
+                                        <p className="text-xs text-muted-foreground">
+                                            Condição padrão do pedido: {expectedInstallments} parcela{expectedInstallments > 1 ? 's' : ''}.
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
@@ -235,16 +313,43 @@ export function InvoiceOrderModal({
                                     placeholder="Ex: 30, 60, 90"
                                     value={installmentDays}
                                     onChange={(e) => setInstallmentDays(e.target.value)}
-                                    className="h-10 rounded-lg"
+                                    className={cn(
+                                        'h-10 rounded-lg',
+                                        (parsedInstallmentDays.invalid || installmentDaysCountMismatch) &&
+                                            'border-red-400 focus-visible:ring-red-300'
+                                    )}
                                 />
-                                <p className="text-xs text-muted-foreground">
-                                    Deixe vazio para intervalos padrão de 30 dias.
-                                </p>
+                                {parsedInstallmentDays.invalid ? (
+                                    <p className="text-xs text-red-600">
+                                        Dias inválidos. Use apenas números inteiros positivos em ordem crescente.
+                                    </p>
+                                ) : installmentDaysCountMismatch ? (
+                                    <p className="text-xs text-red-600">
+                                        Informe exatamente {installmentCount} valor(es), um para cada parcela.
+                                    </p>
+                                ) : (
+                                    <p className="text-xs text-muted-foreground">
+                                        Deixe vazio para intervalos padrão de 30 dias.
+                                    </p>
+                                )}
                             </div>
+
+                            {requiresOverrideJustification && (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-start gap-2">
+                                    <AlertCircle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
+                                    <div className="space-y-1">
+                                        <p className="text-xs font-semibold text-amber-800">
+                                            Override da condição de pagamento detectado.
+                                        </p>
+                                        <p className="text-xs text-amber-700">
+                                            Para seguir com faturamento fora da condição padrão, informe justificativa em observações.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
 
                             <Separator />
 
-                            {/* Installments Preview */}
                             <div>
                                 <h4 className="text-sm font-semibold flex items-center gap-2 mb-3 text-navy">
                                     <FileText className="h-4 w-4" />
@@ -313,21 +418,35 @@ export function InvoiceOrderModal({
 
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium">
-                                    Observações (opcional)
+                                    {requiresOverrideJustification
+                                        ? 'Justificativa do override (obrigatória)'
+                                        : 'Observações (opcional)'}
                                 </Label>
                                 <Textarea
-                                    placeholder="Informações adicionais sobre esta fatura..."
+                                    placeholder={
+                                        requiresOverrideJustification
+                                            ? 'Explique o motivo do override da condição de pagamento (mínimo 10 caracteres).'
+                                            : 'Informações adicionais sobre esta fatura...'
+                                    }
                                     value={notes}
                                     onChange={(e) => setNotes(e.target.value)}
                                     rows={2}
-                                    className="resize-none rounded-lg"
+                                    className={cn(
+                                        'resize-none rounded-lg',
+                                        requiresOverrideJustification && !hasOverrideJustification &&
+                                            'border-amber-400 focus-visible:ring-amber-300'
+                                    )}
                                 />
+                                {requiresOverrideJustification && !hasOverrideJustification && (
+                                    <p className="text-xs text-amber-700">
+                                        A justificativa deve ter pelo menos 10 caracteres.
+                                    </p>
+                                )}
                             </div>
                         </>
                     )}
                 </div>
 
-                {/* Footer */}
                 {!success && (
                     <div className="border-t p-4 bg-muted/20 shrink-0">
                         <div className="flex gap-3 justify-end">
@@ -341,7 +460,7 @@ export function InvoiceOrderModal({
                             </Button>
                             <Button
                                 onClick={handleGenerate}
-                                disabled={loading || !issueDate || installments.length === 0}
+                                disabled={!canGenerate}
                                 className={cn(
                                     'gap-2 rounded-lg font-bold shadow-sm transition-all',
                                     'gradient-navy border-0 text-white hover:opacity-90'

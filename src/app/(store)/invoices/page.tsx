@@ -90,16 +90,16 @@ export default function ClientInvoicesPage() {
         const installments = inv.installments || []
         const hasOverdue = installments.some(
             (inst: { status: string; due_date: string }) =>
-                inst.status === 'open' && calcDaysOverdue(inst.due_date) > 0
+                inst.status === 'overdue' || (inst.status === 'open' && calcDaysOverdue(inst.due_date) > 0)
         )
         const nextDue = installments
-            .filter((inst: { status: string }) => inst.status === 'open')
+            .filter((inst: { status: string }) => inst.status === 'open' || inst.status === 'overdue')
             .sort((a: { due_date: string }, b: { due_date: string }) => a.due_date.localeCompare(b.due_date))[0]
 
         const maxOverdueDays = Math.max(
             0,
             ...installments
-                .filter((inst: { status: string }) => inst.status === 'open')
+                .filter((inst: { status: string }) => inst.status === 'open' || inst.status === 'overdue')
                 .map((inst: { due_date: string }) => calcDaysOverdue(inst.due_date))
         )
 
@@ -280,7 +280,7 @@ export default function ClientInvoicesPage() {
                                             {/* Installments list */}
                                             <div className="space-y-1.5">
                                                 {installments.map((inst: { id: string; installment_number: number; due_date: string; amount: number; status: InstallmentStatus }) => {
-                                                    const overdue = inst.status === 'open' && calcDaysOverdue(inst.due_date) > 0
+                                                    const overdue = inst.status === 'overdue' || (inst.status === 'open' && calcDaysOverdue(inst.due_date) > 0)
                                                     const instCfg = overdue
                                                         ? installmentStatusConfig.overdue
                                                         : installmentStatusConfig[inst.status] || installmentStatusConfig.open

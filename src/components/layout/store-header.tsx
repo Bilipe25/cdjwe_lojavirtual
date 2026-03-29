@@ -25,6 +25,7 @@ import {
     Factory,
     Truck,
     AlertCircle,
+    DollarSign,
     type LucideIcon,
 } from 'lucide-react'
 import Image from 'next/image'
@@ -61,6 +62,14 @@ const typeConfig: Record<string, { icon: LucideIcon; color: string; bg: string; 
     campaign: { icon: Megaphone, color: 'text-purple-600', bg: 'bg-purple-50', label: 'Campanha' },
     promo: { icon: Gift, color: 'text-amber-600', bg: 'bg-amber-50', label: 'Promocao' },
     system: { icon: Info, color: 'text-slate-600', bg: 'bg-slate-50', label: 'Sistema' },
+    financial: { icon: DollarSign, color: 'text-emerald-700', bg: 'bg-emerald-50', label: 'Financeiro' },
+}
+
+const priorityConfig: Record<string, { label: string; className: string }> = {
+    low: { label: 'Baixa', className: 'bg-slate-100 text-slate-700' },
+    normal: { label: 'Normal', className: 'bg-blue-100 text-blue-700' },
+    high: { label: 'Alta', className: 'bg-amber-100 text-amber-700' },
+    critical: { label: 'Critica', className: 'bg-red-100 text-red-700' },
 }
 
 const statusIcons: Record<string, LucideIcon> = {
@@ -82,6 +91,25 @@ function timeAgo(dateStr: string): string {
     const days = Math.floor(hours / 24)
     if (days < 7) return `${days}d`
     return new Date(dateStr).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}
+
+function getNotificationKindLabel(kind: string | null): string | null {
+    if (!kind) return null
+
+    const labels: Record<string, string> = {
+        invoice_generated: 'Fatura gerada',
+        payment_recorded: 'Pagamento registrado',
+        invoice_due_soon: 'Vencimento proximo',
+        invoice_due_today: 'Vence hoje',
+        invoice_overdue: 'Fatura vencida',
+        payment_overdue: 'Pagamento em atraso',
+        critical_overdue: 'Atraso critico',
+        sla_breach: 'SLA violado',
+        financial_update: 'Atualizacao financeira',
+        order_status_update: 'Atualizacao de pedido',
+    }
+
+    return labels[kind] || kind.replace(/_/g, ' ')
 }
 
 export function StoreHeader() {
@@ -302,6 +330,8 @@ export function StoreHeader() {
                                             <div className="divide-y divide-border/30">
                                                 {displayNotifications.map((notification) => {
                                                     const config = typeConfig[notification.type] || typeConfig.system
+                                                    const priority = priorityConfig[notification.priority] || priorityConfig.normal
+                                                    const kindLabel = getNotificationKindLabel(notification.notification_kind)
                                                     const Icon = notification.type === 'order_status' && notification.metadata?.status
                                                         ? statusIcons[notification.metadata.status] || config.icon
                                                         : config.icon
@@ -332,9 +362,22 @@ export function StoreHeader() {
                                                                         {notification.message}
                                                                     </p>
                                                                 )}
-                                                                <span className={`mt-1 inline-block text-[9px] font-semibold uppercase tracking-wider ${config.color}`}>
-                                                                    {config.label}
-                                                                </span>
+                                                                <div className="mt-1 flex flex-wrap items-center gap-1">
+                                                                    <span className={`inline-block text-[9px] font-semibold uppercase tracking-wider ${config.color}`}>
+                                                                        {config.label}
+                                                                    </span>
+                                                                    <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${priority.className}`}>
+                                                                        {priority.label}
+                                                                    </span>
+                                                                    {kindLabel && (
+                                                                        <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                                                                            {kindLabel}
+                                                                        </span>
+                                                                    )}
+                                                                    <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium ${notification.is_read ? 'bg-slate-100 text-slate-600' : 'bg-blue-100 text-blue-700'}`}>
+                                                                        {notification.is_read ? 'Lida' : 'Nao lida'}
+                                                                    </span>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     )

@@ -1,21 +1,33 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
+export type ClientNotificationType =
+    | 'order_status'
+    | 'campaign'
+    | 'system'
+    | 'promo'
+    | 'financial'
+
+export type ClientNotificationPriority = 'low' | 'normal' | 'high' | 'critical'
+
 export interface ClientNotification {
     id: string
     profile_id: string
-    type: 'order_status' | 'campaign' | 'system' | 'promo'
+    type: ClientNotificationType
+    priority: ClientNotificationPriority
+    notification_kind: string | null
     title: string
     message: string | null
     image_url: string | null
     link: string | null
     is_read: boolean
+    read_at: string | null
     campaign_id: string | null
     order_id: string | null
-    metadata: ({ status?: string } & Record<string, unknown>) | null
+    metadata: ({ status?: string; notification_kind?: string } & Record<string, unknown>) | null
     created_at: string
 }
 
@@ -43,6 +55,59 @@ interface UseNotificationsReturn {
     removeNotification: (id: string) => Promise<void>
     clearAll: () => Promise<void>
     refresh: () => Promise<void>
+}
+
+const validTypes = new Set<ClientNotificationType>([
+    'order_status',
+    'campaign',
+    'system',
+    'promo',
+    'financial',
+])
+
+const validPriorities = new Set<ClientNotificationPriority>([
+    'low',
+    'normal',
+    'high',
+    'critical',
+])
+
+function normalizeNotificationRow(raw: Record<string, unknown>): ClientNotification {
+    const fallbackType = 'system' as const
+    const rowType = String(raw.type || fallbackType) as ClientNotificationType
+    const type = validTypes.has(rowType) ? rowType : fallbackType
+
+    const rowPriority = String(raw.priority || '') as ClientNotificationPriority
+    const priority = validPriorities.has(rowPriority)
+        ? rowPriority
+        : 'normal'
+
+    const metadata = (raw.metadata && typeof raw.metadata === 'object'
+        ? (raw.metadata as ({ status?: string; notification_kind?: string } & Record<string, unknown>))
+        : null)
+
+    const rowNotificationKind =
+        typeof raw.notification_kind === 'string'
+            ? raw.notification_kind
+            : metadata?.notification_kind || null
+
+    return {
+        id: String(raw.id || ''),
+        profile_id: String(raw.profile_id || ''),
+        type,
+        priority,
+        notification_kind: rowNotificationKind,
+        title: String(raw.title || ''),
+        message: raw.message ? String(raw.message) : null,
+        image_url: raw.image_url ? String(raw.image_url) : null,
+        link: raw.link ? String(raw.link) : null,
+        is_read: Boolean(raw.is_read),
+        read_at: raw.read_at ? String(raw.read_at) : null,
+        campaign_id: raw.campaign_id ? String(raw.campaign_id) : null,
+        order_id: raw.order_id ? String(raw.order_id) : null,
+        metadata,
+        created_at: String(raw.created_at || new Date().toISOString()),
+    }
 }
 
 export function useNotifications(): UseNotificationsReturn {
@@ -79,11 +144,14 @@ export function useNotifications(): UseNotificationsReturn {
                         id: notification.id,
                         profile_id: '',
                         type: 'order_status',
+                        priority: 'normal',
+                        notification_kind: 'order_status_update',
                         title: `Pedido ${orderRelation?.order_number || ''}`,
                         message: `Status atualizado para ${statusLabels[notification.status] || notification.status}`,
                         image_url: null,
                         link: `/orders/${notification.order_id}`,
                         is_read: false,
+                        read_at: null,
                         campaign_id: null,
                         order_id: notification.order_id,
                         metadata: { status: notification.status },
@@ -96,6 +164,8 @@ export function useNotifications(): UseNotificationsReturn {
                 const lastChecked = localStorage.getItem('notifications_last_checked')
                 if (lastChecked) {
                     setUnreadCount(mapped.filter((notification) => notification.created_at > lastChecked).length)
+                } else {
+                    setUnreadCount(mapped.length)
                 }
             }
         } catch {
@@ -121,8 +191,9 @@ export function useNotifications(): UseNotificationsReturn {
             }
 
             if (data) {
-                setNotifications(data)
-                setUnreadCount(data.filter((notification) => !notification.is_read).length)
+                const normalized = data.map((row) => normalizeNotificationRow(row as unknown as Record<string, unknown>))
+                setNotifications(normalized)
+                setUnreadCount(normalized.filter((notification) => !notification.is_read).length)
             }
         } catch {
             await fetchLegacyNotifications()
@@ -177,33 +248,48 @@ export function useNotifications(): UseNotificationsReturn {
     }, [fetchNotifications])
 
     const markAsRead = useCallback(async (id: string) => {
+        const now = new Date().toISOString()
+
         try {
             const supabase = createClient()
             await supabase.from('client_notifications').update({ is_read: true }).eq('id', id)
 
             setNotifications((previous) =>
                 previous.map((notification) =>
-                    notification.id === id ? { ...notification, is_read: true } : notification
+                    notification.id === id
+                        ? { ...notification, is_read: true, read_at: notification.read_at || now }
+                        : notification
                 )
             )
             setUnreadCount((previous) => Math.max(0, previous - 1))
         } catch {
-            localStorage.setItem('notifications_last_checked', new Date().toISOString())
+            localStorage.setItem('notifications_last_checked', now)
         }
     }, [])
 
     const markAllAsRead = useCallback(async () => {
+        const now = new Date().toISOString()
+
         try {
             const supabase = createClient()
-            const unreadIds = notifications.filter((notification) => !notification.is_read).map((notification) => notification.id)
+            const unreadIds = notifications
+                .filter((notification) => !notification.is_read)
+                .map((notification) => notification.id)
+
             if (unreadIds.length > 0) {
                 await supabase.from('client_notifications').update({ is_read: true }).in('id', unreadIds)
             }
 
-            setNotifications((previous) => previous.map((notification) => ({ ...notification, is_read: true })))
+            setNotifications((previous) =>
+                previous.map((notification) => ({
+                    ...notification,
+                    is_read: true,
+                    read_at: notification.read_at || now,
+                }))
+            )
             setUnreadCount(0)
         } catch {
-            localStorage.setItem('notifications_last_checked', new Date().toISOString())
+            localStorage.setItem('notifications_last_checked', now)
             setUnreadCount(0)
         }
     }, [notifications])

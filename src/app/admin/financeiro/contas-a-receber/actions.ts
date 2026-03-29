@@ -44,6 +44,21 @@ export type AccountReceivableItem = AccountReceivableRow & {
 type GetAccountsReceivableParams = {
     status?: string | null
     search?: string | null
+    page?: number
+    pageSize?: number
+}
+
+type AccountsReceivableSummary = {
+    totalOpen: number
+    totalOverdue: number
+    totalPaid: number
+}
+
+type AccountsReceivablePagination = {
+    page: number
+    pageSize: number
+    totalCount: number
+    totalPages: number
 }
 
 // ==================== Server Actions ====================
@@ -62,120 +77,74 @@ export async function getAccountsReceivable(params: GetAccountsReceivableParams 
 
         if (profile?.role !== 'admin') return { error: 'Permissao negada.' }
 
-        let query = supabase
-            .from('invoice_installments')
-            .select(`
-                id,
-                installment_number,
-                due_date,
-                amount,
-                paid_amount,
-                status,
-                invoice:invoices!inner(
-                    id,
-                    invoice_number,
-                    status,
-                    issue_date,
-                    total_amount,
-                    paid_amount,
-                    open_amount,
-                    installment_count,
-                    payment_method_name,
-                    payment_condition_name,
-                    notes,
-                    created_at,
-                    order_id,
-                    store_id,
-                    profile_id,
-                    order:orders!inner(
-                        id,
-                        order_number,
-                        status,
-                        total
-                    ),
-                    store:stores!inner(
-                        id,
-                        company_name,
-                        cnpj
-                    ),
-                    profile:profiles!invoices_profile_id_fkey(
-                        full_name
-                    )
-                )
-            `)
-            .order('due_date', { ascending: true })
+        const page = Math.max(1, Number(params.page || 1))
+        const pageSize = Math.min(200, Math.max(1, Number(params.pageSize || 50)))
+        const status = params.status || 'all'
+        const search = params.search?.trim() || null
 
-        // Filter by installment status
-        if (params.status && params.status !== 'all') {
-            query = query.eq('status', params.status)
-        }
-
-        const { data, error } = await query.limit(500)
+        const { data, error } = await supabase.rpc('admin_list_accounts_receivable', {
+            p_status: status,
+            p_search: search,
+            p_page: page,
+            p_page_size: pageSize,
+        })
 
         if (error) {
-            console.error('[CONTAS A RECEBER] Erro ao consultar:', error)
+            console.error('[CONTAS A RECEBER] Erro no RPC paginado:', error)
             return { error: 'Erro ao carregar contas a receber.' }
         }
 
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
-
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rows: AccountReceivableItem[] = (data || []).map((row: any) => {
-            const inv = row.invoice
-            const order = inv?.order
-            const store = inv?.store
-            const profileData = inv?.profile
-
-            const dueDate = new Date(row.due_date + 'T00:00:00')
-            const diffMs = today.getTime() - dueDate.getTime()
-            const daysOverdue = diffMs > 0 ? Math.floor(diffMs / (1000 * 60 * 60 * 24)) : 0
-
             return {
-                invoice_id: inv?.id || '',
-                invoice_number: inv?.invoice_number || '',
-                invoice_status: inv?.status || '',
-                issue_date: inv?.issue_date || '',
-                total_amount: Number(inv?.total_amount || 0),
-                paid_amount: Number(inv?.paid_amount || 0),
-                open_amount: Number(inv?.open_amount || 0),
-                installment_count: Number(inv?.installment_count || 0),
-                payment_method_name: inv?.payment_method_name || null,
-                payment_condition_name: inv?.payment_condition_name || null,
-                invoice_notes: inv?.notes || null,
-                invoice_created_at: inv?.created_at || '',
-                order_id: order?.id || '',
-                order_number: order?.order_number || '',
-                order_status: order?.status || '',
-                order_total: Number(order?.total || 0),
-                store_id: store?.id || '',
-                company_name: store?.company_name || '',
-                cnpj: store?.cnpj || null,
-                profile_id: inv?.profile_id || '',
-                client_name: profileData?.full_name || '',
-                installment_id: row.id,
-                installment_number: Number(row.installment_number),
-                due_date: row.due_date,
-                installment_amount: Number(row.amount || 0),
-                installment_paid_amount: Number(row.paid_amount || 0),
-                installment_status: row.status,
-                days_overdue: daysOverdue,
+                invoice_id: row.invoice_id || '',
+                invoice_number: row.invoice_number || '',
+                invoice_status: row.invoice_status || '',
+                issue_date: row.issue_date || '',
+                total_amount: Number(row.total_amount || 0),
+                paid_amount: Number(row.paid_amount || 0),
+                open_amount: Number(row.open_amount || 0),
+                installment_count: Number(row.installment_count || 0),
+                payment_method_name: row.payment_method_name || null,
+                payment_condition_name: row.payment_condition_name || null,
+                invoice_notes: row.invoice_notes || null,
+                invoice_created_at: row.invoice_created_at || '',
+                order_id: row.order_id || '',
+                order_number: row.order_number || '',
+                order_status: row.order_status || '',
+                order_total: Number(row.order_total || 0),
+                store_id: row.store_id || '',
+                company_name: row.company_name || '',
+                cnpj: row.cnpj || null,
+                profile_id: row.profile_id || '',
+                client_name: row.client_name || '',
+                installment_id: row.installment_id || '',
+                installment_number: Number(row.installment_number || 0),
+                due_date: row.due_date || '',
+                installment_amount: Number(row.installment_amount || 0),
+                installment_paid_amount: Number(row.installment_paid_amount || 0),
+                installment_status: row.installment_status || 'open',
+                days_overdue: Number(row.days_overdue || 0),
             }
         })
 
-        // Client-side search filter (client name, company, order number, invoice number)
-        let filtered = rows
-        if (params.search && params.search.trim()) {
-            const term = params.search.trim().toLowerCase()
-            filtered = rows.filter((r) =>
-                r.client_name.toLowerCase().includes(term) ||
-                r.company_name.toLowerCase().includes(term) ||
-                r.order_number.toLowerCase().includes(term) ||
-                r.invoice_number.toLowerCase().includes(term)
-            )
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const firstRow = (data as any[] | null)?.[0] || null
+
+        const totalCount = Number(firstRow?.total_count || 0)
+        const summary: AccountsReceivableSummary = {
+            totalOpen: Number(firstRow?.summary_total_open || 0),
+            totalOverdue: Number(firstRow?.summary_total_overdue || 0),
+            totalPaid: Number(firstRow?.summary_total_paid || 0),
+        }
+        const pagination: AccountsReceivablePagination = {
+            page,
+            pageSize,
+            totalCount,
+            totalPages: totalCount > 0 ? Math.ceil(totalCount / pageSize) : 1,
         }
 
-        return { data: filtered }
+        return { data: rows, summary, pagination }
     } catch (e) {
         console.error('[CONTAS A RECEBER] Erro inesperado:', e)
         return { error: 'Erro inesperado ao carregar contas a receber.' }
@@ -299,6 +268,8 @@ export async function getClientFinancialSummary() {
             const remaining = Number(inst.amount || 0) - Number(inst.paid_amount || 0)
             if (inst.status === 'paid') {
                 totalPaid += Number(inst.amount || 0)
+            } else if (inst.status === 'overdue') {
+                totalOverdue += remaining
             } else if (inst.status === 'open') {
                 const dueDate = new Date(inst.due_date + 'T00:00:00')
                 if (dueDate < today) {
@@ -454,6 +425,8 @@ export async function getCustomerFinancialData(profileId: string) {
                 const remaining = Number(inst.amount || 0) - Number(inst.paid_amount || 0)
                 if (inst.status === 'paid') {
                     totalPaid += Number(inst.amount || 0)
+                } else if (inst.status === 'overdue') {
+                    totalOverdue += remaining
                 } else if (inst.status === 'open') {
                     const dueDate = new Date(inst.due_date + 'T00:00:00')
                     if (dueDate < today) {
@@ -465,13 +438,25 @@ export async function getCustomerFinancialData(profileId: string) {
             }
         }
 
-        // Get credit limit from store
+        // Get credit limit from store commercial settings (single source of truth)
         const { data: storeData } = await supabase
             .from('stores')
-            .select('credit_limit')
+            .select('id')
             .eq('profile_id', profileId)
             .limit(1)
-            .single()
+            .maybeSingle()
+
+        let creditLimit = 0
+        if (storeData?.id) {
+            const { data: commercialData } = await supabase
+                .from('store_commercial_settings')
+                .select('credit_limit')
+                .eq('store_id', storeData.id)
+                .limit(1)
+                .maybeSingle()
+
+            creditLimit = Number(commercialData?.credit_limit || 0)
+        }
 
         return {
             data: {
@@ -480,7 +465,7 @@ export async function getCustomerFinancialData(profileId: string) {
                     totalOpen,
                     totalOverdue,
                     totalPaid,
-                    creditLimit: Number(storeData?.credit_limit || 0),
+                    creditLimit,
                     invoiceCount: (invoices || []).length,
                 }
             }
@@ -522,6 +507,15 @@ export async function deleteInvoice(invoiceId: string) {
             return { error: `A fatura ${invoice.invoice_number} já possui pagamentos baixados. Remova os pagamentos antes de excluir a fatura inteira.` }
         }
 
+
+        const { count: paymentCount, error: paymentCountErr } = await supabase
+            .from('invoice_payments')
+            .select('id', { count: 'exact', head: true })
+            .eq('invoice_id', invoiceId)
+
+        if (!paymentCountErr && (paymentCount || 0) > 0) {
+            return { error: `A fatura ${invoice.invoice_number} possui registros no ledger de pagamentos e não pode ser excluída.` }
+        }
         // Delete invoice (cascade handles installments and events)
         const { error: deleteErr } = await supabase
             .from('invoices')
