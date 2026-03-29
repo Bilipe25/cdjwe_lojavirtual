@@ -114,6 +114,7 @@ export function CustomerList({
                     const customerTypeName = store?.customer_type?.name;
                     const representativeName = store?.representative?.full_name;
                     const isRepresentativeProfile = customer.role === 'representative';
+                    const isDriverProfile = customer.role === 'driver';
                     const storeTags = store?.store_tags?.map(st => st.customer_tags).filter(Boolean) || [];
 
                     return (
@@ -161,6 +162,11 @@ export function CustomerList({
                                                 {isRepresentativeProfile && (
                                                     <Badge variant="outline" className="text-[10px] border-blue-200 bg-blue-50 text-blue-700">
                                                         Representante
+                                                    </Badge>
+                                                )}
+                                                {isDriverProfile && (
+                                                    <Badge variant="outline" className="text-[10px] border-indigo-200 bg-indigo-50 text-indigo-700">
+                                                        Motorista
                                                     </Badge>
                                                 )}
                                                 {isEmailPending && (
@@ -290,6 +296,7 @@ export function CustomerList({
                             const customerTypeName = store?.customer_type?.name;
                             const representativeName = store?.representative?.full_name;
                             const isRepresentativeProfile = customer.role === 'representative';
+                            const isDriverProfile = customer.role === 'driver';
                             const storeTags = store?.store_tags?.map(st => st.customer_tags).filter(Boolean) || [];
 
                             return (
@@ -361,6 +368,11 @@ export function CustomerList({
                                                 {isRepresentativeProfile && (
                                                     <Badge variant="outline" className="text-[10px] border-blue-200 bg-blue-50 text-blue-700 px-1.5 py-0 h-5">
                                                         Representante
+                                                    </Badge>
+                                                )}
+                                                {isDriverProfile && (
+                                                    <Badge variant="outline" className="text-[10px] border-indigo-200 bg-indigo-50 text-indigo-700 px-1.5 py-0 h-5">
+                                                        Motorista
                                                     </Badge>
                                                 )}
                                                 {storeTags.slice(0, 2).map((t, idx) => (

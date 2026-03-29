@@ -67,7 +67,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
             const { data, error } = await supabase
                 .from('profiles')
                 .select('*, stores!stores_profile_id_fkey(*, customer_type:customer_types(*), store_tags(customer_tags(*)), representative:profiles!stores_representative_id_fkey(id, full_name))')
-                .in('role', ['client', 'representative'])
+                .in('role', ['client', 'representative', 'driver'])
                 .eq('id', customerId)
                 .single()
 
@@ -174,6 +174,13 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
         })
     }
 
+    const handleRoleUpdated = (role: 'driver') => {
+        setCustomer((previous) => {
+            if (!previous) return previous
+            return { ...previous, role } as CustomerWithStore
+        })
+    }
+
     if (loading) {
         return (
             <div className="space-y-6 pb-20">
@@ -223,6 +230,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
     const customerTypeLabel = store?.customer_type?.name
     const representativeName = store?.representative?.full_name
     const isRepresentativeProfile = customer.role === 'representative'
+    const isDriverProfile = customer.role === 'driver'
 
     // Component Content...
     return (
@@ -273,6 +281,11 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                                 {isRepresentativeProfile && (
                                     <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
                                         Representante ativo
+                                    </Badge>
+                                )}
+                                {isDriverProfile && (
+                                    <Badge variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">
+                                        Motorista ativo
                                     </Badge>
                                 )}
                                 {store?.store_tags?.map((t, idx) => t.customer_tags && (
@@ -445,7 +458,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                 
                 {activeTab === 'access' && (
                     <div className="bg-white rounded-2xl border p-6 shadow-sm">
-                        <CustomerAccessTab customer={customer} />
+                        <CustomerAccessTab customer={customer} onRoleUpdated={handleRoleUpdated} />
                     </div>
                 )}
                 

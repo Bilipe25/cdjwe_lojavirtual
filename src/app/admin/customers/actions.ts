@@ -673,8 +673,8 @@ export async function updateCustomerStatusAsAdmin(profileId: string, status: Cus
             return { error: 'Cliente nao encontrado.' }
         }
 
-        if (!['client', 'representative'].includes(profile.role)) {
-            return { error: 'Apenas clientes e representantes podem ter status alterado.' }
+        if (!['client', 'representative', 'driver'].includes(profile.role)) {
+            return { error: 'Apenas clientes, representantes e motoristas podem ter status alterado.' }
         }
 
         if (profile.status !== status) {
@@ -714,7 +714,7 @@ export async function bulkUpdateCustomerStatusAsAdmin(ids: string[], status: Cus
             .from('profiles')
             .select('id, role, status, email, full_name')
             .in('id', uniqueIds)
-            .in('role', ['client', 'representative'])
+            .in('role', ['client', 'representative', 'driver'])
 
         if (loadError) throw loadError
         if (!customers || customers.length === 0) {
@@ -819,6 +819,80 @@ export async function getCustomerAccessSnapshot(profileId: string) {
     } catch (err: unknown) {
         console.error('Get Customer Access Snapshot Error:', err)
         return { error: toErrorMessage(err, 'Erro ao carregar o status de acesso do cliente.') }
+    }
+}
+
+export async function promoteCustomerToDriver(profileId: string) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .select('id, role, status, phone, full_name')
+            .eq('id', profileId)
+            .single()
+
+        if (profileError || !profile) {
+            return { error: 'Cliente nao encontrado.' }
+        }
+
+        if (profile.role === 'admin') {
+            return { error: 'Nao e permitido alterar um administrador para motorista.' }
+        }
+
+        if (!['client', 'representative', 'driver'].includes(profile.role)) {
+            return { error: 'Somente clientes ou representantes podem ser definidos como motorista.' }
+        }
+
+        const { data: existingDriver, error: existingDriverError } = await supabaseAdmin
+            .from('drivers')
+            .select('id')
+            .eq('profile_id', profileId)
+            .maybeSingle()
+
+        if (existingDriverError) throw existingDriverError
+
+        if (!existingDriver?.id) {
+            const { error: createDriverError } = await supabaseAdmin
+                .from('drivers')
+                .insert({
+                    profile_id: profileId,
+                    phone: profile.phone || null,
+                    status: 'available',
+                    notes: 'Criado automaticamente a partir do modulo de clientes.',
+                })
+
+            if (createDriverError) throw createDriverError
+        }
+
+        if (profile.role !== 'driver' || profile.status !== 'approved') {
+            const { error: profileUpdateError } = await supabaseAdmin
+                .from('profiles')
+                .update({
+                    role: 'driver',
+                    status: 'approved',
+                })
+                .eq('id', profileId)
+
+            if (profileUpdateError) throw profileUpdateError
+        }
+
+        try {
+            await supabaseAdmin.auth.admin.updateUserById(profileId, {
+                user_metadata: {
+                    role: 'driver',
+                    ...(profile.full_name ? { full_name: profile.full_name } : {}),
+                },
+            })
+        } catch (authError) {
+            console.error('[PROMOTE CUSTOMER TO DRIVER] Failed to sync auth metadata:', authError)
+        }
+
+        return { success: true }
+    } catch (err: unknown) {
+        console.error('Promote Customer To Driver Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao definir cliente como motorista.') }
     }
 }
 

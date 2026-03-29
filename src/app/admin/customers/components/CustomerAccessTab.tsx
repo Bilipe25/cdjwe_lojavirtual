@@ -1,27 +1,29 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Key, Copy, Loader2, MessageCircle, Mail, Eye, EyeOff, RefreshCw, Building2, AtSign } from 'lucide-react'
+import { Key, Copy, Loader2, MessageCircle, Mail, Eye, EyeOff, RefreshCw, Building2, AtSign, Truck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { generateCustomerPassword, setCustomerPassword, sendAccessLink } from '../actions'
+import { generateCustomerPassword, setCustomerPassword, sendAccessLink, promoteCustomerToDriver } from '../actions'
 import { toast } from 'sonner'
 import type { CustomerWithStore } from './CustomerList'
 import { getPrimaryCustomerAccessIdentifier, hasRealCustomerEmail, normalizeEmail } from '@/lib/customers/access'
 
 interface CustomerAccessTabProps {
     customer: CustomerWithStore
+    onRoleUpdated?: (role: 'driver') => void
 }
 
-export function CustomerAccessTab({ customer }: CustomerAccessTabProps) {
+export function CustomerAccessTab({ customer, onRoleUpdated }: CustomerAccessTabProps) {
     const [password, setPassword] = useState('')
     const [customPassword, setCustomPassword] = useState('')
     const [showPassword, setShowPassword] = useState(true)
     const [generating, setGenerating] = useState(false)
     const [settingPassword, setSettingPassword] = useState(false)
     const [sendingLink, setSendingLink] = useState(false)
+    const [promotingToDriver, setPromotingToDriver] = useState(false)
 
     const store = customer?.stores?.[0]
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
@@ -37,6 +39,7 @@ export function CustomerAccessTab({ customer }: CustomerAccessTabProps) {
             }),
         [customer?.email, hasRealEmail, store?.cnpj]
     )
+    const isDriver = customer?.role === 'driver'
 
     const handleGenerate = async () => {
         if (!customer) return
@@ -120,6 +123,23 @@ export function CustomerAccessTab({ customer }: CustomerAccessTabProps) {
         }
     }
 
+    const handlePromoteToDriver = async () => {
+        if (!customer || isDriver) return
+        setPromotingToDriver(true)
+        try {
+            const result = await promoteCustomerToDriver(customer.id)
+            if ('error' in result && result.error) {
+                toast.error(result.error)
+                return
+            }
+
+            toast.success('Cliente definido como motorista com sucesso!')
+            onRoleUpdated?.('driver')
+        } finally {
+            setPromotingToDriver(false)
+        }
+    }
+
     return (
         <div className="space-y-6">
             <div className="space-y-4 rounded-xl bg-slate-50/80 p-5 border border-slate-200">
@@ -189,7 +209,7 @@ export function CustomerAccessTab({ customer }: CustomerAccessTabProps) {
                 </div>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid md:grid-cols-3 gap-6">
                 <div className="space-y-4 rounded-xl border p-5 bg-white shadow-sm">
                     <div>
                         <h4 className="font-semibold text-navy text-base">Definir Senha</h4>
@@ -225,6 +245,32 @@ export function CustomerAccessTab({ customer }: CustomerAccessTabProps) {
                             {settingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Definir'}
                         </Button>
                     </div>
+                </div>
+
+                <div className="space-y-4 rounded-xl border p-5 bg-white shadow-sm">
+                    <div>
+                        <h4 className="font-semibold text-navy text-base">Acesso ao Painel de Motorista</h4>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Permite que este usuario entre em <span className="font-mono">/motorista</span>.
+                        </p>
+                    </div>
+
+                    {isDriver ? (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 flex items-center gap-2">
+                            <Truck className="h-3.5 w-3.5" />
+                            Perfil ja configurado como motorista.
+                        </div>
+                    ) : (
+                        <Button
+                            variant="outline"
+                            onClick={handlePromoteToDriver}
+                            disabled={promotingToDriver}
+                            className="gap-2 justify-start border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                        >
+                            {promotingToDriver ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                            Definir como motorista
+                        </Button>
+                    )}
                 </div>
 
                 <div className="space-y-4 rounded-xl border p-5 bg-white shadow-sm">

@@ -18,7 +18,7 @@ export default async function HomePage() {
 
   redirect(
     getDefaultRouteByRole(
-      (profile?.role || 'client') as 'admin' | 'client' | 'representative',
+      (profile?.role || 'client') as 'admin' | 'client' | 'representative' | 'driver',
       (profile?.status || 'approved') as 'pending' | 'approved' | 'blocked' | 'imported'
     )
   )

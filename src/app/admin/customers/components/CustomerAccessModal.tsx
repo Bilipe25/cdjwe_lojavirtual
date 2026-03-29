@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Key, Copy, Loader2, MessageCircle, Mail, Eye, EyeOff, RefreshCw, Building2, AtSign } from 'lucide-react'
+import { Key, Copy, Loader2, MessageCircle, Mail, Eye, EyeOff, RefreshCw, Building2, AtSign, Truck } from 'lucide-react'
 import {
     Dialog,
     DialogContent,
@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { generateCustomerPassword, setCustomerPassword, sendAccessLink } from '../actions'
+import { generateCustomerPassword, setCustomerPassword, sendAccessLink, promoteCustomerToDriver } from '../actions'
 import { toast } from 'sonner'
 import type { CustomerWithStore } from './CustomerList'
 import { getPrimaryCustomerAccessIdentifier, hasRealCustomerEmail, normalizeEmail } from '@/lib/customers/access'
@@ -32,6 +32,7 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
     const [generating, setGenerating] = useState(false)
     const [settingPassword, setSettingPassword] = useState(false)
     const [sendingLink, setSendingLink] = useState(false)
+    const [promotingToDriver, setPromotingToDriver] = useState(false)
 
     const store = customer?.stores?.[0]
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
@@ -46,6 +47,7 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
             }),
         [customer?.email, hasRealEmail, store?.cnpj]
     )
+    const isDriver = customer?.role === 'driver'
 
     const handleGenerate = async () => {
         if (!customer) return
@@ -128,6 +130,21 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
         }
     }
 
+    const handlePromoteToDriver = async () => {
+        if (!customer || isDriver) return
+        setPromotingToDriver(true)
+        try {
+            const result = await promoteCustomerToDriver(customer.id)
+            if ('error' in result && result.error) {
+                toast.error(result.error)
+                return
+            }
+            toast.success('Cliente definido como motorista com sucesso!')
+        } finally {
+            setPromotingToDriver(false)
+        }
+    }
+
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="max-w-md">
@@ -203,6 +220,28 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
                             <Copy className="h-4 w-4" />
                             Copiar credenciais
                         </Button>
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3">
+                        <h4 className="text-sm font-semibold text-navy">Acesso ao painel de motorista</h4>
+                        {isDriver ? (
+                            <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs text-emerald-700 flex items-center gap-2">
+                                <Truck className="h-3.5 w-3.5" />
+                                Perfil ja configurado como motorista.
+                            </div>
+                        ) : (
+                            <Button
+                                variant="outline"
+                                onClick={handlePromoteToDriver}
+                                disabled={promotingToDriver}
+                                className="w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                            >
+                                {promotingToDriver ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                                Definir como motorista
+                            </Button>
+                        )}
                     </div>
 
                     <Separator />

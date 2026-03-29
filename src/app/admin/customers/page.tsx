@@ -31,6 +31,7 @@ import { type CustomerFormData } from './schema'
 
 const ITEMS_PER_PAGE = 15;
 type CustomerStatusAction = 'pending' | 'approved' | 'blocked' | 'imported' | 'delete'
+const CUSTOMER_PROFILE_ROLES: Array<'client' | 'representative' | 'driver'> = ['client', 'representative', 'driver']
 
 interface CustomerOverviewStats {
     total: number
@@ -115,7 +116,7 @@ export default function CustomersPage() {
         let query = supabase
             .from('profiles')
             .select('*, stores!stores_profile_id_fkey(*, customer_type:customer_types(*), store_tags(customer_tags(*)), representative:profiles!stores_representative_id_fkey(id, full_name))', { count: 'exact' })
-            .in('role', ['client', 'representative'])
+            .in('role', CUSTOMER_PROFILE_ROLES)
 
         // Apply Filters
         if (statusFilter !== 'all') {
@@ -171,7 +172,7 @@ export default function CustomersPage() {
             const { data: noEmailProfiles } = await supabase
                 .from('profiles')
                 .select('id')
-                .in('role', ['client', 'representative'])
+                .in('role', CUSTOMER_PROFILE_ROLES)
                 .or(PLACEHOLDER_EMAIL_OR_FILTER)
 
             const idsWithoutEmail = noEmailProfiles?.map((profile) => profile.id) || []
@@ -189,7 +190,7 @@ export default function CustomersPage() {
             const { data: unregisteredProfiles } = await supabase
                 .from('profiles')
                 .select('id')
-                .in('role', ['client', 'representative'])
+                .in('role', CUSTOMER_PROFILE_ROLES)
                 .or(`status.eq.imported,status.eq.pending,${PLACEHOLDER_EMAIL_OR_FILTER}`)
 
             const idsUnregistered = unregisteredProfiles?.map((profile) => profile.id) || []
@@ -228,11 +229,11 @@ export default function CustomersPage() {
                 supabase
                     .from('profiles')
                     .select('id', { count: 'exact', head: true })
-                    .in('role', ['client', 'representative']),
+                    .in('role', CUSTOMER_PROFILE_ROLES),
                 supabase
                     .from('profiles')
                     .select('id', { count: 'exact', head: true })
-                    .in('role', ['client', 'representative'])
+                    .in('role', CUSTOMER_PROFILE_ROLES)
                     .eq('status', 'approved')
                     .not('email', 'ilike', '%@placeholder.invalid')
                     .not('email', 'ilike', '%@placeholder.local')
@@ -240,12 +241,12 @@ export default function CustomersPage() {
                 supabase
                     .from('profiles')
                     .select('id', { count: 'exact', head: true })
-                    .in('role', ['client', 'representative'])
+                    .in('role', CUSTOMER_PROFILE_ROLES)
                     .or(`status.eq.imported,status.eq.pending,${PLACEHOLDER_EMAIL_OR_FILTER}`),
                 supabase
                     .from('profiles')
                     .select('id', { count: 'exact', head: true })
-                    .in('role', ['client', 'representative'])
+                    .in('role', CUSTOMER_PROFILE_ROLES)
                     .or(PLACEHOLDER_EMAIL_OR_FILTER),
             ])
 
