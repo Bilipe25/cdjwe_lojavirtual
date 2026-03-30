@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
     PackageCheck,
     Search,
@@ -11,6 +13,8 @@ import {
     MapPin,
     Filter,
     ShoppingCart,
+    Map as MapIcon,
+    X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -46,11 +50,21 @@ import {
     type DriverItem,
     type RegionItem,
 } from '../services'
-import { useRouter } from 'next/navigation'
+import type { ClientMapScope } from '@/components/logistics/client-map-types'
+
+const ClientMapModeDialog = dynamic(
+    () => import('@/components/logistics/client-map-mode-dialog'),
+    { ssr: false },
+)
 
 const statusLabels: Record<string, { label: string; color: string }> = {
     approved: { label: 'Aprovado', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    in_production: { label: 'Em Produção', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    in_production: { label: 'Em Producao', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+}
+
+type ApplyClientFilterPayload = {
+    selectedClientIds: string[]
+    scope: ClientMapScope
 }
 
 export default function PedidosParaRotaPage() {
@@ -80,12 +94,45 @@ export default function PedidosParaRotaPage() {
     const [drivers, setDrivers] = useState<DriverItem[]>([])
     const [creating, setCreating] = useState(false)
     const [showFilters, setShowFilters] = useState(false)
+    const [clientMapOpen, setClientMapOpen] = useState(false)
+    const [clientScope, setClientScope] = useState<ClientMapScope>('routable')
+    const [mapSelectedClientIds, setMapSelectedClientIds] = useState<string[]>([])
+    const [appliedClientFilterIds, setAppliedClientFilterIds] = useState<string[]>([])
+    const [pendingClientFilterApply, setPendingClientFilterApply] = useState<ApplyClientFilterPayload | null>(null)
+    const [selectionConflictOpen, setSelectionConflictOpen] = useState(false)
     const [routeForm, setRouteForm] = useState({
         centerId: '',
         vehicleId: '',
         driverId: '',
         plannedDate: new Date().toISOString().split('T')[0],
     })
+
+    const selectedOrderById = useMemo(() => {
+        const index = new Map<string, RoutableOrder>()
+        for (const order of data) index.set(order.order_id, order)
+        return index
+    }, [data])
+
+    const applyClientFilterDirect = useCallback((payload: ApplyClientFilterPayload, clearSelectionOutsideFilter: boolean) => {
+        const uniqueClientIds = [...new Set(payload.selectedClientIds.map((id) => id.trim()).filter(Boolean))]
+        setClientScope(payload.scope)
+        setMapSelectedClientIds(uniqueClientIds)
+        setAppliedClientFilterIds(uniqueClientIds)
+        setPagination((prev) => ({ ...prev, page: 1 }))
+
+        if (clearSelectionOutsideFilter) {
+            const clientSet = new Set(uniqueClientIds)
+            setSelected((prev) => {
+                const next = new Set<string>()
+                for (const orderId of prev) {
+                    const order = selectedOrderById.get(orderId)
+                    if (!order) continue
+                    if (clientSet.has(order.store_id)) next.add(orderId)
+                }
+                return next
+            })
+        }
+    }, [selectedOrderById])
 
     const loadData = useCallback(async () => {
         setLoading(true)
@@ -96,6 +143,7 @@ export default function PedidosParaRotaPage() {
             city: cityFilter,
             region: regionFilter,
             date: dateFilter || undefined,
+            storeIds: appliedClientFilterIds.length > 0 ? appliedClientFilterIds : undefined,
             page: pagination.page,
             pageSize: pagination.pageSize,
         })
@@ -107,7 +155,16 @@ export default function PedidosParaRotaPage() {
             }
         }
         setLoading(false)
-    }, [statusFilter, search, cityFilter, regionFilter, dateFilter, pagination.page, pagination.pageSize])
+    }, [
+        statusFilter,
+        search,
+        cityFilter,
+        regionFilter,
+        dateFilter,
+        appliedClientFilterIds,
+        pagination.page,
+        pagination.pageSize,
+    ])
 
     useEffect(() => {
         const loadFilters = async () => {
@@ -124,12 +181,12 @@ export default function PedidosParaRotaPage() {
     const loadResources = async () => {
         const [c, v, d] = await Promise.all([getCenters(), getVehicles(), getDrivers()])
         if ('data' in c && c.data) setCenters(c.data)
-        if ('data' in v && v.data) setVehicles(v.data.filter(x => x.status === 'available'))
-        if ('data' in d && d.data) setDrivers(d.data.filter(x => x.status === 'available'))
+        if ('data' in v && v.data) setVehicles(v.data.filter((item) => item.status === 'available'))
+        if ('data' in d && d.data) setDrivers(d.data.filter((item) => item.status === 'available'))
     }
 
     const toggleSelect = (id: string) => {
-        setSelected(prev => {
+        setSelected((prev) => {
             const next = new Set(prev)
             if (next.has(id)) next.delete(id)
             else next.add(id)
@@ -139,7 +196,7 @@ export default function PedidosParaRotaPage() {
 
     const toggleAll = () => {
         if (selected.size === data.length) setSelected(new Set())
-        else setSelected(new Set(data.map(o => o.order_id)))
+        else setSelected(new Set(data.map((order) => order.order_id)))
     }
 
     const openCreateRoute = () => {
@@ -159,34 +216,78 @@ export default function PedidosParaRotaPage() {
             plannedDate: routeForm.plannedDate,
         })
         setCreating(false)
-        if (res.error) { setError(res.error); return }
+        if (res.error) {
+            setError(res.error)
+            return
+        }
         if ('data' in res && res.data) {
             setCreateOpen(false)
             router.push(`/admin/logistica/rotas/${res.data.routeId}`)
         }
     }
 
-    const formatCurrency = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+    const handleMapApply = (payload: ApplyClientFilterPayload) => {
+        const uniqueIds = [...new Set(payload.selectedClientIds.map((id) => id.trim()).filter(Boolean))]
+        const uniqueIdSet = new Set(uniqueIds)
+        const outsideSelectedCount = data.filter(
+            (order) => selected.has(order.order_id) && !uniqueIdSet.has(order.store_id),
+        ).length
 
-    // Selected items summary
-    const selectedOrders = data.filter(o => selected.has(o.order_id))
-    const selectedTotal = selectedOrders.reduce((acc, o) => acc + o.total, 0)
-    const selectedCities = [...new Set(selectedOrders.map(o => o.city).filter(Boolean))]
-    const hasActiveFilters = cityFilter || regionFilter || dateFilter
+        if (uniqueIds.length > 0 && outsideSelectedCount > 0) {
+            setPendingClientFilterApply({ selectedClientIds: uniqueIds, scope: payload.scope })
+            setSelectionConflictOpen(true)
+            return
+        }
+
+        applyClientFilterDirect({ selectedClientIds: uniqueIds, scope: payload.scope }, false)
+    }
+
+    const handleKeepSelectionAndApply = () => {
+        if (!pendingClientFilterApply) return
+        applyClientFilterDirect(pendingClientFilterApply, false)
+        setSelectionConflictOpen(false)
+        setPendingClientFilterApply(null)
+    }
+
+    const handleClearOutsideAndApply = () => {
+        if (!pendingClientFilterApply) return
+        applyClientFilterDirect(pendingClientFilterApply, true)
+        setSelectionConflictOpen(false)
+        setPendingClientFilterApply(null)
+    }
+
+    const clearClientFilter = () => {
+        setAppliedClientFilterIds([])
+        setPagination((prev) => ({ ...prev, page: 1 }))
+    }
+
+    const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+    }).format(value)
+
+    const selectedOrders = data.filter((order) => selected.has(order.order_id))
+    const selectedTotal = selectedOrders.reduce((acc, order) => acc + order.total, 0)
+    const selectedCities = [...new Set(selectedOrders.map((order) => order.city).filter(Boolean))]
+    const hasOperationalFilters = cityFilter || regionFilter || dateFilter
+    const hasClientFilter = appliedClientFilterIds.length > 0
 
     return (
         <div className="space-y-5">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-navy flex items-center gap-2 tracking-tight">
+                    <h1 className="flex items-center gap-2 text-2xl font-black tracking-tight text-navy">
                         <PackageCheck className="h-6 w-6" /> Pedidos para Rota
                     </h1>
-                    <p className="text-sm text-muted-foreground mt-0.5">
+                    <p className="mt-0.5 text-sm text-muted-foreground">
                         Selecione pedidos aprovados para criar uma rota de entrega
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Button variant="outline" className="h-9 gap-1.5" onClick={() => setClientMapOpen(true)}>
+                        <MapIcon className="h-4 w-4" />
+                        Mapa de Clientes
+                    </Button>
                     <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => void loadData()}>
                         <RefreshCw className="h-4 w-4" />
                     </Button>
@@ -197,75 +298,151 @@ export default function PedidosParaRotaPage() {
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
             )}
 
-            {/* KPI Summary / Quick Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div className="rounded-xl border bg-white p-3">
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Disponíveis</p>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Disponiveis</p>
                     <p className="text-xl font-black text-navy">{pagination.total}</p>
                 </div>
                 <div className="rounded-xl border bg-white p-3">
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Aprovados</p>
-                    <p className="text-xl font-black text-emerald-600">{data.filter(o => o.status === 'approved').length}</p>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Aprovados</p>
+                    <p className="text-xl font-black text-emerald-600">{data.filter((order) => order.status === 'approved').length}</p>
                 </div>
                 <div className="rounded-xl border bg-white p-3">
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Em Produção</p>
-                    <p className="text-xl font-black text-blue-600">{data.filter(o => o.status === 'in_production').length}</p>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Em Producao</p>
+                    <p className="text-xl font-black text-blue-600">{data.filter((order) => order.status === 'in_production').length}</p>
                 </div>
                 <div className="rounded-xl border bg-white p-3">
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Cidades</p>
-                    <p className="text-xl font-black text-navy">{[...new Set(data.map(o => o.city).filter(Boolean))].length}</p>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Cidades</p>
+                    <p className="text-xl font-black text-navy">{[...new Set(data.map((order) => order.city).filter(Boolean))].length}</p>
                 </div>
             </div>
 
-            {/* Filter Bar */}
-            <div className="flex flex-wrap gap-2 items-center">
-                <div className="relative flex-1 min-w-[200px] max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input className="pl-9 h-9" placeholder="Buscar por número ou empresa..." value={search} onChange={(e) => { setSearch(e.target.value); setPagination((prev) => ({ ...prev, page: 1 })) }} />
+            <div className="flex flex-wrap items-center gap-2">
+                <div className="relative max-w-sm min-w-[200px] flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                        className="h-9 pl-9"
+                        placeholder="Buscar por numero ou empresa..."
+                        value={search}
+                        onChange={(event) => {
+                            setSearch(event.target.value)
+                            setPagination((prev) => ({ ...prev, page: 1 }))
+                        }}
+                    />
                 </div>
-                <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v || 'all'); setPagination((prev) => ({ ...prev, page: 1 })) }}>
-                    <SelectTrigger className="w-36 h-9">
+
+                <Select
+                    value={statusFilter}
+                    onValueChange={(value) => {
+                        setStatusFilter(value || 'all')
+                        setPagination((prev) => ({ ...prev, page: 1 }))
+                    }}
+                >
+                    <SelectTrigger className="h-9 w-40">
                         <SelectValue placeholder="Status" />
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Todos aptos</SelectItem>
                         <SelectItem value="approved">Aprovado</SelectItem>
-                        <SelectItem value="in_production">Em Produção</SelectItem>
+                        <SelectItem value="in_production">Em Producao</SelectItem>
                     </SelectContent>
                 </Select>
-                <Button variant="outline" size="sm" className={cn('h-9 gap-1', hasActiveFilters && 'border-indigo-300 text-indigo-700')} onClick={() => setShowFilters(!showFilters)}>
+
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn('h-9 gap-1', hasOperationalFilters && 'border-indigo-300 text-indigo-700')}
+                    onClick={() => setShowFilters(!showFilters)}
+                >
                     <Filter className="h-3 w-3" />
                     Filtros
-                    {hasActiveFilters && <span className="h-4 w-4 rounded-full bg-indigo-600 text-white text-[9px] flex items-center justify-center font-bold">!</span>}
+                    {hasOperationalFilters && (
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[9px] font-bold text-white">!</span>
+                    )}
                 </Button>
             </div>
 
-            {/* Advanced Filters */}
+            {hasClientFilter && (
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2.5">
+                    <Badge variant="outline" className="border-indigo-200 bg-white text-[10px] text-indigo-700">
+                        Filtro por clientes: {appliedClientFilterIds.length}
+                    </Badge>
+                    <Badge variant="outline" className="border-indigo-200 bg-white text-[10px] text-indigo-700">
+                        Escopo: {clientScope === 'global' ? 'Base Global' : 'Roteirizaveis'}
+                    </Badge>
+                    <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-indigo-700 hover:bg-indigo-100" onClick={clearClientFilter}>
+                        <X className="h-3 w-3" />
+                        Remover filtro
+                    </Button>
+                </div>
+            )}
+
             {showFilters && (
-                <div className="rounded-xl border bg-slate-50/50 p-3 space-y-2">
-                    <p className="text-xs font-semibold text-navy">Filtros Avançados</p>
+                <div className="space-y-2 rounded-xl border bg-slate-50/50 p-3">
+                    <p className="text-xs font-semibold text-navy">Filtros Avancados</p>
                     <div className="flex flex-wrap gap-2">
-                        <Select value={cityFilter || 'all'} onValueChange={(v) => { setCityFilter(!v || v === 'all' ? '' : v); setPagination((prev) => ({ ...prev, page: 1 })) }}>
-                            <SelectTrigger className="w-40 h-8 text-xs">
+                        <Select
+                            value={cityFilter || 'all'}
+                            onValueChange={(value) => {
+                                setCityFilter(!value || value === 'all' ? '' : value)
+                                setPagination((prev) => ({ ...prev, page: 1 }))
+                            }}
+                        >
+                            <SelectTrigger className="h-8 w-40 text-xs">
                                 <SelectValue placeholder="Cidade" />
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">Todas cidades</SelectItem>
-                                {cities.map(c => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                                {cities.map((city) => (
+                                    <SelectItem key={city} value={city}>
+                                        {city}
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
-                        <Select value={regionFilter || 'all'} onValueChange={(v) => { setRegionFilter(!v || v === 'all' ? '' : v); setPagination((prev) => ({ ...prev, page: 1 })) }}>
-                            <SelectTrigger className="w-40 h-8 text-xs">
-                                <SelectValue placeholder="Região" />
+
+                        <Select
+                            value={regionFilter || 'all'}
+                            onValueChange={(value) => {
+                                setRegionFilter(!value || value === 'all' ? '' : value)
+                                setPagination((prev) => ({ ...prev, page: 1 }))
+                            }}
+                        >
+                            <SelectTrigger className="h-8 w-40 text-xs">
+                                <SelectValue placeholder="Regiao" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">Todas regiões</SelectItem>
-                                {regions.map(r => (<SelectItem key={r.id} value={r.name}>{r.name}</SelectItem>))}
+                                <SelectItem value="all">Todas regioes</SelectItem>
+                                {regions.map((region) => (
+                                    <SelectItem key={region.id} value={region.name}>
+                                        {region.name}
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
-                        <Input type="date" value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); setPagination((prev) => ({ ...prev, page: 1 })) }} className="w-36 h-8 text-xs" />
-                        {hasActiveFilters && (
-                            <Button variant="ghost" size="sm" className="h-8 text-xs text-red-500" onClick={() => { setCityFilter(''); setRegionFilter(''); setDateFilter(''); setPagination((prev) => ({ ...prev, page: 1 })) }}>
+
+                        <Input
+                            type="date"
+                            value={dateFilter}
+                            onChange={(event) => {
+                                setDateFilter(event.target.value)
+                                setPagination((prev) => ({ ...prev, page: 1 }))
+                            }}
+                            className="h-8 w-36 text-xs"
+                        />
+
+                        {hasOperationalFilters && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-xs text-red-500"
+                                onClick={() => {
+                                    setCityFilter('')
+                                    setRegionFilter('')
+                                    setDateFilter('')
+                                    setPagination((prev) => ({ ...prev, page: 1 }))
+                                }}
+                            >
                                 Limpar filtros
                             </Button>
                         )}
@@ -273,64 +450,72 @@ export default function PedidosParaRotaPage() {
                 </div>
             )}
 
-            {/* Table */}
             {loading ? (
                 <div className="space-y-2">
-                    {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}
+                    {[...Array(6)].map((_, index) => <Skeleton key={index} className="h-14 rounded-xl" />)}
                 </div>
             ) : data.length === 0 ? (
                 <div className="rounded-xl border border-dashed p-12 text-center">
-                    <PackageCheck className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground">Nenhum pedido apto para roteirização.</p>
+                    <PackageCheck className="mx-auto mb-3 h-10 w-10 text-muted-foreground/30" />
+                    <p className="text-sm text-muted-foreground">Nenhum pedido apto para roteirizacao.</p>
                 </div>
             ) : (
-                <div className="rounded-xl border bg-white overflow-hidden">
+                <div className="overflow-hidden rounded-xl border bg-white">
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b bg-slate-50/60">
-                                    <th className="px-3 py-3 text-center w-10">
+                                    <th className="w-10 px-3 py-3 text-center">
                                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={toggleAll}>
-                                            {selected.size === data.length ? <CheckSquare className="h-4 w-4 text-indigo-600" /> : <Square className="h-4 w-4" />}
+                                            {selected.size === data.length ? (
+                                                <CheckSquare className="h-4 w-4 text-indigo-600" />
+                                            ) : (
+                                                <Square className="h-4 w-4" />
+                                            )}
                                         </Button>
                                     </th>
-                                    <th className="px-4 py-3 text-left font-semibold text-navy text-xs uppercase tracking-wide">Pedido</th>
-                                    <th className="px-4 py-3 text-left font-semibold text-navy text-xs uppercase tracking-wide">Cliente</th>
-                                    <th className="px-4 py-3 text-left font-semibold text-navy text-xs uppercase tracking-wide hidden md:table-cell">Cidade</th>
-                                    <th className="px-4 py-3 text-right font-semibold text-navy text-xs uppercase tracking-wide hidden sm:table-cell">Total</th>
-                                    <th className="px-4 py-3 text-center font-semibold text-navy text-xs uppercase tracking-wide">Status</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-navy">Pedido</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-navy">Cliente</th>
+                                    <th className="hidden px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-navy md:table-cell">Cidade</th>
+                                    <th className="hidden px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-navy sm:table-cell">Total</th>
+                                    <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-navy">Status</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {data.map((o) => {
-                                    const st = statusLabels[o.status] || { label: o.status, color: '' }
-                                    const isSelected = selected.has(o.order_id)
+                                {data.map((order) => {
+                                    const st = statusLabels[order.status] || { label: order.status, color: '' }
+                                    const isSelected = selected.has(order.order_id)
                                     return (
-                                        <tr key={o.order_id}
+                                        <tr
+                                            key={order.order_id}
                                             className={cn(
-                                                'border-b last:border-b-0 transition cursor-pointer',
-                                                isSelected ? 'bg-indigo-50/50' : 'hover:bg-slate-50/40'
+                                                'cursor-pointer border-b transition last:border-b-0',
+                                                isSelected ? 'bg-indigo-50/50' : 'hover:bg-slate-50/40',
                                             )}
-                                            onClick={() => toggleSelect(o.order_id)}
+                                            onClick={() => toggleSelect(order.order_id)}
                                         >
                                             <td className="px-3 py-3 text-center">
-                                                {isSelected ? <CheckSquare className="h-4 w-4 text-indigo-600 mx-auto" /> : <Square className="h-4 w-4 text-muted-foreground mx-auto" />}
+                                                {isSelected ? (
+                                                    <CheckSquare className="mx-auto h-4 w-4 text-indigo-600" />
+                                                ) : (
+                                                    <Square className="mx-auto h-4 w-4 text-muted-foreground" />
+                                                )}
                                             </td>
-                                            <td className="px-4 py-3 font-mono font-bold text-navy text-xs">{o.order_number}</td>
+                                            <td className="px-4 py-3 font-mono text-xs font-bold text-navy">{order.order_number}</td>
                                             <td className="px-4 py-3">
-                                                <p className="font-medium text-sm">{o.company_name}</p>
-                                                <p className="text-[10px] text-muted-foreground">{o.client_name}</p>
+                                                <p className="text-sm font-medium">{order.company_name}</p>
+                                                <p className="text-[10px] text-muted-foreground">{order.client_name}</p>
                                             </td>
-                                            <td className="px-4 py-3 hidden md:table-cell">
+                                            <td className="hidden px-4 py-3 md:table-cell">
                                                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                                    <MapPin className="h-3 w-3" /> {o.city}{o.state ? ` / ${o.state}` : ''}
+                                                    <MapPin className="h-3 w-3" /> {order.city}{order.state ? ` / ${order.state}` : ''}
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3 text-right hidden sm:table-cell font-bold text-sm">
-                                                {formatCurrency(o.total)}
+                                            <td className="hidden px-4 py-3 text-right text-sm font-bold sm:table-cell">
+                                                {formatCurrency(order.total)}
                                             </td>
                                             <td className="px-4 py-3 text-center">
-                                                <Badge variant="outline" className={cn('text-[10px] font-bold rounded-full border', st.color)}>
+                                                <Badge variant="outline" className={cn('rounded-full border text-[10px] font-bold', st.color)}>
                                                     {st.label}
                                                 </Badge>
                                             </td>
@@ -340,12 +525,14 @@ export default function PedidosParaRotaPage() {
                             </tbody>
                         </table>
                     </div>
-                    <div className="px-4 py-2 border-t bg-slate-50/40 text-xs text-muted-foreground">
+
+                    <div className="border-t bg-slate-50/40 px-4 py-2 text-xs text-muted-foreground">
                         {selected.size} de {data.length} pedidos selecionados
                     </div>
-                    <div className="px-4 py-3 border-t bg-white flex items-center justify-between gap-3">
+
+                    <div className="flex items-center justify-between gap-3 border-t bg-white px-4 py-3">
                         <span className="text-xs text-muted-foreground">
-                            Pagina {pagination.page} de {pagination.totalPages} • {pagination.total} pedidos
+                            Pagina {pagination.page} de {pagination.totalPages} - {pagination.total} pedidos
                         </span>
                         <div className="flex items-center gap-2">
                             <Button
@@ -353,7 +540,10 @@ export default function PedidosParaRotaPage() {
                                 size="sm"
                                 className="h-8 text-xs"
                                 disabled={!pagination.hasPreviousPage || loading}
-                                onClick={() => { setSelected(new Set()); setPagination((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) })) }}
+                                onClick={() => {
+                                    setSelected(new Set())
+                                    setPagination((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))
+                                }}
                             >
                                 Anterior
                             </Button>
@@ -362,7 +552,10 @@ export default function PedidosParaRotaPage() {
                                 size="sm"
                                 className="h-8 text-xs"
                                 disabled={!pagination.hasNextPage || loading}
-                                onClick={() => { setSelected(new Set()); setPagination((prev) => ({ ...prev, page: prev.page + 1 })) }}
+                                onClick={() => {
+                                    setSelected(new Set())
+                                    setPagination((prev) => ({ ...prev, page: prev.page + 1 }))
+                                }}
                             >
                                 Proxima
                             </Button>
@@ -371,31 +564,31 @@ export default function PedidosParaRotaPage() {
                 </div>
             )}
 
-            {/* ===== FLOATING BATCH ACTION BAR ===== */}
             {selected.size > 0 && (
-                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-                    <div className="w-fit max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-700/60 bg-slate-900/95 px-5 py-3 text-slate-50 shadow-2xl shadow-slate-900/35 backdrop-blur-sm flex items-center gap-4">
+                <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2">
+                    <div className="flex w-fit max-w-[calc(100vw-2rem)] items-center gap-4 rounded-2xl border border-slate-700/60 bg-slate-900/95 px-5 py-3 text-slate-50 shadow-2xl shadow-slate-900/35 backdrop-blur-sm">
                         <div className="flex items-center gap-3 text-xs">
-                            <span className="h-8 w-8 rounded-full bg-slate-100 text-slate-900 flex items-center justify-center font-black shrink-0">{selected.size}</span>
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 font-black text-slate-900">
+                                {selected.size}
+                            </span>
                             <div className="hidden sm:block">
                                 <p className="font-semibold">pedidos selecionados</p>
-                                <p className="text-slate-300 text-[10px]">
-                                    {formatCurrency(selectedTotal)} • {selectedCities.length} cidade(s)
+                                <p className="text-[10px] text-slate-300">
+                                    {formatCurrency(selectedTotal)} - {selectedCities.length} cidade(s)
                                 </p>
                             </div>
                         </div>
                         <div className="h-6 w-px bg-slate-700" />
-                        <Button size="sm" className="h-8 gap-1.5 border border-white/80 bg-white text-slate-900 hover:bg-slate-100 font-bold" onClick={openCreateRoute}>
+                        <Button size="sm" className="h-8 gap-1.5 border border-white/80 bg-white font-bold text-slate-900 hover:bg-slate-100" onClick={openCreateRoute}>
                             <Route className="h-3.5 w-3.5" /> Criar Rota
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-8 text-xs text-slate-200 hover:text-white hover:bg-slate-800" onClick={() => setSelected(new Set())}>
+                        <Button size="sm" variant="ghost" className="h-8 text-xs text-slate-200 hover:bg-slate-800 hover:text-white" onClick={() => setSelected(new Set())}>
                             Limpar
                         </Button>
                     </div>
                 </div>
             )}
 
-            {/* Create Route Dialog */}
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
@@ -404,45 +597,70 @@ export default function PedidosParaRotaPage() {
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
-                        <div className="rounded-xl border bg-indigo-50/50 p-3 text-sm flex items-center gap-3">
+                        <div className="flex items-center gap-3 rounded-xl border bg-indigo-50/50 p-3 text-sm">
                             <ShoppingCart className="h-4 w-4 text-indigo-600" />
                             <div>
                                 <span className="font-bold text-navy">{selected.size}</span> pedidos selecionados
-                                <span className="text-muted-foreground"> • </span>
+                                <span className="text-muted-foreground"> - </span>
                                 <span className="font-semibold text-navy">{formatCurrency(selectedTotal)}</span>
                             </div>
                         </div>
                         <div>
                             <label className="text-xs font-medium text-muted-foreground">Data Planejada *</label>
-                            <Input type="date" value={routeForm.plannedDate} onChange={(e) => setRouteForm({ ...routeForm, plannedDate: e.target.value })} />
+                            <Input
+                                type="date"
+                                value={routeForm.plannedDate}
+                                onChange={(event) => setRouteForm({ ...routeForm, plannedDate: event.target.value })}
+                            />
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-muted-foreground">Centro de Saída</label>
-                            <Select value={routeForm.centerId || 'none'} onValueChange={(v) => setRouteForm({ ...routeForm, centerId: !v || v === 'none' ? '' : v })}>
+                            <label className="text-xs font-medium text-muted-foreground">Centro de Saida</label>
+                            <Select
+                                value={routeForm.centerId || 'none'}
+                                onValueChange={(value) => setRouteForm({ ...routeForm, centerId: !value || value === 'none' ? '' : value })}
+                            >
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="none">Selecionar depois</SelectItem>
-                                    {centers.map(c => (<SelectItem key={c.id} value={c.id}>{c.name} - {c.city}</SelectItem>))}
+                                    {centers.map((center) => (
+                                        <SelectItem key={center.id} value={center.id}>
+                                            {center.name} - {center.city}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                         </div>
                         <div>
-                            <label className="text-xs font-medium text-muted-foreground">Veículo</label>
-                            <Select value={routeForm.vehicleId || 'none'} onValueChange={(v) => setRouteForm({ ...routeForm, vehicleId: !v || v === 'none' ? '' : v })}>
+                            <label className="text-xs font-medium text-muted-foreground">Veiculo</label>
+                            <Select
+                                value={routeForm.vehicleId || 'none'}
+                                onValueChange={(value) => setRouteForm({ ...routeForm, vehicleId: !value || value === 'none' ? '' : value })}
+                            >
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="none">Selecionar depois</SelectItem>
-                                    {vehicles.map(v => (<SelectItem key={v.id} value={v.id}>{v.plate} - {v.name}</SelectItem>))}
+                                    {vehicles.map((vehicle) => (
+                                        <SelectItem key={vehicle.id} value={vehicle.id}>
+                                            {vehicle.plate} - {vehicle.name}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                         </div>
                         <div>
                             <label className="text-xs font-medium text-muted-foreground">Motorista</label>
-                            <Select value={routeForm.driverId || 'none'} onValueChange={(v) => setRouteForm({ ...routeForm, driverId: !v || v === 'none' ? '' : v })}>
+                            <Select
+                                value={routeForm.driverId || 'none'}
+                                onValueChange={(value) => setRouteForm({ ...routeForm, driverId: !value || value === 'none' ? '' : value })}
+                            >
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="none">Selecionar depois</SelectItem>
-                                    {drivers.map(d => (<SelectItem key={d.id} value={d.id}>{d.profile_name}</SelectItem>))}
+                                    {drivers.map((driver) => (
+                                        <SelectItem key={driver.id} value={driver.id}>
+                                            {driver.profile_name}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                         </div>
@@ -456,9 +674,45 @@ export default function PedidosParaRotaPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <Dialog open={selectionConflictOpen} onOpenChange={(open) => { if (!open) { setSelectionConflictOpen(false); setPendingClientFilterApply(null) } }}>
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>Conflito entre filtro de clientes e pedidos selecionados</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3 py-2 text-sm text-slate-600">
+                        <p>
+                            Existem pedidos ja selecionados que ficarao fora do novo filtro por clientes.
+                        </p>
+                        <p>
+                            Escolha como deseja continuar:
+                        </p>
+                    </div>
+                    <DialogFooter className="gap-2 sm:justify-between">
+                        <Button variant="outline" onClick={() => { setSelectionConflictOpen(false); setPendingClientFilterApply(null) }}>
+                            Cancelar
+                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button variant="outline" onClick={handleKeepSelectionAndApply}>
+                                Manter selecao atual
+                            </Button>
+                            <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={handleClearOutsideAndApply}>
+                                Limpar fora do filtro
+                            </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <ClientMapModeDialog
+                open={clientMapOpen}
+                onOpenChange={setClientMapOpen}
+                initialScope={clientScope}
+                initialSelectedClientIds={mapSelectedClientIds.length > 0 ? mapSelectedClientIds : appliedClientFilterIds}
+                cities={cities}
+                regions={regions.map((region) => region.name)}
+                onApply={handleMapApply}
+            />
         </div>
     )
 }
-
-
-

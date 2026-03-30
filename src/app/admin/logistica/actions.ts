@@ -22,6 +22,34 @@ export interface RoutableOrder {
     address_lng: number | null
 }
 
+export type ClientMapScope = 'routable' | 'global'
+
+export interface ClientMapItem {
+    store_id: string
+    company_name: string
+    client_name: string
+    cnpj: string | null
+    city: string
+    state: string
+    region: string | null
+    primary_address_id: string | null
+    primary_address_label: string | null
+    latitude: number | null
+    longitude: number | null
+    coordinates_source: string | null
+    has_valid_coordinates: boolean
+    routable_orders_count: number
+    has_routable_orders: boolean
+}
+
+export interface ClientMapDatasetResponse {
+    scope: ClientMapScope
+    items: ClientMapItem[]
+    total_clients: number
+    loaded_clients: number
+    truncated: boolean
+}
+
 export interface RouteListItem {
     id: string
     route_number: string
@@ -176,12 +204,72 @@ function isStopStatus(value: string): value is StopStatus {
 
 // ==================== ROUTABLE ORDERS ====================
 
+type ActiveRouteAssignmentRow = {
+    order_id: string | null
+}
+
+async function fetchBlockedOrderIds(supabase: Awaited<ReturnType<typeof createServerClient>>) {
+    const blockedOrderIds = new Set<string>()
+
+    const { data: activeAssignments, error: assignmentErr } = await supabase
+        .from('delivery_route_stops')
+        .select(`
+            order_id,
+            delivery_routes!inner (
+                status
+            )
+        `)
+        .in('delivery_routes.status', ['draft', 'optimized', 'confirmed', 'in_progress'])
+
+    if (assignmentErr) {
+        return { error: assignmentErr.message, blockedOrderIds }
+    }
+
+    for (const assignment of (activeAssignments || []) as ActiveRouteAssignmentRow[]) {
+        if (assignment.order_id) {
+            blockedOrderIds.add(assignment.order_id)
+        }
+    }
+
+    return { blockedOrderIds }
+}
+
+function pickFirst<T>(value: T | T[] | null | undefined): T | null {
+    if (!value) return null
+    return Array.isArray(value) ? (value[0] || null) : value
+}
+
+function cleanAddressSnapshot(value: string | null | undefined) {
+    if (!value) return ''
+    return value
+        .replace(/\[.*?\]\s*/g, '')
+        .replace(/CEP:\s*/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+function buildPrimaryAddressLabel(address: {
+    address?: string | null
+    number?: string | null
+    city?: string | null
+    state?: string | null
+    zip_code?: string | null
+    title?: string | null
+}) {
+    const street = [address.address, address.number].filter(Boolean).join(', ')
+    const cityState = [address.city, address.state].filter(Boolean).join(' / ')
+    const zip = address.zip_code ? `CEP ${address.zip_code}` : ''
+    const title = address.title ? `[${address.title}]` : ''
+    return [title, street, cityState, zip].filter(Boolean).join(' - ')
+}
+
 export async function getRoutableOrders(filters?: {
     status?: string
     city?: string
     region?: string
     search?: string
     date?: string
+    storeIds?: string[]
     page?: number
     pageSize?: number
 }) {
@@ -189,27 +277,12 @@ export async function getRoutableOrders(filters?: {
         const { supabase } = await requireAdmin()
         const basePagination = normalizePagination({ page: filters?.page, pageSize: filters?.pageSize })
 
-        const blockedOrderIds = new Set<string>()
-        const { data: activeAssignments, error: assignmentErr } = await supabase
-            .from('delivery_route_stops')
-            .select(`
-                order_id,
-                delivery_routes!inner (
-                    status
-                )
-            `)
-            .in('delivery_routes.status', ['draft', 'optimized', 'confirmed', 'in_progress'])
-
-        if (assignmentErr) {
-            console.error('[ROUTABLE ORDERS] Active assignment lookup error:', assignmentErr)
+        const blockedOrdersRes = await fetchBlockedOrderIds(supabase)
+        if ('error' in blockedOrdersRes) {
+            console.error('[ROUTABLE ORDERS] Active assignment lookup error:', blockedOrdersRes.error)
             return { error: 'Erro ao validar pedidos ja roteirizados.' }
         }
-
-        for (const assignment of activeAssignments || []) {
-            if (assignment.order_id) {
-                blockedOrderIds.add(assignment.order_id)
-            }
-        }
+        const blockedOrderIds = blockedOrdersRes.blockedOrderIds
 
         let query = supabase.from('orders').select(`
             id,
@@ -260,6 +333,13 @@ export async function getRoutableOrders(filters?: {
                     .lt('created_at', `${dateValue}T23:59:59.999`)
             }
         }
+        if (filters?.storeIds && filters.storeIds.length > 0) {
+            const uniqueStoreIds = [...new Set(filters.storeIds.map((id) => id.trim()).filter(Boolean))]
+            if (uniqueStoreIds.length === 0) {
+                return { data: [], pagination: withTotal(basePagination, 0) }
+            }
+            query = query.in('store_id', uniqueStoreIds)
+        }
 
         if (blockedOrderIds.size > 0) {
             const blockedFilter = `(${Array.from(blockedOrderIds).map((id) => `"${id}"`).join(',')})`
@@ -277,11 +357,6 @@ export async function getRoutableOrders(filters?: {
         if (error) {
             console.error('[ROUTABLE ORDERS] Error:', error)
             return { error: 'Erro ao carregar pedidos.' }
-        }
-
-        const pickFirst = <T>(value: T | T[] | null | undefined): T | null => {
-            if (!value) return null
-            return Array.isArray(value) ? (value[0] || null) : value
         }
 
         const result: RoutableOrder[] = (data || []).map((row) => {
@@ -312,6 +387,316 @@ export async function getRoutableOrders(filters?: {
         return { data: result, pagination }
     } catch (e) {
         console.error('[ROUTABLE ORDERS] Unexpected:', e)
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+export async function getClientMapDataset(input?: {
+    scope?: ClientMapScope
+    search?: string
+    city?: string
+    region?: string
+    onlyWithOrders?: boolean
+    onlyWithoutOrders?: boolean
+    onlyWithCoordinates?: boolean
+    onlyWithoutCoordinates?: boolean
+    onlySelectedIds?: string[]
+    limit?: number
+}) {
+    try {
+        const { supabase } = await requireAdmin()
+        const scope: ClientMapScope = input?.scope === 'global' ? 'global' : 'routable'
+        const safeLimit = Math.min(5000, Math.max(100, Math.floor(Number(input?.limit || 1500))))
+        const maxRawFetch = 10000
+        const searchTerm = input?.search?.trim().toLowerCase() || ''
+        const cityFilter = input?.city?.trim() || ''
+        const regionFilter = input?.region?.trim() || ''
+        const selectedFilterIds = [...new Set((input?.onlySelectedIds || []).map((id) => id.trim()).filter(Boolean))]
+
+        const blockedOrdersRes = await fetchBlockedOrderIds(supabase)
+        if ('error' in blockedOrdersRes) {
+            console.error('[CLIENT MAP DATASET] Active assignment lookup error:', blockedOrdersRes.error)
+            return { error: 'Erro ao validar pedidos ja roteirizados.' }
+        }
+        const blockedOrderIds = blockedOrdersRes.blockedOrderIds
+
+        let routableOrdersQuery = supabase
+            .from('orders')
+            .select(`
+                id,
+                store_id,
+                store_addresses!orders_shipping_address_id_fkey (
+                    latitude,
+                    longitude
+                )
+            `)
+            .in('status', ['approved', 'in_production'])
+
+        if (blockedOrderIds.size > 0) {
+            const blockedFilter = `(${Array.from(blockedOrderIds).map((id) => `"${id}"`).join(',')})`
+            routableOrdersQuery = routableOrdersQuery.not('id', 'in', blockedFilter)
+        }
+
+        const { data: routableOrders, error: routableErr } = await routableOrdersQuery
+        if (routableErr) {
+            console.error('[CLIENT MAP DATASET] Routable orders error:', routableErr)
+            return { error: 'Erro ao carregar pedidos aptos para mapa.' }
+        }
+
+        const routableCountByStore = new Map<string, number>()
+        const routableCoordsByStore = new Map<string, { latitude: number; longitude: number }>()
+
+        for (const row of routableOrders || []) {
+            const storeId = row.store_id ? String(row.store_id) : ''
+            if (!storeId) continue
+
+            const previous = routableCountByStore.get(storeId) || 0
+            routableCountByStore.set(storeId, previous + 1)
+
+            if (!routableCoordsByStore.has(storeId)) {
+                const shippingAddress = pickFirst(row.store_addresses)
+                const lat = Number(shippingAddress?.latitude)
+                const lng = Number(shippingAddress?.longitude)
+                if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                    routableCoordsByStore.set(storeId, { latitude: lat, longitude: lng })
+                }
+            }
+        }
+
+        let storesQuery = supabase
+            .from('stores')
+            .select(`
+                id,
+                company_name,
+                cnpj,
+                city,
+                state,
+                region,
+                profiles!stores_profile_id_fkey (
+                    full_name
+                )
+            `, { count: 'exact' })
+
+        if (scope === 'routable') {
+            const routableStoreIds = Array.from(routableCountByStore.keys())
+            if (routableStoreIds.length === 0) {
+                const emptyResult: ClientMapDatasetResponse = {
+                    scope,
+                    items: [],
+                    total_clients: 0,
+                    loaded_clients: 0,
+                    truncated: false,
+                }
+                return { data: emptyResult }
+            }
+            storesQuery = storesQuery.in('id', routableStoreIds)
+        }
+
+        if (selectedFilterIds.length > 0) {
+            storesQuery = storesQuery.in('id', selectedFilterIds)
+        }
+        if (cityFilter) {
+            storesQuery = storesQuery.ilike('city', `%${cityFilter}%`)
+        }
+        if (regionFilter) {
+            storesQuery = storesQuery.ilike('region', `%${regionFilter}%`)
+        }
+        if (searchTerm) {
+            const escapedSearch = searchTerm.replace(/[%_]/g, '')
+            if (escapedSearch) {
+                storesQuery = storesQuery.or(
+                    `company_name.ilike.%${escapedSearch}%,cnpj.ilike.%${escapedSearch}%,city.ilike.%${escapedSearch}%`
+                )
+            }
+        }
+
+        storesQuery = storesQuery
+            .order('company_name', { ascending: true })
+            .range(0, maxRawFetch - 1)
+
+        const { data: stores, error: storesErr, count: storesCount } = await storesQuery
+        if (storesErr) {
+            console.error('[CLIENT MAP DATASET] Stores error:', storesErr)
+            return { error: 'Erro ao carregar clientes para o mapa.' }
+        }
+
+        const storeIds = (stores || [])
+            .map((store) => String(store.id || ''))
+            .filter(Boolean)
+
+        const primaryAddressByStore = new Map<string, {
+            id: string
+            title: string | null
+            address: string | null
+            number: string | null
+            city: string | null
+            state: string | null
+            zip_code: string | null
+            latitude: number | null
+            longitude: number | null
+        }>()
+        const fallbackAddressCoordsByStore = new Map<string, { latitude: number; longitude: number }>()
+        if (storeIds.length > 0) {
+            const { data: addresses } = await supabase
+                .from('store_addresses')
+                .select('id, store_id, title, address, number, city, state, zip_code, latitude, longitude, is_main, updated_at, created_at')
+                .in('store_id', storeIds)
+                .order('is_main', { ascending: false })
+                .order('updated_at', { ascending: false })
+                .order('created_at', { ascending: false })
+
+            for (const addr of addresses || []) {
+                const storeId = String(addr.store_id || '')
+                if (!storeId) continue
+
+                if (!primaryAddressByStore.has(storeId)) {
+                    primaryAddressByStore.set(storeId, {
+                        id: String(addr.id || ''),
+                        title: addr.title ? String(addr.title) : null,
+                        address: addr.address ? String(addr.address) : null,
+                        number: addr.number ? String(addr.number) : null,
+                        city: addr.city ? String(addr.city) : null,
+                        state: addr.state ? String(addr.state) : null,
+                        zip_code: addr.zip_code ? String(addr.zip_code) : null,
+                        latitude: addr.latitude ? Number(addr.latitude) : null,
+                        longitude: addr.longitude ? Number(addr.longitude) : null,
+                    })
+                }
+
+                const lat = Number(addr.latitude)
+                const lng = Number(addr.longitude)
+                if (!fallbackAddressCoordsByStore.has(storeId) && Number.isFinite(lat) && Number.isFinite(lng)) {
+                    fallbackAddressCoordsByStore.set(storeId, { latitude: lat, longitude: lng })
+                }
+            }
+        }
+
+        const needsStopFallbackStoreIds = storeIds.filter((storeId) => {
+            const primaryAddress = primaryAddressByStore.get(storeId) || null
+            const hasPrimaryCoords = Boolean(
+                primaryAddress
+                && Number.isFinite(primaryAddress.latitude)
+                && Number.isFinite(primaryAddress.longitude),
+            )
+            return !hasPrimaryCoords && !routableCoordsByStore.has(storeId)
+        })
+
+        const latestStopCoordsByStore = new Map<string, { latitude: number; longitude: number }>()
+        if (needsStopFallbackStoreIds.length > 0) {
+            const { data: stopCoords } = await supabase
+                .from('delivery_route_stops')
+                .select('store_id, latitude, longitude, updated_at, created_at')
+                .in('store_id', needsStopFallbackStoreIds)
+                .not('latitude', 'is', null)
+                .not('longitude', 'is', null)
+                .order('updated_at', { ascending: false })
+                .order('created_at', { ascending: false })
+                .limit(25000)
+
+            for (const row of stopCoords || []) {
+                const storeId = String(row.store_id || '')
+                if (!storeId || latestStopCoordsByStore.has(storeId)) continue
+                const lat = Number(row.latitude)
+                const lng = Number(row.longitude)
+                if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                    latestStopCoordsByStore.set(storeId, { latitude: lat, longitude: lng })
+                }
+            }
+        }
+
+        let items: ClientMapItem[] = (stores || []).map((store) => {
+            const storeId = String(store.id || '')
+            const profile = pickFirst(store.profiles)
+            const routableOrdersCount = routableCountByStore.get(storeId) || 0
+            const primaryAddress = primaryAddressByStore.get(storeId) || null
+
+            const primaryCoords = (
+                primaryAddress
+                && Number.isFinite(primaryAddress.latitude)
+                && Number.isFinite(primaryAddress.longitude)
+            )
+                ? { latitude: Number(primaryAddress.latitude), longitude: Number(primaryAddress.longitude) }
+                : null
+
+            let preferredCoords: { latitude: number; longitude: number } | null = null
+            let coordinatesSource: string | null = null
+
+            if (primaryCoords) {
+                preferredCoords = primaryCoords
+                coordinatesSource = 'primary_address'
+            } else if (routableCoordsByStore.has(storeId)) {
+                preferredCoords = routableCoordsByStore.get(storeId) || null
+                coordinatesSource = 'routable_order_address'
+            } else if (latestStopCoordsByStore.has(storeId)) {
+                preferredCoords = latestStopCoordsByStore.get(storeId) || null
+                coordinatesSource = 'latest_route_stop'
+            } else if (fallbackAddressCoordsByStore.has(storeId)) {
+                preferredCoords = fallbackAddressCoordsByStore.get(storeId) || null
+                coordinatesSource = 'store_address'
+            }
+
+            const latitude = preferredCoords?.latitude ?? null
+            const longitude = preferredCoords?.longitude ?? null
+            const hasValidCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude)
+
+            return {
+                store_id: storeId,
+                company_name: String(store.company_name || ''),
+                client_name: String(profile?.full_name || ''),
+                cnpj: store.cnpj ? String(store.cnpj) : null,
+                city: String(store.city || ''),
+                state: String(store.state || ''),
+                region: store.region ? String(store.region) : null,
+                primary_address_id: primaryAddress?.id || null,
+                primary_address_label: primaryAddress ? buildPrimaryAddressLabel(primaryAddress) : null,
+                latitude,
+                longitude,
+                coordinates_source: coordinatesSource,
+                has_valid_coordinates: hasValidCoordinates,
+                routable_orders_count: routableOrdersCount,
+                has_routable_orders: routableOrdersCount > 0,
+            }
+        })
+
+        if (searchTerm) {
+            items = items.filter((item) => (
+                item.company_name.toLowerCase().includes(searchTerm)
+                || item.client_name.toLowerCase().includes(searchTerm)
+                || (item.cnpj || '').toLowerCase().includes(searchTerm)
+                || item.city.toLowerCase().includes(searchTerm)
+                || (item.region || '').toLowerCase().includes(searchTerm)
+            ))
+        }
+
+        if (input?.onlyWithOrders) {
+            items = items.filter((item) => item.has_routable_orders)
+        }
+        if (input?.onlyWithoutOrders) {
+            items = items.filter((item) => !item.has_routable_orders)
+        }
+        if (input?.onlyWithCoordinates) {
+            items = items.filter((item) => item.has_valid_coordinates)
+        }
+        if (input?.onlyWithoutCoordinates) {
+            items = items.filter((item) => !item.has_valid_coordinates)
+        }
+
+        const totalClients = items.length
+        const loadedItems = items.slice(0, safeLimit)
+        const sourceWasTruncated = Number(storesCount || 0) > (stores || []).length
+        const truncated = sourceWasTruncated || totalClients > loadedItems.length
+
+        const response: ClientMapDatasetResponse = {
+            scope,
+            items: loadedItems,
+            total_clients: totalClients,
+            loaded_clients: loadedItems.length,
+            truncated,
+        }
+
+        return { data: response }
+    } catch (e) {
+        console.error('[CLIENT MAP DATASET] Unexpected:', e)
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
     }
 }
@@ -1449,6 +1834,262 @@ export async function getDistinctCities() {
 
 // ==================== UPDATE STOP COORDINATES ====================
 
+type PrimaryAddressResolution = {
+    addressId: string
+    addressLabel: string
+}
+
+type StoreSnapshot = {
+    id: string
+    company_name: string | null
+    address: string | null
+    city: string | null
+    state: string | null
+    zip_code: string | null
+}
+
+async function resolveOrCreatePrimaryAddress(
+    supabase: Awaited<ReturnType<typeof createServerClient>>,
+    storeId: string,
+    fallbackAddressText?: string | null,
+) {
+    const { data: store, error: storeErr } = await supabase
+        .from('stores')
+        .select('id, company_name, address, city, state, zip_code')
+        .eq('id', storeId)
+        .single()
+
+    if (storeErr || !store) {
+        return { error: 'Loja da parada nao encontrada para atualizar coordenadas.' }
+    }
+
+    const { data: addresses, error: addressesErr } = await supabase
+        .from('store_addresses')
+        .select('id, title, is_main, address, number, city, state, zip_code, created_at')
+        .eq('store_id', storeId)
+        .order('is_main', { ascending: false })
+        .order('created_at', { ascending: true })
+
+    if (addressesErr) {
+        return { error: 'Erro ao localizar enderecos do cliente.' }
+    }
+
+    const addressList = addresses || []
+    const mainAddress = addressList.find((row) => row.is_main)
+
+    if (mainAddress) {
+        const label = buildPrimaryAddressLabel({
+            title: mainAddress.title,
+            address: mainAddress.address,
+            number: mainAddress.number,
+            city: mainAddress.city,
+            state: mainAddress.state,
+            zip_code: mainAddress.zip_code,
+        })
+        return {
+            data: {
+                addressId: String(mainAddress.id),
+                addressLabel: label || 'Endereco Principal',
+            } as PrimaryAddressResolution,
+        }
+    }
+
+    if (addressList.length > 0) {
+        const promoted = addressList[0]
+        const { error: promoteErr } = await supabase
+            .from('store_addresses')
+            .update({ is_main: true })
+            .eq('id', promoted.id)
+
+        if (promoteErr) {
+            return { error: 'Erro ao promover endereco principal do cliente.' }
+        }
+
+        const label = buildPrimaryAddressLabel({
+            title: promoted.title,
+            address: promoted.address,
+            number: promoted.number,
+            city: promoted.city,
+            state: promoted.state,
+            zip_code: promoted.zip_code,
+        })
+        return {
+            data: {
+                addressId: String(promoted.id),
+                addressLabel: label || 'Endereco Principal',
+            } as PrimaryAddressResolution,
+        }
+    }
+
+    const storeSnapshot = store as StoreSnapshot
+    const snapshotAddress = cleanAddressSnapshot(fallbackAddressText || '')
+    const baseAddress = (storeSnapshot.address || '').trim() || snapshotAddress
+    const baseCity = (storeSnapshot.city || '').trim()
+    const baseState = (storeSnapshot.state || '').trim()
+
+    if (!baseAddress || !baseCity || !baseState) {
+        return {
+            error: 'Nao foi possivel criar endereco principal automaticamente. Complete endereco, cidade e estado do cliente.',
+        }
+    }
+
+    const { data: created, error: createErr } = await supabase
+        .from('store_addresses')
+        .insert({
+            store_id: storeId,
+            title: 'Endereco Principal',
+            is_main: true,
+            zip_code: (storeSnapshot.zip_code || '').trim() || '00000000',
+            address: baseAddress,
+            city: baseCity,
+            state: baseState,
+        })
+        .select('id, title, address, city, state, zip_code')
+        .single()
+
+    if (createErr || !created) {
+        return { error: 'Erro ao criar endereco principal para persistir coordenadas.' }
+    }
+
+    return {
+        data: {
+            addressId: String(created.id),
+            addressLabel: buildPrimaryAddressLabel({
+                title: created.title,
+                address: created.address,
+                city: created.city,
+                state: created.state,
+                zip_code: created.zip_code,
+            }) || 'Endereco Principal',
+        } as PrimaryAddressResolution,
+    }
+}
+
+async function syncStoreCoordinatesAcrossOperationalStops(
+    supabase: Awaited<ReturnType<typeof createServerClient>>,
+    params: { storeId: string; addressId: string; lat: number; lng: number },
+) {
+    const { data: routes, error: routesErr } = await supabase
+        .from('delivery_routes')
+        .select('id')
+        .in('status', ['draft', 'optimized', 'confirmed', 'in_progress'])
+        .eq('is_deleted', false)
+
+    if (routesErr) {
+        return { error: 'Erro ao localizar rotas operacionais para sincronizacao.' }
+    }
+
+    const routeIds = (routes || []).map((row) => String(row.id)).filter(Boolean)
+    if (routeIds.length === 0) {
+        return { data: { updatedRouteIds: [] as string[], updatedStops: 0 } }
+    }
+
+    const { data: updatedStops, error: syncErr } = await supabase
+        .from('delivery_route_stops')
+        .update({
+            latitude: params.lat,
+            longitude: params.lng,
+            address_id: params.addressId,
+        })
+        .eq('store_id', params.storeId)
+        .in('route_id', routeIds)
+        .select('id, route_id')
+
+    if (syncErr) {
+        return { error: 'Erro ao sincronizar coordenadas nas paradas operacionais.' }
+    }
+
+    const updatedRouteIds = [...new Set((updatedStops || []).map((row) => String(row.route_id || '')).filter(Boolean))]
+    return {
+        data: {
+            updatedRouteIds,
+            updatedStops: (updatedStops || []).length,
+        },
+    }
+}
+
+export async function updateClientCoordinates(
+    input: { storeId: string; lat: number; lng: number },
+) {
+    try {
+        const { supabase, userId } = await requireAdmin()
+        const storeId = input.storeId?.trim()
+        const lat = Number(input.lat)
+        const lng = Number(input.lng)
+
+        if (!storeId) return { error: 'Cliente invalido.' }
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            return { error: 'Latitude e longitude invalidas.' }
+        }
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            return { error: 'Coordenadas fora dos limites geograficos.' }
+        }
+
+        const primaryAddressRes = await resolveOrCreatePrimaryAddress(supabase, storeId, null)
+        if ('error' in primaryAddressRes && primaryAddressRes.error) {
+            return { error: primaryAddressRes.error }
+        }
+        const primaryAddress = primaryAddressRes.data!
+
+        const { error: updateAddressErr } = await supabase
+            .from('store_addresses')
+            .update({
+                latitude: lat,
+                longitude: lng,
+                geocoded_at: new Date().toISOString(),
+                geocoding_source: 'manual_adjustment',
+                is_main: true,
+            })
+            .eq('id', primaryAddress.addressId)
+
+        if (updateAddressErr) {
+            return { error: 'Erro ao atualizar coordenadas no endereco principal.' }
+        }
+
+        const syncRes = await syncStoreCoordinatesAcrossOperationalStops(supabase, {
+            storeId,
+            addressId: primaryAddress.addressId,
+            lat,
+            lng,
+        })
+
+        if ('error' in syncRes && syncRes.error) {
+            return { error: syncRes.error }
+        }
+
+        const routeIds = syncRes.data?.updatedRouteIds || []
+        if (routeIds.length > 0) {
+            await supabase.from('route_events').insert(
+                routeIds.map((routeId) => ({
+                    route_id: routeId,
+                    event_type: 'notes_updated',
+                    actor_id: userId,
+                    metadata: {
+                        action: 'client_geocoded_from_client_map',
+                        store_id: storeId,
+                        address_id: primaryAddress.addressId,
+                        lat,
+                        lng,
+                    },
+                })),
+            )
+        }
+
+        return {
+            data: {
+                store_id: storeId,
+                primary_address_id: primaryAddress.addressId,
+                primary_address_label: primaryAddress.addressLabel,
+                latitude: lat,
+                longitude: lng,
+                coordinates_source: 'primary_address',
+            },
+        }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
 export async function updateStopCoordinates(
     stopId: string,
     lat: number,
@@ -1457,39 +2098,110 @@ export async function updateStopCoordinates(
     try {
         const { supabase, userId } = await requireAdmin()
 
-        // Update the stop itself
-        const { data: stop, error } = await supabase
-            .from('delivery_route_stops')
-            .update({ latitude: lat, longitude: lng })
-            .eq('id', stopId)
-            .select('route_id, address_id')
-            .single()
-
-        if (error || !stop) return { error: 'Erro ao atualizar coordenadas da parada.' }
-
-        // Also cache coordinates in store_addresses if linked
-        if (stop.address_id) {
-            await supabase
-                .from('store_addresses')
-                .update({
-                    latitude: lat,
-                    longitude: lng,
-                    geocoded_at: new Date().toISOString(),
-                    geocoding_source: 'manual_adjustment',
-                })
-                .eq('id', stop.address_id)
+        const normalizedLat = Number(lat)
+        const normalizedLng = Number(lng)
+        if (!Number.isFinite(normalizedLat) || !Number.isFinite(normalizedLng)) {
+            return { error: 'Latitude e longitude invalidas.' }
         }
 
-        // Audit
-        await supabase.from('route_events').insert({
-            route_id: stop.route_id,
-            stop_id: stopId,
-            event_type: 'notes_updated',
-            actor_id: userId,
-            metadata: { action: 'geocoded', lat, lng },
-        })
+        const { data: stop, error } = await supabase
+            .from('delivery_route_stops')
+            .select('route_id, address_id, store_id, address_snapshot')
+            .eq('id', stopId)
+            .single()
 
-        return { success: true }
+        if (error || !stop) return { error: 'Parada nao encontrada para atualizar coordenadas.' }
+
+        const storeId = String(stop.store_id || '')
+        if (!storeId) {
+            return { error: 'Parada sem cliente vinculado para persistir coordenadas.' }
+        }
+
+        const primaryAddressRes = await resolveOrCreatePrimaryAddress(
+            supabase,
+            storeId,
+            typeof stop.address_snapshot === 'string' ? stop.address_snapshot : null,
+        )
+        if ('error' in primaryAddressRes && primaryAddressRes.error) {
+            return { error: primaryAddressRes.error }
+        }
+        const primaryAddress = primaryAddressRes.data!
+
+        const { error: updateAddressErr } = await supabase
+            .from('store_addresses')
+            .update({
+                latitude: normalizedLat,
+                longitude: normalizedLng,
+                geocoded_at: new Date().toISOString(),
+                geocoding_source: 'manual_adjustment',
+                is_main: true,
+            })
+            .eq('id', primaryAddress.addressId)
+
+        if (updateAddressErr) {
+            return { error: 'Erro ao atualizar endereco principal com as coordenadas da parada.' }
+        }
+
+        const { error: stopUpdateErr } = await supabase
+            .from('delivery_route_stops')
+            .update({
+                latitude: normalizedLat,
+                longitude: normalizedLng,
+                address_id: primaryAddress.addressId,
+            })
+            .eq('id', stopId)
+            .select('id')
+            .single()
+
+        if (stopUpdateErr) {
+            return { error: 'Erro ao atualizar coordenadas da parada atual.' }
+        }
+
+        const syncRes = await syncStoreCoordinatesAcrossOperationalStops(supabase, {
+            storeId,
+            addressId: primaryAddress.addressId,
+            lat: normalizedLat,
+            lng: normalizedLng,
+        })
+        if ('error' in syncRes && syncRes.error) {
+            return { error: syncRes.error }
+        }
+
+        const routeIdsToAudit = new Set<string>([
+            String(stop.route_id || ''),
+            ...(syncRes.data?.updatedRouteIds || []),
+        ])
+        routeIdsToAudit.delete('')
+
+        if (routeIdsToAudit.size > 0) {
+            await supabase.from('route_events').insert(
+                Array.from(routeIdsToAudit).map((routeId) => ({
+                    route_id: routeId,
+                    stop_id: routeId === String(stop.route_id || '') ? stopId : null,
+                    event_type: 'notes_updated',
+                    actor_id: userId,
+                    metadata: {
+                        action: 'geocoded',
+                        store_id: storeId,
+                        address_id: primaryAddress.addressId,
+                        lat: normalizedLat,
+                        lng: normalizedLng,
+                    },
+                })),
+            )
+        }
+
+        return {
+            data: {
+                store_id: storeId,
+                primary_address_id: primaryAddress.addressId,
+                primary_address_label: primaryAddress.addressLabel,
+                latitude: normalizedLat,
+                longitude: normalizedLng,
+                synced_routes_count: syncRes.data?.updatedRouteIds.length || 0,
+                synced_stops_count: syncRes.data?.updatedStops || 0,
+            },
+        }
     } catch (e) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
     }

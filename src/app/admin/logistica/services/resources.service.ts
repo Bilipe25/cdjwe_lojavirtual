@@ -2,6 +2,7 @@
 
 import {
     getRoutableOrders as getRoutableOrdersAction,
+    getClientMapDataset as getClientMapDatasetAction,
     getVehicles as getVehiclesAction,
     upsertVehicle as upsertVehicleAction,
     deleteVehicle as deleteVehicleAction,
@@ -15,10 +16,15 @@ import {
     upsertCenter as upsertCenterAction,
     deleteCenter as deleteCenterAction,
     getDistinctCities as getDistinctCitiesAction,
+    updateClientCoordinates as updateClientCoordinatesAction,
 } from '../actions'
 
 export async function getRoutableOrders(...args: Parameters<typeof getRoutableOrdersAction>) {
     return getRoutableOrdersAction(...args)
+}
+
+export async function getClientMapDataset(...args: Parameters<typeof getClientMapDatasetAction>) {
+    return getClientMapDatasetAction(...args)
 }
 
 export async function getVehicles(...args: Parameters<typeof getVehiclesAction>) {
@@ -73,9 +79,16 @@ export async function getDistinctCities(...args: Parameters<typeof getDistinctCi
     return getDistinctCitiesAction(...args)
 }
 
+export async function updateClientCoordinates(...args: Parameters<typeof updateClientCoordinatesAction>) {
+    return updateClientCoordinatesAction(...args)
+}
+
 export type {
     PaginationMeta,
     RoutableOrder,
+    ClientMapScope,
+    ClientMapItem,
+    ClientMapDatasetResponse,
     VehicleItem,
     DriverItem,
     RegionItem,

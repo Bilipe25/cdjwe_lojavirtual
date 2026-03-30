@@ -33,6 +33,7 @@ interface GeocodePickerDialogProps {
     initialLat?: number | null
     initialLng?: number | null
     onConfirm: (stopId: string, lat: number, lng: number) => Promise<void>
+    context?: 'stop' | 'client'
 }
 
 export default function GeocodePickerDialog({
@@ -45,7 +46,15 @@ export default function GeocodePickerDialog({
     initialLat,
     initialLng,
     onConfirm,
+    context = 'stop',
 }: GeocodePickerDialogProps) {
+    const isClientContext = context === 'client'
+    const dialogTitle = isClientContext ? 'Geocodificar Cliente' : 'Geocodificar Parada'
+    const dialogDescription = isClientContext
+        ? 'Localize o endereco principal do cliente no mapa e ajuste a posicao.'
+        : 'Localize o endereco no mapa e arraste o marcador para ajustar a posicao.'
+    const confirmLabel = isClientContext ? 'Salvar Coordenadas do Cliente' : 'Confirmar Localizacao'
+
     const mapContainerRef = useRef<HTMLDivElement>(null)
     const mapInstanceRef = useRef<maplibregl.Map | null>(null)
     const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -184,8 +193,8 @@ export default function GeocodePickerDialog({
         try {
             await onConfirm(stopId, coords.lat, coords.lng)
             onOpenChange(false)
-        } catch {
-            setError('Erro ao salvar coordenadas.')
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Erro ao salvar coordenadas.')
         }
         setSaving(false)
     }
@@ -259,10 +268,10 @@ export default function GeocodePickerDialog({
                             <div className="h-7 w-7 rounded-lg bg-indigo-100 flex items-center justify-center">
                                 <Navigation className="h-3.5 w-3.5 text-indigo-600" />
                             </div>
-                            Geocodificar Parada
+                            {dialogTitle}
                         </DialogTitle>
                         <DialogDescription className="text-xs">
-                            Localize o endereco no mapa e arraste o marcador para ajustar a posicao.
+                            {dialogDescription}
                         </DialogDescription>
                     </DialogHeader>
                 </div>
@@ -357,7 +366,7 @@ export default function GeocodePickerDialog({
                         className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
                     >
                         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                        {saving ? 'Salvando...' : 'Confirmar Localizacao'}
+                        {saving ? 'Salvando...' : confirmLabel}
                     </Button>
                 </div>
             </DialogContent>

@@ -1672,10 +1672,10 @@ export default function RouteDetailPage() {
                         const res = await updateStopCoordinates(sid, lat, lng)
                         if ('error' in res && res.error) {
                             setError(res.error)
-                        } else {
-                            setGeocodeDialog(null)
-                            void loadData()
+                            throw new Error(res.error)
                         }
+                        setGeocodeDialog(null)
+                        void loadData()
                     }}
                 />
             )}
