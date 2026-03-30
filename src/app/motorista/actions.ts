@@ -123,7 +123,9 @@ export async function getDriverRoutes(filter?: 'today' | 'upcoming' | 'completed
             total_weight_kg,
             vehicles ( name, plate ),
             route_centers ( name )
-        `).eq('driver_id', ctx.driverId)
+        `)
+            .eq('driver_id', ctx.driverId)
+            .eq('is_deleted', false)
 
         const today = new Date().toISOString().split('T')[0]
 
@@ -168,6 +170,7 @@ export async function getDriverRouteDetail(routeId: string) {
                 route_centers ( name, address, city )
             `)
             .eq('id', routeId)
+            .eq('is_deleted', false)
             .single()
 
         if (error || !route) return { error: 'Rota nao encontrada.' }
@@ -202,11 +205,12 @@ export async function driverStartRoute(routeId: string) {
         // Verify ownership
         const { data: route } = await supabase
             .from('delivery_routes')
-            .select('id, driver_id, status')
+            .select('id, driver_id, status, is_deleted')
             .eq('id', routeId)
             .single()
 
         if (!route) return { error: 'Rota nao encontrada.' }
+        if (route.is_deleted) return { error: 'Rota nao encontrada.' }
         if (!ctx.isAdmin && route.driver_id !== ctx.driverId) return { error: 'Acesso negado.' }
         if (route.status !== 'confirmed') return { error: 'Apenas rotas confirmadas podem ser iniciadas.' }
 
@@ -218,6 +222,7 @@ export async function driverStartRoute(routeId: string) {
                 updated_by: ctx.userId,
             })
             .eq('id', routeId)
+            .eq('is_deleted', false)
 
         if (error) return { error: 'Erro ao iniciar rota.' }
 
@@ -280,6 +285,16 @@ export async function driverCompleteRoute(routeId: string) {
         const ctx = await requireDriver()
         const { supabase } = ctx
 
+        const { data: route } = await supabase
+            .from('delivery_routes')
+            .select('id, driver_id, status, is_deleted')
+            .eq('id', routeId)
+            .single()
+
+        if (!route) return { error: 'Rota nao encontrada.' }
+        if (route.is_deleted) return { error: 'Rota nao encontrada.' }
+        if (!ctx.isAdmin && route.driver_id !== ctx.driverId) return { error: 'Acesso negado.' }
+
         const { error } = await supabase.rpc('logistics_complete_route_atomic', {
             p_route_id: routeId,
             p_close_open_stops_as: 'failed',
@@ -309,6 +324,7 @@ export async function getDriverKpis() {
             .from('delivery_routes')
             .select('id, planned_date, status')
             .eq('driver_id', ctx.driverId)
+            .eq('is_deleted', false)
             .in('status', ['draft', 'optimized', 'confirmed', 'in_progress', 'completed', 'cancelled'])
             .order('planned_date', { ascending: false })
             .limit(200)
@@ -334,22 +350,29 @@ export async function getDriverKpis() {
                 .in('route_id', routeIds)
                 .eq('status', 'pending')
 
-            const { count: delivered } = await supabase
-                .from('delivery_route_stops')
-                .select('id', { count: 'exact', head: true })
-                .in('route_id', routeIds)
-                .eq('status', 'delivered')
-
-            const { count: failed } = await supabase
-                .from('delivery_route_stops')
-                .select('id', { count: 'exact', head: true })
-                .in('route_id', routeIds)
-                .eq('status', 'failed')
-
             pendingStops = pending || 0
-            deliveredToday = delivered || 0
-            failedToday = failed || 0
         }
+
+        // IMPORTANT:
+        // "Entregas" and "Insucessos" cards should reflect real driver execution history,
+        // not only routes planned for today.
+        const [deliveredRes, failedRes] = await Promise.all([
+            supabase
+                .from('delivery_route_stops')
+                .select('id, delivery_routes!inner(driver_id)', { count: 'exact', head: true })
+                .eq('delivery_routes.driver_id', ctx.driverId)
+                .eq('delivery_routes.is_deleted', false)
+                .eq('status', 'delivered'),
+            supabase
+                .from('delivery_route_stops')
+                .select('id, delivery_routes!inner(driver_id)', { count: 'exact', head: true })
+                .eq('delivery_routes.driver_id', ctx.driverId)
+                .eq('delivery_routes.is_deleted', false)
+                .eq('status', 'failed'),
+        ])
+
+        deliveredToday = deliveredRes.count || 0
+        failedToday = failedRes.count || 0
 
         return {
             data: {
@@ -390,6 +413,7 @@ export async function getDriverActiveRouteMap() {
                 route_centers ( name, latitude, longitude )
             `)
             .eq('driver_id', ctx.driverId)
+            .eq('is_deleted', false)
             .in('status', ['in_progress', 'confirmed'])
             .order('updated_at', { ascending: false })
             .limit(50)

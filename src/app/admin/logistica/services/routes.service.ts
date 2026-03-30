@@ -4,6 +4,7 @@ import {
     getRoutes as getRoutesAction,
     createRoute as createRouteAction,
     getRouteDetail as getRouteDetailAction,
+    getLogisticsPdfBranding as getLogisticsPdfBrandingAction,
     updateRouteStatus as updateRouteStatusAction,
     deleteRoute as deleteRouteAction,
     updateRouteAssignment as updateRouteAssignmentAction,
@@ -21,6 +22,10 @@ export async function getRouteDetail(...args: Parameters<typeof getRouteDetailAc
     return getRouteDetailAction(...args)
 }
 
+export async function getLogisticsPdfBranding(...args: Parameters<typeof getLogisticsPdfBrandingAction>) {
+    return getLogisticsPdfBrandingAction(...args)
+}
+
 export async function updateRouteStatus(...args: Parameters<typeof updateRouteStatusAction>) {
     return updateRouteStatusAction(...args)
 }
@@ -33,4 +38,4 @@ export async function updateRouteAssignment(...args: Parameters<typeof updateRou
     return updateRouteAssignmentAction(...args)
 }
 
-export type { RouteListItem } from '../actions'
+export type { RouteListItem, LogisticsPdfBranding } from '../actions'

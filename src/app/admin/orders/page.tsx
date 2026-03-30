@@ -196,7 +196,7 @@ export default function AdminOrdersPage() {
         if (currentStatus) {
             if (currentStatus === newStatus) return true
             if (!canTransitionOrderStatus(currentStatus, newStatus)) {
-                toast.error('TransiÃ§Ã£o de status invÃ¡lida para este pedido.')
+                toast.error('Transição de status inválida para este pedido.')
                 return false
             }
         }
@@ -309,9 +309,9 @@ export default function AdminOrdersPage() {
         }
         if (failedRows.length > 0) {
             const firstError = failedRows[0]?.error_message ? ` (${failedRows[0].error_message})` : ''
-            toast.error(`${failedRows.length} pedido(s) nÃ£o puderam ser atualizados${firstError}`)
+            toast.error(`${failedRows.length} pedido(s) não puderam ser atualizados${firstError}`)
         } else if (changedRows.length === 0 && successRows.length > 0) {
-            toast.message('Nenhum pedido precisou de alteraÃ§Ã£o de status.')
+            toast.message('Nenhum pedido precisou de alteração de status.')
         }
 
         setSelectedOrders([])
@@ -330,7 +330,7 @@ export default function AdminOrdersPage() {
         if (selectedOrderDetail?.id === orderId) {
             setSelectedOrderDetail(null)
         }
-        toast.success('Pedido excluÃ­do com sucesso.')
+        toast.success('Pedido excluído com sucesso.')
         return true
     }
 
@@ -437,7 +437,7 @@ export default function AdminOrdersPage() {
                             disabled={currentPage >= totalPages}
                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         >
-                            PrÃ³xima <ChevronRight className="h-4 w-4 ml-1" />
+                            Próxima <ChevronRight className="h-4 w-4 ml-1" />
                         </Button>
                     </div>
                 </div>

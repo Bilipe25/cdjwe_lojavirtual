@@ -31,11 +31,14 @@ import {
     Maximize2,
     Minimize2,
     Fuel,
+    FileDown,
+    FileText,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -54,8 +57,15 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { useRouteLiveLocation } from '@/lib/hooks/use-route-live-location'
+import {
+    getTrackingStatusLabel,
+    getTrackingStatusTone,
+    type LiveVehicleMarker,
+} from '@/lib/logistics/live-tracking'
 import {
     getRouteDetail,
+    getLogisticsPdfBranding,
     updateRouteStatus,
     updateStopStatus,
     applyOptimizationResult,
@@ -66,8 +76,17 @@ import {
     getVehicles,
     getCenters,
     updateStopCoordinates,
-    getRouteCostEstimate,
+    getRouteCostProfile,
+    saveRouteCostOverride,
+    clearRouteCostOverride,
+    type RouteCostProfile,
+    type RouteCostEstimate,
 } from '../../services'
+import {
+    generateRouteDetailPDF,
+    type RoutePdfBranding,
+    type RoutePdfMode,
+} from '@/lib/pdf/route-pdf-generator'
 
 const RouteMap = dynamic(() => import('@/components/logistics/route-map'), { ssr: false })
 const GeocodePickerDialog = dynamic(() => import('@/components/logistics/geocode-picker-dialog'), { ssr: false })
@@ -89,6 +108,50 @@ const stopStatusConfig: Record<string, { label: string; color: string; icon: Rea
     skipped: { label: 'Pulada', color: 'bg-amber-50 text-amber-600 border-amber-200', icon: Ban },
 }
 
+const stopLegendCompact = [
+    { key: 'pending', label: 'Pendente', color: '#64748b' },
+    { key: 'arrived', label: 'Chegou', color: '#3b82f6' },
+    { key: 'delivered', label: 'Entregue', color: '#10b981' },
+    { key: 'failed', label: 'Insucesso', color: '#ef4444' },
+    { key: 'skipped', label: 'Pulada', color: '#f59e0b' },
+] as const
+
+type RouteCostFormState = {
+    fuel_price_per_liter: string
+    fuel_tax_pct: string
+    additional_tax: string
+    daily_rate: string
+    consumption_km_l: string
+    notes: string
+}
+
+function toInputNumber(value: number | null | undefined) {
+    if (value === null || value === undefined || Number.isNaN(value)) return ''
+    return String(value)
+}
+
+function parseLocaleNumber(value: string) {
+    const normalized = value.replace(',', '.').trim()
+    if (!normalized) return Number.NaN
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function roundCurrency(value: number) {
+    return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100
+}
+
+function buildCostFormFromProfile(profile: RouteCostProfile): RouteCostFormState {
+    return {
+        fuel_price_per_liter: toInputNumber(profile.effective_settings.fuel_price_per_liter),
+        fuel_tax_pct: toInputNumber(profile.effective_settings.fuel_tax_pct),
+        additional_tax: toInputNumber(profile.effective_settings.additional_tax),
+        daily_rate: toInputNumber(profile.effective_settings.daily_rate),
+        consumption_km_l: toInputNumber(profile.effective_settings.consumption_km_l),
+        notes: profile.override_settings?.notes || '',
+    }
+}
+
 export default function RouteDetailPage() {
     const params = useParams()
     const routeId = params.id as string
@@ -105,10 +168,14 @@ export default function RouteDetailPage() {
     const [confirmAction, setConfirmAction] = useState<{ type: string; label: string; newStatus: string } | null>(null)
     const [cancelReason, setCancelReason] = useState('')
     const [optimizing, setOptimizing] = useState(false)
-    const [activeTab, setActiveTab] = useState<'stops' | 'timeline' | 'costs'>('stops')
-    // Cost Estimate
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [costEstimate, setCostEstimate] = useState<any>(null)
+    const [activeTab, setActiveTab] = useState<'assignment' | 'stops' | 'timeline' | 'costs'>('assignment')
+    const [costEstimate, setCostEstimate] = useState<RouteCostEstimate | null>(null)
+    const [costProfile, setCostProfile] = useState<RouteCostProfile | null>(null)
+    const [costForm, setCostForm] = useState<RouteCostFormState | null>(null)
+    const [initialCostForm, setInitialCostForm] = useState<RouteCostFormState | null>(null)
+    const [costSaving, setCostSaving] = useState(false)
+    const [costResetting, setCostResetting] = useState(false)
+    const [costFeedback, setCostFeedback] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null)
     // Inline editing
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [driversList, setDriversList] = useState<any[]>([])
@@ -130,11 +197,37 @@ export default function RouteDetailPage() {
     const [isMapExpanded, setIsMapExpanded] = useState(false)
     // Optimization result banner
     const [optimizationBanner, setOptimizationBanner] = useState<{ distance: number; duration: number; engine: string; stops: number } | null>(null)
+    const [exportingPdfMode, setExportingPdfMode] = useState<RoutePdfMode | null>(null)
+    const [pdfBranding, setPdfBranding] = useState<RoutePdfBranding | null>(null)
+
+    const hydrateCostProfile = useCallback((profile: RouteCostProfile) => {
+        const nextForm = buildCostFormFromProfile(profile)
+        setCostProfile(profile)
+        setCostEstimate(profile.estimate)
+        setCostForm(nextForm)
+        setInitialCostForm(nextForm)
+    }, [])
+
+    const loadCostProfile = useCallback(async () => {
+        const response = await getRouteCostProfile(routeId)
+        if ('error' in response && response.error) {
+            setCostFeedback({ type: 'error', message: response.error })
+            return null
+        }
+        if ('data' in response && response.data) {
+            hydrateCostProfile(response.data)
+            return response.data
+        }
+        return null
+    }, [routeId, hydrateCostProfile])
 
     const loadData = useCallback(async () => {
         setLoading(true)
         setError(null)
-        const res = await getRouteDetail(routeId)
+        const [res, costRes] = await Promise.all([
+            getRouteDetail(routeId),
+            getRouteCostProfile(routeId),
+        ])
         if (res.error) setError(res.error)
         else if ('data' in res && res.data) {
             const rte = res.data.route
@@ -168,23 +261,30 @@ export default function RouteDetailPage() {
             setRoute(rte)
             setStops(enrichedStops)
             setEvents(res.data.events)
+        }
 
-            // Fetch cost estimate
-            const costRes = await getRouteCostEstimate(routeId)
-            if (costRes.data) setCostEstimate(costRes.data)
+        if ('error' in costRes && costRes.error) {
+            setCostFeedback({ type: 'error', message: costRes.error })
+        } else if ('data' in costRes && costRes.data) {
+            hydrateCostProfile(costRes.data)
         }
         setLoading(false)
-    }, [routeId])
+    }, [routeId, hydrateCostProfile])
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     useEffect(() => {
         const loadResources = async () => {
-            const [d, v, c] = await Promise.all([getDrivers(), getVehicles(), getCenters()])
+            const [d, v, c, branding] = await Promise.all([
+                getDrivers(),
+                getVehicles(),
+                getCenters(),
+                getLogisticsPdfBranding(),
+            ])
             if ('data' in d && d.data) setDriversList(d.data)
             if ('data' in v && v.data) setVehiclesList(v.data)
             if ('data' in c && c.data) setCentersList(c.data)
+            if ('data' in branding && branding.data) setPdfBranding(branding.data)
         }
         void loadResources()
     }, [])
@@ -423,6 +523,36 @@ export default function RouteDetailPage() {
         void loadData()
     }
 
+    const handleExportPdf = async (mode: RoutePdfMode = 'standard') => {
+        if (!route) return
+
+        setExportingPdfMode(mode)
+        setError(null)
+        try {
+            let brandingToUse = pdfBranding
+            if (!brandingToUse) {
+                const brandingRes = await getLogisticsPdfBranding()
+                if ('data' in brandingRes && brandingRes.data) {
+                    brandingToUse = brandingRes.data
+                    setPdfBranding(brandingRes.data)
+                }
+            }
+
+            await generateRouteDetailPDF({
+                route,
+                stops,
+                costEstimate,
+                branding: brandingToUse || undefined,
+            }, mode)
+        } catch (e) {
+            const message = e instanceof Error ? e.message : 'Erro desconhecido'
+            const modeLabel = mode === 'operational' ? 'operacional' : 'de detalhes'
+            setError(`Não foi possível gerar o PDF ${modeLabel} da rota. ${message}`)
+        } finally {
+            setExportingPdfMode(null)
+        }
+    }
+
     const formatDate = (d: string) => {
         try { return new Date(d).toLocaleDateString('pt-BR') }
         catch { return d }
@@ -431,6 +561,113 @@ export default function RouteDetailPage() {
     const formatDateTime = (d: string) => {
         try { return new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) }
         catch { return d }
+    }
+
+    const formatCurrency = (value: number) => (
+        new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0)
+    )
+
+    const handleCostFieldChange = (field: keyof RouteCostFormState, value: string) => {
+        setCostFeedback(null)
+        setCostForm((prev) => (prev ? { ...prev, [field]: value } : prev))
+    }
+
+    const costFormDirty = useMemo(() => {
+        if (!costForm || !initialCostForm) return false
+        return JSON.stringify(costForm) !== JSON.stringify(initialCostForm)
+    }, [costForm, initialCostForm])
+
+    const parsedCostInputs = useMemo(() => {
+        if (!costForm) return null
+        return {
+            fuelPrice: parseLocaleNumber(costForm.fuel_price_per_liter),
+            fuelTaxPct: parseLocaleNumber(costForm.fuel_tax_pct),
+            additionalTax: parseLocaleNumber(costForm.additional_tax),
+            dailyRate: parseLocaleNumber(costForm.daily_rate),
+            consumptionKmL: parseLocaleNumber(costForm.consumption_km_l),
+        }
+    }, [costForm])
+
+    const hasInvalidCostInput = Boolean(parsedCostInputs && Object.values(parsedCostInputs).some((value) => !Number.isFinite(value) || value < 0))
+    const hasInvalidConsumption = Boolean(parsedCostInputs && Number.isFinite(parsedCostInputs.consumptionKmL) && parsedCostInputs.consumptionKmL <= 0)
+
+    const previewEstimate = useMemo<RouteCostEstimate | null>(() => {
+        if (!costProfile || !costForm || !parsedCostInputs) return costEstimate
+
+        const distance = Number(costProfile.estimate.distance_km || 0)
+        const fuelType = costProfile.estimate.fuel_type || 'diesel'
+
+        const fuelPricePerLiter = Number.isFinite(parsedCostInputs.fuelPrice) ? Math.max(0, parsedCostInputs.fuelPrice) : 0
+        const fuelTaxPct = Number.isFinite(parsedCostInputs.fuelTaxPct) ? Math.max(0, parsedCostInputs.fuelTaxPct) : 0
+        const additionalTax = Number.isFinite(parsedCostInputs.additionalTax) ? Math.max(0, parsedCostInputs.additionalTax) : 0
+        const dailyRate = Number.isFinite(parsedCostInputs.dailyRate) ? Math.max(0, parsedCostInputs.dailyRate) : 0
+        const consumptionKmL = Number.isFinite(parsedCostInputs.consumptionKmL) ? Math.max(0, parsedCostInputs.consumptionKmL) : 0
+
+        const canCalculateFuel = consumptionKmL > 0
+        const litersUsed = canCalculateFuel ? distance / consumptionKmL : 0
+        const fuelCost = litersUsed * fuelPricePerLiter
+        const fuelTaxValue = fuelCost * (fuelTaxPct / 100)
+        const totalCost = fuelCost + fuelTaxValue + additionalTax + dailyRate
+
+        return {
+            distance_km: roundCurrency(distance),
+            consumption_km_l: roundCurrency(consumptionKmL),
+            fuel_type: fuelType,
+            liters_used: roundCurrency(litersUsed),
+            fuel_price_per_liter: roundCurrency(fuelPricePerLiter),
+            fuel_cost: roundCurrency(fuelCost),
+            fuel_tax_pct: roundCurrency(fuelTaxPct),
+            fuel_tax_value: roundCurrency(fuelTaxValue),
+            additional_tax: roundCurrency(additionalTax),
+            daily_rate: roundCurrency(dailyRate),
+            total_cost: roundCurrency(totalCost),
+            can_calculate_fuel: canCalculateFuel,
+        }
+    }, [costEstimate, costForm, costProfile, parsedCostInputs])
+
+    const handleSaveRouteCostOverride = async () => {
+        if (!costProfile?.can_edit || !costForm || !parsedCostInputs) return
+
+        if (hasInvalidCostInput) {
+            setCostFeedback({ type: 'error', message: 'Revise os campos: use apenas números válidos e não negativos.' })
+            return
+        }
+
+        setCostSaving(true)
+        setCostFeedback(null)
+        const response = await saveRouteCostOverride(routeId, {
+            fuel_price_per_liter: parsedCostInputs.fuelPrice,
+            fuel_tax_pct: parsedCostInputs.fuelTaxPct,
+            additional_tax: parsedCostInputs.additionalTax,
+            daily_rate: parsedCostInputs.dailyRate,
+            consumption_km_l: parsedCostInputs.consumptionKmL,
+            notes: costForm.notes.trim() || null,
+        })
+        setCostSaving(false)
+
+        if ('error' in response && response.error) {
+            setCostFeedback({ type: 'error', message: response.error })
+            return
+        }
+
+        setCostFeedback({ type: 'success', message: 'Customização de custos salva para esta rota.' })
+        await loadCostProfile()
+    }
+
+    const handleClearRouteCostOverride = async () => {
+        if (!costProfile?.can_edit) return
+        setCostResetting(true)
+        setCostFeedback(null)
+        const response = await clearRouteCostOverride(routeId)
+        setCostResetting(false)
+
+        if ('error' in response && response.error) {
+            setCostFeedback({ type: 'error', message: response.error })
+            return
+        }
+
+        setCostFeedback({ type: 'success', message: 'Custos da rota restaurados para o padrão global.' })
+        await loadCostProfile()
     }
 
     const isEditable = route && ['draft', 'optimized'].includes(route.status)
@@ -449,7 +686,7 @@ export default function RouteDetailPage() {
     const hasDriver = !!route?.driver_id
     const routeCenter = route?.route_centers
 
-    // Map data (memoized to avoid expensive Leaflet remounts on unrelated renders)
+    // Map data (memoized to avoid expensive map re-renders on unrelated renders)
     const mapCenter = useMemo(() => {
         if (!routeCenter?.latitude || !routeCenter?.longitude) return null
         return {
@@ -473,6 +710,36 @@ export default function RouteDetailPage() {
             order_total: s.orders?.total ? Number(s.orders.total) : null,
         }))
     ), [stops])
+
+    const liveTrackingEnabled = Boolean(routeId && route && ['confirmed', 'in_progress'].includes(route.status))
+    const {
+        location: routeLiveLocation,
+        isLoading: liveLocationLoading,
+        error: liveLocationError,
+        refresh: refreshLiveLocation,
+    } = useRouteLiveLocation({
+        routeId,
+        enabled: liveTrackingEnabled,
+    })
+
+    const liveVehicleMarker = useMemo<LiveVehicleMarker | null>(() => {
+        if (!routeLiveLocation) return null
+        return {
+            latitude: routeLiveLocation.latitude,
+            longitude: routeLiveLocation.longitude,
+            label: routeLiveLocation.driver_name
+                || route?.vehicles?.plate
+                || route?.route_number
+                || 'Veiculo em rota',
+            trackingStatus: routeLiveLocation.tracking_status,
+            updatedAt: routeLiveLocation.last_seen_at,
+            isOnline: routeLiveLocation.is_online,
+        }
+    }, [route?.route_number, route?.vehicles?.plate, routeLiveLocation])
+
+    const liveTrackingTone = routeLiveLocation
+        ? getTrackingStatusTone(routeLiveLocation.tracking_status, routeLiveLocation.is_online)
+        : null
 
     if (loading) {
         return (
@@ -530,7 +797,7 @@ export default function RouteDetailPage() {
                             <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                                 <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {formatDate(route.planned_date)}</span>
                                 {route.route_centers?.name && (
-                                    <><span className="text-muted-foreground/30">•</span><span className="flex items-center gap-1"><Navigation className="h-3 w-3" /> {route.route_centers.name}</span></>
+                                    <><span className="text-muted-foreground/30">⬢</span><span className="flex items-center gap-1"><Navigation className="h-3 w-3" /> {route.route_centers.name}</span></>
                                 )}
                             </div>
                         </div>
@@ -538,8 +805,47 @@ export default function RouteDetailPage() {
 
                     {/* Action Buttons */}
                     <div className="flex items-center gap-1.5 flex-wrap">
-                        <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => void loadData()}>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1 text-xs"
+                            onClick={() => {
+                                void loadData()
+                                if (liveTrackingEnabled) {
+                                    refreshLiveLocation()
+                                }
+                            }}
+                        >
                             <RefreshCw className="h-3 w-3" /> Atualizar
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1 text-xs"
+                            onClick={() => void handleExportPdf('standard')}
+                            disabled={!!exportingPdfMode}
+                        >
+                            {exportingPdfMode === 'standard' ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                                <FileDown className="h-3 w-3" />
+                            )}
+                            {exportingPdfMode === 'standard' ? 'Gerando PDF...' : 'Exportar PDF'}
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1 text-xs border-slate-300"
+                            onClick={() => void handleExportPdf('operational')}
+                            disabled={!!exportingPdfMode}
+                            title="Versão otimizada para impressão e conferência em campo"
+                        >
+                            {exportingPdfMode === 'operational' ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                                <FileText className="h-3 w-3" />
+                            )}
+                            {exportingPdfMode === 'operational' ? 'Gerando Operacional...' : 'PDF Operacional'}
                         </Button>
 
                         {route.status === 'draft' && (
@@ -580,7 +886,7 @@ export default function RouteDetailPage() {
                     <div className="rounded-xl border bg-white p-3">
                         <div className="flex items-center justify-between text-xs mb-1.5">
                             <span className="font-medium text-navy">Progresso da Rota</span>
-                            <span className="text-muted-foreground">{completedCount} de {stops.length} paradas • <span className="font-bold text-navy">{progressPct}%</span></span>
+                            <span className="text-muted-foreground">{completedCount} de {stops.length} paradas ⬢ <span className="font-bold text-navy">{progressPct}%</span></span>
                         </div>
                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full rounded-full transition-all duration-500 ease-out"
@@ -648,7 +954,7 @@ export default function RouteDetailPage() {
                     <div className="flex-1">
                         <p className="font-bold text-indigo-800">Rota otimizada com sucesso!</p>
                         <p className="text-xs text-indigo-600 mt-0.5">
-                            {optimizationBanner.distance} km • {Math.round(optimizationBanner.duration)} min • {optimizationBanner.stops} paradas •
+                            {optimizationBanner.distance} km ⬢ {Math.round(optimizationBanner.duration)} min ⬢ {optimizationBanner.stops} paradas ⬢
                             Engine: {optimizationBanner.engine === 'osrm_nn' ? 'OSRM' : optimizationBanner.engine === 'ors_vroom' ? 'ORS Vroom' : optimizationBanner.engine}
                         </p>
                     </div>
@@ -693,61 +999,13 @@ export default function RouteDetailPage() {
                 </div>
             </div>
 
-            {/* ===== ASSIGNMENT CARDS ===== */}
-            <div className="grid sm:grid-cols-3 gap-3">
-                <div className="rounded-xl border bg-white p-4">
-                    <div className="flex items-center gap-2 mb-2.5">
-                        <div className="h-8 w-8 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><UserCircle className="h-4 w-4" /></div>
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Motorista</p>
-                        {isEditable && <Pencil className="h-2.5 w-2.5 text-muted-foreground/40 ml-auto" />}
-                    </div>
-                    {isEditable ? (
-                        <select className="w-full text-sm font-semibold text-navy border rounded-lg px-2.5 py-2 bg-slate-50/80 focus:ring-2 focus:ring-blue-200 transition" value={route.driver_id || ''} onChange={(e) => void handleAssignmentChange('driver_id', e.target.value || null)} disabled={assignSaving}>
-                            <option value="">Selecionar motorista</option>
-                            {driversList.map((d: { id: string; profile_name: string }) => (<option key={d.id} value={d.id}>{d.profile_name}</option>))}
-                        </select>
-                    ) : (
-                        <p className="font-semibold text-navy text-sm">{route.drivers?.profiles?.full_name || <span className="text-muted-foreground/40">Não atribuído</span>}</p>
-                    )}
-                </div>
-                <div className="rounded-xl border bg-white p-4">
-                    <div className="flex items-center gap-2 mb-2.5">
-                        <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600"><Truck className="h-4 w-4" /></div>
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Veículo</p>
-                        {isEditable && <Pencil className="h-2.5 w-2.5 text-muted-foreground/40 ml-auto" />}
-                    </div>
-                    {isEditable ? (
-                        <select className="w-full text-sm font-semibold text-navy border rounded-lg px-2.5 py-2 bg-slate-50/80 focus:ring-2 focus:ring-amber-200 transition" value={route.vehicle_id || ''} onChange={(e) => void handleAssignmentChange('vehicle_id', e.target.value || null)} disabled={assignSaving}>
-                            <option value="">Selecionar veículo</option>
-                            {vehiclesList.map((v: { id: string; name: string; plate: string }) => (<option key={v.id} value={v.id}>{v.plate} - {v.name}</option>))}
-                        </select>
-                    ) : (
-                        <p className="font-semibold text-navy text-sm">{route.vehicles ? `${route.vehicles.plate} - ${route.vehicles.name}` : <span className="text-muted-foreground/40">Não atribuído</span>}</p>
-                    )}
-                </div>
-                <div className="rounded-xl border bg-white p-4">
-                    <div className="flex items-center gap-2 mb-2.5">
-                        <div className="h-8 w-8 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600"><Navigation className="h-4 w-4" /></div>
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Centro de Saída</p>
-                        {isEditable && <Pencil className="h-2.5 w-2.5 text-muted-foreground/40 ml-auto" />}
-                    </div>
-                    {isEditable ? (
-                        <select className="w-full text-sm font-semibold text-navy border rounded-lg px-2.5 py-2 bg-slate-50/80 focus:ring-2 focus:ring-purple-200 transition" value={route.center_id || ''} onChange={(e) => void handleAssignmentChange('center_id', e.target.value || null)} disabled={assignSaving}>
-                            <option value="">Selecionar centro</option>
-                            {centersList.map((c: { id: string; name: string; city: string }) => (<option key={c.id} value={c.id}>{c.name} - {c.city}</option>))}
-                        </select>
-                    ) : (
-                        <p className="font-semibold text-navy text-sm">{route.route_centers?.name || <span className="text-muted-foreground/40">Não atribuído</span>}</p>
-                    )}
-                </div>
-            </div>
-
             {/* ===== SPLIT-PANEL: Stops + Map ===== */}
             <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
                 {/* LEFT: Tabs (Stops / Timeline) */}
                 <div className="rounded-xl border bg-white overflow-hidden">
                     <div className="flex border-b">
                         {[
+                            { key: 'assignment' as const, label: 'Alocação', icon: UserCircle },
                             { key: 'stops' as const, label: 'Paradas', icon: Route, count: stops.length },
                             { key: 'timeline' as const, label: 'Histórico', icon: Clock, count: events.length },
                             { key: 'costs' as const, label: 'Custos', icon: Fuel },
@@ -770,6 +1028,118 @@ export default function RouteDetailPage() {
                             </button>
                         ))}
                     </div>
+
+                    {/* === ASSIGNMENT TAB === */}
+                    {activeTab === 'assignment' && (
+                        <div className="max-h-[600px] overflow-y-auto">
+                            <div className="border-b bg-slate-50/70 px-4 py-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <UserCircle className="h-4 w-4 text-indigo-600" />
+                                        <h3 className="text-sm font-bold text-navy">Alocação Operacional</h3>
+                                    </div>
+                                    {isEditable ? (
+                                        <Badge variant="outline" className="text-[10px] border-indigo-200 bg-indigo-50 text-indigo-700">
+                                            Editável
+                                        </Badge>
+                                    ) : (
+                                        <Badge variant="outline" className="text-[10px] border-slate-200 bg-slate-50 text-slate-600">
+                                            Somente leitura
+                                        </Badge>
+                                    )}
+                                </div>
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                    Defina os recursos principais da rota com consistência operacional.
+                                </p>
+                            </div>
+
+                            <div className="divide-y">
+                                <div className="grid gap-2 px-4 py-3 sm:grid-cols-[170px_1fr] sm:items-center">
+                                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                                        <UserCircle className="h-3.5 w-3.5 text-blue-500" /> Motorista
+                                    </div>
+                                    {isEditable ? (
+                                        <select
+                                            className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-navy focus:ring-2 focus:ring-blue-200"
+                                            value={route.driver_id || ''}
+                                            onChange={(e) => void handleAssignmentChange('driver_id', e.target.value || null)}
+                                            disabled={assignSaving}
+                                        >
+                                            <option value="">Selecionar motorista</option>
+                                            {driversList.map((d: { id: string; profile_name: string }) => (
+                                                <option key={d.id} value={d.id}>{d.profile_name}</option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <p className="text-sm font-semibold text-navy">
+                                            {route.drivers?.profiles?.full_name || <span className="text-muted-foreground/50">Não atribuído</span>}
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div className="grid gap-2 px-4 py-3 sm:grid-cols-[170px_1fr] sm:items-center">
+                                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                                        <Truck className="h-3.5 w-3.5 text-amber-500" /> Veículo
+                                    </div>
+                                    {isEditable ? (
+                                        <select
+                                            className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-navy focus:ring-2 focus:ring-amber-200"
+                                            value={route.vehicle_id || ''}
+                                            onChange={(e) => void handleAssignmentChange('vehicle_id', e.target.value || null)}
+                                            disabled={assignSaving}
+                                        >
+                                            <option value="">Selecionar veículo</option>
+                                            {vehiclesList.map((v: { id: string; name: string; plate: string }) => (
+                                                <option key={v.id} value={v.id}>{v.plate} - {v.name}</option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <p className="text-sm font-semibold text-navy">
+                                            {route.vehicles ? `${route.vehicles.plate} - ${route.vehicles.name}` : <span className="text-muted-foreground/50">Não atribuído</span>}
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div className="grid gap-2 px-4 py-3 sm:grid-cols-[170px_1fr] sm:items-center">
+                                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                                        <Navigation className="h-3.5 w-3.5 text-violet-500" /> Centro de saída
+                                    </div>
+                                    {isEditable ? (
+                                        <select
+                                            className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-navy focus:ring-2 focus:ring-violet-200"
+                                            value={route.center_id || ''}
+                                            onChange={(e) => void handleAssignmentChange('center_id', e.target.value || null)}
+                                            disabled={assignSaving}
+                                        >
+                                            <option value="">Selecionar centro</option>
+                                            {centersList.map((c: { id: string; name: string; city: string }) => (
+                                                <option key={c.id} value={c.id}>{c.name} - {c.city}</option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <p className="text-sm font-semibold text-navy">
+                                            {route.route_centers?.name || <span className="text-muted-foreground/50">Não atribuído</span>}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2 border-t bg-slate-50/60 px-4 py-3 text-[11px] text-slate-600 sm:grid-cols-3">
+                                <span className="inline-flex items-center gap-1.5">
+                                    <Calendar className="h-3.5 w-3.5 text-slate-500" />
+                                    Planejada: <strong className="text-navy">{formatDate(route.planned_date)}</strong>
+                                </span>
+                                <span className="inline-flex items-center gap-1.5">
+                                    <MapPin className="h-3.5 w-3.5 text-slate-500" />
+                                    Centro: <strong className="text-navy">{route.route_centers?.city || '—'}</strong>
+                                </span>
+                                <span className="inline-flex items-center gap-1.5">
+                                    <Pencil className="h-3.5 w-3.5 text-slate-500" />
+                                    Alterações: <strong className="text-navy">{isEditable ? (assignSaving ? 'Salvando...' : 'Liberadas') : 'Bloqueadas'}</strong>
+                                </span>
+                            </div>
+                        </div>
+                    )}
 
                     {/* === STOPS TAB === */}
                     {activeTab === 'stops' && (
@@ -908,7 +1278,7 @@ export default function RouteDetailPage() {
                                                         <p className="text-xs font-semibold text-navy">{ev.event_type.replace(/_/g, ' ').replace(/(^\w|\s\w)/g, (m: string) => m.toUpperCase())}</p>
                                                         <p className="text-[10px] text-muted-foreground mt-0.5">
                                                             {formatDateTime(ev.created_at)}
-                                                            {ev.profiles?.full_name && ` • ${ev.profiles.full_name}`}
+                                                            {ev.profiles?.full_name && ` ⬢ ${ev.profiles.full_name}`}
                                                         </p>
                                                         {ev.metadata && typeof ev.metadata === 'object' && Object.keys(ev.metadata).length > 0 && (
                                                             <p className="text-[10px] text-muted-foreground/60 mt-0.5 line-clamp-1">
@@ -927,59 +1297,200 @@ export default function RouteDetailPage() {
 
                     {/* === COSTS TAB === */}
                     {activeTab === 'costs' && (
-                        <div className="p-4 sm:p-6 max-h-[600px] overflow-y-auto">
-                            {!costEstimate ? (
+                        <div className="max-h-[600px] overflow-y-auto">
+                            <div className="border-b bg-slate-50/70 px-4 py-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <Fuel className="h-4 w-4 text-emerald-600" />
+                                        <h3 className="text-sm font-bold text-navy">Custos da Rota</h3>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Badge
+                                            variant="outline"
+                                            className={cn(
+                                                'text-[10px] rounded-full px-2.5 py-0.5 font-semibold',
+                                                costProfile?.is_custom
+                                                    ? 'border-violet-200 bg-violet-50 text-violet-700'
+                                                    : 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                                            )}
+                                        >
+                                            {costProfile?.is_custom ? 'Customizado' : 'Padrão Global'}
+                                        </Badge>
+                                        {costProfile && !costProfile.can_edit && (
+                                            <Badge variant="outline" className="text-[10px] border-slate-200 bg-slate-100 text-slate-600">
+                                                Somente leitura
+                                            </Badge>
+                                        )}
+                                    </div>
+                                </div>
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                    Valores baseados no padrão global, com possibilidade de override específico por rota.
+                                </p>
+                            </div>
+
+                            {!costProfile || !costForm || !previewEstimate ? (
                                 <div className="text-center p-8 text-sm text-muted-foreground">
                                     <Fuel className="h-8 w-8 mx-auto mb-3 opacity-20" />
-                                    A estimativa de custos requer um veículo com consumo definido e rota traçada.
+                                    Não foi possível carregar o perfil de custos desta rota.
                                 </div>
                             ) : (
-                                <div className="space-y-6">
-                                    <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-4 p-4">
+                                    <div className="rounded-xl border overflow-hidden">
+                                        <div className="divide-y">
+                                            <div className="grid gap-2 px-4 py-3 sm:grid-cols-[190px_1fr] sm:items-center">
+                                                <div className="text-xs font-semibold text-slate-600">Preço por litro (R$)</div>
+                                                <Input
+                                                    inputMode="decimal"
+                                                    value={costForm.fuel_price_per_liter}
+                                                    onChange={(e) => handleCostFieldChange('fuel_price_per_liter', e.target.value)}
+                                                    readOnly={!costProfile.can_edit}
+                                                    className={cn('h-9', !costProfile.can_edit && 'bg-slate-50 text-slate-500')}
+                                                    placeholder="Ex.: 6.15"
+                                                />
+                                            </div>
+                                            <div className="grid gap-2 px-4 py-3 sm:grid-cols-[190px_1fr] sm:items-center">
+                                                <div className="text-xs font-semibold text-slate-600">Taxa combustível (%)</div>
+                                                <Input
+                                                    inputMode="decimal"
+                                                    value={costForm.fuel_tax_pct}
+                                                    onChange={(e) => handleCostFieldChange('fuel_tax_pct', e.target.value)}
+                                                    readOnly={!costProfile.can_edit}
+                                                    className={cn('h-9', !costProfile.can_edit && 'bg-slate-50 text-slate-500')}
+                                                    placeholder="Ex.: 2.5"
+                                                />
+                                            </div>
+                                            <div className="grid gap-2 px-4 py-3 sm:grid-cols-[190px_1fr] sm:items-center">
+                                                <div className="text-xs font-semibold text-slate-600">Taxa adicional (R$)</div>
+                                                <Input
+                                                    inputMode="decimal"
+                                                    value={costForm.additional_tax}
+                                                    onChange={(e) => handleCostFieldChange('additional_tax', e.target.value)}
+                                                    readOnly={!costProfile.can_edit}
+                                                    className={cn('h-9', !costProfile.can_edit && 'bg-slate-50 text-slate-500')}
+                                                    placeholder="Ex.: 40"
+                                                />
+                                            </div>
+                                            <div className="grid gap-2 px-4 py-3 sm:grid-cols-[190px_1fr] sm:items-center">
+                                                <div className="text-xs font-semibold text-slate-600">Diária (R$)</div>
+                                                <Input
+                                                    inputMode="decimal"
+                                                    value={costForm.daily_rate}
+                                                    onChange={(e) => handleCostFieldChange('daily_rate', e.target.value)}
+                                                    readOnly={!costProfile.can_edit}
+                                                    className={cn('h-9', !costProfile.can_edit && 'bg-slate-50 text-slate-500')}
+                                                    placeholder="Ex.: 180"
+                                                />
+                                            </div>
+                                            <div className="grid gap-2 px-4 py-3 sm:grid-cols-[190px_1fr] sm:items-center">
+                                                <div className="text-xs font-semibold text-slate-600">Consumo (km/l) da rota</div>
+                                                <Input
+                                                    inputMode="decimal"
+                                                    value={costForm.consumption_km_l}
+                                                    onChange={(e) => handleCostFieldChange('consumption_km_l', e.target.value)}
+                                                    readOnly={!costProfile.can_edit}
+                                                    className={cn('h-9', !costProfile.can_edit && 'bg-slate-50 text-slate-500')}
+                                                    placeholder="Ex.: 8.5"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-semibold text-slate-600">Observação da customização</label>
+                                        <Textarea
+                                            value={costForm.notes}
+                                            onChange={(e) => handleCostFieldChange('notes', e.target.value)}
+                                            readOnly={!costProfile.can_edit}
+                                            rows={3}
+                                            className={cn(!costProfile.can_edit && 'bg-slate-50 text-slate-500')}
+                                            placeholder="Opcional: justificativa ou contexto da customização desta rota."
+                                        />
+                                    </div>
+
+                                    <div className="grid gap-3 sm:grid-cols-2">
                                         <div className="rounded-xl border bg-slate-50 p-4">
                                             <p className="text-xs font-medium text-muted-foreground mb-1">Combustível</p>
-                                            <p className="text-lg font-black text-navy">
-                                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(costEstimate.fuel_cost)}
-                                            </p>
+                                            <p className="text-lg font-black text-navy">{formatCurrency(previewEstimate.fuel_cost)}</p>
                                             <p className="text-[10px] text-muted-foreground mt-1.5">
-                                                {costEstimate.liters_used}L de {costEstimate.fuel_type} a R$ {costEstimate.fuel_price_per_liter}/L
+                                                {previewEstimate.liters_used}L de {previewEstimate.fuel_type} a R$ {previewEstimate.fuel_price_per_liter}/L
                                             </p>
                                         </div>
                                         <div className="rounded-xl border bg-slate-50 p-4">
                                             <p className="text-xs font-medium text-muted-foreground mb-1">Encargos + Diária</p>
                                             <p className="text-lg font-black text-navy">
-                                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(costEstimate.fuel_tax_value + costEstimate.additional_tax + costEstimate.daily_rate)}
+                                                {formatCurrency(previewEstimate.fuel_tax_value + previewEstimate.additional_tax + previewEstimate.daily_rate)}
                                             </p>
                                             <p className="text-[10px] text-muted-foreground mt-1.5 flex flex-col gap-0.5">
-                                                <span>Taxa combust.: R$ {costEstimate.fuel_tax_value}</span>
-                                                <span>Adicional: R$ {costEstimate.additional_tax}</span>
-                                                <span>Diária: R$ {costEstimate.daily_rate}</span>
+                                                <span>Taxa combustível: {formatCurrency(previewEstimate.fuel_tax_value)}</span>
+                                                <span>Adicional: {formatCurrency(previewEstimate.additional_tax)}</span>
+                                                <span>Diária: {formatCurrency(previewEstimate.daily_rate)}</span>
                                             </p>
                                         </div>
                                     </div>
-                                    
-                                    <div className="rounded-xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-100 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+
+                                    <div className="rounded-xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-100 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                         <div>
                                             <span className="text-sm font-bold text-emerald-800 block">Custo Total Previsto</span>
-                                            <span className="text-[10px] text-emerald-600/80">Operação da rota</span>
+                                            <span className="text-[10px] text-emerald-700/80">
+                                                Distância da rota: {previewEstimate.distance_km} km
+                                            </span>
                                         </div>
                                         <span className="text-2xl font-black text-emerald-700">
-                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(costEstimate.total_cost)}
+                                            {formatCurrency(previewEstimate.total_cost)}
                                         </span>
                                     </div>
 
-                                    <div className="rounded-lg bg-indigo-50/50 p-3 flex gap-2 items-start border border-indigo-100/50">
-                                        <Zap className="h-4 w-4 text-indigo-400 mt-0.5 shrink-0" />
-                                        <p className="text-[10px] text-indigo-700/70 leading-relaxed">
-                                            Valores calculados em tempo real com base nas configurações da sua última otimização de rota ({costEstimate.distance_km} km) e no rendimento do veículo atual ({costEstimate.consumption_km_l} km/l).
-                                        </p>
-                                    </div>
+                                    {hasInvalidCostInput && (
+                                        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-[11px] text-red-700">
+                                            Existem campos com valor inválido. Use apenas números não negativos para salvar.
+                                        </div>
+                                    )}
+                                    {hasInvalidConsumption && (
+                                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-700">
+                                            Consumo menor ou igual a zero impede o cálculo de combustível. Ajuste o km/l para obter estimativa válida.
+                                        </div>
+                                    )}
+                                    {costFeedback && (
+                                        <div className={cn(
+                                            'rounded-lg border p-3 text-[11px]',
+                                            costFeedback.type === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                                            costFeedback.type === 'error' && 'border-red-200 bg-red-50 text-red-700',
+                                            costFeedback.type === 'warning' && 'border-amber-200 bg-amber-50 text-amber-700',
+                                        )}>
+                                            {costFeedback.message}
+                                        </div>
+                                    )}
+
+                                    {costProfile.can_edit ? (
+                                        <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => void handleClearRouteCostOverride()}
+                                                disabled={costResetting || costSaving || !costProfile.is_custom}
+                                                className="h-9"
+                                            >
+                                                {costResetting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                                                Restaurar padrão
+                                            </Button>
+                                            <Button
+                                                onClick={() => void handleSaveRouteCostOverride()}
+                                                disabled={costSaving || costResetting || hasInvalidCostInput || !costFormDirty}
+                                                className="h-9 gap-1 bg-indigo-600 hover:bg-indigo-700"
+                                            >
+                                                {costSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+                                                Salvar customização
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+                                            A rota está em status <strong>{costProfile.route_status}</strong> e os custos estão bloqueados para edição.
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
                     )}
                 </div>
-
                 {/* RIGHT: Map (always visible on lg, responsive) */}
                 {isMapExpanded && (
                     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={() => setIsMapExpanded(false)} />
@@ -987,7 +1498,7 @@ export default function RouteDetailPage() {
                 <div className={cn(
                     "bg-white overflow-hidden transition-all duration-300 flex flex-col",
                     isMapExpanded 
-                        ? "fixed inset-4 sm:inset-10 z-50 shadow-2xl rounded-2xl border-0" 
+                        ? "fixed inset-4 sm:inset-10 z-50 shadow-2xl rounded-2xl border-0 h-[calc(100dvh-2rem)]" 
                         : "rounded-xl border relative"
                 )}>
                     <div className="p-3 border-b flex items-center justify-between shrink-0 bg-white">
@@ -995,6 +1506,30 @@ export default function RouteDetailPage() {
                             <MapPin className="h-4 w-4 text-indigo-500" /> Mapa da Rota
                         </h3>
                         <div className="flex items-center gap-2">
+                            {liveTrackingEnabled && (
+                                <div className={cn(
+                                    'hidden sm:flex items-center gap-2 rounded-full border px-2 py-1 text-[10px] font-semibold',
+                                    liveTrackingTone?.badgeClass || 'border-slate-200 bg-slate-50 text-slate-600',
+                                )}>
+                                    <span
+                                        className="h-2 w-2 rounded-full"
+                                        style={{ backgroundColor: liveTrackingTone?.dot || '#64748b' }}
+                                    />
+                                    {liveLocationLoading ? (
+                                        <span className="flex items-center gap-1">
+                                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                            Conectando tracking...
+                                        </span>
+                                    ) : routeLiveLocation ? (
+                                        <span className={liveTrackingTone?.textClass}>
+                                            {getTrackingStatusLabel(routeLiveLocation.tracking_status)}
+                                            {routeLiveLocation.last_seen_at ? ` - ${formatDateTime(routeLiveLocation.last_seen_at)}` : ''}
+                                        </span>
+                                    ) : (
+                                        <span>Aguardando sinal do motorista</span>
+                                    )}
+                                </div>
+                            )}
                             {stops.filter(s => !s.latitude || !s.longitude).length > 0 && (
                                 <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
                                     {stops.filter(s => !s.latitude || !s.longitude).length} sem coordenadas
@@ -1007,25 +1542,56 @@ export default function RouteDetailPage() {
                                     {route.route_polyline ? 'Recalcular' : 'Traçar Rota'}
                                 </Button>
                             )}
+                            {liveTrackingEnabled && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 rounded-lg hover:bg-slate-100"
+                                    onClick={refreshLiveLocation}
+                                    title="Atualizar posicao ao vivo"
+                                >
+                                    <RefreshCw className="h-3.5 w-3.5 text-slate-600" />
+                                </Button>
+                            )}
                             <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-slate-100" onClick={() => setIsMapExpanded(!isMapExpanded)}>
                                 {isMapExpanded ? <Minimize2 className="h-4 w-4 text-slate-600" /> : <Maximize2 className="h-4 w-4 text-slate-600" />}
                             </Button>
                         </div>
                     </div>
-                    <div className={cn("flex-1 min-h-0 bg-slate-50 relative", isMapExpanded ? "p-0" : "p-3")}>
+                    <div className={cn("flex-1 min-h-0 bg-slate-50 relative", isMapExpanded ? "p-0 h-full" : "p-3")}>
                         <RouteMap
                             center={mapCenter}
                             stops={mapStops}
                             polyline={route.route_polyline}
                             height={isMapExpanded ? "100%" : "520px"}
-                            className={isMapExpanded ? "h-full min-h-[500px] border-0 rounded-none" : ""}
+                            className={isMapExpanded ? "h-full border-0 rounded-none" : ""}
                             totalDistance={route.total_distance_km}
                             totalDuration={route.total_duration_min}
                             engine={route.optimization_engine || route.optimization_result?.engine}
                             highlightStopId={highlightStopId}
                             onStopClick={(id) => setHighlightStopId(id === highlightStopId ? null : id)}
+                            liveVehicle={liveVehicleMarker}
+                            showOverlayPanels={isMapExpanded}
                         />
                     </div>
+                    {!isMapExpanded && (
+                        <div className="border-t bg-white px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] text-slate-600">
+                                <span className="font-semibold uppercase tracking-wide text-slate-500">Status:</span>
+                                {stopLegendCompact.map((item) => (
+                                    <span key={item.key} className="inline-flex items-center gap-1.5">
+                                        <span className="h-2.5 w-2.5 rounded-full border border-white shadow-sm" style={{ backgroundColor: item.color }} />
+                                        {item.label}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    {liveTrackingEnabled && liveLocationError && (
+                        <div className="border-t bg-red-50 px-3 py-2 text-[11px] text-red-700">
+                            Falha no rastreamento em tempo real: {liveLocationError}
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -1116,4 +1682,5 @@ export default function RouteDetailPage() {
         </div>
     )
 }
+
 

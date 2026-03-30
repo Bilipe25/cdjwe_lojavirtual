@@ -141,7 +141,7 @@ export default function CustomersPage() {
             }
         }
 
-        // Type filter â€” need to filter by store's customer_type_id
+        // Type filter — need to filter by store's customer_type_id
         if (typeFilter !== 'all') {
             const { data: typeStores } = await supabase
                 .from('stores')
@@ -314,14 +314,14 @@ export default function CustomersPage() {
     // Server Actions
     const updateStatus = async (profileId: string, status: CustomerStatusAction) => {
         if (status === 'delete') {
-            if (!confirm('Tem certeza que deseja EXCLUIR este cliente? Esta aÃ§Ã£o nÃ£o pode ser desfeita.')) return
+            if (!confirm('Tem certeza que deseja EXCLUIR este cliente? Esta ação não pode ser desfeita.')) return
             
             const result = await deleteCustomerAction(profileId)
             if (result.error) {
                 toast.error(result.error)
                 return
             }
-            toast.success('Cliente excluÃ­do com sucesso!')
+            toast.success('Cliente excluído com sucesso!')
             void refreshCustomersPage()
             return
         }
@@ -429,7 +429,7 @@ export default function CustomersPage() {
         if (!confirm(`Tem certeza que deseja EXCLUIR DEFINITIVAMENTE os ${selectedIds.length} clientes selecionados?`)) return
         const result = await bulkDeleteCustomersAction(selectedIds)
         if (result.error) { toast.error(result.error); return }
-        toast.success(`${selectedIds.length} clientes excluÃ­dos!`)
+        toast.success(`${selectedIds.length} clientes excluídos!`)
         setSelectedIds([])
         void refreshCustomersPage()
     }
@@ -512,7 +512,7 @@ export default function CustomersPage() {
                             disabled={currentPage === totalPages}
                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         >
-                            PrÃ³xima <ChevronRight className="h-4 w-4 ml-1" />
+                            Próxima <ChevronRight className="h-4 w-4 ml-1" />
                         </Button>
                     </div>
                 </div>

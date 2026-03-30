@@ -149,7 +149,14 @@ export function AdminSidebar() {
                 <div className="flex items-center justify-center h-16 border-b border-sidebar-border shrink-0">
                     {settings?.logo_url ? (
                         <div className={`relative shrink-0 transition-all duration-300 ${collapsed ? 'h-10 w-12' : 'h-10 w-44 pr-4 ml-4'}`}>
-                            <Image priority src={settings.logo_url} alt={settings.system_name || 'Admin'} fill className={`object-contain ${collapsed ? 'object-center' : 'object-left'}`} />
+                            <Image
+                                priority
+                                src={settings.logo_url}
+                                alt={settings.system_name || 'Admin'}
+                                fill
+                                sizes={collapsed ? '48px' : '176px'}
+                                className={`object-contain ${collapsed ? 'object-center' : 'object-left'}`}
+                            />
                         </div>
                     ) : (
                         <div className={`flex items-center gap-2 ${collapsed ? '' : 'px-4 w-full'}`}>

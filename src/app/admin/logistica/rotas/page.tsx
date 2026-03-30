@@ -250,12 +250,10 @@ export default function CentralDeRotasPage() {
                                                 <Button variant="outline" size="icon" className="h-8 w-8 group-hover:border-indigo-200" title="Ver detalhes" onClick={(e) => e.stopPropagation()}>
                                                     <Eye className="h-3.5 w-3.5" />
                                                 </Button>
-                                                {['draft', 'cancelled'].includes(route.status) && (
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-red-600 hover:bg-red-50"
-                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(route) }} title="Excluir">
-                                                        <Trash2 className="h-3.5 w-3.5" />
-                                                    </Button>
-                                                )}
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-red-600 hover:bg-red-50"
+                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(route) }} title="Excluir">
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                </Button>
                                             </div>
                                         </div>
                                     </div>
@@ -295,9 +293,10 @@ export default function CentralDeRotasPage() {
             <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Excluir Rota?</AlertDialogTitle>
+                        <AlertDialogTitle>Excluir Rota da Operação?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            A rota <strong>{deleteTarget?.route_number}</strong> e todas as suas paradas serão excluídas.
+                            A rota <strong>{deleteTarget?.route_number}</strong> será removida da operação por exclusão lógica.
+                            O histórico técnico e de auditoria será preservado.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

@@ -147,7 +147,14 @@ export function AdminMobileHeader() {
                         <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border shrink-0">
                             {settings?.logo_url ? (
                                 <div className="h-10 w-24 shrink-0 relative">
-                                    <Image priority src={settings.logo_url} alt={settings.system_name || 'Admin'} fill className="object-contain object-left" />
+                                    <Image
+                                        priority
+                                        src={settings.logo_url}
+                                        alt={settings.system_name || 'Admin'}
+                                        fill
+                                        sizes="96px"
+                                        className="object-contain object-left"
+                                    />
                                 </div>
                             ) : (
                                 <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center shrink-0">
@@ -425,7 +432,14 @@ export function AdminMobileHeader() {
 
             {settings?.logo_url ? (
                 <div className="h-8 w-8 relative shrink-0">
-                    <Image priority src={settings.logo_url} alt={settings.system_name || 'Admin'} fill className="object-contain" />
+                    <Image
+                        priority
+                        src={settings.logo_url}
+                        alt={settings.system_name || 'Admin'}
+                        fill
+                        sizes="32px"
+                        className="object-contain"
+                    />
                 </div>
             ) : (
                 <div className="h-9 w-9 rounded-lg gradient-bronze flex items-center justify-center shrink-0">

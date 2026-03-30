@@ -58,6 +58,7 @@ export default function MotoristaPage() {
         setLoading(false)
     }, [])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     const formatDate = (d: string) => {

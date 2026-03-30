@@ -37,6 +37,13 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { useDriverLiveTracking } from '@/lib/hooks/use-driver-live-tracking'
+import {
+    getTrackingStatusLabel,
+    getTrackingStatusTone,
+    type LiveTrackingStatus,
+    type LiveVehicleMarker,
+} from '@/lib/logistics/live-tracking'
 import {
     getDriverRouteDetail,
     driverStartRoute,
@@ -98,6 +105,7 @@ export default function DriverRoutePage() {
         if (!silent) setLoading(false)
     }, [routeId])
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { void loadData() }, [loadData])
 
     // Item 1: Auto-refresh every 30s when route is in_progress
@@ -163,6 +171,41 @@ export default function DriverRoutePage() {
         const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
         window.open(url, '_blank')
     }
+
+    const trackingEnabled = route?.status === 'in_progress'
+    const tracking = useDriverLiveTracking({
+        routeId,
+        enabled: trackingEnabled,
+        inactiveStatus: route?.status === 'confirmed' ? 'paused' : 'idle',
+    })
+
+    const trackingStatusForUi: LiveTrackingStatus = tracking.trackingStatus === 'idle'
+        ? (route?.status === 'confirmed' ? 'paused' : 'stopped')
+        : tracking.trackingStatus
+
+    const trackingTone = getTrackingStatusTone(trackingStatusForUi, tracking.isOnline)
+    const trackingLabel = tracking.trackingStatus === 'idle'
+        ? 'Rastreamento aguardando inicio da rota'
+        : getTrackingStatusLabel(trackingStatusForUi)
+
+    const driverLiveVehicle: LiveVehicleMarker | null = tracking.lastPosition
+        ? {
+            latitude: tracking.lastPosition.latitude,
+            longitude: tracking.lastPosition.longitude,
+            label: 'Voce',
+            trackingStatus: trackingStatusForUi,
+            updatedAt: tracking.lastSentAt || tracking.lastPosition.capturedAt,
+            isOnline: tracking.isOnline,
+        }
+        : null
+
+    const trackingLastSentLabel = tracking.lastSentAt
+        ? new Date(tracking.lastSentAt).toLocaleTimeString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+        })
+        : null
 
     // Item 4: Completion summary screen
     if (completionSummary) {
@@ -321,6 +364,54 @@ export default function DriverRoutePage() {
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
             )}
 
+            <div className="rounded-xl border bg-white p-3 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Rastreamento em tempo real
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">{trackingLabel}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                            {trackingEnabled
+                                ? 'Compartilhando localizacao da rota em andamento.'
+                                : 'O rastreamento inicia automaticamente quando a rota for iniciada.'}
+                        </p>
+                    </div>
+                    <Badge
+                        variant="outline"
+                        className={cn('rounded-full text-[10px] font-semibold', trackingTone.badgeClass)}
+                    >
+                        <span
+                            className="mr-1.5 inline-block h-2 w-2 rounded-full"
+                            style={{ backgroundColor: trackingTone.dot }}
+                        />
+                        {tracking.isOnline ? 'Online' : 'Offline'}
+                    </Badge>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]">
+                    {trackingLastSentLabel ? (
+                        <span className="text-slate-600">
+                            Ultimo envio: <strong>{trackingLastSentLabel}</strong>
+                        </span>
+                    ) : (
+                        <span className="text-slate-500">Sem envio recente.</span>
+                    )}
+                    <span className="text-slate-500">
+                        Permissao: <strong className="font-semibold">{tracking.permissionState}</strong>
+                    </span>
+                    {tracking.isSending && (
+                        <span className="text-indigo-600">Enviando localizacao...</span>
+                    )}
+                </div>
+
+                {tracking.lastError && trackingEnabled && (
+                    <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
+                        {tracking.lastError}
+                    </div>
+                )}
+            </div>
+
             {/* Progress Bar */}
             {route.status === 'in_progress' && (
                 <div className="rounded-xl bg-white border p-4 shadow-sm">
@@ -350,7 +441,7 @@ export default function DriverRoutePage() {
                     <div className={cn(
                         'bg-white overflow-hidden transition-all duration-300 flex flex-col',
                         isMapExpanded
-                            ? 'fixed inset-3 z-50 shadow-2xl rounded-2xl border-0'
+                            ? 'fixed inset-3 z-50 shadow-2xl rounded-2xl border-0 h-[calc(100dvh-1.5rem)]'
                             : 'rounded-xl border shadow-sm relative'
                     )}>
                         <div className="flex items-center justify-between px-3 py-2 border-b shrink-0 bg-white">
@@ -362,19 +453,22 @@ export default function DriverRoutePage() {
                                 {isMapExpanded ? <Minimize2 className="h-4 w-4 text-slate-600" /> : <Maximize2 className="h-4 w-4 text-slate-600" />}
                             </Button>
                         </div>
-                        <RouteMap
-                            center={mapCenter}
-                            stops={mapStops}
-                            polyline={route.route_polyline}
-                            height={isMapExpanded ? '100%' : '280px'}
-                            className={isMapExpanded ? 'h-full min-h-[400px] border-0 rounded-none' : 'border-0 rounded-none'}
-                            totalDistance={route.total_distance_km}
-                            totalDuration={route.total_duration_min}
-                            engine={route.optimization_engine}
-                            highlightStopId={highlightStopId}
-                            onStopClick={(id) => setHighlightStopId(id === highlightStopId ? null : id)}
-                            compact
-                        />
+                        <div className={cn('flex-1 min-h-0', isMapExpanded && 'h-full')}>
+                            <RouteMap
+                                center={mapCenter}
+                                stops={mapStops}
+                                polyline={route.route_polyline}
+                                height={isMapExpanded ? '100%' : '280px'}
+                                className={isMapExpanded ? 'h-full border-0 rounded-none' : 'border-0 rounded-none'}
+                                totalDistance={route.total_distance_km}
+                                totalDuration={route.total_duration_min}
+                                engine={route.optimization_engine}
+                                highlightStopId={highlightStopId}
+                                onStopClick={(id) => setHighlightStopId(id === highlightStopId ? null : id)}
+                                compact
+                                liveVehicle={driverLiveVehicle}
+                            />
+                        </div>
                     </div>
                 </>
             )}

@@ -3209,7 +3209,7 @@ export async function createCustomerAsRepresentativeTx(data: {
     } = data
 
     if (!email || !fullName || !companyName || !cnpj) {
-        return { error: 'Campos obrigatÃƒÂ³rios faltando.' }
+        return { error: 'Campos obrigatórios faltando.' }
     }
 
     try {
@@ -3225,7 +3225,7 @@ export async function createCustomerAsRepresentativeTx(data: {
             .maybeSingle()
 
         if (existingProfileByEmail?.id) {
-            return { error: 'Este email jÃƒÂ¡ estÃƒÂ¡ cadastrado.' }
+            return { error: 'Este email já está cadastrado.' }
         }
 
         // 2. Create user in Auth
@@ -3240,9 +3240,9 @@ export async function createCustomerAsRepresentativeTx(data: {
         })
 
         if (authError || !authData?.user?.id) {
-            let errorMsg = 'Falha ao criar usuÃƒÂ¡rio.'
+            let errorMsg = 'Falha ao criar usuário.'
             if (authError?.message?.toLowerCase().includes('already registered')) {
-                errorMsg = 'Este email jÃƒÂ¡ estÃƒÂ¡ cadastrado.'
+                errorMsg = 'Este email já está cadastrado.'
             }
             throw new Error(errorMsg)
         }
@@ -3376,7 +3376,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
     } = data
 
     if (!email || !fullName || !companyName || !cnpj) {
-        return { error: 'Campos obrigatÃƒÂ³rios faltando.' }
+        return { error: 'Campos obrigatórios faltando.' }
     }
 
     try {
@@ -3394,7 +3394,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
         }
 
         if (!profileId) {
-            return { error: 'Cadastro base do cliente nÃƒÂ£o encontrado.' }
+            return { error: 'Cadastro base do cliente não encontrado.' }
         }
 
         // 2. Verify if it belongs to representative
@@ -3406,7 +3406,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
             .single()
 
         if (loadError || !storeToUpdate) {
-            return { error: 'Cliente nÃƒÂ£o encontrado.' }
+            return { error: 'Cliente não encontrado.' }
         }
 
         if (scopeRepresentativeId && storeToUpdate.representative_id && storeToUpdate.representative_id !== scopeRepresentativeId) {
@@ -3423,7 +3423,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
             .single()
 
         if (currentProfileError || !currentProfile) {
-            return { error: 'Cadastro base do cliente nÃƒÂ£o encontrado.' }
+            return { error: 'Cadastro base do cliente não encontrado.' }
         }
 
         if ((currentProfile.email || '').toLowerCase() !== normalizedEmail) {
@@ -3436,7 +3436,7 @@ export async function updateCustomerAsRepresentativeTx(data: {
                 .maybeSingle()
 
             if (existingProfileByEmail?.id) {
-                return { error: 'Este email jÃƒÂ¡ estÃƒÂ¡ sendo utilizado por outro cadastro.' }
+                return { error: 'Este email já está sendo utilizado por outro cadastro.' }
             }
 
             const { error: authUpdateError } = await admin.auth.admin.updateUserById(profileId, {

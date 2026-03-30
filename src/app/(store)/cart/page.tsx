@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { type ComponentType, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -102,7 +102,7 @@ function buildPaymentOptionsFromMethodGroup(group: CheckoutPaymentMethodGroup): 
         .filter((link) => link.is_active && link.payment_condition?.is_active)
         .map((link) => ({
             id: link.payment_condition_id,
-            label: link.payment_condition ? getConditionLabel(link.payment_condition) : 'CondiÃ§Ã£o comercial',
+            label: link.payment_condition ? getConditionLabel(link.payment_condition) : 'Condição comercial',
             description: link.payment_condition?.description || group.method.description || null,
             discountPercentage: link.payment_condition?.discount_percentage || 0,
             surchargePercentage: link.payment_condition?.surcharge_percentage || 0,
@@ -632,8 +632,8 @@ export default function CartPage() {
     const canCheckout = minOrderMet && !checkoutBlockedByPolicy
 
     const selectedPaymentLabel = selectedPaymentOption
-        ? `${selectedMethodGroup?.method.name ? `${selectedMethodGroup.method.name} Â· ` : ''}${selectedPaymentOption.label}`
-        : 'Selecione uma condiÃ§Ã£o'
+        ? `${selectedMethodGroup?.method.name ? `${selectedMethodGroup.method.name} · ` : ''}${selectedPaymentOption.label}`
+        : 'Selecione uma condição'
 
     const selectedPaymentDescription =
         selectedPaymentOption?.description ||
@@ -864,7 +864,7 @@ export default function CartPage() {
         }
 
         if (!selectedPayment) {
-            toast.error('Selecione um meio e uma condiÃ§Ã£o de pagamento.')
+            toast.error('Selecione um meio e uma condição de pagamento.')
             return
         }
 
@@ -1079,7 +1079,7 @@ export default function CartPage() {
                             </div>
                         </CheckoutSection>
 
-                        {/* â”€â”€ Mobile: Pagamento Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                        {/* -- Mobile: Pagamento Card ------------------ */}
                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden mb-4">
                             <div className="border-b border-slate-100 px-4 py-3.5">
                                 <div className="flex items-center gap-2.5">
@@ -1112,7 +1112,7 @@ export default function CartPage() {
                                 )}
                                 {paymentOptions.length === 0 ? (
                                     <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
-                                        Nenhum meio de pagamento disponÃ­vel.
+                                        Nenhum meio de pagamento disponível.
                                     </div>
                                 ) : (
                                     <>
@@ -1142,7 +1142,7 @@ export default function CartPage() {
                                                                     disabled={!hasOptions}
                                                                 >
                                                                     {group.method.name}
-                                                                    {!hasOptions && ' (indisponÃ­vel)'}
+                                                                    {!hasOptions && ' (indisponível)'}
                                                                 </SelectItem>
                                                             )
                                                         })}
@@ -1195,7 +1195,7 @@ export default function CartPage() {
                                 )}
                             </div>
                         </div>
-                        {/* â”€â”€ Mobile: Entrega Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                        {/* -- Mobile: Entrega Card -------------------- */}
                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
                             <div className="border-b border-slate-100 px-4 py-3.5">
                                 <div className="flex items-center justify-between gap-3">
@@ -1299,7 +1299,7 @@ export default function CartPage() {
                             </div>
                         </div>
 
-                        {/* â”€â”€ Mobile: ObservaÃ§Ãµes Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                        {/* -- Mobile: Observações Card ---------------- */}
                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
                             <div className="border-b border-slate-100 px-4 py-3.5">
                                 <div className="flex items-center gap-2.5">
@@ -1323,7 +1323,7 @@ export default function CartPage() {
                             </div>
                         </div>
 
-                        {/* â”€â”€ Desktop: EndereÃ§o de entrega â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                        {/* -- Desktop: Endereço de entrega ----------- */}
                         <CheckoutSection
                             icon={Truck}
                             eyebrow="Endereco"
@@ -1413,7 +1413,7 @@ export default function CartPage() {
                             </div>
                         </CheckoutSection>
 
-                        {/* â”€â”€ Desktop: ObservaÃ§Ãµes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                        {/* -- Desktop: Observações -------------------- */}
                         <CheckoutSection
                             icon={MessageSquare}
                             eyebrow="Contexto"
@@ -1464,7 +1464,7 @@ export default function CartPage() {
                                         </div>
                                     )}
 
-                                    {/* â”€â”€ Forma de Pagamento â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                                    {/* -- Forma de Pagamento ---------------- */}
                                     {paymentMethodGroups.length > 0 && (
                                         <div className="space-y-2">
                                             <Label className="text-sm font-semibold text-slate-800">
@@ -1491,7 +1491,7 @@ export default function CartPage() {
                                                                 disabled={!hasOptions}
                                                             >
                                                                 {group.method.name}
-                                                                {!hasOptions && ' (indisponÃ­vel)'}
+                                                                {!hasOptions && ' (indisponível)'}
                                                             </SelectItem>
                                                         )
                                                     })}
@@ -1500,7 +1500,7 @@ export default function CartPage() {
                                         </div>
                                     )}
 
-                                    {/* â”€â”€ Tipo / CondiÃ§Ã£o de Pagamento â”€â”€â”€â”€â”€â”€ */}
+                                    {/* -- Tipo / Condição de Pagamento ------ */}
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between gap-2">
                                             <Label className="text-sm font-semibold text-slate-800">
@@ -1544,7 +1544,7 @@ export default function CartPage() {
 
                                     <Separator />
 
-                                    {/* â”€â”€ Resumo financeiro â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                                    {/* -- Resumo financeiro --------------- */}
                                     <div className="space-y-2.5">
                                         <SummaryRow
                                             label={`Itens (${count})`}
@@ -1559,14 +1559,14 @@ export default function CartPage() {
                                         )}
                                         {paymentSurcharge > 0 && (
                                             <SummaryRow
-                                                label={`AcrÃ©scimo de pagamento (${surchargePercentage}%)`}
+                                                label={`Acréscimo de pagamento (${surchargePercentage}%)`}
                                                 value={`+ R$ ${formatCurrency(paymentSurcharge)}`}
                                                 emphasis="warning"
                                             />
                                         )}
                                     </div>
 
-                                    {/* â”€â”€ Total Final â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                                    {/* -- Total Final -------------------- */}
                                     <div className="rounded-2xl gradient-navy px-4 py-4">
                                         <div className="flex items-end justify-between gap-4">
                                             <div className="space-y-1">

@@ -31,6 +31,9 @@ export function PwaRuntimeProvider({ children }: { children: React.ReactNode }) 
         const html = document.documentElement
         const body = document.body
         const mediaQuery = window.matchMedia('(display-mode: standalone)')
+        const handleControllerChange = () => {
+            window.location.reload()
+        }
 
         const applyDisplayMode = () => {
             const standalone = detectStandaloneMode()
@@ -44,7 +47,25 @@ export function PwaRuntimeProvider({ children }: { children: React.ReactNode }) 
             if (!('serviceWorker' in navigator)) return
 
             try {
-                await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+
+                if (registration.waiting) {
+                    registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+                }
+
+                registration.addEventListener('updatefound', () => {
+                    const installing = registration.installing
+                    if (!installing) return
+
+                    installing.addEventListener('statechange', () => {
+                        if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                            installing.postMessage({ type: 'SKIP_WAITING' })
+                        }
+                    })
+                })
+
+                navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange)
+
                 await navigator.serviceWorker.ready
                 setIsServiceWorkerReady(true)
             } catch (error) {
@@ -64,6 +85,7 @@ export function PwaRuntimeProvider({ children }: { children: React.ReactNode }) 
         return () => {
             window.removeEventListener('appinstalled', handleInstalled)
             mediaQuery.removeEventListener('change', handleModeChange)
+            navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange)
         }
     }, [])
 

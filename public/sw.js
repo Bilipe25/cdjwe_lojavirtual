@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cdjwe-v2'
+const CACHE_NAME = 'cdjwe-v3'
 const STATIC_ASSETS = [
     '/manifest.webmanifest',
     '/icons/icon-72.png',
@@ -35,23 +35,37 @@ self.addEventListener('activate', (event) => {
     self.clients.claim()
 })
 
+// Allow app to force immediate activation of a newly installed worker.
+self.addEventListener('message', (event) => {
+    if (event.data?.type === 'SKIP_WAITING') {
+        self.skipWaiting()
+    }
+})
+
 // Fetch — network-first strategy for API, cache-first for static
 self.addEventListener('fetch', (event) => {
     const { request } = event
     const url = new URL(request.url)
+    const isSameOrigin = url.origin === self.location.origin
 
     // Skip non-GET requests
     if (request.method !== 'GET') return
 
-    // Skip Supabase API calls, Next.js internal requests, and chrome extensions
+    // Skip browser extension protocols
+    if (url.protocol === 'chrome-extension:' || url.protocol === 'moz-extension:') return
+
+    // Do not intercept third-party requests (maps tiles, CDNs, external APIs).
+    // This prevents noisy fetch errors and CORS/cache side effects.
+    if (!isSameOrigin) return
+
+    // Skip API calls and Next.js internals
     if (
         url.pathname.startsWith('/api') ||
-        url.pathname.startsWith('/_next') ||
-        url.protocol === 'chrome-extension:'
+        url.pathname.startsWith('/_next')
     ) return
 
     // Network-first for HTML pages
-    if (request.headers.get('accept')?.includes('text/html')) {
+    if (request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')) {
         event.respondWith(
             fetch(request)
                 .then((response) => {
@@ -59,7 +73,13 @@ self.addEventListener('fetch', (event) => {
                     caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
                     return response
                 })
-                .catch(() => caches.match(request).then((r) => r || caches.match('/catalog')))
+                .catch(async () => {
+                    const cached = await caches.match(request)
+                    if (cached) return cached
+                    const catalog = await caches.match('/catalog')
+                    if (catalog) return catalog
+                    return new Response('Offline', { status: 503, statusText: 'Offline' })
+                })
         )
         return
     }
@@ -69,16 +89,27 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(
             caches.match(request).then((cached) => {
                 if (cached) return cached
-                return fetch(request).then((response) => {
-                    if (response.ok) {
-                        const clone = response.clone()
-                        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
-                    }
-                    return response
-                })
+                return fetch(request)
+                    .then((response) => {
+                        if (response.ok) {
+                            const clone = response.clone()
+                            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+                        }
+                        return response
+                    })
+                    .catch(() => new Response('', { status: 503, statusText: 'Offline asset' }))
             })
         )
+        return
     }
+
+    // Default for other same-origin GETs: network-first with cache fallback
+    event.respondWith(
+        fetch(request).catch(async () => {
+            const cached = await caches.match(request)
+            return cached || new Response('Offline', { status: 503, statusText: 'Offline' })
+        })
+    )
 })
 
 // ==================== PUSH NOTIFICATIONS ====================

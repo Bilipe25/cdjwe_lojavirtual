@@ -88,6 +88,17 @@ export interface CenterItem {
     is_active: boolean
 }
 
+export interface LogisticsPdfBranding {
+    system_name: string
+    logo_url: string | null
+    cnpj: string | null
+    city: string | null
+    state: string | null
+    address: string | null
+    phone: string | null
+    email: string | null
+}
+
 export interface PaginationMeta {
     page: number
     pageSize: number
@@ -667,6 +678,7 @@ export async function getRoutes(filters?: { status?: string; page?: number; page
             vehicles ( name, plate ),
             route_centers ( name )
         `, { count: 'exact' })
+            .eq('is_deleted', false)
 
         if (filters?.status && filters.status !== 'all') {
             query = query.eq('status', filters.status)
@@ -773,6 +785,7 @@ export async function getRouteDetail(routeId: string) {
                 delivery_regions ( name, color )
             `)
             .eq('id', routeId)
+            .eq('is_deleted', false)
             .single()
 
         if (error || !route) {
@@ -804,6 +817,38 @@ export async function getRouteDetail(routeId: string) {
     }
 }
 
+export async function getLogisticsPdfBranding() {
+    try {
+        const { supabase } = await requireAdmin()
+
+        const { data, error } = await supabase
+            .from('system_settings')
+            .select('system_name, logo_url, cnpj, city, state, address, phone, email')
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle()
+
+        if (error) {
+            return { error: 'Erro ao carregar identidade visual para o PDF.' }
+        }
+
+        const branding: LogisticsPdfBranding = {
+            system_name: data?.system_name || 'CDJWE Estofados',
+            logo_url: data?.logo_url || null,
+            cnpj: data?.cnpj || null,
+            city: data?.city || null,
+            state: data?.state || null,
+            address: data?.address || null,
+            phone: data?.phone || null,
+            email: data?.email || null,
+        }
+
+        return { data: branding }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
 export async function updateRouteStatus(routeId: string, newStatus: string, reason?: string) {
     try {
         const { supabase, userId } = await requireAdmin()
@@ -818,6 +863,7 @@ export async function updateRouteStatus(routeId: string, newStatus: string, reas
             .select(`
                 id,
                 status,
+                is_deleted,
                 driver_id,
                 vehicle_id,
                 center_id,
@@ -827,6 +873,9 @@ export async function updateRouteStatus(routeId: string, newStatus: string, reas
             .single()
 
         if (routeErr || !route) {
+            return { error: 'Rota nao encontrada.' }
+        }
+        if (route.is_deleted) {
             return { error: 'Rota nao encontrada.' }
         }
 
@@ -964,26 +1013,47 @@ export async function updateStopStatus(
 
 export async function deleteRoute(routeId: string) {
     try {
-        const { supabase } = await requireAdmin()
+        const { supabase, userId } = await requireAdmin()
 
-        // Only allow deleting draft/cancelled routes
-        const { data: route } = await supabase
+        const { data: route, error: routeErr } = await supabase
             .from('delivery_routes')
-            .select('status')
+            .select('id, route_number, status, is_deleted')
             .eq('id', routeId)
-            .single()
+            .maybeSingle()
 
-        if (!route) return { error: 'Rota não encontrada.' }
-        if (!['draft', 'cancelled'].includes(route.status)) {
-            return { error: 'Somente rotas em rascunho ou canceladas podem ser excluídas.' }
+        if (routeErr) return { error: 'Erro ao localizar rota para exclusao.' }
+        if (!route) return { error: 'Rota nao encontrada.' }
+
+        if (route.is_deleted) {
+            return { success: true }
         }
+
+        const deletedAt = new Date().toISOString()
 
         const { error } = await supabase
             .from('delivery_routes')
-            .delete()
+            .update({
+                is_deleted: true,
+                deleted_at: deletedAt,
+                deleted_by: userId,
+                updated_by: userId,
+            })
             .eq('id', routeId)
 
-        if (error) return { error: 'Erro ao excluir rota.' }
+        if (error) return { error: 'Erro ao excluir rota logicamente.' }
+
+        await supabase.from('route_events').insert({
+            route_id: routeId,
+            event_type: 'notes_updated',
+            actor_id: userId,
+            metadata: {
+                action: 'route_soft_deleted',
+                previous_status: route.status,
+                route_number: route.route_number,
+                deleted_at: deletedAt,
+            },
+        })
+
         return { success: true }
     } catch (e) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
@@ -1070,6 +1140,7 @@ export async function updateRoutePolyline(
                 .from('delivery_routes')
                 .select('optimization_result')
                 .eq('id', routeId)
+                .eq('is_deleted', false)
                 .single()
             existingResult = routeData?.optimization_result || {}
         }
@@ -1103,6 +1174,7 @@ export async function updateRoutePolyline(
             .from('delivery_routes')
             .update(update)
             .eq('id', routeId)
+            .eq('is_deleted', false)
 
         if (error) return { error: 'Erro ao salvar trajeto da rota.' }
         return { success: true }
@@ -1160,11 +1232,14 @@ export async function updateRouteAssignment(
 
         const { data: route, error: routeErr } = await supabase
             .from('delivery_routes')
-            .select('id, status')
+            .select('id, status, is_deleted')
             .eq('id', routeId)
             .single()
 
         if (routeErr || !route) {
+            return { error: 'Rota nao encontrada.' }
+        }
+        if (route.is_deleted) {
             return { error: 'Rota nao encontrada.' }
         }
 
@@ -1218,6 +1293,7 @@ export async function updateRouteAssignment(
             .from('delivery_routes')
             .update(payload)
             .eq('id', routeId)
+            .eq('is_deleted', false)
 
         if (error) return { error: 'Erro ao atualizar atribuição.' }
 
@@ -1279,6 +1355,7 @@ export async function getRouteHistory(filters?: {
             delivery_regions ( name ),
             delivery_route_stops ( status )
         `, { count: 'exact' })
+            .eq('is_deleted', false)
 
         if (filters?.status && filters.status !== 'all') {
             query = query.eq('status', filters.status)
@@ -1430,6 +1507,93 @@ export interface CostSettings {
     updated_at: string
 }
 
+export interface RouteCostOverrideSettings {
+    fuel_price_per_liter: number | null
+    fuel_tax_pct: number | null
+    additional_tax: number | null
+    daily_rate: number | null
+    consumption_km_l: number | null
+    notes: string | null
+    updated_at?: string | null
+}
+
+export interface RouteCostEffectiveSettings {
+    fuel_price_per_liter: number
+    fuel_tax_pct: number
+    additional_tax: number
+    daily_rate: number
+    consumption_km_l: number
+    notes: string | null
+}
+
+export interface RouteCostEstimate {
+    distance_km: number
+    consumption_km_l: number
+    fuel_type: string
+    liters_used: number
+    fuel_price_per_liter: number
+    fuel_cost: number
+    fuel_tax_pct: number
+    fuel_tax_value: number
+    additional_tax: number
+    daily_rate: number
+    total_cost: number
+    can_calculate_fuel: boolean
+}
+
+export interface RouteCostProfile {
+    route_id: string
+    route_status: string
+    can_edit: boolean
+    is_custom: boolean
+    base_settings: CostSettings
+    override_settings: RouteCostOverrideSettings | null
+    effective_settings: RouteCostEffectiveSettings
+    estimate: RouteCostEstimate
+}
+
+function toSafeNumber(value: unknown, fallback = 0) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function computeRouteCostEstimate(input: {
+    distanceKm: number
+    consumptionKmL: number
+    fuelType: string
+    fuelPricePerLiter: number
+    fuelTaxPct: number
+    additionalTax: number
+    dailyRate: number
+}): RouteCostEstimate {
+    const distanceKm = Math.max(0, toSafeNumber(input.distanceKm, 0))
+    const consumptionKmL = Math.max(0, toSafeNumber(input.consumptionKmL, 0))
+    const fuelPricePerLiter = Math.max(0, toSafeNumber(input.fuelPricePerLiter, 0))
+    const fuelTaxPct = Math.max(0, toSafeNumber(input.fuelTaxPct, 0))
+    const additionalTax = Math.max(0, toSafeNumber(input.additionalTax, 0))
+    const dailyRate = Math.max(0, toSafeNumber(input.dailyRate, 0))
+    const canCalculateFuel = consumptionKmL > 0
+    const litersUsed = canCalculateFuel ? distanceKm / consumptionKmL : 0
+    const fuelCost = litersUsed * fuelPricePerLiter
+    const fuelTax = fuelCost * (fuelTaxPct / 100)
+    const totalCost = fuelCost + fuelTax + additionalTax + dailyRate
+
+    return {
+        distance_km: Math.round(distanceKm * 100) / 100,
+        consumption_km_l: Math.round(consumptionKmL * 100) / 100,
+        fuel_type: input.fuelType || 'diesel',
+        liters_used: Math.round(litersUsed * 100) / 100,
+        fuel_price_per_liter: Math.round(fuelPricePerLiter * 100) / 100,
+        fuel_cost: Math.round(fuelCost * 100) / 100,
+        fuel_tax_pct: Math.round(fuelTaxPct * 100) / 100,
+        fuel_tax_value: Math.round(fuelTax * 100) / 100,
+        additional_tax: Math.round(additionalTax * 100) / 100,
+        daily_rate: Math.round(dailyRate * 100) / 100,
+        total_cost: Math.round(totalCost * 100) / 100,
+        can_calculate_fuel: canCalculateFuel,
+    }
+}
+
 export async function getCostSettings() {
     try {
         const { supabase } = await requireAdmin()
@@ -1488,55 +1652,242 @@ export async function saveCostSettings(settings: {
     }
 }
 
-export async function getRouteCostEstimate(routeId: string) {
+export async function getRouteCostProfile(routeId: string) {
     try {
         const { supabase } = await requireAdmin()
 
-        // Fetch route with vehicle info
-        const { data: route } = await supabase
-            .from('delivery_routes')
-            .select('id, total_distance_km, vehicle_id, vehicles(fuel_consumption_km_l, fuel_type)')
-            .eq('id', routeId)
-            .single()
+        const [routeRes, settingsRes, overrideRes] = await Promise.all([
+            supabase
+                .from('delivery_routes')
+                .select('id, status, total_distance_km, vehicles(fuel_consumption_km_l, fuel_type)')
+                .eq('id', routeId)
+                .eq('is_deleted', false)
+                .single(),
+            supabase
+                .from('logistics_cost_settings')
+                .select('*')
+                .limit(1)
+                .single(),
+            supabase
+                .from('delivery_route_cost_overrides')
+                .select('*')
+                .eq('route_id', routeId)
+                .maybeSingle(),
+        ])
 
-        // Fetch cost settings
-        const { data: settings } = await supabase
-            .from('logistics_cost_settings')
-            .select('*')
-            .limit(1)
-            .single()
+        if (routeRes.error || !routeRes.data) {
+            return { error: 'Rota nao encontrada.' }
+        }
 
-        if (!route || !settings) return { data: null }
+        if (settingsRes.error && settingsRes.error.code !== 'PGRST116') {
+            return { error: 'Erro ao carregar configuracoes globais de custo.' }
+        }
 
-        const distanceKm = route.total_distance_km || 0
+        if (overrideRes.error && overrideRes.error.code !== 'PGRST116' && overrideRes.error.code !== '42P01') {
+            return { error: 'Erro ao carregar customizacao de custos da rota.' }
+        }
+
+        const baseSettings: CostSettings = {
+            id: settingsRes.data?.id || 'default',
+            fuel_price_per_liter: toSafeNumber(settingsRes.data?.fuel_price_per_liter, 5.5),
+            fuel_tax_pct: toSafeNumber(settingsRes.data?.fuel_tax_pct, 0),
+            additional_tax: toSafeNumber(settingsRes.data?.additional_tax, 0),
+            daily_rate: toSafeNumber(settingsRes.data?.daily_rate, 150),
+            notes: settingsRes.data?.notes || null,
+            updated_at: settingsRes.data?.updated_at || new Date().toISOString(),
+        }
+
+        const route = routeRes.data
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const vehicle = route.vehicles as any
-        const consumptionKmL = vehicle?.fuel_consumption_km_l || 0
-        const fuelType = vehicle?.fuel_type || 'diesel'
+        const override = overrideRes.error?.code === '42P01' ? null : overrideRes.data
 
-        // Calculate
-        const litersUsed = consumptionKmL > 0 ? distanceKm / consumptionKmL : 0
-        const fuelCost = litersUsed * (settings.fuel_price_per_liter || 0)
-        const fuelTax = fuelCost * ((settings.fuel_tax_pct || 0) / 100)
-        const additionalTax = settings.additional_tax || 0
-        const dailyRate = settings.daily_rate || 0
-        const totalCost = fuelCost + fuelTax + additionalTax + dailyRate
+        const overrideSettings: RouteCostOverrideSettings | null = override
+            ? {
+                fuel_price_per_liter: override.fuel_price_per_liter,
+                fuel_tax_pct: override.fuel_tax_pct,
+                additional_tax: override.additional_tax,
+                daily_rate: override.daily_rate,
+                consumption_km_l: override.consumption_km_l,
+                notes: override.notes || null,
+                updated_at: override.updated_at || null,
+            }
+            : null
 
-        return {
-            data: {
-                distance_km: distanceKm,
-                consumption_km_l: consumptionKmL,
-                fuel_type: fuelType,
-                liters_used: Math.round(litersUsed * 100) / 100,
-                fuel_price_per_liter: settings.fuel_price_per_liter,
-                fuel_cost: Math.round(fuelCost * 100) / 100,
-                fuel_tax_pct: settings.fuel_tax_pct,
-                fuel_tax_value: Math.round(fuelTax * 100) / 100,
+        const effectiveSettings: RouteCostEffectiveSettings = {
+            fuel_price_per_liter: override?.fuel_price_per_liter ?? baseSettings.fuel_price_per_liter,
+            fuel_tax_pct: override?.fuel_tax_pct ?? baseSettings.fuel_tax_pct,
+            additional_tax: override?.additional_tax ?? baseSettings.additional_tax,
+            daily_rate: override?.daily_rate ?? baseSettings.daily_rate,
+            consumption_km_l: override?.consumption_km_l ?? toSafeNumber(vehicle?.fuel_consumption_km_l, 0),
+            notes: override?.notes ?? baseSettings.notes ?? null,
+        }
+
+        const estimate = computeRouteCostEstimate({
+            distanceKm: toSafeNumber(route.total_distance_km, 0),
+            consumptionKmL: effectiveSettings.consumption_km_l,
+            fuelType: vehicle?.fuel_type || 'diesel',
+            fuelPricePerLiter: effectiveSettings.fuel_price_per_liter,
+            fuelTaxPct: effectiveSettings.fuel_tax_pct,
+            additionalTax: effectiveSettings.additional_tax,
+            dailyRate: effectiveSettings.daily_rate,
+        })
+
+        const isCustom = Boolean(
+            override && (
+                override.fuel_price_per_liter !== null
+                || override.fuel_tax_pct !== null
+                || override.additional_tax !== null
+                || override.daily_rate !== null
+                || override.consumption_km_l !== null
+                || (override.notes && override.notes.trim().length > 0)
+            )
+        )
+
+        const canEdit = ['draft', 'optimized', 'confirmed'].includes(route.status)
+
+        const profile: RouteCostProfile = {
+            route_id: route.id,
+            route_status: route.status,
+            can_edit: canEdit,
+            is_custom: isCustom,
+            base_settings: baseSettings,
+            override_settings: overrideSettings,
+            effective_settings: effectiveSettings,
+            estimate,
+        }
+
+        return { data: profile }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+export async function saveRouteCostOverride(routeId: string, payload: {
+    fuel_price_per_liter?: number | null
+    fuel_tax_pct?: number | null
+    additional_tax?: number | null
+    daily_rate?: number | null
+    consumption_km_l?: number | null
+    notes?: string | null
+}) {
+    try {
+        const { supabase, userId } = await requireAdmin()
+
+        const { data: route, error: routeErr } = await supabase
+            .from('delivery_routes')
+            .select('id, status, route_number')
+            .eq('id', routeId)
+            .eq('is_deleted', false)
+            .single()
+
+        if (routeErr || !route) return { error: 'Rota nao encontrada.' }
+        if (!['draft', 'optimized', 'confirmed'].includes(route.status)) {
+            return { error: 'A customizacao de custos so pode ser alterada ate o status confirmado.' }
+        }
+
+        const normalizeNullable = (value: unknown) => {
+            if (value === null || value === undefined || value === '') return null
+            const parsed = Number(value)
+            return Number.isFinite(parsed) ? parsed : null
+        }
+
+        const fuelPrice = normalizeNullable(payload.fuel_price_per_liter)
+        const fuelTax = normalizeNullable(payload.fuel_tax_pct)
+        const additionalTax = normalizeNullable(payload.additional_tax)
+        const dailyRate = normalizeNullable(payload.daily_rate)
+        const consumption = normalizeNullable(payload.consumption_km_l)
+
+        const invalidNumeric = [fuelPrice, fuelTax, additionalTax, dailyRate, consumption]
+            .some((value) => value !== null && value < 0)
+        if (invalidNumeric) {
+            return { error: 'Valores numericos de custo nao podem ser negativos.' }
+        }
+
+        const notes = payload.notes?.trim() ? payload.notes.trim() : null
+
+        const { error } = await supabase
+            .from('delivery_route_cost_overrides')
+            .upsert({
+                route_id: routeId,
+                fuel_price_per_liter: fuelPrice,
+                fuel_tax_pct: fuelTax,
                 additional_tax: additionalTax,
                 daily_rate: dailyRate,
-                total_cost: Math.round(totalCost * 100) / 100,
-            },
+                consumption_km_l: consumption,
+                notes,
+                updated_by: userId,
+            }, { onConflict: 'route_id' })
+
+        if (error) {
+            if (error.code === '42P01') return { error: 'Estrutura de custos por rota indisponivel. Execute a migration 052.' }
+            return { error: 'Erro ao salvar customizacao de custos da rota.' }
         }
+
+        await supabase.from('route_events').insert({
+            route_id: routeId,
+            event_type: 'notes_updated',
+            actor_id: userId,
+            metadata: {
+                action: 'route_cost_override_updated',
+                route_number: route.route_number,
+            },
+        })
+
+        return { success: true }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+export async function clearRouteCostOverride(routeId: string) {
+    try {
+        const { supabase, userId } = await requireAdmin()
+
+        const { data: route, error: routeErr } = await supabase
+            .from('delivery_routes')
+            .select('id, status, route_number')
+            .eq('id', routeId)
+            .eq('is_deleted', false)
+            .single()
+
+        if (routeErr || !route) return { error: 'Rota nao encontrada.' }
+        if (!['draft', 'optimized', 'confirmed'].includes(route.status)) {
+            return { error: 'O reset de custos so pode ser feito ate o status confirmado.' }
+        }
+
+        const { error } = await supabase
+            .from('delivery_route_cost_overrides')
+            .delete()
+            .eq('route_id', routeId)
+
+        if (error) {
+            if (error.code === '42P01') return { error: 'Estrutura de custos por rota indisponivel. Execute a migration 052.' }
+            return { error: 'Erro ao restaurar custos padrao da rota.' }
+        }
+
+        await supabase.from('route_events').insert({
+            route_id: routeId,
+            event_type: 'notes_updated',
+            actor_id: userId,
+            metadata: {
+                action: 'route_cost_override_cleared',
+                route_number: route.route_number,
+            },
+        })
+
+        return { success: true }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+export async function getRouteCostEstimate(routeId: string) {
+    try {
+        const profileRes = await getRouteCostProfile(routeId)
+        if ('error' in profileRes && profileRes.error) return { error: profileRes.error }
+        if (!('data' in profileRes) || !profileRes.data) return { data: null }
+        return { data: profileRes.data.estimate }
     } catch (e) {
         return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
     }
