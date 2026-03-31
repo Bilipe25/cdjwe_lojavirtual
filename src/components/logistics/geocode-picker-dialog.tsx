@@ -22,6 +22,7 @@ import {
     DialogDescription,
 } from '@/components/ui/dialog'
 import { attachResizeObserver, createLogisticsMap } from './map-provider'
+import { normalizeAddressText, useLogisticsGeocode } from './use-logistics-geocode'
 
 interface GeocodePickerDialogProps {
     open: boolean
@@ -30,6 +31,9 @@ interface GeocodePickerDialogProps {
     customerName: string
     address: string
     addressId?: string | null
+    cityHint?: string | null
+    stateHint?: string | null
+    zipCodeHint?: string | null
     initialLat?: number | null
     initialLng?: number | null
     onConfirm: (stopId: string, lat: number, lng: number) => Promise<void>
@@ -43,6 +47,9 @@ export default function GeocodePickerDialog({
     customerName,
     address,
     addressId,
+    cityHint,
+    stateHint,
+    zipCodeHint,
     initialLat,
     initialLng,
     onConfirm,
@@ -60,16 +67,45 @@ export default function GeocodePickerDialog({
     const markerRef = useRef<maplibregl.Marker | null>(null)
     const resizeControllerRef = useRef<ReturnType<typeof attachResizeObserver> | null>(null)
     const hasAutoGeocodedRef = useRef(false)
+    const mapReadyFallbackTimerRef = useRef<number | null>(null)
 
     const [searchAddress, setSearchAddress] = useState(address || '')
-    const [geocoding, setGeocoding] = useState(false)
-    const [saving, setSaving] = useState(false)
-    const [error, setError] = useState<string | null>(null)
+    const [isMapReady, setIsMapReady] = useState(false)
+    const [mapInitError, setMapInitError] = useState<string | null>(null)
+    const [mapBootNonce, setMapBootNonce] = useState(0)
     const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
-        initialLat && initialLng ? { lat: initialLat, lng: initialLng } : null,
+        Number.isFinite(initialLat) && Number.isFinite(initialLng) ? { lat: Number(initialLat), lng: Number(initialLng) } : null,
     )
 
+    const geocodeEngine = useLogisticsGeocode({
+        addressId,
+        defaultAddress: address,
+        cityHint,
+        stateHint,
+        zipCodeHint,
+    })
+    const {
+        status: geocodeStatus,
+        error,
+        geocode,
+        setMapReady,
+        setMapError,
+        setSaving,
+        setSaved,
+        reset,
+        setError,
+        setStatus,
+    } = geocodeEngine
+
+    const geocoding = geocodeStatus === 'resolving_address' || geocodeStatus === 'geocoding'
+    const saving = geocodeStatus === 'saving'
+
     const cleanupMap = useCallback(() => {
+        if (mapReadyFallbackTimerRef.current !== null) {
+            window.clearTimeout(mapReadyFallbackTimerRef.current)
+            mapReadyFallbackTimerRef.current = null
+        }
+
         markerRef.current?.remove()
         markerRef.current = null
 
@@ -82,15 +118,7 @@ export default function GeocodePickerDialog({
         }
     }, [])
 
-    function cleanAddress(text: string): string {
-        return text
-            .replace(/\[.*?\]\s*/g, '')
-            .replace(/CEP:\s*/gi, '')
-            .replace(/,\s*,/g, ',')
-            .replace(/,\s*$/g, '')
-            .replace(/\s+/g, ' ')
-            .trim()
-    }
+    const normalizeAddress = useCallback((text: string) => normalizeAddressText(text), [])
 
     function createMarkerElement() {
         const element = document.createElement('div')
@@ -107,11 +135,10 @@ export default function GeocodePickerDialog({
 
         const inner = document.createElement('div')
         inner.style.transform = 'rotate(45deg)'
-        inner.style.color = 'white'
-        inner.style.fontWeight = '900'
-        inner.style.fontSize = '13px'
-        inner.style.lineHeight = '1'
-        inner.textContent = '•'
+        inner.style.width = '8px'
+        inner.style.height = '8px'
+        inner.style.borderRadius = '999px'
+        inner.style.background = 'white'
         element.append(inner)
 
         return element
@@ -147,40 +174,16 @@ export default function GeocodePickerDialog({
     const doGeocode = useCallback(async (searchText: string) => {
         if (!searchText.trim()) return
 
-        setGeocoding(true)
-        setError(null)
+        const response = await geocode(searchText, { mode: 'manual' })
+        if ('error' in response) return
 
-        try {
-            const body: Record<string, string> = addressId
-                ? { addressId }
-                : { address: searchText }
+        const newCoords = { lat: response.lat, lng: response.lng }
+        setCoords(newCoords)
 
-            const response = await fetch('/api/logistics/geocode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            })
-
-            const data = await response.json()
-
-            if (!response.ok || !data.lat) {
-                setError(data.error || 'Endereco nao encontrado. Ajuste o texto ou clique no mapa para posicionar manualmente.')
-                setGeocoding(false)
-                return
-            }
-
-            const newCoords = { lat: data.lat, lng: data.lng }
-            setCoords(newCoords)
-
-            if (mapInstanceRef.current) {
-                placeMarker(mapInstanceRef.current, newCoords.lat, newCoords.lng)
-            }
-        } catch {
-            setError('Erro de conexao ao geocodificar.')
+        if (mapInstanceRef.current) {
+            placeMarker(mapInstanceRef.current, newCoords.lat, newCoords.lng)
         }
-
-        setGeocoding(false)
-    }, [addressId, placeMarker])
+    }, [geocode, placeMarker])
 
     function handleManualGeocode() {
         void doGeocode(searchAddress)
@@ -188,28 +191,36 @@ export default function GeocodePickerDialog({
 
     async function handleConfirm() {
         if (!coords) return
-        setSaving(true)
+        setSaving()
         setError(null)
         try {
             await onConfirm(stopId, coords.lat, coords.lng)
+            setSaved()
             onOpenChange(false)
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Erro ao salvar coordenadas.')
+            setStatus('failed')
         }
-        setSaving(false)
     }
 
     useEffect(() => {
         if (open) {
             // eslint-disable-next-line react-hooks/set-state-in-effect
-            setSearchAddress(cleanAddress(address || ''))
-            setCoords(initialLat && initialLng ? { lat: initialLat, lng: initialLng } : null)
-            setError(null)
+            setSearchAddress(normalizeAddress(address || ''))
+            setCoords(
+                Number.isFinite(initialLat) && Number.isFinite(initialLng)
+                    ? { lat: Number(initialLat), lng: Number(initialLng) }
+                    : null,
+            )
+            reset()
+            setIsMapReady(false)
+            setMapInitError(null)
+            setMapBootNonce((prev) => prev + 1)
             hasAutoGeocodedRef.current = false
         } else {
             cleanupMap()
         }
-    }, [address, cleanupMap, initialLat, initialLng, open])
+    }, [address, cleanupMap, initialLat, initialLng, normalizeAddress, open, reset])
 
     useEffect(() => {
         if (!open) return
@@ -218,33 +229,67 @@ export default function GeocodePickerDialog({
         const timer = setTimeout(() => {
             if (!mapContainerRef.current || mapInstanceRef.current) return
 
-            const hasCoords = initialLat && initialLng
+            const hasCoords = Number.isFinite(initialLat) && Number.isFinite(initialLng)
             const mapCenter: [number, number] = hasCoords
-                ? [initialLng!, initialLat!]
+                ? [Number(initialLng), Number(initialLat)]
                 : [-51.9253, -14.235]
 
-            const { map } = createLogisticsMap({
-                container: mapContainerRef.current,
-                center: mapCenter,
-                zoom: hasCoords ? 16 : 4,
-            })
+            let map: maplibregl.Map
+            try {
+                const created = createLogisticsMap({
+                    container: mapContainerRef.current,
+                    center: mapCenter,
+                    zoom: hasCoords ? 16 : 4,
+                })
+                map = created.map
+            } catch {
+                setMapInitError('Nao foi possivel inicializar o mapa neste momento.')
+                setIsMapReady(true)
+                setMapError('Falha ao inicializar mapa do geocodificador.')
+                return
+            }
 
             mapInstanceRef.current = map
             map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
 
             const resizeController = attachResizeObserver(map, mapContainerRef.current)
             resizeControllerRef.current = resizeController
+            resizeController.scheduleResize()
+            window.setTimeout(() => resizeController.scheduleResize(), 120)
+            window.setTimeout(() => resizeController.scheduleResize(), 320)
 
-            map.on('load', () => {
+            const handleMapReady = () => {
+                setIsMapReady(true)
+                setMapReady()
                 resizeController.scheduleResize()
 
                 if (hasCoords) {
-                    placeMarker(map, initialLat!, initialLng!, false)
+                    placeMarker(map, Number(initialLat), Number(initialLng), false)
                 } else if (address && !hasAutoGeocodedRef.current) {
                     hasAutoGeocodedRef.current = true
-                    void doGeocode(cleanAddress(address))
+                    void doGeocode(normalizeAddress(address))
                 }
+            }
+
+            map.on('load', handleMapReady)
+            map.on('style.load', handleMapReady)
+            map.once('render', () => {
+                setIsMapReady(true)
+                setMapReady()
+                resizeController.scheduleResize()
             })
+
+            if (map.isStyleLoaded()) {
+                handleMapReady()
+            }
+
+            mapReadyFallbackTimerRef.current = window.setTimeout(() => {
+                if (mapInstanceRef.current === map) {
+                    setIsMapReady(true)
+                    setMapReady()
+                    resizeController.scheduleResize()
+                }
+            }, 1800)
 
             map.on('click', (event) => {
                 const { lat, lng } = event.lngLat
@@ -257,7 +302,7 @@ export default function GeocodePickerDialog({
             clearTimeout(timer)
             cleanupMap()
         }
-    }, [address, cleanupMap, doGeocode, initialLat, initialLng, open, placeMarker])
+    }, [address, cleanupMap, doGeocode, initialLat, initialLng, mapBootNonce, normalizeAddress, open, placeMarker, setMapError, setMapReady])
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -284,7 +329,7 @@ export default function GeocodePickerDialog({
                         <div className="min-w-0">
                             <p className="text-sm font-bold text-navy truncate">{customerName}</p>
                             <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
-                                {cleanAddress(address) || 'Sem endereco cadastrado'}
+                                {normalizeAddress(address) || 'Sem endereco cadastrado'}
                             </p>
                         </div>
                     </div>
@@ -320,6 +365,30 @@ export default function GeocodePickerDialog({
 
                     <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-100" style={{ height: 360 }}>
                         <div ref={mapContainerRef} style={{ height: '100%', width: '100%' }} />
+                        {!isMapReady && !mapInitError && (
+                            <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-100 text-xs text-slate-500">
+                                Carregando mapa...
+                            </div>
+                        )}
+                        {mapInitError && (
+                            <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-2 bg-slate-100 text-xs text-slate-600">
+                                <span>{mapInitError}</span>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-[11px]"
+                                    onClick={() => {
+                                        cleanupMap()
+                                        setMapInitError(null)
+                                        setIsMapReady(false)
+                                        setMapBootNonce((prev) => prev + 1)
+                                    }}
+                                >
+                                    Tentar novamente
+                                </Button>
+                            </div>
+                        )}
                         {geocoding && (
                             <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center z-50">
                                 <div className="flex items-center gap-2 text-sm font-medium text-indigo-700">
@@ -373,3 +442,4 @@ export default function GeocodePickerDialog({
         </Dialog>
     )
 }
+

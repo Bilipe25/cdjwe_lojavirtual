@@ -1,7 +1,5 @@
 'use client'
-/* eslint-disable react-hooks/set-state-in-effect */
 
-import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Map as MapIcon, Globe2, ListFilter, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,14 +10,16 @@ import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { getClientMapDataset, updateClientCoordinates } from '@/app/admin/logistica/services'
 import ClientMapSidebar from './client-map-sidebar'
 import ClientMapView from './client-map-view'
+import ClientGeocodeDrawer from './client-geocode-drawer'
+import { useLogisticsGeocode, type LogisticsGeocodeCandidate } from './use-logistics-geocode'
 import type {
+    ClientMapBootState,
     ClientMapDatasetResponse,
     ClientMapFilters,
     ClientMapItem,
+    ClientMapMode,
     ClientMapScope,
 } from './client-map-types'
-
-const GeocodePickerDialog = dynamic(() => import('@/components/logistics/geocode-picker-dialog'), { ssr: false })
 
 interface ClientMapModeDialogProps {
     open: boolean
@@ -68,17 +68,36 @@ export default function ClientMapModeDialog({
     const [mobileTab, setMobileTab] = useState<'list' | 'map'>('map')
     const [focusedClientId, setFocusedClientId] = useState<string | null>(null)
     const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set(initialSelectedClientIds))
-    const [geocodeDialog, setGeocodeDialog] = useState<{
-        storeId: string
-        customerName: string
-        address: string
-        addressId: string | null
-        lat: number | null
-        lng: number | null
-    } | null>(null)
+    const [mode, setMode] = useState<ClientMapMode>('browse')
+    const [geocodeTarget, setGeocodeTarget] = useState<ClientMapItem | null>(null)
+    const [geocodeSearchAddress, setGeocodeSearchAddress] = useState('')
+    const [geocodeCoords, setGeocodeCoords] = useState<{ lat: number; lng: number } | null>(null)
+    const [mapBootState, setMapBootState] = useState<ClientMapBootState>('boot_start')
+    const [mapReinitKey, setMapReinitKey] = useState(0)
 
     const requestIdRef = useRef(0)
+    const autoGeocodeKeyRef = useRef('')
     const [debouncedSearch, setDebouncedSearch] = useState(filters.search)
+
+    const geocodeEngine = useLogisticsGeocode({
+        addressId: geocodeTarget?.primary_address_id || null,
+        defaultAddress: geocodeTarget?.geocode_query || geocodeTarget?.primary_address_label || '',
+        cityHint: geocodeTarget?.city || null,
+        stateHint: geocodeTarget?.state || null,
+    })
+    const {
+        status: geocodeStatus,
+        error: geocodeError,
+        candidates: geocodeCandidates,
+        geocode: runGeocode,
+        setMapReady: markGeocodeMapReady,
+        setMapError: markGeocodeMapError,
+        setSaving: markGeocodeSaving,
+        setSaved: markGeocodeSaved,
+        reset: resetGeocode,
+        setError: setGeocodeError,
+        setStatus: setGeocodeStatus,
+    } = geocodeEngine
 
     useEffect(() => {
         const timeoutId = window.setTimeout(() => setDebouncedSearch(filters.search), 280)
@@ -87,13 +106,20 @@ export default function ClientMapModeDialog({
 
     useEffect(() => {
         if (!open) return
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setScope(initialScope)
         setSelectedClientIds(new Set(initialSelectedClientIds))
         setFilters(defaultFilters)
         setFocusedClientId(null)
         setMobileTab('map')
-        setGeocodeDialog(null)
-    }, [open, initialScope, initialSelectedClientIds])
+        setMode('browse')
+        setGeocodeTarget(null)
+        setGeocodeSearchAddress('')
+        setGeocodeCoords(null)
+        setMapBootState('boot_start')
+        autoGeocodeKeyRef.current = ''
+        resetGeocode()
+    }, [initialScope, initialSelectedClientIds, open, resetGeocode])
 
     const selectedIdsForQuery = useMemo(() => (
         filters.onlySelected ? Array.from(selectedClientIds) : []
@@ -163,6 +189,7 @@ export default function ClientMapModeDialog({
     ])
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         void loadDataset()
     }, [loadDataset])
 
@@ -239,15 +266,19 @@ export default function ClientMapModeDialog({
 
     const handleOpenGeocode = useCallback((client: ClientMapItem) => {
         setFocusedClientId(client.store_id)
-        setGeocodeDialog({
-            storeId: client.store_id,
-            customerName: client.company_name || client.client_name || 'Cliente',
-            address: client.primary_address_label || `${client.city || ''}${client.state ? ` / ${client.state}` : ''}`,
-            addressId: client.primary_address_id,
-            lat: client.latitude ?? null,
-            lng: client.longitude ?? null,
-        })
-    }, [])
+        setMode('geocode')
+        setGeocodeTarget(client)
+        setGeocodeSearchAddress(client.geocode_query || client.primary_address_label || `${client.city || ''}${client.state ? ` / ${client.state}` : ''}`)
+        setGeocodeCoords(
+            client.latitude !== null && client.longitude !== null
+                ? { lat: Number(client.latitude), lng: Number(client.longitude) }
+                : null,
+        )
+        setMapBootState('boot_start')
+        resetGeocode()
+        autoGeocodeKeyRef.current = ''
+        setMobileTab('map')
+    }, [resetGeocode])
 
     const handleOpenGeocodeByStoreId = useCallback((storeId: string) => {
         const client = dataset.items.find((item) => item.store_id === storeId)
@@ -259,6 +290,7 @@ export default function ClientMapModeDialog({
         store_id: string
         primary_address_id: string | null
         primary_address_label: string | null
+        geocode_query?: string | null
         latitude: number
         longitude: number
         coordinates_source: string | null
@@ -274,6 +306,7 @@ export default function ClientMapModeDialog({
                         ...item,
                         primary_address_id: payload.primary_address_id,
                         primary_address_label: payload.primary_address_label,
+                        geocode_query: payload.geocode_query ?? item.geocode_query,
                         latitude: payload.latitude,
                         longitude: payload.longitude,
                         coordinates_source: payload.coordinates_source,
@@ -306,15 +339,93 @@ export default function ClientMapModeDialog({
         }
     }, [filters.onlyWithCoordinates, filters.onlyWithoutCoordinates, focusedClientId])
 
-    const handleConfirmClientGeocode = useCallback(async (storeId: string, lat: number, lng: number) => {
-        const response = await updateClientCoordinates({ storeId, lat, lng })
+    const handleSearchGeocode = useCallback(async () => {
+        if (!geocodeTarget) return
+        const response = await runGeocode(geocodeSearchAddress, { mode: 'manual' })
+        if ('error' in response) return
+        setGeocodeCoords({ lat: response.lat, lng: response.lng })
+    }, [geocodeSearchAddress, geocodeTarget, runGeocode])
+
+    const handleSelectGeocodeCandidate = useCallback((candidate: LogisticsGeocodeCandidate) => {
+        setGeocodeCoords({ lat: candidate.lat, lng: candidate.lng })
+        if (candidate.label) {
+            setGeocodeSearchAddress(candidate.label)
+        }
+    }, [])
+
+    const handleSaveClientGeocode = useCallback(async () => {
+        if (!geocodeTarget || !geocodeCoords) return
+        markGeocodeSaving()
+        const response = await updateClientCoordinates({
+            storeId: geocodeTarget.store_id,
+            lat: geocodeCoords.lat,
+            lng: geocodeCoords.lng,
+        })
         if ('error' in response && response.error) {
-            throw new Error(response.error)
+            setGeocodeError(response.error)
+            setGeocodeStatus('failed')
+            return
         }
         if ('data' in response && response.data) {
-            applyLocalCoordinateUpdate(response.data)
+            applyLocalCoordinateUpdate({
+                ...response.data,
+                geocode_query: geocodeTarget.geocode_query,
+            })
+            setGeocodeTarget((prev) => (
+                prev
+                    ? {
+                        ...prev,
+                        latitude: response.data.latitude,
+                        longitude: response.data.longitude,
+                        has_valid_coordinates: true,
+                        primary_address_id: response.data.primary_address_id,
+                        primary_address_label: response.data.primary_address_label,
+                        coordinates_source: response.data.coordinates_source,
+                    }
+                    : prev
+            ))
+            markGeocodeSaved()
+            setMode('browse')
         }
-    }, [applyLocalCoordinateUpdate])
+    }, [applyLocalCoordinateUpdate, geocodeCoords, geocodeTarget, markGeocodeSaved, markGeocodeSaving, setGeocodeError, setGeocodeStatus])
+
+    const handleCloseGeocode = useCallback(() => {
+        setMode('browse')
+        setGeocodeTarget(null)
+        setGeocodeCoords(null)
+        setGeocodeSearchAddress('')
+        autoGeocodeKeyRef.current = ''
+        resetGeocode()
+    }, [resetGeocode])
+
+    const handleMapBootStateChange = useCallback((state: ClientMapBootState) => {
+        setMapBootState(state)
+        if (state === 'map_error') {
+            markGeocodeMapError('Falha ao carregar o mapa. Tente reinicializar.')
+        } else if (state === 'ready') {
+            markGeocodeMapReady()
+        }
+    }, [markGeocodeMapError, markGeocodeMapReady])
+
+    const handleReinitializeMap = useCallback(() => {
+        setMapBootState('boot_start')
+        resetGeocode()
+        setMapReinitKey((prev) => prev + 1)
+    }, [resetGeocode])
+
+    useEffect(() => {
+        if (mode !== 'geocode') return
+        if (!geocodeTarget) return
+        if (geocodeCoords) return
+        const key = `${geocodeTarget.store_id}:${geocodeTarget.primary_address_id || 'none'}`
+        if (autoGeocodeKeyRef.current === key) return
+        autoGeocodeKeyRef.current = key
+        void (async () => {
+            const response = await runGeocode(geocodeSearchAddress, { mode: 'auto' })
+            if ('error' in response) return
+            setGeocodeCoords({ lat: response.lat, lng: response.lng })
+        })()
+    }, [geocodeCoords, geocodeSearchAddress, geocodeTarget, mode, runGeocode])
 
     const handleApply = useCallback(() => {
         onApply({
@@ -416,7 +527,7 @@ export default function ClientMapModeDialog({
                         />
                     </TabsContent>
                     <TabsContent value="map" className="min-h-0 flex-1">
-                        <div className="h-full min-h-0 border-t bg-slate-100">
+                        <div className="relative h-full min-h-0 border-t bg-slate-100">
                             <ClientMapView
                                 clients={dataset.items}
                                 selectedClientIds={selectedClientIds}
@@ -425,6 +536,28 @@ export default function ClientMapModeDialog({
                                 onFocusClient={setFocusedClientId}
                                 onOpenGeocode={handleOpenGeocodeByStoreId}
                                 loading={loading}
+                                mode={mode}
+                                geocodeTargetStoreId={geocodeTarget?.store_id || null}
+                                geocodeCoords={geocodeCoords}
+                                onGeocodeCoordsChange={setGeocodeCoords}
+                                onBootStateChange={handleMapBootStateChange}
+                                mapReinitKey={mapReinitKey}
+                            />
+                            <ClientGeocodeDrawer
+                                open={mode === 'geocode'}
+                                client={geocodeTarget}
+                                searchAddress={geocodeSearchAddress}
+                                onSearchAddressChange={setGeocodeSearchAddress}
+                                onSearch={handleSearchGeocode}
+                                onSelectCandidate={handleSelectGeocodeCandidate}
+                                onClose={handleCloseGeocode}
+                                onSave={handleSaveClientGeocode}
+                                onReinitializeMap={handleReinitializeMap}
+                                geocodeState={geocodeStatus}
+                                geocodeError={geocodeError}
+                                geocodeCandidates={geocodeCandidates}
+                                mapBootState={mapBootState}
+                                coords={geocodeCoords}
                             />
                         </div>
                     </TabsContent>
@@ -465,7 +598,7 @@ export default function ClientMapModeDialog({
                     </div>
 
                     <div className="min-h-0 bg-slate-100 p-3">
-                        <div className="h-full overflow-hidden rounded-xl border bg-white">
+                        <div className="relative h-full overflow-hidden rounded-xl border bg-white">
                             <ClientMapView
                                 clients={dataset.items}
                                 selectedClientIds={selectedClientIds}
@@ -474,6 +607,28 @@ export default function ClientMapModeDialog({
                                 onFocusClient={setFocusedClientId}
                                 onOpenGeocode={handleOpenGeocodeByStoreId}
                                 loading={loading}
+                                mode={mode}
+                                geocodeTargetStoreId={geocodeTarget?.store_id || null}
+                                geocodeCoords={geocodeCoords}
+                                onGeocodeCoordsChange={setGeocodeCoords}
+                                onBootStateChange={handleMapBootStateChange}
+                                mapReinitKey={mapReinitKey}
+                            />
+                            <ClientGeocodeDrawer
+                                open={mode === 'geocode'}
+                                client={geocodeTarget}
+                                searchAddress={geocodeSearchAddress}
+                                onSearchAddressChange={setGeocodeSearchAddress}
+                                onSearch={handleSearchGeocode}
+                                onSelectCandidate={handleSelectGeocodeCandidate}
+                                onClose={handleCloseGeocode}
+                                onSave={handleSaveClientGeocode}
+                                onReinitializeMap={handleReinitializeMap}
+                                geocodeState={geocodeStatus}
+                                geocodeError={geocodeError}
+                                geocodeCandidates={geocodeCandidates}
+                                mapBootState={mapBootState}
+                                coords={geocodeCoords}
                             />
                         </div>
                     </div>
@@ -505,30 +660,12 @@ export default function ClientMapModeDialog({
     )
 
     return (
-        <>
-            <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className={dialogClassName}>
-                    <div className="flex h-full min-h-0 flex-col">
-                        {bodyContent}
-                    </div>
-                </DialogContent>
-            </Dialog>
-            {geocodeDialog ? (
-                <GeocodePickerDialog
-                    open={Boolean(geocodeDialog)}
-                    onOpenChange={(isOpen) => {
-                        if (!isOpen) setGeocodeDialog(null)
-                    }}
-                    stopId={geocodeDialog.storeId}
-                    customerName={geocodeDialog.customerName}
-                    address={geocodeDialog.address}
-                    addressId={geocodeDialog.addressId}
-                    initialLat={geocodeDialog.lat}
-                    initialLng={geocodeDialog.lng}
-                    context="client"
-                    onConfirm={handleConfirmClientGeocode}
-                />
-            ) : null}
-        </>
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className={dialogClassName}>
+                <div className="flex h-full min-h-0 flex-col">
+                    {bodyContent}
+                </div>
+            </DialogContent>
+        </Dialog>
     )
 }

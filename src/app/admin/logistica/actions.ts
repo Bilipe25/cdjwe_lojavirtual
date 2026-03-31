@@ -34,6 +34,7 @@ export interface ClientMapItem {
     region: string | null
     primary_address_id: string | null
     primary_address_label: string | null
+    geocode_query: string | null
     latitude: number | null
     longitude: number | null
     coordinates_source: string | null
@@ -244,6 +245,9 @@ function cleanAddressSnapshot(value: string | null | undefined) {
     return value
         .replace(/\[.*?\]\s*/g, '')
         .replace(/CEP:\s*/gi, '')
+        .replace(/,\s*,+/g, ', ')
+        .replace(/\s+,/g, ',')
+        .replace(/,\s*$/g, '')
         .replace(/\s+/g, ' ')
         .trim()
 }
@@ -261,6 +265,51 @@ function buildPrimaryAddressLabel(address: {
     const zip = address.zip_code ? `CEP ${address.zip_code}` : ''
     const title = address.title ? `[${address.title}]` : ''
     return [title, street, cityState, zip].filter(Boolean).join(' - ')
+}
+
+function buildClientGeocodeQuery(input: {
+    primaryAddress?: {
+        address?: string | null
+        number?: string | null
+        neighborhood?: string | null
+        city?: string | null
+        state?: string | null
+        zip_code?: string | null
+    } | null
+    storeAddress?: string | null
+    storeCity?: string | null
+    storeState?: string | null
+    storeZipCode?: string | null
+}) {
+    const baseAddress = input.primaryAddress?.address || input.storeAddress || null
+    const parts = [
+        cleanAddressSnapshot(baseAddress || ''),
+        input.primaryAddress?.number || null,
+        input.primaryAddress?.neighborhood || null,
+        input.primaryAddress?.city || input.storeCity || null,
+        input.primaryAddress?.state || input.storeState || null,
+        input.primaryAddress?.zip_code || input.storeZipCode || null,
+    ]
+        .map((value) => (value || '').trim())
+        .filter(Boolean)
+
+    const text = parts
+        .join(', ')
+        .replace(/,\s*,+/g, ', ')
+        .replace(/\s+,/g, ',')
+        .replace(/,\s*$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    return text || null
+}
+
+function parseCoordinate(value: unknown, axis: 'lat' | 'lng'): number | null {
+    if (value === null || value === undefined || value === '') return null
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) return null
+    if (axis === 'lat' && (parsed < -90 || parsed > 90)) return null
+    if (axis === 'lng' && (parsed < -180 || parsed > 180)) return null
+    return parsed
 }
 
 export async function getRoutableOrders(filters?: {
@@ -378,8 +427,8 @@ export async function getRoutableOrders(filters?: {
                 created_at: row.created_at,
                 shipping_address: row.shipping_address,
                 shipping_address_id: row.shipping_address_id,
-                address_lat: shippingAddress?.latitude ? Number(shippingAddress.latitude) : null,
-                address_lng: shippingAddress?.longitude ? Number(shippingAddress.longitude) : null,
+                address_lat: parseCoordinate(shippingAddress?.latitude, 'lat'),
+                address_lng: parseCoordinate(shippingAddress?.longitude, 'lng'),
             }
         })
 
@@ -455,9 +504,9 @@ export async function getClientMapDataset(input?: {
 
             if (!routableCoordsByStore.has(storeId)) {
                 const shippingAddress = pickFirst(row.store_addresses)
-                const lat = Number(shippingAddress?.latitude)
-                const lng = Number(shippingAddress?.longitude)
-                if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                const lat = parseCoordinate(shippingAddress?.latitude, 'lat')
+                const lng = parseCoordinate(shippingAddress?.longitude, 'lng')
+                if (lat !== null && lng !== null) {
                     routableCoordsByStore.set(storeId, { latitude: lat, longitude: lng })
                 }
             }
@@ -469,8 +518,10 @@ export async function getClientMapDataset(input?: {
                 id,
                 company_name,
                 cnpj,
+                address,
                 city,
                 state,
+                zip_code,
                 region,
                 profiles!stores_profile_id_fkey (
                     full_name
@@ -529,6 +580,7 @@ export async function getClientMapDataset(input?: {
             title: string | null
             address: string | null
             number: string | null
+            neighborhood: string | null
             city: string | null
             state: string | null
             zip_code: string | null
@@ -539,7 +591,7 @@ export async function getClientMapDataset(input?: {
         if (storeIds.length > 0) {
             const { data: addresses } = await supabase
                 .from('store_addresses')
-                .select('id, store_id, title, address, number, city, state, zip_code, latitude, longitude, is_main, updated_at, created_at')
+                .select('id, store_id, title, address, number, neighborhood, city, state, zip_code, latitude, longitude, is_main, updated_at, created_at')
                 .in('store_id', storeIds)
                 .order('is_main', { ascending: false })
                 .order('updated_at', { ascending: false })
@@ -555,17 +607,18 @@ export async function getClientMapDataset(input?: {
                         title: addr.title ? String(addr.title) : null,
                         address: addr.address ? String(addr.address) : null,
                         number: addr.number ? String(addr.number) : null,
+                        neighborhood: addr.neighborhood ? String(addr.neighborhood) : null,
                         city: addr.city ? String(addr.city) : null,
                         state: addr.state ? String(addr.state) : null,
                         zip_code: addr.zip_code ? String(addr.zip_code) : null,
-                        latitude: addr.latitude ? Number(addr.latitude) : null,
-                        longitude: addr.longitude ? Number(addr.longitude) : null,
+                        latitude: parseCoordinate(addr.latitude, 'lat'),
+                        longitude: parseCoordinate(addr.longitude, 'lng'),
                     })
                 }
 
-                const lat = Number(addr.latitude)
-                const lng = Number(addr.longitude)
-                if (!fallbackAddressCoordsByStore.has(storeId) && Number.isFinite(lat) && Number.isFinite(lng)) {
+                const lat = parseCoordinate(addr.latitude, 'lat')
+                const lng = parseCoordinate(addr.longitude, 'lng')
+                if (!fallbackAddressCoordsByStore.has(storeId) && lat !== null && lng !== null) {
                     fallbackAddressCoordsByStore.set(storeId, { latitude: lat, longitude: lng })
                 }
             }
@@ -575,8 +628,8 @@ export async function getClientMapDataset(input?: {
             const primaryAddress = primaryAddressByStore.get(storeId) || null
             const hasPrimaryCoords = Boolean(
                 primaryAddress
-                && Number.isFinite(primaryAddress.latitude)
-                && Number.isFinite(primaryAddress.longitude),
+                && primaryAddress.latitude !== null
+                && primaryAddress.longitude !== null,
             )
             return !hasPrimaryCoords && !routableCoordsByStore.has(storeId)
         })
@@ -596,9 +649,9 @@ export async function getClientMapDataset(input?: {
             for (const row of stopCoords || []) {
                 const storeId = String(row.store_id || '')
                 if (!storeId || latestStopCoordsByStore.has(storeId)) continue
-                const lat = Number(row.latitude)
-                const lng = Number(row.longitude)
-                if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                const lat = parseCoordinate(row.latitude, 'lat')
+                const lng = parseCoordinate(row.longitude, 'lng')
+                if (lat !== null && lng !== null) {
                     latestStopCoordsByStore.set(storeId, { latitude: lat, longitude: lng })
                 }
             }
@@ -612,10 +665,10 @@ export async function getClientMapDataset(input?: {
 
             const primaryCoords = (
                 primaryAddress
-                && Number.isFinite(primaryAddress.latitude)
-                && Number.isFinite(primaryAddress.longitude)
+                && primaryAddress.latitude !== null
+                && primaryAddress.longitude !== null
             )
-                ? { latitude: Number(primaryAddress.latitude), longitude: Number(primaryAddress.longitude) }
+                ? { latitude: primaryAddress.latitude, longitude: primaryAddress.longitude }
                 : null
 
             let preferredCoords: { latitude: number; longitude: number } | null = null
@@ -637,7 +690,11 @@ export async function getClientMapDataset(input?: {
 
             const latitude = preferredCoords?.latitude ?? null
             const longitude = preferredCoords?.longitude ?? null
-            const hasValidCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude)
+            const hasValidCoordinates = (
+                coordinatesSource === 'primary_address'
+                && latitude !== null
+                && longitude !== null
+            )
 
             return {
                 store_id: storeId,
@@ -649,6 +706,13 @@ export async function getClientMapDataset(input?: {
                 region: store.region ? String(store.region) : null,
                 primary_address_id: primaryAddress?.id || null,
                 primary_address_label: primaryAddress ? buildPrimaryAddressLabel(primaryAddress) : null,
+                geocode_query: buildClientGeocodeQuery({
+                    primaryAddress,
+                    storeAddress: typeof store.address === 'string' ? store.address : null,
+                    storeCity: typeof store.city === 'string' ? store.city : null,
+                    storeState: typeof store.state === 'string' ? store.state : null,
+                    storeZipCode: typeof store.zip_code === 'string' ? store.zip_code : null,
+                }),
                 latitude,
                 longitude,
                 coordinates_source: coordinatesSource,

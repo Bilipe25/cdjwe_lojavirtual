@@ -233,12 +233,19 @@ export default function ClientMapSidebar({
                             const isFocused = focusedClientId === client.store_id
 
                             return (
-                                <button
+                                <div
                                     key={client.store_id}
-                                    type="button"
+                                    role="button"
+                                    tabIndex={0}
                                     onClick={() => onFocusClient(client.store_id)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault()
+                                            onFocusClient(client.store_id)
+                                        }
+                                    }}
                                     className={cn(
-                                        'flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition',
+                                        'flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
                                         isFocused
                                             ? 'border-indigo-300 bg-indigo-50/70'
                                             : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50',
@@ -297,6 +304,11 @@ export default function ClientMapSidebar({
                                                     <CheckCircle2 className="h-3 w-3" />
                                                     Coordenadas OK
                                                 </span>
+                                            ) : client.latitude !== null && client.longitude !== null ? (
+                                                <span className="inline-flex items-center gap-1 text-sky-700">
+                                                    <MapPin className="h-3 w-3" />
+                                                    Coordenada provisoria
+                                                </span>
                                             ) : (
                                                 <span className="inline-flex items-center gap-1 text-amber-600">
                                                     <CircleAlert className="h-3 w-3" />
@@ -305,7 +317,7 @@ export default function ClientMapSidebar({
                                             )}
                                         </div>
                                     </div>
-                                </button>
+                                </div>
                             )
                         })}
                     </div>

@@ -1,4 +1,11 @@
 export type ClientMapScope = 'routable' | 'global'
+export type ClientMapMode = 'browse' | 'geocode'
+export type ClientMapBootState =
+    | 'boot_start'
+    | 'style_ready'
+    | 'render_ready'
+    | 'ready'
+    | 'map_error'
 
 export interface ClientMapItem {
     store_id: string
@@ -10,6 +17,7 @@ export interface ClientMapItem {
     region: string | null
     primary_address_id: string | null
     primary_address_label: string | null
+    geocode_query: string | null
     latitude: number | null
     longitude: number | null
     coordinates_source: string | null
