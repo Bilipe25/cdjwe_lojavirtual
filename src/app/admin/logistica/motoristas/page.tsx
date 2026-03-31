@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
     UserCircle,
     Plus,
@@ -37,6 +37,13 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import {
+    buildOptionLabelMap,
+    ensureCurrentOption,
+    getRemovedEntityLabel,
+    resolveLabelFromMap,
+    type ValueLabelOption,
+} from '@/lib/logistics/filter-display'
 import { getDrivers, upsertDriver, deleteDriver, getVehicles, type DriverItem, type VehicleItem } from '../services'
 
 const statusConfig: Record<string, { label: string; color: string }> = {
@@ -130,6 +137,29 @@ export default function MotoristasPage() {
         d.profile_name.toLowerCase().includes(search.toLowerCase()) ||
         d.profile_email.toLowerCase().includes(search.toLowerCase())
     )
+
+    const vehicleOptions = useMemo<ValueLabelOption[]>(() => {
+        const options: ValueLabelOption[] = []
+        for (const vehicle of vehicles) {
+            const value = String(vehicle.id || '').trim()
+            if (!value) continue
+            const label = [vehicle.plate, vehicle.name].filter(Boolean).join(' - ') || getRemovedEntityLabel('vehicle')
+            options.push({ value, label })
+        }
+        return options
+    }, [vehicles])
+
+    const vehicleLabelMap = useMemo(() => buildOptionLabelMap(vehicleOptions), [vehicleOptions])
+    const selectedVehicleLabel = useMemo(() => {
+        if (!form.default_vehicle_id) return 'Nenhum'
+        return resolveLabelFromMap(form.default_vehicle_id, vehicleLabelMap, getRemovedEntityLabel('vehicle'))
+    }, [form.default_vehicle_id, vehicleLabelMap])
+
+    const visibleVehicleOptions = useMemo(() => (
+        form.default_vehicle_id
+            ? ensureCurrentOption(vehicleOptions, form.default_vehicle_id, selectedVehicleLabel)
+            : vehicleOptions
+    ), [form.default_vehicle_id, selectedVehicleLabel, vehicleOptions])
 
     return (
         <div className="space-y-6">
@@ -252,11 +282,11 @@ export default function MotoristasPage() {
                             <div>
                                 <label className="text-xs font-medium text-muted-foreground">Veículo Padrão</label>
                                 <Select value={form.default_vehicle_id || 'none'} onValueChange={(v) => setForm({ ...form, default_vehicle_id: !v || v === 'none' ? '' : v })}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectTrigger><SelectValue>{selectedVehicleLabel}</SelectValue></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="none">Nenhum</SelectItem>
-                                        {vehicles.map(v => (
-                                            <SelectItem key={v.id} value={v.id}>{v.plate} - {v.name}</SelectItem>
+                                        {visibleVehicleOptions.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>

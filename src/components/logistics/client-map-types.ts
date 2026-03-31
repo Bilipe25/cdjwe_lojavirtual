@@ -15,6 +15,7 @@ export interface ClientMapItem {
     city: string
     state: string
     region: string | null
+    region_label?: string | null
     primary_address_id: string | null
     primary_address_label: string | null
     geocode_query: string | null

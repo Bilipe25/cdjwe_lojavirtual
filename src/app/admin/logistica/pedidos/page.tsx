@@ -36,6 +36,13 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
+    buildOptionLabelMap,
+    buildRegionDisplayOptions,
+    ensureCurrentOption,
+    getRemovedEntityLabel,
+    resolveLabelFromMap,
+} from '@/lib/logistics/filter-display'
+import {
     getRoutableOrders,
     createRoute,
     getCenters,
@@ -112,6 +119,127 @@ export default function PedidosParaRotaPage() {
         for (const order of data) index.set(order.order_id, order)
         return index
     }, [data])
+
+    const regionCatalog = useMemo(() => (
+        regions.map((region) => ({ id: region.id, name: region.name }))
+    ), [regions])
+
+    const regionOptions = useMemo(() => {
+        const rawRegionValues = data.map((order) => order.region).filter(Boolean)
+        return buildRegionDisplayOptions(rawRegionValues, regionCatalog)
+    }, [data, regionCatalog])
+
+    const regionOptionMap = useMemo(() => buildOptionLabelMap(regionOptions), [regionOptions])
+
+    const selectedRegionLabel = useMemo(() => {
+        if (!regionFilter) return 'Todas regioes'
+        return resolveLabelFromMap(regionFilter, regionOptionMap, getRemovedEntityLabel('region'))
+    }, [regionFilter, regionOptionMap])
+
+    const visibleRegionOptions = useMemo(() => {
+        if (!regionFilter) return regionOptions
+        return ensureCurrentOption(regionOptions, regionFilter, selectedRegionLabel)
+    }, [regionFilter, regionOptions, selectedRegionLabel])
+
+    const statusOptions = useMemo(() => ([
+        { value: 'all', label: 'Todos aptos' },
+        { value: 'approved', label: 'Aprovado' },
+        { value: 'in_production', label: 'Em Producao' },
+    ]), [])
+
+    const statusLabelMap = useMemo(() => buildOptionLabelMap(statusOptions), [statusOptions])
+    const selectedStatusLabel = useMemo(() => (
+        resolveLabelFromMap(statusFilter || 'all', statusLabelMap, 'Todos aptos')
+    ), [statusFilter, statusLabelMap])
+
+    const cityBaseOptions = useMemo(() => (
+        cities
+            .map((city) => String(city || '').trim())
+            .filter(Boolean)
+            .map((city) => ({ value: city, label: city }))
+    ), [cities])
+
+    const cityLabelMap = useMemo(() => buildOptionLabelMap(cityBaseOptions), [cityBaseOptions])
+    const selectedCityLabel = useMemo(() => {
+        if (!cityFilter) return 'Todas cidades'
+        return resolveLabelFromMap(cityFilter, cityLabelMap, cityFilter)
+    }, [cityFilter, cityLabelMap])
+
+    const visibleCityOptions = useMemo(() => (
+        cityFilter
+            ? ensureCurrentOption(cityBaseOptions, cityFilter, selectedCityLabel)
+            : cityBaseOptions
+    ), [cityBaseOptions, cityFilter, selectedCityLabel])
+
+    const centerOptions = useMemo(() => (
+        centers
+            .map((center) => {
+                const value = String(center.id || '').trim()
+                if (!value) return null
+                const label = [center.name, center.city].filter(Boolean).join(' - ') || getRemovedEntityLabel('center')
+                return { value, label }
+            })
+            .filter((option): option is { value: string; label: string } => Boolean(option))
+    ), [centers])
+
+    const vehicleOptions = useMemo(() => (
+        vehicles
+            .map((vehicle) => {
+                const value = String(vehicle.id || '').trim()
+                if (!value) return null
+                const label = [vehicle.plate, vehicle.name].filter(Boolean).join(' - ') || getRemovedEntityLabel('vehicle')
+                return { value, label }
+            })
+            .filter((option): option is { value: string; label: string } => Boolean(option))
+    ), [vehicles])
+
+    const driverOptions = useMemo(() => (
+        drivers
+            .map((driver) => {
+                const value = String(driver.id || '').trim()
+                if (!value) return null
+                const label = String(driver.profile_name || '').trim() || getRemovedEntityLabel('driver')
+                return { value, label }
+            })
+            .filter((option): option is { value: string; label: string } => Boolean(option))
+    ), [drivers])
+
+    const centerLabelMap = useMemo(() => buildOptionLabelMap(centerOptions), [centerOptions])
+    const vehicleLabelMap = useMemo(() => buildOptionLabelMap(vehicleOptions), [vehicleOptions])
+    const driverLabelMap = useMemo(() => buildOptionLabelMap(driverOptions), [driverOptions])
+
+    const selectedCenterLabel = useMemo(() => {
+        if (!routeForm.centerId) return 'Selecionar depois'
+        return resolveLabelFromMap(routeForm.centerId, centerLabelMap, getRemovedEntityLabel('center'))
+    }, [centerLabelMap, routeForm.centerId])
+
+    const selectedVehicleLabel = useMemo(() => {
+        if (!routeForm.vehicleId) return 'Selecionar depois'
+        return resolveLabelFromMap(routeForm.vehicleId, vehicleLabelMap, getRemovedEntityLabel('vehicle'))
+    }, [routeForm.vehicleId, vehicleLabelMap])
+
+    const selectedDriverLabel = useMemo(() => {
+        if (!routeForm.driverId) return 'Selecionar depois'
+        return resolveLabelFromMap(routeForm.driverId, driverLabelMap, getRemovedEntityLabel('driver'))
+    }, [driverLabelMap, routeForm.driverId])
+
+    const visibleCenterOptions = useMemo(() => (
+        routeForm.centerId
+            ? ensureCurrentOption(centerOptions, routeForm.centerId, selectedCenterLabel)
+            : centerOptions
+    ), [centerOptions, routeForm.centerId, selectedCenterLabel])
+
+    const visibleVehicleOptions = useMemo(() => (
+        routeForm.vehicleId
+            ? ensureCurrentOption(vehicleOptions, routeForm.vehicleId, selectedVehicleLabel)
+            : vehicleOptions
+    ), [routeForm.vehicleId, selectedVehicleLabel, vehicleOptions])
+
+    const visibleDriverOptions = useMemo(() => (
+        routeForm.driverId
+            ? ensureCurrentOption(driverOptions, routeForm.driverId, selectedDriverLabel)
+            : driverOptions
+    ), [driverOptions, routeForm.driverId, selectedDriverLabel])
 
     const applyClientFilterDirect = useCallback((payload: ApplyClientFilterPayload, clearSelectionOutsideFilter: boolean) => {
         const uniqueClientIds = [...new Set(payload.selectedClientIds.map((id) => id.trim()).filter(Boolean))]
@@ -339,12 +467,14 @@ export default function PedidosParaRotaPage() {
                     }}
                 >
                     <SelectTrigger className="h-9 w-40">
-                        <SelectValue placeholder="Status" />
+                        <SelectValue placeholder="Status">{selectedStatusLabel}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="all">Todos aptos</SelectItem>
-                        <SelectItem value="approved">Aprovado</SelectItem>
-                        <SelectItem value="in_production">Em Producao</SelectItem>
+                        {statusOptions.map((statusOption) => (
+                            <SelectItem key={statusOption.value} value={statusOption.value}>
+                                {statusOption.label}
+                            </SelectItem>
+                        ))}
                     </SelectContent>
                 </Select>
 
@@ -389,13 +519,13 @@ export default function PedidosParaRotaPage() {
                             }}
                         >
                             <SelectTrigger className="h-8 w-40 text-xs">
-                                <SelectValue placeholder="Cidade" />
+                                <SelectValue placeholder="Cidade">{selectedCityLabel}</SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">Todas cidades</SelectItem>
-                                {cities.map((city) => (
-                                    <SelectItem key={city} value={city}>
-                                        {city}
+                                {visibleCityOptions.map((cityOption) => (
+                                    <SelectItem key={cityOption.value} value={cityOption.value}>
+                                        {cityOption.label}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -409,13 +539,13 @@ export default function PedidosParaRotaPage() {
                             }}
                         >
                             <SelectTrigger className="h-8 w-40 text-xs">
-                                <SelectValue placeholder="Regiao" />
+                                <SelectValue placeholder="Regiao">{selectedRegionLabel}</SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">Todas regioes</SelectItem>
-                                {regions.map((region) => (
-                                    <SelectItem key={region.id} value={region.name}>
-                                        {region.name}
+                                {visibleRegionOptions.map((regionOption) => (
+                                    <SelectItem key={regionOption.value} value={regionOption.value}>
+                                        {regionOption.label}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -619,12 +749,12 @@ export default function PedidosParaRotaPage() {
                                 value={routeForm.centerId || 'none'}
                                 onValueChange={(value) => setRouteForm({ ...routeForm, centerId: !value || value === 'none' ? '' : value })}
                             >
-                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectTrigger><SelectValue>{selectedCenterLabel}</SelectValue></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="none">Selecionar depois</SelectItem>
-                                    {centers.map((center) => (
-                                        <SelectItem key={center.id} value={center.id}>
-                                            {center.name} - {center.city}
+                                    {visibleCenterOptions.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -636,12 +766,12 @@ export default function PedidosParaRotaPage() {
                                 value={routeForm.vehicleId || 'none'}
                                 onValueChange={(value) => setRouteForm({ ...routeForm, vehicleId: !value || value === 'none' ? '' : value })}
                             >
-                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectTrigger><SelectValue>{selectedVehicleLabel}</SelectValue></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="none">Selecionar depois</SelectItem>
-                                    {vehicles.map((vehicle) => (
-                                        <SelectItem key={vehicle.id} value={vehicle.id}>
-                                            {vehicle.plate} - {vehicle.name}
+                                    {visibleVehicleOptions.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -653,12 +783,12 @@ export default function PedidosParaRotaPage() {
                                 value={routeForm.driverId || 'none'}
                                 onValueChange={(value) => setRouteForm({ ...routeForm, driverId: !value || value === 'none' ? '' : value })}
                             >
-                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectTrigger><SelectValue>{selectedDriverLabel}</SelectValue></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="none">Selecionar depois</SelectItem>
-                                    {drivers.map((driver) => (
-                                        <SelectItem key={driver.id} value={driver.id}>
-                                            {driver.profile_name}
+                                    {visibleDriverOptions.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -710,7 +840,7 @@ export default function PedidosParaRotaPage() {
                 initialScope={clientScope}
                 initialSelectedClientIds={mapSelectedClientIds.length > 0 ? mapSelectedClientIds : appliedClientFilterIds}
                 cities={cities}
-                regions={regions.map((region) => region.name)}
+                regions={regionCatalog}
                 onApply={handleMapApply}
             />
         </div>

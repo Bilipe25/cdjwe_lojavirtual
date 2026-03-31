@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
     History,
@@ -27,6 +27,13 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import {
+    buildOptionLabelMap,
+    ensureCurrentOption,
+    getRemovedEntityLabel,
+    resolveLabelFromMap,
+    type ValueLabelOption,
+} from '@/lib/logistics/filter-display'
 import {
     getRouteHistory,
     getDrivers,
@@ -108,6 +115,53 @@ export default function HistoricoRotasPage() {
         ? Math.round((metrics.totalDeliveries / (metrics.totalDeliveries + metrics.totalFailures)) * 100)
         : 0
 
+    const driverOptions = useMemo<ValueLabelOption[]>(() => {
+        const options: ValueLabelOption[] = []
+        for (const driver of drivers) {
+            const value = String(driver.id || '').trim()
+            if (!value) continue
+            const label = String(driver.profile_name || '').trim() || getRemovedEntityLabel('driver')
+            options.push({ value, label })
+        }
+        return options
+    }, [drivers])
+
+    const vehicleOptions = useMemo<ValueLabelOption[]>(() => {
+        const options: ValueLabelOption[] = []
+        for (const vehicle of vehicles) {
+            const value = String(vehicle.id || '').trim()
+            if (!value) continue
+            const label = [vehicle.plate, vehicle.name].filter(Boolean).join(' - ') || getRemovedEntityLabel('vehicle')
+            options.push({ value, label })
+        }
+        return options
+    }, [vehicles])
+
+    const driverLabelMap = useMemo(() => buildOptionLabelMap(driverOptions), [driverOptions])
+    const vehicleLabelMap = useMemo(() => buildOptionLabelMap(vehicleOptions), [vehicleOptions])
+
+    const selectedDriverLabel = useMemo(() => {
+        if (!driverFilter || driverFilter === 'all') return 'Todos motoristas'
+        return resolveLabelFromMap(driverFilter, driverLabelMap, getRemovedEntityLabel('driver'))
+    }, [driverFilter, driverLabelMap])
+
+    const selectedVehicleLabel = useMemo(() => {
+        if (!vehicleFilter || vehicleFilter === 'all') return 'Todos veiculos'
+        return resolveLabelFromMap(vehicleFilter, vehicleLabelMap, getRemovedEntityLabel('vehicle'))
+    }, [vehicleFilter, vehicleLabelMap])
+
+    const visibleDriverOptions = useMemo(() => (
+        !driverFilter || driverFilter === 'all'
+            ? driverOptions
+            : ensureCurrentOption(driverOptions, driverFilter, selectedDriverLabel)
+    ), [driverFilter, driverOptions, selectedDriverLabel])
+
+    const visibleVehicleOptions = useMemo(() => (
+        !vehicleFilter || vehicleFilter === 'all'
+            ? vehicleOptions
+            : ensureCurrentOption(vehicleOptions, vehicleFilter, selectedVehicleLabel)
+    ), [selectedVehicleLabel, vehicleFilter, vehicleOptions])
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -179,12 +233,12 @@ export default function HistoricoRotasPage() {
                     setPagination((prev) => ({ ...prev, page: 1 }))
                 }}>
                     <SelectTrigger className="w-44">
-                        <SelectValue placeholder="Motorista" />
+                        <SelectValue placeholder="Motorista">{selectedDriverLabel}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Todos motoristas</SelectItem>
-                        {drivers.map(d => (
-                            <SelectItem key={d.id} value={d.id}>{d.profile_name}</SelectItem>
+                        {visibleDriverOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
@@ -193,12 +247,12 @@ export default function HistoricoRotasPage() {
                     setPagination((prev) => ({ ...prev, page: 1 }))
                 }}>
                     <SelectTrigger className="w-44">
-                        <SelectValue placeholder="Veículo" />
+                        <SelectValue placeholder="Veículo">{selectedVehicleLabel}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">Todos veículos</SelectItem>
-                        {vehicles.map(v => (
-                            <SelectItem key={v.id} value={v.id}>{v.plate} - {v.name}</SelectItem>
+                        {visibleVehicleOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                         ))}
                     </SelectContent>
                 </Select>

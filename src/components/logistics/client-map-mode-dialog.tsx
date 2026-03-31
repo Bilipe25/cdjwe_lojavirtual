@@ -7,6 +7,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import {
+    buildOptionLabelMap,
+    buildRegionDisplayOptions,
+    ensureCurrentOption,
+    getRemovedEntityLabel,
+    resolveLabelFromMap,
+} from '@/lib/logistics/filter-display'
 import { getClientMapDataset, updateClientCoordinates } from '@/app/admin/logistica/services'
 import ClientMapSidebar from './client-map-sidebar'
 import ClientMapView from './client-map-view'
@@ -27,7 +34,7 @@ interface ClientMapModeDialogProps {
     initialScope: ClientMapScope
     initialSelectedClientIds: string[]
     cities: string[]
-    regions: string[]
+    regions: Array<{ id: string; name: string }>
     onApply: (payload: { selectedClientIds: string[]; scope: ClientMapScope }) => void
 }
 
@@ -201,13 +208,45 @@ export default function ClientMapModeDialog({
         return Array.from(merged).sort((a, b) => a.localeCompare(b))
     }, [cities, dataset.items])
 
+    const cityOptions = useMemo(() => (
+        allCities
+            .map((city) => String(city || '').trim())
+            .filter(Boolean)
+            .map((city) => ({ value: city, label: city }))
+    ), [allCities])
+
+    const cityLabelMap = useMemo(() => buildOptionLabelMap(cityOptions), [cityOptions])
+
+    const selectedCityLabel = useMemo(() => {
+        if (!filters.city) return 'Todas cidades'
+        return resolveLabelFromMap(filters.city, cityLabelMap, filters.city)
+    }, [cityLabelMap, filters.city])
+
+    const visibleCities = useMemo(() => {
+        if (!filters.city) return allCities
+        return ensureCurrentOption(cityOptions, filters.city, selectedCityLabel).map((option) => option.value)
+    }, [allCities, cityOptions, filters.city, selectedCityLabel])
+
+    const regionOptions = useMemo(() => {
+        const regionValues = dataset.items.map((item) => item.region).filter(Boolean)
+        return buildRegionDisplayOptions(regionValues, regions)
+    }, [dataset.items, regions])
+
+    const regionLabelMap = useMemo(() => buildOptionLabelMap(regionOptions), [regionOptions])
+
+    const selectedRegionLabel = useMemo(() => {
+        if (!filters.region) return 'Todas regioes'
+        return resolveLabelFromMap(filters.region, regionLabelMap, getRemovedEntityLabel('region'))
+    }, [filters.region, regionLabelMap])
+
     const allRegions = useMemo(() => {
-        const merged = new Set<string>(regions.filter((value): value is string => Boolean(value)))
-        for (const item of dataset.items) {
-            if (item.region) merged.add(item.region)
-        }
-        return Array.from(merged).sort((a, b) => a.localeCompare(b))
-    }, [regions, dataset.items])
+        if (!filters.region) return regionOptions
+        return ensureCurrentOption(
+            regionOptions,
+            filters.region,
+            resolveLabelFromMap(filters.region, regionLabelMap, getRemovedEntityLabel('region')),
+        )
+    }, [filters.region, regionLabelMap, regionOptions])
 
     const itemsById = useMemo(() => {
         const map = new Map<string, ClientMapItem>()
@@ -503,8 +542,10 @@ export default function ClientMapModeDialog({
                             scope={scope}
                             selectedClientIds={selectedClientIds}
                             focusedClientId={focusedClientId}
-                            cities={allCities}
+                            cities={visibleCities}
+                            selectedCityLabel={selectedCityLabel}
                             regions={allRegions}
+                            selectedRegionLabel={selectedRegionLabel}
                             totalClients={dataset.total_clients}
                             loadedClients={dataset.loaded_clients}
                             truncated={dataset.truncated}
@@ -573,8 +614,10 @@ export default function ClientMapModeDialog({
                             scope={scope}
                             selectedClientIds={selectedClientIds}
                             focusedClientId={focusedClientId}
-                            cities={allCities}
+                            cities={visibleCities}
+                            selectedCityLabel={selectedCityLabel}
                             regions={allRegions}
+                            selectedRegionLabel={selectedRegionLabel}
                             totalClients={dataset.total_clients}
                             loadedClients={dataset.loaded_clients}
                             truncated={dataset.truncated}

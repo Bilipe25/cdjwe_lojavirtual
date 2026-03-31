@@ -57,6 +57,12 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import {
+    buildOptionLabelMap,
+    ensureCurrentOption,
+    getRemovedEntityLabel,
+    resolveLabelFromMap,
+} from '@/lib/logistics/filter-display'
 import { useRouteLiveLocation } from '@/lib/hooks/use-route-live-location'
 import {
     getTrackingStatusLabel,
@@ -686,6 +692,85 @@ export default function RouteDetailPage() {
     const hasDriver = !!route?.driver_id
     const routeCenter = route?.route_centers
 
+    const driverOptions = useMemo(() => (
+        driversList
+            .map((driver: { id?: string; profile_name?: string }) => {
+                const value = String(driver?.id || '').trim()
+                if (!value) return null
+                const label = String(driver?.profile_name || '').trim() || getRemovedEntityLabel('driver')
+                return { value, label }
+            })
+            .filter((option): option is { value: string; label: string } => Boolean(option))
+    ), [driversList])
+
+    const vehicleOptions = useMemo(() => (
+        vehiclesList
+            .map((vehicle: { id?: string; plate?: string; name?: string }) => {
+                const value = String(vehicle?.id || '').trim()
+                if (!value) return null
+                const label = [vehicle?.plate, vehicle?.name].filter(Boolean).join(' - ') || getRemovedEntityLabel('vehicle')
+                return { value, label }
+            })
+            .filter((option): option is { value: string; label: string } => Boolean(option))
+    ), [vehiclesList])
+
+    const centerOptions = useMemo(() => (
+        centersList
+            .map((center: { id?: string; name?: string; city?: string }) => {
+                const value = String(center?.id || '').trim()
+                if (!value) return null
+                const label = [center?.name, center?.city].filter(Boolean).join(' - ') || getRemovedEntityLabel('center')
+                return { value, label }
+            })
+            .filter((option): option is { value: string; label: string } => Boolean(option))
+    ), [centersList])
+
+    const driverLabelMap = useMemo(() => buildOptionLabelMap(driverOptions), [driverOptions])
+    const vehicleLabelMap = useMemo(() => buildOptionLabelMap(vehicleOptions), [vehicleOptions])
+    const centerLabelMap = useMemo(() => buildOptionLabelMap(centerOptions), [centerOptions])
+
+    const selectedDriverId = String(route?.driver_id || '').trim()
+    const selectedVehicleId = String(route?.vehicle_id || '').trim()
+    const selectedCenterId = String(route?.center_id || '').trim()
+
+    const selectedDriverLabel = selectedDriverId
+        ? resolveLabelFromMap(
+            selectedDriverId,
+            driverLabelMap,
+            String(route?.drivers?.profiles?.full_name || '').trim() || getRemovedEntityLabel('driver'),
+        )
+        : 'Selecionar motorista'
+    const selectedVehicleLabel = selectedVehicleId
+        ? resolveLabelFromMap(
+            selectedVehicleId,
+            vehicleLabelMap,
+            [
+                route?.vehicles?.plate ? String(route.vehicles.plate) : '',
+                route?.vehicles?.name ? String(route.vehicles.name) : '',
+            ].filter(Boolean).join(' - ') || getRemovedEntityLabel('vehicle'),
+        )
+        : 'Selecionar veiculo'
+    const selectedCenterLabel = selectedCenterId
+        ? resolveLabelFromMap(
+            selectedCenterId,
+            centerLabelMap,
+            [
+                route?.route_centers?.name ? String(route.route_centers.name) : '',
+                route?.route_centers?.city ? String(route.route_centers.city) : '',
+            ].filter(Boolean).join(' - ') || getRemovedEntityLabel('center'),
+        )
+        : 'Selecionar centro'
+
+    const visibleDriverOptions = selectedDriverId
+        ? ensureCurrentOption(driverOptions, selectedDriverId, selectedDriverLabel)
+        : driverOptions
+    const visibleVehicleOptions = selectedVehicleId
+        ? ensureCurrentOption(vehicleOptions, selectedVehicleId, selectedVehicleLabel)
+        : vehicleOptions
+    const visibleCenterOptions = selectedCenterId
+        ? ensureCurrentOption(centerOptions, selectedCenterId, selectedCenterLabel)
+        : centerOptions
+
     // Map data (memoized to avoid expensive map re-renders on unrelated renders)
     const mapCenter = useMemo(() => {
         if (!routeCenter?.latitude || !routeCenter?.longitude) return null
@@ -1066,8 +1151,8 @@ export default function RouteDetailPage() {
                                             disabled={assignSaving}
                                         >
                                             <option value="">Selecionar motorista</option>
-                                            {driversList.map((d: { id: string; profile_name: string }) => (
-                                                <option key={d.id} value={d.id}>{d.profile_name}</option>
+                                            {visibleDriverOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
                                             ))}
                                         </select>
                                     ) : (
@@ -1089,8 +1174,8 @@ export default function RouteDetailPage() {
                                             disabled={assignSaving}
                                         >
                                             <option value="">Selecionar veículo</option>
-                                            {vehiclesList.map((v: { id: string; name: string; plate: string }) => (
-                                                <option key={v.id} value={v.id}>{v.plate} - {v.name}</option>
+                                            {visibleVehicleOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
                                             ))}
                                         </select>
                                     ) : (
@@ -1112,8 +1197,8 @@ export default function RouteDetailPage() {
                                             disabled={assignSaving}
                                         >
                                             <option value="">Selecionar centro</option>
-                                            {centersList.map((c: { id: string; name: string; city: string }) => (
-                                                <option key={c.id} value={c.id}>{c.name} - {c.city}</option>
+                                            {visibleCenterOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
                                             ))}
                                         </select>
                                     ) : (

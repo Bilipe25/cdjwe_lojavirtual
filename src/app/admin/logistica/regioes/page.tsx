@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
     MapPin,
     Plus,
@@ -38,6 +38,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
+import {
+    buildOptionLabelMap,
+    ensureCurrentOption,
+    getRemovedEntityLabel,
+    resolveLabelFromMap,
+    type ValueLabelOption,
+} from '@/lib/logistics/filter-display'
 
 export default function RegioesPage() {
     const [data, setData] = useState<RegionItem[]>([])
@@ -120,6 +127,29 @@ export default function RegioesPage() {
         if (res.error) setError(res.error)
         else void loadData()
     }
+
+    const centerOptions = useMemo<ValueLabelOption[]>(() => {
+        const options: ValueLabelOption[] = []
+        for (const center of centers) {
+            const value = String(center.id || '').trim()
+            if (!value) continue
+            const label = [center.name, center.city].filter(Boolean).join(' - ') || getRemovedEntityLabel('center')
+            options.push({ value, label })
+        }
+        return options
+    }, [centers])
+
+    const centerLabelMap = useMemo(() => buildOptionLabelMap(centerOptions), [centerOptions])
+    const selectedCenterLabel = useMemo(() => {
+        if (!form.default_center_id) return 'Nenhum'
+        return resolveLabelFromMap(form.default_center_id, centerLabelMap, getRemovedEntityLabel('center'))
+    }, [centerLabelMap, form.default_center_id])
+
+    const visibleCenterOptions = useMemo(() => (
+        form.default_center_id
+            ? ensureCurrentOption(centerOptions, form.default_center_id, selectedCenterLabel)
+            : centerOptions
+    ), [centerOptions, form.default_center_id, selectedCenterLabel])
 
     return (
         <div className="space-y-6">
@@ -234,11 +264,11 @@ export default function RegioesPage() {
                             <div>
                                 <label className="text-xs font-medium text-muted-foreground">Centro de Saída</label>
                                 <Select value={form.default_center_id || 'none'} onValueChange={(v) => setForm({ ...form, default_center_id: !v || v === 'none' ? '' : v })}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectTrigger><SelectValue>{selectedCenterLabel}</SelectValue></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="none">Nenhum</SelectItem>
-                                        {centers.map(c => (
-                                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                        {visibleCenterOptions.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>

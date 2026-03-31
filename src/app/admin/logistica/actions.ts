@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import { getRemovedEntityLabel, isUuidLike } from '@/lib/logistics/filter-display'
 
 // ==================== Types ====================
 
@@ -13,6 +14,7 @@ export interface RoutableOrder {
     city: string
     state: string
     region: string | null
+    region_label?: string | null
     total: number
     status: string
     created_at: string
@@ -32,6 +34,7 @@ export interface ClientMapItem {
     city: string
     state: string
     region: string | null
+    region_label?: string | null
     primary_address_id: string | null
     primary_address_label: string | null
     geocode_query: string | null
@@ -312,6 +315,43 @@ function parseCoordinate(value: unknown, axis: 'lat' | 'lng'): number | null {
     return parsed
 }
 
+type DeliveryRegionRow = {
+    id: string
+    name: string | null
+}
+
+async function loadDeliveryRegionLabelById(
+    supabase: Awaited<ReturnType<typeof createServerClient>>,
+) {
+    const labelById = new Map<string, string>()
+    const { data, error } = await supabase
+        .from('delivery_regions')
+        .select('id, name')
+
+    if (error) {
+        return labelById
+    }
+
+    for (const row of (data || []) as DeliveryRegionRow[]) {
+        const id = String(row.id || '').trim()
+        const name = String(row.name || '').trim()
+        if (!id || !name || labelById.has(id)) continue
+        labelById.set(id, name)
+    }
+
+    return labelById
+}
+
+function resolveRegionLabel(
+    regionValue: string | null | undefined,
+    labelByRegionId: Map<string, string>,
+) {
+    const normalized = String(regionValue || '').trim()
+    if (!normalized) return null
+    if (!isUuidLike(normalized)) return normalized
+    return labelByRegionId.get(normalized) || getRemovedEntityLabel('region')
+}
+
 export async function getRoutableOrders(filters?: {
     status?: string
     city?: string
@@ -332,6 +372,7 @@ export async function getRoutableOrders(filters?: {
             return { error: 'Erro ao validar pedidos ja roteirizados.' }
         }
         const blockedOrderIds = blockedOrdersRes.blockedOrderIds
+        const deliveryRegionLabelById = await loadDeliveryRegionLabelById(supabase)
 
         let query = supabase.from('orders').select(`
             id,
@@ -412,6 +453,7 @@ export async function getRoutableOrders(filters?: {
             const store = pickFirst(row.stores)
             const profile = store ? pickFirst(store.profiles) : null
             const shippingAddress = pickFirst(row.store_addresses)
+            const rawRegion = store?.region ? String(store.region) : null
 
             return {
                 order_id: row.id,
@@ -421,7 +463,8 @@ export async function getRoutableOrders(filters?: {
                 client_name: profile?.full_name || '',
                 city: store?.city || '',
                 state: store?.state || '',
-                region: store?.region || null,
+                region: rawRegion,
+                region_label: resolveRegionLabel(rawRegion, deliveryRegionLabelById),
                 total: Number(row.total || 0),
                 status: row.status,
                 created_at: row.created_at,
@@ -468,6 +511,7 @@ export async function getClientMapDataset(input?: {
             return { error: 'Erro ao validar pedidos ja roteirizados.' }
         }
         const blockedOrderIds = blockedOrdersRes.blockedOrderIds
+        const deliveryRegionLabelById = await loadDeliveryRegionLabelById(supabase)
 
         let routableOrdersQuery = supabase
             .from('orders')
@@ -662,6 +706,7 @@ export async function getClientMapDataset(input?: {
             const profile = pickFirst(store.profiles)
             const routableOrdersCount = routableCountByStore.get(storeId) || 0
             const primaryAddress = primaryAddressByStore.get(storeId) || null
+            const rawRegion = store.region ? String(store.region) : null
 
             const primaryCoords = (
                 primaryAddress
@@ -703,7 +748,8 @@ export async function getClientMapDataset(input?: {
                 cnpj: store.cnpj ? String(store.cnpj) : null,
                 city: String(store.city || ''),
                 state: String(store.state || ''),
-                region: store.region ? String(store.region) : null,
+                region: rawRegion,
+                region_label: resolveRegionLabel(rawRegion, deliveryRegionLabelById),
                 primary_address_id: primaryAddress?.id || null,
                 primary_address_label: primaryAddress ? buildPrimaryAddressLabel(primaryAddress) : null,
                 geocode_query: buildClientGeocodeQuery({
@@ -729,6 +775,7 @@ export async function getClientMapDataset(input?: {
                 || (item.cnpj || '').toLowerCase().includes(searchTerm)
                 || item.city.toLowerCase().includes(searchTerm)
                 || (item.region || '').toLowerCase().includes(searchTerm)
+                || (item.region_label || '').toLowerCase().includes(searchTerm)
             ))
         }
 

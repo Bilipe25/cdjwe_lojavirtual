@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import type { ValueLabelOption } from '@/lib/logistics/filter-display'
 import type { ClientMapFilters, ClientMapItem, ClientMapScope } from './client-map-types'
 
 interface ClientMapSidebarProps {
@@ -19,7 +20,9 @@ interface ClientMapSidebarProps {
     selectedClientIds: Set<string>
     focusedClientId: string | null
     cities: string[]
-    regions: string[]
+    selectedCityLabel: string
+    regions: ValueLabelOption[]
+    selectedRegionLabel: string
     totalClients: number
     loadedClients: number
     truncated: boolean
@@ -75,7 +78,9 @@ export default function ClientMapSidebar({
     selectedClientIds,
     focusedClientId,
     cities,
+    selectedCityLabel,
     regions,
+    selectedRegionLabel,
     totalClients,
     loadedClients,
     truncated,
@@ -118,7 +123,7 @@ export default function ClientMapSidebar({
                         }}
                     >
                         <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="Cidade" />
+                            <SelectValue placeholder="Cidade">{selectedCityLabel}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Todas cidades</SelectItem>
@@ -138,13 +143,13 @@ export default function ClientMapSidebar({
                         }}
                     >
                         <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="Regiao" />
+                            <SelectValue placeholder="Regiao">{selectedRegionLabel}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Todas regioes</SelectItem>
                             {regions.map((region) => (
-                                <SelectItem key={region} value={region}>
-                                    {region}
+                                <SelectItem key={region.value} value={region.value}>
+                                    {region.label}
                                 </SelectItem>
                             ))}
                         </SelectContent>
