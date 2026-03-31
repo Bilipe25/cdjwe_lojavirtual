@@ -24,6 +24,7 @@ import {
     getPriceTableContextForStore,
     getVariantPricingSnapshotsForStore,
 } from '@/lib/pricing/server-pricing'
+import { isCheckoutV2Enabled } from '@/lib/flags/checkout'
 import type {
     Order,
     OrderItem,
@@ -987,6 +988,33 @@ async function getRepresentativeCatalogProductsPageInternal(
         pageSize,
         totalPages,
     }
+}
+
+function isMissingRepresentativeOrderAtomicV2RpcError(errorMessage: string) {
+    const normalized = (errorMessage || '').toLowerCase()
+    return (
+        normalized.includes('function public.representative_create_order_atomic_v2') &&
+        normalized.includes('does not exist')
+    )
+}
+
+function isDuplicateOrderNumberError(errorMessage: string) {
+    const normalized = (errorMessage || '').toLowerCase()
+    return (
+        normalized.includes('orders_order_number_key') ||
+        normalized.includes('duplicate key value violates unique constraint')
+    )
+}
+
+function mapRepresentativeOrderCreateError(errorMessage: string) {
+    if (!errorMessage) return 'Falha ao criar pedido do representante.'
+    if (isDuplicateOrderNumberError(errorMessage)) {
+        return 'Conflito temporario na numeracao do pedido. Tente novamente em instantes.'
+    }
+    if (isMissingRepresentativeOrderAtomicV2RpcError(errorMessage)) {
+        return 'Checkout V2 do representante indisponivel no banco. Aplique a migration 055 ou desative CHECKOUT_V2_ENABLED.'
+    }
+    return errorMessage
 }
 
 export async function getRepresentativeShellData() {
@@ -2115,13 +2143,26 @@ export async function getRepresentativeProductConfiguratorData(input: {
         .eq('is_active', true)
         .order('created_at', { ascending: true })
 
-    const variantIds = ((variants || []) as Array<{ id: string }>).map((variant) => variant.id)
+    const effectiveVariants = ((variants || []) as Array<{
+        id: string
+        is_active: boolean
+        fabric?: { is_active?: boolean } | null
+        fabric_color?: { is_active?: boolean } | null
+    }>).filter((variant) =>
+        Boolean(
+            variant.is_active &&
+            variant.fabric?.is_active &&
+            variant.fabric_color?.is_active
+        )
+    )
+
+    const variantIds = effectiveVariants.map((variant) => variant.id)
     const priceTableContext = await getPriceTableContextForStore(admin as never, input.storeId, variantIds, input.priceTableId)
 
     return {
         product,
-        variants: variants || [],
-        fabrics: buildProductFabricGroups((variants || []) as never),
+        variants: effectiveVariants,
+        fabrics: buildProductFabricGroups(effectiveVariants as never),
         priceTableContext,
     }
 }
@@ -2654,7 +2695,16 @@ async function persistRepresentativeDocument(
         }))
 
         if (mode === 'order') {
-            const { data, error } = await supabase.rpc('representative_create_order_atomic', {
+            const checkoutV2Enabled = isCheckoutV2Enabled()
+            const representativeOrderCreatedNote = 'Pedido criado pelo representante em vendas presenciais.'
+            const representativeOrderCreatedNoteV2 = `${representativeOrderCreatedNote} [checkout_v2]`
+            const orderItemsPayloadV2 = validatedItems.map((item) => ({
+                product_variant_id: item.variantId,
+                size_option_id: item.sizeOptionId || null,
+                quantity: item.quantity,
+            }))
+
+            const legacyPayload = {
                 p_store_id: store.id,
                 p_price_table_id: effectivePriceTableId,
                 p_payment_method_id: paymentSelection.data?.paymentMethodId || null,
@@ -2678,13 +2728,85 @@ async function persistRepresentativeDocument(
                 p_notes: payload.notes || null,
                 p_negotiation_reason: payload.negotiationReason || null,
                 p_items: itemsPayload,
-                p_created_note: 'Pedido criado pelo representante em vendas presenciais.',
+                p_created_note: representativeOrderCreatedNote,
                 p_source_quote_id: null,
-            })
+            }
 
-            const result = Array.isArray(data) ? (data[0] as SalesOrderLikeResult | undefined) : (data as SalesOrderLikeResult | null)
-            if (error || !result?.order_id) {
-                return { error: error?.message || 'Falha ao criar pedido do representante.' }
+            const payloadV2 = {
+                p_store_id: store.id,
+                p_price_table_id: effectivePriceTableId,
+                p_payment_method_id: paymentSelection.data?.paymentMethodId || null,
+                p_payment_condition_id: paymentSelection.data?.paymentConditionId || null,
+                p_payment_rule_id: paymentSelection.data?.paymentRuleId || null,
+                p_payment_method_condition_id: paymentSelection.data?.paymentMethodConditionId || null,
+                p_payment_method_code: paymentSelection.data?.paymentMethodCode || null,
+                p_payment_method_name: paymentSelection.data?.paymentMethodName || null,
+                p_payment_condition_name: paymentSelection.data?.paymentConditionName || null,
+                p_payment_condition_description: paymentSelection.data?.paymentConditionDescription || null,
+                p_payment_installments: paymentSelection.data?.paymentInstallments || null,
+                p_payment_discount_percentage: paymentDiscountPercentage,
+                p_payment_surcharge_percentage: paymentSurchargePercentage,
+                p_negotiation_discount_percentage: effectiveNegotiationDiscountPercentage,
+                p_negotiation_discount_amount: negotiation.discountAmount,
+                p_negotiation_surcharge_amount: negotiation.surchargeAmount,
+                p_shipping_address: shippingAddress,
+                p_notes: payload.notes || null,
+                p_negotiation_reason: payload.negotiationReason || null,
+                p_items: orderItemsPayloadV2,
+                p_created_note: representativeOrderCreatedNoteV2,
+                p_source_quote_id: null,
+            }
+
+            const executeLegacy = () =>
+                supabase.rpc('representative_create_order_atomic', legacyPayload)
+            const executeV2 = () =>
+                supabase.rpc('representative_create_order_atomic_v2', payloadV2)
+
+            let shouldUseLegacyOrderRpc = !checkoutV2Enabled
+            let orderData: SalesOrderLikeResult | SalesOrderLikeResult[] | null = null
+            let orderError: { message?: string | null } | null = null
+            let orderErrorMessage = ''
+
+            if (checkoutV2Enabled) {
+                const v2Call = await executeV2()
+                orderData = v2Call.data as SalesOrderLikeResult | SalesOrderLikeResult[] | null
+                orderError = v2Call.error
+                orderErrorMessage = (orderError?.message || '').trim()
+
+                if (orderError && isDuplicateOrderNumberError(orderErrorMessage)) {
+                    const retryV2Call = await executeV2()
+                    orderData = retryV2Call.data as SalesOrderLikeResult | SalesOrderLikeResult[] | null
+                    orderError = retryV2Call.error
+                    orderErrorMessage = (orderError?.message || '').trim()
+                }
+
+                if (orderError && isMissingRepresentativeOrderAtomicV2RpcError(orderErrorMessage)) {
+                    shouldUseLegacyOrderRpc = true
+                    orderError = null
+                    orderErrorMessage = ''
+                }
+            }
+
+            if (shouldUseLegacyOrderRpc) {
+                const legacyCall = await executeLegacy()
+                orderData = legacyCall.data as SalesOrderLikeResult | SalesOrderLikeResult[] | null
+                orderError = legacyCall.error
+                orderErrorMessage = (orderError?.message || '').trim()
+
+                if (orderError && isDuplicateOrderNumberError(orderErrorMessage)) {
+                    const retryLegacyCall = await executeLegacy()
+                    orderData = retryLegacyCall.data as SalesOrderLikeResult | SalesOrderLikeResult[] | null
+                    orderError = retryLegacyCall.error
+                    orderErrorMessage = (orderError?.message || '').trim()
+                }
+            }
+
+            const result = Array.isArray(orderData)
+                ? (orderData[0] as SalesOrderLikeResult | undefined)
+                : (orderData as SalesOrderLikeResult | null)
+
+            if (orderError || !result?.order_id) {
+                return { error: mapRepresentativeOrderCreateError(orderErrorMessage) }
             }
 
             if (sourceVisit) {

@@ -17,7 +17,6 @@ import type { FabricColor } from '@/lib/types'
 import { fabricColorSchema, type FabricColorFormData } from '../schema'
 import { saveColor } from '../actions'
 import { createClient } from '@/lib/supabase/client'
-import { syncAllVariants } from '../../actions/variants'
 
 interface ColorFormProps {
   isOpen: boolean
@@ -97,14 +96,11 @@ export function ColorForm({ isOpen, onClose, color, fabricId }: ColorFormProps) 
   const onSubmit = async (values: FabricColorFormData) => {
     setIsSaving(true)
     try {
-      let finalImageUrl = values.image_url
-
       if (selectedFile) {
         setIsUploading(true)
         const uploadedUrl = await uploadImageToStorage(selectedFile)
         setIsUploading(false)
         if (uploadedUrl) {
-          finalImageUrl = uploadedUrl
           values.image_url = uploadedUrl
         } else {
            throw new Error('Falha no upload da textura real.')
@@ -116,13 +112,12 @@ export function ColorForm({ isOpen, onClose, color, fabricId }: ColorFormProps) 
         toast.error(result.error)
         return
       }
-
-      await syncAllVariants()
       
       toast.success(color ? 'Cor atualizada com sucesso!' : 'Cor criada com sucesso!')
       onClose()
-    } catch (error: any) {
-      toast.error('Erro ao salvar cor: ' + error.message)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Falha inesperada.'
+      toast.error('Erro ao salvar cor: ' + message)
       setIsUploading(false)
     } finally {
       setIsSaving(false)

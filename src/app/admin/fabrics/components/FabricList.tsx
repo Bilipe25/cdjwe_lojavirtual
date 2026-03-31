@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
@@ -174,14 +174,21 @@ export function FabricList({
     const result = await deleteFabric(fabricToDelete)
     setIsDeleting(false)
 
-    if (result.error) {
+    if ('error' in result) {
       toast.error(result.error)
       setFabricToDelete(null)
       return
     }
 
-    setFabrics(prev => prev.filter(f => f.id !== fabricToDelete))
-    toast.success('Tecido excluído com sucesso!')
+    if (result.mode === 'deleted') {
+      setFabrics(prev => prev.filter(f => f.id !== fabricToDelete))
+    } else {
+      setFabrics(prev => prev.map(f => (
+        f.id === fabricToDelete ? { ...f, is_active: false } : f
+      )))
+    }
+
+    toast.success(result.message)
     setFabricToDelete(null)
   }
 
@@ -191,17 +198,27 @@ export function FabricList({
     const result = await deleteColor(colorToDelete)
     setIsDeleting(false)
 
-    if (result.error) {
+    if ('error' in result) {
       toast.error(result.error)
       setColorToDelete(null)
       return
     }
 
-    setFabrics(prev => prev.map(f => ({
-      ...f,
-      colors: f.colors.filter(c => c.id !== colorToDelete)
-    })))
-    toast.success('Cor excluída com sucesso!')
+    if (result.mode === 'deleted') {
+      setFabrics(prev => prev.map(f => ({
+        ...f,
+        colors: f.colors.filter(c => c.id !== colorToDelete)
+      })))
+    } else {
+      setFabrics(prev => prev.map(f => ({
+        ...f,
+        colors: f.colors.map(c => (
+          c.id === colorToDelete ? { ...c, is_active: false } : c
+        ))
+      })))
+    }
+
+    toast.success(result.message)
     setColorToDelete(null)
   }
 
@@ -286,7 +303,7 @@ export function FabricList({
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir Tecido</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza? Esta ação removerá o tecido e todas as suas cores base (caso não existam variantes de produto vinculadas).
+              Se houver variantes vinculadas, o tecido sera inativado. Sem vinculos, a exclusao sera definitiva.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -308,7 +325,7 @@ export function FabricList({
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir Cor</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir esta cor? Se houver variantes vinculadas, a exclusão será bloqueada.
+              Se houver variantes vinculadas, a cor sera inativada. Sem vinculos, a exclusao sera definitiva.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -360,7 +377,7 @@ interface SortableFabricItemProps {
   onAddColor: (fabricId: string) => void
   onEditColor: (fabricId: string, color: FabricColor) => void
   onDeleteFabric: (id: string) => void
-  sensors: any
+  sensors: ReturnType<typeof useSensors>
   handleDragEndColor: (e: DragEndEvent, fabricId: string) => Promise<void>
   selectedColors: string[]
   toggleColorSelection: (id: string) => void
@@ -491,7 +508,6 @@ function SortableFabricItem({
                         <SortableColorItem
                           key={color.id}
                           color={color}
-                          fabricId={fabric.id}
                           isSelected={selectedColors.includes(color.id)}
                           toggleSelection={() => toggleColorSelection(color.id)}
                           onEditColor={() => onEditColor(fabric.id, color)}
@@ -513,7 +529,6 @@ function SortableFabricItem({
 
 interface SortableColorItemProps {
   color: FabricColor
-  fabricId: string
   isSelected: boolean
   toggleSelection: () => void
   onEditColor: () => void
@@ -523,7 +538,6 @@ interface SortableColorItemProps {
 
 function SortableColorItem({ 
   color, 
-  fabricId, 
   isSelected, 
   toggleSelection, 
   onEditColor, 
@@ -589,3 +603,4 @@ function SortableColorItem({
     </div>
   )
 }
+

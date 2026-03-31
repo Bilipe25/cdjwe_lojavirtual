@@ -19,6 +19,7 @@ import {
     buildOrderEmailItems,
     buildOrderSnapshotSummary,
 } from '@/lib/orders/order-communication'
+import { isCheckoutV2Enabled } from '@/lib/flags/checkout'
 
 type PriceTableContext = {
     discountPercentage: number
@@ -36,8 +37,10 @@ type RawVariantPricingRow = {
         base_price: number | null
         has_size_variants?: boolean | null
         size?: string | null
+        is_active?: boolean | null
     }>
-    fabric: VariantPricingRelation<{ price_modifier: number | null }>
+    fabric: VariantPricingRelation<{ price_modifier: number | null; is_active?: boolean | null }>
+    color: VariantPricingRelation<{ is_active?: boolean | null }>
 }
 
 type VariantPricingRow = {
@@ -49,8 +52,10 @@ type VariantPricingRow = {
         base_price: number | null
         has_size_variants?: boolean | null
         size?: string | null
+        is_active?: boolean | null
     } | null
-    fabric: { price_modifier: number | null } | null
+    fabric: { price_modifier: number | null; is_active?: boolean | null } | null
+    color: { is_active?: boolean | null } | null
 }
 
 type ProductSizeOptionRow = {
@@ -102,6 +107,7 @@ function normalizeVariantPricingRow(variant: RawVariantPricingRow): VariantPrici
         price_override: variant.price_override,
         product: unwrapRelation(variant.product),
         fabric: unwrapRelation(variant.fabric),
+        color: unwrapRelation(variant.color),
     }
 }
 
@@ -120,6 +126,14 @@ function isMissingExtendedAtomicSignature(errorMessage: string) {
     const normalized = errorMessage.toLowerCase()
     return (
         normalized.includes('function public.client_create_order_atomic') &&
+        normalized.includes('does not exist')
+    )
+}
+
+function isMissingV2AtomicFunction(errorMessage: string) {
+    const normalized = errorMessage.toLowerCase()
+    return (
+        normalized.includes('function public.client_create_order_atomic_v2') &&
         normalized.includes('does not exist')
     )
 }
@@ -144,6 +158,9 @@ function mapAtomicOrderErrorToUserMessage(errorMessage: string) {
     if (normalized.includes('limite de credito excedido')) return 'Limite de credito excedido para este cliente.'
     if (normalized.includes('politica comercial do cliente')) return 'Pagamento invalido para a politica comercial deste cliente.'
     if (isDuplicateOrderNumber(errorMessage)) return 'Conflito temporario na numeracao do pedido. Tente novamente em instantes.'
+    if (isMissingV2AtomicFunction(errorMessage)) {
+        return 'Checkout V2 indisponivel no banco. Aplique as migrations mais recentes (incluindo 055) ou desative CHECKOUT_V2_ENABLED.'
+    }
     if (isMissingExtendedAtomicSignature(errorMessage)) {
         return 'Banco desatualizado para o checkout atomico. Aplique as migrations pendentes de pedidos e pagamentos (013, 023, 025, 027 e 028).'
     }
@@ -238,8 +255,9 @@ async function fetchVariantPricingRows(
             id,
             is_active,
             price_override,
-            product:products(id, base_price, has_size_variants, size),
-            fabric:fabrics(price_modifier)
+            product:products(id, base_price, has_size_variants, size, is_active),
+            fabric:fabrics(price_modifier, is_active),
+            color:fabric_colors!product_variants_fabric_color_fk(is_active)
         `)
         .in('id', variantIds)
 
@@ -258,8 +276,9 @@ async function fetchVariantPricingRows(
                 id,
                 is_active,
                 price_override,
-                product:products(id, base_price, size),
-                fabric:fabrics(price_modifier)
+                product:products(id, base_price, size, is_active),
+                fabric:fabrics(price_modifier, is_active),
+                color:fabric_colors!product_variants_fabric_color_fk(is_active)
             `)
             .in('id', variantIds)
 
@@ -460,8 +479,14 @@ export async function getCurrentVariantPricing(input: Array<PricingLineInput> | 
     pricingLines.forEach((line) => {
         const cartKey = line.cartKey || buildCartKey(line.variantId, line.sizeOptionId ?? null)
         const dbVariant = variantMap.get(line.variantId)
+        const isEffectivelyActive = Boolean(
+            dbVariant?.is_active &&
+            dbVariant?.product?.is_active &&
+            dbVariant?.fabric?.is_active &&
+            dbVariant?.color?.is_active
+        )
 
-        if (!dbVariant || !dbVariant.is_active) {
+        if (!dbVariant || !isEffectivelyActive) {
             missingVariantIds.push(line.variantId)
             missingKeys.push(cartKey)
             return
@@ -579,7 +604,13 @@ export async function checkoutAction(
 
     const missingIds = variantIds.filter((variantId) => !variantMap.has(variantId))
     const inactiveIds = variantsResult.variants
-        .filter((variant) => !variant.is_active)
+        .filter(
+            (variant) =>
+                !variant.is_active ||
+                !variant.product?.is_active ||
+                !variant.fabric?.is_active ||
+                !variant.color?.is_active
+        )
         .map((variant) => variant.id)
     if (missingIds.length > 0 || inactiveIds.length > 0) {
         return { error: 'Alguns itens nao estao mais disponiveis. Revise o carrinho antes de finalizar.' }
@@ -703,7 +734,7 @@ export async function checkoutAction(
             `${addressData.city} - ${addressData.state}, CEP: ${addressData.zip_code}`
     }
 
-    const orderItemsPayload = validatedItems.map((item) => ({
+    const legacyOrderItemsPayload = validatedItems.map((item) => ({
         product_variant_id: item.variantId,
         size_option_id: item.sizeOptionId,
         product_name: item.productName,
@@ -718,6 +749,12 @@ export async function checkoutAction(
         variation_price: item.variationPrice,
         final_price: item.finalPrice,
         subtotal: item.subtotal,
+    }))
+
+    const checkoutItemsPayloadV2 = validatedItems.map((item) => ({
+        product_variant_id: item.variantId,
+        size_option_id: item.sizeOptionId,
+        quantity: item.quantity,
     }))
 
     const atomicPayloadBase = {
@@ -739,36 +776,92 @@ export async function checkoutAction(
         p_total: finalTotal,
         p_shipping_address: shippingAddressStr,
         p_notes: notes || null,
-        p_items: orderItemsPayload,
+        p_items: legacyOrderItemsPayload,
     }
+
+    const atomicPayloadV2 = {
+        p_store_id: store.id,
+        p_profile_id: user.id,
+        p_payment_method_id: paymentSelection.paymentMethodId,
+        p_payment_condition_id: paymentConditionId,
+        p_payment_rule_id: paymentRuleId,
+        p_payment_method_condition_id: paymentSelection.paymentMethodConditionId,
+        p_payment_method_code: paymentSelection.paymentMethodCode,
+        p_payment_method_name: paymentSelection.paymentMethodName,
+        p_payment_condition_name: paymentSelection.paymentConditionName,
+        p_payment_condition_description: paymentSelection.paymentConditionDescription,
+        p_payment_installments: paymentSelection.paymentInstallments,
+        p_payment_discount_percentage: paymentSelection.paymentDiscountPercentage,
+        p_payment_surcharge_percentage: paymentSelection.paymentSurchargePercentage,
+        p_shipping_address: shippingAddressStr,
+        p_notes: notes || null,
+        p_items: checkoutItemsPayloadV2,
+    }
+
+    const createdNoteLegacy = buildOrderCreatedAuditNote(validatedItems.length, finalTotal)
+    const createdNoteV2 = `${createdNoteLegacy} [checkout_v2]`
 
     const executeAtomicOrderRpc = async (withCreatedNote: boolean) =>
         supabase.rpc('client_create_order_atomic', {
             ...atomicPayloadBase,
-            ...(withCreatedNote
-                ? { p_created_note: buildOrderCreatedAuditNote(validatedItems.length, finalTotal) }
-                : {}),
+            ...(withCreatedNote ? { p_created_note: createdNoteLegacy } : {}),
+        })
+
+    const executeAtomicOrderRpcV2 = () =>
+        supabase.rpc('client_create_order_atomic_v2', {
+            ...atomicPayloadV2,
+            p_created_note: createdNoteV2,
         })
 
     let usedLegacySignature = false
-    let { data: orderCreateResult, error: createOrderError } = await executeAtomicOrderRpc(true)
-    let createOrderErrorMessage = getRpcErrorMessage(createOrderError)
+    let orderCreateResult: CreateOrderAtomicResult | CreateOrderAtomicResult[] | null = null
+    let createOrderError: RpcErrorLike | null = null
+    let createOrderErrorMessage = ''
+    const checkoutV2Enabled = isCheckoutV2Enabled()
+    let shouldUseLegacyCheckout = !checkoutV2Enabled
 
-    // Backward compatibility when DB has old function signature without p_created_note.
-    if (createOrderError && isMissingExtendedAtomicSignature(createOrderErrorMessage)) {
-        usedLegacySignature = true
-        const legacyCall = await executeAtomicOrderRpc(false)
-        orderCreateResult = legacyCall.data
-        createOrderError = legacyCall.error
+    if (checkoutV2Enabled) {
+        const v2Call = await executeAtomicOrderRpcV2()
+        orderCreateResult = v2Call.data as CreateOrderAtomicResult | CreateOrderAtomicResult[] | null
+        createOrderError = v2Call.error as RpcErrorLike | null
         createOrderErrorMessage = getRpcErrorMessage(createOrderError)
+
+        if (createOrderError && isDuplicateOrderNumber(createOrderErrorMessage)) {
+            const retryV2Call = await executeAtomicOrderRpcV2()
+            orderCreateResult = retryV2Call.data as CreateOrderAtomicResult | CreateOrderAtomicResult[] | null
+            createOrderError = retryV2Call.error as RpcErrorLike | null
+            createOrderErrorMessage = getRpcErrorMessage(createOrderError)
+        }
+
+        if (createOrderError && isMissingV2AtomicFunction(createOrderErrorMessage)) {
+            shouldUseLegacyCheckout = true
+            createOrderError = null
+            createOrderErrorMessage = ''
+        }
     }
 
-    // Retry once for eventual order_number race condition.
-    if (createOrderError && isDuplicateOrderNumber(createOrderErrorMessage)) {
-        const retryCall = await executeAtomicOrderRpc(!usedLegacySignature)
-        orderCreateResult = retryCall.data
-        createOrderError = retryCall.error
+    if (shouldUseLegacyCheckout) {
+        const legacyCall = await executeAtomicOrderRpc(true)
+        orderCreateResult = legacyCall.data as CreateOrderAtomicResult | CreateOrderAtomicResult[] | null
+        createOrderError = legacyCall.error as RpcErrorLike | null
         createOrderErrorMessage = getRpcErrorMessage(createOrderError)
+
+        // Backward compatibility when DB has old function signature without p_created_note.
+        if (createOrderError && isMissingExtendedAtomicSignature(createOrderErrorMessage)) {
+            usedLegacySignature = true
+            const fallbackLegacyCall = await executeAtomicOrderRpc(false)
+            orderCreateResult = fallbackLegacyCall.data as CreateOrderAtomicResult | CreateOrderAtomicResult[] | null
+            createOrderError = fallbackLegacyCall.error as RpcErrorLike | null
+            createOrderErrorMessage = getRpcErrorMessage(createOrderError)
+        }
+
+        // Retry once for eventual order_number race condition.
+        if (createOrderError && isDuplicateOrderNumber(createOrderErrorMessage)) {
+            const retryLegacyCall = await executeAtomicOrderRpc(!usedLegacySignature)
+            orderCreateResult = retryLegacyCall.data as CreateOrderAtomicResult | CreateOrderAtomicResult[] | null
+            createOrderError = retryLegacyCall.error as RpcErrorLike | null
+            createOrderErrorMessage = getRpcErrorMessage(createOrderError)
+        }
     }
 
     const createdOrder = Array.isArray(orderCreateResult)
@@ -779,8 +872,10 @@ export async function checkoutAction(
         console.error('[CHECKOUT] Atomic order creation error:', {
             error: createOrderError,
             payload: {
-                ...atomicPayloadBase,
-                p_items_count: orderItemsPayload.length,
+                ...(shouldUseLegacyCheckout ? atomicPayloadBase : atomicPayloadV2),
+                p_items_count: shouldUseLegacyCheckout
+                    ? legacyOrderItemsPayload.length
+                    : checkoutItemsPayloadV2.length,
             },
         })
         return {

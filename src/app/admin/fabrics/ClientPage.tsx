@@ -1,6 +1,6 @@
-'use client'
+﻿'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Search } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -12,10 +12,9 @@ import type { Fabric, FabricColor } from '@/lib/types'
 import { FabricList } from './components/FabricList'
 import { FabricForm } from './components/FabricForm'
 import { ColorForm } from './components/ColorForm'
-import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
-import { deleteSelectedColors } from './actions'
+import { deleteSelectedColors, setColorsActiveBulk } from './actions'
 
 type FabricWithColors = Fabric & { colors: FabricColor[] }
 
@@ -26,6 +25,10 @@ interface ClientPageProps {
 export function ClientPage({ initialFabrics }: ClientPageProps) {
   const [fabrics, setFabrics] = useState<FabricWithColors[]>(initialFabrics)
   const router = useRouter()
+
+  useEffect(() => {
+    setFabrics(initialFabrics)
+  }, [initialFabrics])
 
   // Extra Features State
   const [searchQuery, setSearchQuery] = useState('')
@@ -66,51 +69,63 @@ export function ClientPage({ initialFabrics }: ClientPageProps) {
   // ----- Bulk Actions -----
   const handleBulkToggleActive = async (isActive: boolean) => {
     if (selectedColors.length === 0) return
+    const selectedIds = [...selectedColors]
 
-    const supabase = createClient()
-    const { error } = await supabase.from('fabric_colors')
-      .update({ is_active: isActive })
-      .in('id', selectedColors)
-
-    if (error) { 
-      toast.error('Falha ao atualizar cores.')
+    const result = await setColorsActiveBulk(selectedIds, isActive)
+    if ('error' in result) {
+      toast.error(result.error)
       return 
     }
-    
-    toast.success(`${selectedColors.length} cores ${isActive ? 'ativadas' : 'desativadas'}!`)
-    setSelectedColors([])
-    
-    // Optimistic UI update for bulk action
+
+    const updatedSet = new Set(result.updatedIds)
     setFabrics(prev => prev.map(f => ({
       ...f,
       colors: f.colors.map(c => 
-        selectedColors.includes(c.id) ? { ...c, is_active: isActive } : c
+        updatedSet.has(c.id) ? { ...c, is_active: isActive } : c
       )
     })))
-    
-    // Hard refresh in background to match DB
+
+    setSelectedColors(result.blockedIds)
+    toast.success(result.message)
+    if (result.blockedIds.length > 0) {
+      toast.warning(`${result.blockedIds.length} cor(es) nao puderam ser atualizadas.`)
+    }
     router.refresh()
   }
 
   const handleBulkDelete = async () => {
     if (selectedColors.length === 0) return
-    if (!window.confirm('Excluir cores selecionadas?\nCores associadas a produtos serão ignoradas pela trava de banco de dados.')) return
+    if (!window.confirm('Excluir cores selecionadas?\nCores com variantes vinculadas serao inativadas automaticamente.')) return
+    const selectedIds = [...selectedColors]
 
-    const result = await deleteSelectedColors(selectedColors)
-    if (result.error) {
+    const result = await deleteSelectedColors(selectedIds)
+    if ('error' in result) {
       toast.error(result.error)
       return
     }
-    
-    toast.success(`${selectedColors.length} cores excluídas com sucesso!`)
-    setSelectedColors([])
-    
-    // Optimistic UI update
+
+    const deletedIds = new Set(
+      result.items.filter((item) => item.status === 'deleted').map((item) => item.colorId)
+    )
+    const deactivatedIds = new Set(
+      result.items.filter((item) => item.status === 'deactivated').map((item) => item.colorId)
+    )
+    const blockedIds = result.items
+      .filter((item) => item.status === 'blocked')
+      .map((item) => item.colorId)
+
     setFabrics(prev => prev.map(f => ({
       ...f,
-      colors: f.colors.filter(c => !selectedColors.includes(c.id))
+      colors: f.colors
+        .filter(c => !deletedIds.has(c.id))
+        .map(c => (deactivatedIds.has(c.id) ? { ...c, is_active: false } : c))
     })))
-    
+
+    setSelectedColors(blockedIds)
+    toast.success(result.message)
+    if (result.summary.blocked > 0) {
+      toast.warning(`${result.summary.blocked} cor(es) ficaram bloqueadas e continuam selecionadas.`)
+    }
     router.refresh()
   }
 
@@ -182,3 +197,4 @@ export function ClientPage({ initialFabrics }: ClientPageProps) {
     </div>
   )
 }
+

@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
+﻿import { createClient } from '@/lib/supabase/server'
 import { ClientPage } from './ClientPage'
-import type { FabricColor } from '@/lib/types'
+import type { Fabric, FabricColor } from '@/lib/types'
 
 export const metadata = {
   title: 'Gerenciar Tecidos | CDJWE Vendas Externas',
@@ -10,52 +10,59 @@ export default async function AdminFabricsPage() {
   const supabase = await createClient()
   if (!supabase || typeof supabase.from !== 'function') {
     console.error('Supabase client failed to initialize or missing .from()', supabase)
-    return <div className="p-8 text-red-500">Erro de conexão com o banco de dados. Verifique as configurações.</div>
+    return <div className="p-8 text-red-500">Erro de conexao com o banco de dados. Verifique as configuracoes.</div>
   }
-  
-  // Fetch fabrics
-  const { data: fabricsData, error: fabricsError } = await supabase
-    .from('fabrics')
-    .select('*')
-    .order('sort_order')
 
-  // Fetch colors
-  const { data: colorsData, error: colorsError } = await supabase
-    .from('fabric_colors')
-    .select('*')
-    .order('sort_order')
+  const [fabricsRes, colorsRes, usageRes] = await Promise.all([
+    supabase.from('fabrics').select('*').order('sort_order'),
+    supabase.from('fabric_colors').select('*').order('sort_order'),
+    supabase.rpc('admin_get_fabric_color_usage_counts'),
+  ])
 
-  // Fetch variants to calculate counts
-  const { data: variantsData, error: variantsError } = await supabase
-    .from('product_variants')
-    .select('fabric_id, fabric_color_id')
+  if (fabricsRes.error) console.error('Error loading fabrics:', fabricsRes.error)
+  if (colorsRes.error) console.error('Error loading colors:', colorsRes.error)
+  if (usageRes.error) console.error('Error loading usage counts:', usageRes.error)
 
-  if (fabricsError) console.error('Error loading fabrics:', fabricsError)
-  if (colorsError) console.error('Error loading colors:', colorsError)
-  if (variantsError) console.error('Error loading variants:', variantsError)
+  const rawFabrics = fabricsRes.data || []
+  const rawColors = (colorsRes.data || []) as FabricColor[]
 
-  const rawFabrics = fabricsData || []
-  const rawColors = (colorsData || []) as FabricColor[]
-  const variants = variantsData || []
+  let usageRows =
+    (usageRes.data as Array<{
+      fabric_id: string | null
+      fabric_color_id: string | null
+      variant_count: number | null
+    }> | null) || []
 
-  // Compute counts
-  const fabricCounts = variants.reduce((acc, v) => {
-    if (v.fabric_id) acc[v.fabric_id] = (acc[v.fabric_id] || 0) + 1
+  if (usageRes.error) {
+    const { data: variantsFallback } = await supabase
+      .from('product_variants')
+      .select('fabric_id, fabric_color_id')
+
+    usageRows = (variantsFallback || []).map((row) => ({
+      fabric_id: row.fabric_id,
+      fabric_color_id: row.fabric_color_id,
+      variant_count: 1,
+    }))
+  }
+
+  const fabricCounts = usageRows.reduce((acc, row) => {
+    if (!row.fabric_id) return acc
+    acc[row.fabric_id] = (acc[row.fabric_id] || 0) + Number(row.variant_count || 0)
     return acc
   }, {} as Record<string, number>)
 
-  const colorCounts = variants.reduce((acc, v) => {
-    if (v.fabric_color_id) acc[v.fabric_color_id] = (acc[v.fabric_color_id] || 0) + 1
+  const colorCounts = usageRows.reduce((acc, row) => {
+    if (!row.fabric_color_id) return acc
+    acc[row.fabric_color_id] = Number(row.variant_count || 0)
     return acc
   }, {} as Record<string, number>)
 
-  // Group colors by fabric and inject counts
-  const initialFabrics = rawFabrics.map((f: any) => ({
+  const initialFabrics = (rawFabrics as Fabric[]).map((f) => ({
     ...f,
     variant_count: fabricCounts[f.id] || 0,
     colors: rawColors
-      .filter(c => c.fabric_id === f.id)
-      .map(c => ({
+      .filter((c) => c.fabric_id === f.id)
+      .map((c) => ({
         ...c,
         variant_count: colorCounts[c.id] || 0,
       })),

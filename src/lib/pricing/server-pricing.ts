@@ -1,4 +1,4 @@
-﻿import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import { resolveVariantPricing } from '@/lib/pricing/resolve-variant-pricing'
 import { resolveEffectivePriceTableIdForStore } from '@/lib/commercial/store-commercial'
 
@@ -15,8 +15,10 @@ type RawVariantPricingRow = {
         base_price: number | null
         has_size_variants?: boolean | null
         size?: string | null
+        is_active?: boolean | null
     }>
-    fabric: VariantPricingRelation<{ price_modifier: number | null }>
+    fabric: VariantPricingRelation<{ price_modifier: number | null; is_active?: boolean | null }>
+    color: VariantPricingRelation<{ is_active?: boolean | null }>
 }
 
 type VariantPricingRow = {
@@ -28,8 +30,10 @@ type VariantPricingRow = {
         base_price: number | null
         has_size_variants?: boolean | null
         size?: string | null
+        is_active?: boolean | null
     } | null
-    fabric: { price_modifier: number | null } | null
+    fabric: { price_modifier: number | null; is_active?: boolean | null } | null
+    color: { is_active?: boolean | null } | null
 }
 
 export type ProductSizeOptionRow = {
@@ -74,6 +78,7 @@ function normalizeVariantPricingRow(variant: RawVariantPricingRow): VariantPrici
         price_override: variant.price_override,
         product: unwrapRelation(variant.product),
         fabric: unwrapRelation(variant.fabric),
+        color: unwrapRelation(variant.color),
     }
 }
 
@@ -154,8 +159,9 @@ export async function fetchVariantPricingRows(
             id,
             is_active,
             price_override,
-            product:products(id, base_price, has_size_variants, size),
-            fabric:fabrics(price_modifier)
+            product:products(id, base_price, has_size_variants, size, is_active),
+            fabric:fabrics(price_modifier, is_active),
+            color:fabric_colors!product_variants_fabric_color_fk(is_active)
         `)
         .in('id', variantIds)
 
@@ -173,8 +179,9 @@ export async function fetchVariantPricingRows(
                 id,
                 is_active,
                 price_override,
-                product:products(id, base_price, size),
-                fabric:fabrics(price_modifier)
+                product:products(id, base_price, size, is_active),
+                fabric:fabrics(price_modifier, is_active),
+                color:fabric_colors!product_variants_fabric_color_fk(is_active)
             `)
             .in('id', variantIds)
 
@@ -250,8 +257,14 @@ export async function getVariantPricingSnapshotsForStore(
     pricingLines.forEach((line) => {
         const cartKey = line.cartKey || buildPricingCartKey(line.variantId, line.sizeOptionId ?? null)
         const dbVariant = variantMap.get(line.variantId)
+        const isEffectivelyActive = Boolean(
+            dbVariant?.is_active &&
+            dbVariant?.product?.is_active &&
+            dbVariant?.fabric?.is_active &&
+            dbVariant?.color?.is_active
+        )
 
-        if (!dbVariant || !dbVariant.is_active) {
+        if (!dbVariant || !isEffectivelyActive) {
             missingVariantIds.push(line.variantId)
             missingKeys.push(cartKey)
             return
@@ -314,4 +327,3 @@ export async function getVariantPricingSnapshotsForStore(
         missingVariantIds: Array.from(new Set(missingVariantIds)),
     }
 }
-

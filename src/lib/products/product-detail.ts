@@ -17,11 +17,20 @@ export type ProductFabricGroup = Fabric & {
 
 export type ProductDetailSizeOption = ProductSizeOption
 
+function isVariantEffectivelyActive(variant: ProductDetailVariant) {
+    return Boolean(
+        variant.is_active &&
+        variant.fabric?.is_active &&
+        variant.fabric_color?.is_active
+    )
+}
+
 export function buildProductFabricGroups(variants: ProductDetailVariant[]): ProductFabricGroup[] {
     const fabricMap = new Map<string, ProductFabricGroup>()
 
     variants.forEach((variant) => {
         if (!variant.fabric || !variant.fabric_color) return
+        if (!isVariantEffectivelyActive(variant)) return
 
         if (!fabricMap.has(variant.fabric_id)) {
             fabricMap.set(variant.fabric_id, {

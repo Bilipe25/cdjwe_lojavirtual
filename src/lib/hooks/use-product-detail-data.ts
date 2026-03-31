@@ -108,7 +108,14 @@ export function useProductDetailData({
                 return
             }
 
-            const nextVariants = (variantsRes.data || []) as ProductDetailVariant[]
+            const nextVariantsRaw = (variantsRes.data || []) as ProductDetailVariant[]
+            const nextVariants = nextVariantsRaw.filter((variant) =>
+                Boolean(
+                    variant.is_active &&
+                    variant.fabric?.is_active &&
+                    variant.fabric_color?.is_active
+                )
+            )
             setProduct(productRes.data as Product)
             setImages(imagesRes.data || [])
             setVariants(nextVariants)

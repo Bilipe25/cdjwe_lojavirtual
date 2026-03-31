@@ -189,96 +189,101 @@ function CatalogContentInner() {
         loadUserStatusAndSocial()
     }, [settings])
 
-    // Execute paginated queries safely on the Server Side Database
+    // Execute paginated queries with server-side joins (avoids large IN lists)
     useEffect(() => {
         const fetchPaginatedProducts = async () => {
             setLoading(true)
             const supabase = createClient()
-            
-            // When fabric filter is active, pre-fetch matching product IDs server-side
-            // This avoids the broken client-side filtering that destroyed pagination
-            let filteredProductIds: string[] | null = null
-            if (selectedFabric !== 'all') {
-                const { data: variantLinks } = await supabase
-                    .from('product_variants')
-                    .select('product_id')
-                    .eq('fabric_id', selectedFabric)
-                    .eq('is_active', true)
-                
-                if (variantLinks && variantLinks.length > 0) {
-                    // Deduplicate product IDs
-                    filteredProductIds = [...new Set(variantLinks.map(v => v.product_id))]
-                } else {
-                    // No products match this fabric, short-circuit
-                    setProducts([])
-                    setTotalCount(0)
-                    setLoading(false)
-                    return
-                }
-            }
 
-            if (selectedSize !== 'all') {
-                const { data: sizeLinks } = await supabase
-                    .from('product_size_options')
-                    .select('product_id')
-                    .eq('slug', selectedSize)
-                    .eq('is_active', true)
-
-                if (sizeLinks && sizeLinks.length > 0) {
-                    const sizeProductIds = [...new Set(sizeLinks.map((sizeLink) => sizeLink.product_id))]
-                    filteredProductIds = filteredProductIds
-                        ? filteredProductIds.filter((productId) => sizeProductIds.includes(productId))
-                        : sizeProductIds
-                } else {
-                    setProducts([])
-                    setTotalCount(0)
-                    setLoading(false)
-                    return
-                }
-
-                if (filteredProductIds && filteredProductIds.length === 0) {
-                    setProducts([])
-                    setTotalCount(0)
-                    setLoading(false)
-                    return
-                }
-            }
+            const baseSelect = `
+                id,
+                name,
+                slug,
+                description,
+                category_id,
+                size,
+                has_size_variants,
+                base_price,
+                is_active,
+                is_featured,
+                sort_order,
+                created_at,
+                updated_at,
+                category:categories(*),
+                images:product_images(url, is_primary, sort_order),
+                size_options:product_size_options(*),
+                variants_filter:product_variants!inner(
+                    id,
+                    fabric_id,
+                    is_active,
+                    fabric:fabrics!inner(id, is_active),
+                    fabric_color:fabric_colors!product_variants_fabric_color_fk!inner(id, is_active)
+                )
+                ${selectedSize !== 'all'
+                    ? `,
+                size_filter:product_size_options!inner(
+                    id,
+                    slug,
+                    is_active
+                )`
+                    : ''}
+            `
 
             let query = supabase
                 .from('products')
-                .select('*, category:categories(*), images:product_images(url, is_primary, sort_order), size_options:product_size_options(*)', { count: 'exact' })
+                .select(baseSelect, { count: 'exact' })
                 .eq('is_active', true)
+                .eq('variants_filter.is_active', true)
+                .eq('variants_filter.fabric.is_active', true)
+                .eq('variants_filter.fabric_color.is_active', true)
 
-            // Dynamic Queries to avoid Client Side Array.Filtering over 1000s of rows
             if (debouncedSearch) {
                 query = query.ilike('name', `%${debouncedSearch}%`)
             }
             if (selectedCategory !== 'all') {
                 query = query.eq('category_id', selectedCategory)
             }
-            
-            // Apply fabric filter server-side using pre-fetched IDs
-            if (filteredProductIds) {
-                query = query.in('id', filteredProductIds)
+            if (selectedFabric !== 'all') {
+                query = query.eq('variants_filter.fabric_id', selectedFabric)
+            }
+            if (selectedSize !== 'all') {
+                query = query
+                    .eq('size_filter.slug', selectedSize)
+                    .eq('size_filter.is_active', true)
             }
 
-            // Sorting logic translation
             if (sortBy === 'name') query = query.order('name', { ascending: true })
             if (sortBy === 'price_asc') query = query.order('base_price', { ascending: true })
             if (sortBy === 'price_desc') query = query.order('base_price', { ascending: false })
             if (sortBy === 'newest') query = query.order('created_at', { ascending: false })
-            
-            // Applying Strict Pagination boundaries to save massive RAM and Bandwidth
+
             const from = (currentPage - 1) * PAGE_SIZE
             const to = from + PAGE_SIZE - 1
             query = query.range(from, to)
 
             const { data, count, error } = await query
-
-            if (!error && data) {
-                setProducts(data as CatalogProduct[])
-                setTotalCount(count || 0)
+            if (error) {
+                console.error('[CATALOG] Error loading products:', error)
+                setProducts([])
+                setTotalCount(0)
+                setLoading(false)
+                return
             }
+
+            const rawRows: unknown[] = Array.isArray(data) ? (data as unknown[]) : []
+            const rows = rawRows.filter((row): row is CatalogProduct => {
+                if (!row || typeof row !== 'object') return false
+                return 'id' in row && typeof (row as { id?: unknown }).id === 'string'
+            })
+            const deduped = new Map<string, CatalogProduct>()
+            rows.forEach((row) => {
+                if (!deduped.has(row.id)) {
+                    deduped.set(row.id, row)
+                }
+            })
+
+            setProducts(Array.from(deduped.values()))
+            setTotalCount(count || 0)
             setLoading(false)
         }
 

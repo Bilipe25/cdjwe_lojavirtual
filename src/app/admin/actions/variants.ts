@@ -21,6 +21,11 @@ interface ColorRow {
     is_active: boolean
 }
 
+interface FabricRow {
+    id: string
+    is_active: boolean
+}
+
 interface VariantRow {
     id: string
     fabric_id: string
@@ -60,6 +65,37 @@ function getErrorMessage(error: unknown): string {
     return 'Erro inesperado'
 }
 
+function isMissingFabricAuditTableError(error: unknown) {
+    if (!error || typeof error !== 'object') return false
+    const code = 'code' in error ? String((error as { code?: unknown }).code || '') : ''
+    const message = 'message' in error ? String((error as { message?: unknown }).message || '') : ''
+    return code === '42P01' || message.toLowerCase().includes('admin_fabric_actions_audit')
+}
+
+async function appendVariantSyncAuditLog(params: {
+    supabase: Awaited<ReturnType<typeof createClient>>
+    action: 'variants_sync_all' | 'variants_sync_product'
+    fabricId?: string | null
+    details: Record<string, unknown>
+}) {
+    const {
+        data: { user },
+    } = await params.supabase.auth.getUser()
+
+    const { error } = await params.supabase
+        .from('admin_fabric_actions_audit')
+        .insert({
+            actor_profile_id: user?.id || null,
+            action: params.action,
+            fabric_id: params.fabricId || null,
+            details: params.details,
+        })
+
+    if (!error) return
+    if (isMissingFabricAuditTableError(error)) return
+    console.warn('[VARIANTS_AUDIT] log skipped:', error)
+}
+
 async function insertVariantsInChunks(variants: VariantInsert[]) {
     const supabase = await createClient()
 
@@ -77,17 +113,27 @@ export async function syncAllVariants() {
         const supabase = await createClient()
 
         // 1. Get base data
-        const [{ data: products, error: productsError }, { data: colors, error: colorsError }] = await Promise.all([
+        const [
+            { data: products, error: productsError },
+            { data: colors, error: colorsError },
+            { data: fabrics, error: fabricsError },
+        ] = await Promise.all([
             supabase.from('products').select('id, is_active'),
             supabase.from('fabric_colors').select('id, fabric_id, is_active'),
+            supabase.from('fabrics').select('id, is_active'),
         ])
 
         if (productsError) throw productsError
         if (colorsError) throw colorsError
+        if (fabricsError) throw fabricsError
 
-        if (!products?.length || !colors?.length) {
+        if (!products?.length || !colors?.length || !fabrics?.length) {
             return { success: false, message: 'Faltam dados base' }
         }
+
+        const fabricActiveMap = new Map(
+            (fabrics as FabricRow[]).map((fabric) => [fabric.id, Boolean(fabric.is_active)])
+        )
 
         // 2. Fetch existing variants
         const { data: existingVariants, error: existingError } = await supabase
@@ -114,7 +160,7 @@ export async function syncAllVariants() {
                         fabric_id: color.fabric_id,
                         fabric_color_id: color.id,
                         stock_quantity: 999,
-                        is_active: product.is_active && color.is_active,
+                        is_active: product.is_active && color.is_active && Boolean(fabricActiveMap.get(color.fabric_id)),
                     })
                 }
             }
@@ -122,9 +168,27 @@ export async function syncAllVariants() {
 
         if (newVariants.length > 0) {
             await insertVariantsInChunks(newVariants)
+            await appendVariantSyncAuditLog({
+                supabase,
+                action: 'variants_sync_all',
+                details: {
+                    products: products.length,
+                    colors: colors.length,
+                    inserted: newVariants.length,
+                },
+            })
             return { success: true, count: newVariants.length }
         }
 
+        await appendVariantSyncAuditLog({
+            supabase,
+            action: 'variants_sync_all',
+            details: {
+                products: products.length,
+                colors: colors.length,
+                inserted: 0,
+            },
+        })
         return { success: true, count: 0 }
     } catch (error: unknown) {
         console.error('Fatal syncAllVariants error:', error)
@@ -141,20 +205,27 @@ export async function syncProductVariants(productId: string) {
         const [
             { data: product, error: productError },
             { data: colors, error: colorsError },
+            { data: fabrics, error: fabricsError },
             { data: existingVariants, error: existingVariantsError },
         ] = await Promise.all([
             supabase.from('products').select('id, is_active').eq('id', productId).single(),
             supabase.from('fabric_colors').select('id, fabric_id, is_active'),
+            supabase.from('fabrics').select('id, is_active'),
             supabase.from('product_variants').select('fabric_id, fabric_color_id').eq('product_id', productId),
         ])
 
         if (productError) throw productError
         if (colorsError) throw colorsError
+        if (fabricsError) throw fabricsError
         if (existingVariantsError) throw existingVariantsError
 
-        if (!product || !colors?.length) {
+        if (!product || !colors?.length || !fabrics?.length) {
             return { success: false, message: 'Faltam dados base' }
         }
+
+        const fabricActiveMap = new Map(
+            (fabrics as FabricRow[]).map((fabric) => [fabric.id, Boolean(fabric.is_active)])
+        )
 
         const existingSet = new Set(
             (existingVariants as ExistingProductVariantKeyRow[] | null)?.map(
@@ -171,16 +242,34 @@ export async function syncProductVariants(productId: string) {
                     fabric_id: color.fabric_id,
                     fabric_color_id: color.id,
                     stock_quantity: 999,
-                    is_active: product.is_active && color.is_active,
+                    is_active: product.is_active && color.is_active && Boolean(fabricActiveMap.get(color.fabric_id)),
                 })
             }
         }
 
         if (newVariants.length > 0) {
             await insertVariantsInChunks(newVariants)
+            await appendVariantSyncAuditLog({
+                supabase,
+                action: 'variants_sync_product',
+                details: {
+                    productId,
+                    colors: colors.length,
+                    inserted: newVariants.length,
+                },
+            })
             return { success: true, count: newVariants.length }
         }
 
+        await appendVariantSyncAuditLog({
+            supabase,
+            action: 'variants_sync_product',
+            details: {
+                productId,
+                colors: colors.length,
+                inserted: 0,
+            },
+        })
         return { success: true, count: 0 }
     } catch (error: unknown) {
         console.error('Fatal syncProductVariants error:', error)

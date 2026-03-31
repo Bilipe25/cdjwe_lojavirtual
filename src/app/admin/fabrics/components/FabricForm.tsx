@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import { Loader2, UploadCloud, X } from 'lucide-react'
+import Image from 'next/image'
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -17,7 +18,6 @@ import type { Fabric } from '@/lib/types'
 import { fabricSchema, type FabricFormData } from '../schema'
 import { saveFabric } from '../actions'
 import { createClient } from '@/lib/supabase/client'
-import { syncAllVariants } from '../../actions/variants'
 
 interface FabricFormProps {
   isOpen: boolean
@@ -62,13 +62,12 @@ export function FabricForm({ isOpen, onClose, fabric }: FabricFormProps) {
         toast.error(result.error)
         return
       }
-
-      await syncAllVariants()
       
       toast.success(fabric ? 'Tecido atualizado com sucesso!' : 'Tecido criado com sucesso!')
       onClose()
-    } catch (error: any) {
-      toast.error('Erro inesperado: ' + error.message)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Falha inesperada.'
+      toast.error('Erro inesperado: ' + message)
     } finally {
       setIsSaving(false)
     }
@@ -95,8 +94,9 @@ export function FabricForm({ isOpen, onClose, fabric }: FabricFormProps) {
 
       form.setValue('image_url', publicUrl, { shouldValidate: true })
       toast.success('Imagem enviada com sucesso!')
-    } catch (error: any) {
-      toast.error('Erro ao fazer upload da imagem: ' + error.message)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Falha inesperada.'
+      toast.error('Erro ao fazer upload da imagem: ' + message)
     } finally {
       setIsUploading(false)
       e.target.value = ''
@@ -144,7 +144,13 @@ export function FabricForm({ isOpen, onClose, fabric }: FabricFormProps) {
               <Label className="text-navy font-medium">Imagem Principal do Tecido (Opcional)</Label>
               {form.watch('image_url') ? (
                 <div className="relative w-full h-32 rounded-xl overflow-hidden border group">
-                  <img src={form.watch('image_url') || ''} alt="Preview do Tecido" className="w-full h-full object-cover" />
+                  <Image
+                    src={form.watch('image_url') || ''}
+                    alt="Preview do Tecido"
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 768px) 100vw, 600px"
+                  />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <Button 
                       type="button" 
