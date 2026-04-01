@@ -11,6 +11,7 @@ import {
     Navigation,
     Package,
     Timer,
+    Trash2,
     XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -19,6 +20,7 @@ import { cn } from '@/lib/utils'
 
 export interface RouteStopCardItem {
     id: string
+    order_id?: string | null
     stop_position: number
     customer_name: string
     address_snapshot: string | null
@@ -56,6 +58,7 @@ interface RouteStopCardProps {
     onToggleHighlight: (stopId: string) => void
     onMoveStop: (stopId: string, direction: 'top' | 'up' | 'down' | 'bottom') => void
     onOpenGeocode: (stop: RouteStopCardItem) => void
+    onRequestDeleteStop: (stop: RouteStopCardItem) => void
     onMarkDelivered: (stopId: string) => void
     onRequestFailure: (stopId: string, customerName: string) => void
 }
@@ -83,6 +86,7 @@ export default function RouteStopCard({
     onToggleHighlight,
     onMoveStop,
     onOpenGeocode,
+    onRequestDeleteStop,
     onMarkDelivered,
     onRequestFailure,
 }: RouteStopCardProps) {
@@ -291,6 +295,24 @@ export default function RouteStopCard({
                             >
                                 <Crosshair className="h-2.5 w-2.5" />
                                 Geocodificar
+                            </Button>
+                        ) : null}
+
+                        {isSequenceEditable ? (
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-[10px] gap-1 text-red-600 border-red-200 hover:bg-red-50"
+                                onClick={(event) => {
+                                    event.stopPropagation()
+                                    onRequestDeleteStop(stop)
+                                }}
+                                disabled={actionLoading}
+                                title="Excluir parada da rota"
+                            >
+                                <Trash2 className="h-2.5 w-2.5" />
+                                Excluir
                             </Button>
                         ) : null}
 

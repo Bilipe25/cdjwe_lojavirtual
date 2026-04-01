@@ -1670,6 +1670,100 @@ export async function saveRouteStopsOrder(
     }
 }
 
+export async function addRouteStop(
+    routeId: string,
+    orderId: string,
+    reason?: string,
+) {
+    try {
+        const { supabase } = await requireAdmin()
+
+        const normalizedRouteId = String(routeId || '').trim()
+        const normalizedOrderId = String(orderId || '').trim()
+
+        if (!normalizedRouteId) {
+            return { error: 'Rota invalida para adicionar parada.' }
+        }
+        if (!normalizedOrderId) {
+            return { error: 'Pedido invalido para adicionar parada.' }
+        }
+
+        const { data, error } = await supabase.rpc('logistics_add_route_stop_atomic', {
+            p_route_id: normalizedRouteId,
+            p_order_id: normalizedOrderId,
+            p_reason: reason?.trim() || null,
+        })
+
+        if (error) {
+            console.error('[ADD ROUTE STOP] RPC error:', error)
+            return { error: error.message || 'Erro ao adicionar parada na rota.' }
+        }
+
+        const row = Array.isArray(data) ? data[0] : null
+        return {
+            success: true,
+            data: {
+                route_id: row?.route_id || normalizedRouteId,
+                added_stop_id: row?.added_stop_id || null,
+                stop_position: Number(row?.stop_position || 0),
+                total_stops: Number(row?.total_stops || 0),
+                route_status: row?.route_status || null,
+                order_number: row?.order_number || null,
+                customer_name: row?.customer_name || null,
+                address_snapshot: row?.address_snapshot || null,
+                latitude: parseCoordinate(row?.latitude, 'lat'),
+                longitude: parseCoordinate(row?.longitude, 'lng'),
+            },
+        }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
+export async function removeRouteStop(
+    routeId: string,
+    stopId: string,
+    reason?: string,
+) {
+    try {
+        const { supabase } = await requireAdmin()
+
+        const normalizedRouteId = String(routeId || '').trim()
+        const normalizedStopId = String(stopId || '').trim()
+
+        if (!normalizedRouteId) {
+            return { error: 'Rota invalida para remover parada.' }
+        }
+        if (!normalizedStopId) {
+            return { error: 'Parada invalida para remocao.' }
+        }
+
+        const { data, error } = await supabase.rpc('logistics_remove_route_stop_atomic', {
+            p_route_id: normalizedRouteId,
+            p_stop_id: normalizedStopId,
+            p_reason: reason?.trim() || null,
+        })
+
+        if (error) {
+            console.error('[REMOVE ROUTE STOP] RPC error:', error)
+            return { error: error.message || 'Erro ao remover parada da rota.' }
+        }
+
+        const row = Array.isArray(data) ? data[0] : null
+        return {
+            success: true,
+            data: {
+                route_id: row?.route_id || normalizedRouteId,
+                removed_stop_id: row?.removed_stop_id || normalizedStopId,
+                remaining_stops: Number(row?.remaining_stops || 0),
+                route_status: row?.route_status || null,
+            },
+        }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
 // ==================== UPDATE ROUTE POLYLINE ====================
 
 export async function updateRoutePolyline(

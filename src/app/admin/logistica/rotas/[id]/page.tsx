@@ -8,6 +8,8 @@ import {
     ArrowLeft,
     Route,
     MapPin,
+    Search,
+    Plus,
     Truck,
     UserCircle,
     Calendar,
@@ -57,6 +59,7 @@ import {
 import { cn } from '@/lib/utils'
 import {
     buildOptionLabelMap,
+    buildRegionDisplayOptions,
     ensureCurrentOption,
     getRemovedEntityLabel,
     resolveLabelFromMap,
@@ -69,21 +72,29 @@ import {
 } from '@/lib/logistics/live-tracking'
 import {
     getRouteDetail,
+    getRoutableOrders,
     getLogisticsPdfBranding,
     updateRouteStatus,
     updateStopStatus,
     applyOptimizationResult,
     saveRouteStopsOrder,
+    addRouteStop,
+    removeRouteStop,
     updateRouteAssignment,
     updateRoutePolyline,
     updateStopMetrics,
     getDrivers,
     getVehicles,
     getCenters,
+    getRegions,
+    getDistinctCities,
     updateStopCoordinates,
     getRouteCostProfile,
     saveRouteCostOverride,
     clearRouteCostOverride,
+    type PaginationMeta,
+    type RoutableOrder,
+    type RegionItem,
     type RouteCostProfile,
     type RouteCostEstimate,
 } from '../../services'
@@ -150,6 +161,35 @@ type SequenceFeedbackState = {
     message: string
 }
 
+type AddStopFiltersState = {
+    status: string
+    city: string
+    region: string
+    date: string
+}
+
+const addStopStatusOptions = [
+    { value: 'all', label: 'Todos aptos' },
+    { value: 'approved', label: 'Aprovado' },
+    { value: 'in_production', label: 'Em producao' },
+] as const
+
+const defaultAddStopFilters: AddStopFiltersState = {
+    status: 'all',
+    city: '',
+    region: '',
+    date: '',
+}
+
+const defaultAddStopPagination: PaginationMeta = {
+    page: 1,
+    pageSize: 8,
+    total: 0,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+}
+
 function sortStopsByPosition<T extends { stop_position?: number | null; id: string }>(input: T[]) {
     return [...input].sort((a, b) => {
         const aPos = Number(a.stop_position || 0)
@@ -164,6 +204,12 @@ function normalizeStopPositions<T extends { stop_position?: number | null }>(inp
         ...stop,
         stop_position: index + 1,
     }))
+}
+
+function toFiniteNumberOrNull(value: unknown) {
+    if (value === null || value === undefined || value === '') return null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
 }
 
 function roundCurrency(value: number) {
@@ -234,6 +280,24 @@ export default function RouteDetailPage() {
     const [sequenceFeedback, setSequenceFeedback] = useState<SequenceFeedbackState | null>(null)
     const [lastEditSource, setLastEditSource] = useState<'drag' | 'quick' | null>(null)
     const [pendingReoptimizeDialogOpen, setPendingReoptimizeDialogOpen] = useState(false)
+    const [deleteStopDialog, setDeleteStopDialog] = useState<RouteStopCardItem | null>(null)
+    const [pendingDeleteStopDialog, setPendingDeleteStopDialog] = useState<RouteStopCardItem | null>(null)
+    const [isDeletingStop, setIsDeletingStop] = useState(false)
+    const [citiesList, setCitiesList] = useState<string[]>([])
+    const [regionsList, setRegionsList] = useState<RegionItem[]>([])
+    const [addStopDialogOpen, setAddStopDialogOpen] = useState(false)
+    const [pendingAddStopDialogOpen, setPendingAddStopDialogOpen] = useState(false)
+    const [pendingAddStopOrderId, setPendingAddStopOrderId] = useState<string | null>(null)
+    const [isAddingStop, setIsAddingStop] = useState(false)
+    const [addStopOrdersLoading, setAddStopOrdersLoading] = useState(false)
+    const [addStopOrdersError, setAddStopOrdersError] = useState<string | null>(null)
+    const [addStopSearchInput, setAddStopSearchInput] = useState('')
+    const [addStopSearch, setAddStopSearch] = useState('')
+    const [addStopFilters, setAddStopFilters] = useState<AddStopFiltersState>(defaultAddStopFilters)
+    const [addStopPage, setAddStopPage] = useState(1)
+    const [addStopPagination, setAddStopPagination] = useState<PaginationMeta>(defaultAddStopPagination)
+    const [addStopOrders, setAddStopOrders] = useState<RoutableOrder[]>([])
+    const [addStopSelectedOrderId, setAddStopSelectedOrderId] = useState<string | null>(null)
 
     const hydrateCostProfile = useCallback((profile: RouteCostProfile) => {
         const nextForm = buildCostFormFromProfile(profile)
@@ -321,16 +385,20 @@ export default function RouteDetailPage() {
 
     useEffect(() => {
         const loadResources = async () => {
-            const [d, v, c, branding] = await Promise.all([
+            const [d, v, c, branding, citiesRes, regionsRes] = await Promise.all([
                 getDrivers(),
                 getVehicles(),
                 getCenters(),
                 getLogisticsPdfBranding(),
+                getDistinctCities(),
+                getRegions(),
             ])
             if ('data' in d && d.data) setDriversList(d.data)
             if ('data' in v && v.data) setVehiclesList(v.data)
             if ('data' in c && c.data) setCentersList(c.data)
             if ('data' in branding && branding.data) setPdfBranding(branding.data)
+            if ('data' in citiesRes && citiesRes.data) setCitiesList(citiesRes.data)
+            if ('data' in regionsRes && regionsRes.data) setRegionsList(regionsRes.data)
         }
         void loadResources()
     }, [])
@@ -799,11 +867,12 @@ export default function RouteDetailPage() {
         setSequenceFeedback(null)
     }, [])
 
-    const persistStopSequence = useCallback(async (options?: { recalculateAfterSave?: boolean }) => {
+    const persistStopSequence = useCallback(async (options?: { recalculateAfterSave?: boolean; reloadAfterSave?: boolean }) => {
         if (!canEditStopSequence) return false
         if (!hasPendingSequenceChanges) return true
 
         const recalculateAfterSave = options?.recalculateAfterSave ?? true
+        const reloadAfterSave = options?.reloadAfterSave ?? true
         const normalizedStops = normalizeStopPositions(sequenceStops)
         const orderedStopIds = normalizedStops.map((stop) => stop.id)
 
@@ -850,7 +919,9 @@ export default function RouteDetailPage() {
         }
 
         setIsSavingSequence(false)
-        void loadData()
+        if (reloadAfterSave) {
+            void loadData()
+        }
         return true
     }, [
         canEditStopSequence,
@@ -867,7 +938,7 @@ export default function RouteDetailPage() {
 
     const handleApplyPendingAndReoptimize = useCallback(async () => {
         setPendingReoptimizeDialogOpen(false)
-        const saved = await persistStopSequence({ recalculateAfterSave: false })
+        const saved = await persistStopSequence({ recalculateAfterSave: false, reloadAfterSave: false })
         if (!saved) return
         await executeOptimizeRoute(sequenceStops)
     }, [executeOptimizeRoute, persistStopSequence, sequenceStops])
@@ -879,6 +950,357 @@ export default function RouteDetailPage() {
         setSequenceFeedback(null)
         await executeOptimizeRoute(orderedBaseStops)
     }, [executeOptimizeRoute, orderedBaseStops])
+
+    const executeStopRemoval = useCallback(async (
+        stop: RouteStopCardItem,
+        sourceStops?: RouteStopCardItem[],
+    ) => {
+        if (!canEditStopSequence) return false
+
+        setIsDeletingStop(true)
+        setSequenceFeedback(null)
+        setError(null)
+
+        const response = await removeRouteStop(routeId, stop.id, 'manual_stop_delete')
+        if ('error' in response && response.error) {
+            setSequenceFeedback({ type: 'error', message: response.error })
+            setIsDeletingStop(false)
+            return false
+        }
+
+        const currentStops = normalizeStopPositions(sourceStops || sequenceStops)
+        const nextStops = normalizeStopPositions(
+            currentStops.filter((candidate) => candidate.id !== stop.id),
+        )
+        const remainingStops = 'data' in response && response.data
+            ? Number(response.data.remaining_stops || nextStops.length)
+            : nextStops.length
+
+        setStops(nextStops)
+        setDraftStops(null)
+        setLastEditSource(null)
+        setHighlightStopId((prev) => (prev === stop.id ? null : prev))
+        setRoute((prev: typeof route) => (prev ? {
+            ...prev,
+            total_stops: remainingStops,
+            route_polyline: null,
+            total_distance_km: null,
+            total_duration_min: null,
+        } : prev))
+
+        let recalculateOk = true
+        if (nextStops.length > 0) {
+            setOptimizing(true)
+            recalculateOk = await recalculateRouteGeometry(nextStops)
+            setOptimizing(false)
+        }
+
+        if (!recalculateOk) {
+            setSequenceFeedback({
+                type: 'warning',
+                message: 'Parada removida e pedido devolvido para roteirizacao. O recalculo automatico falhou; use "Recalcular rota".',
+            })
+        } else {
+            setSequenceFeedback({
+                type: 'success',
+                message: 'Parada removida, pedido devolvido para roteirizacao e rota recalculada.',
+            })
+        }
+
+        setIsDeletingStop(false)
+        void loadData()
+        return true
+    }, [
+        canEditStopSequence,
+        loadData,
+        recalculateRouteGeometry,
+        routeId,
+        sequenceStops,
+    ])
+
+    const handleRequestDeleteStop = useCallback((stop: RouteStopCardItem) => {
+        if (!canEditStopSequence) return
+
+        if (sequenceStops.length <= 1) {
+            setSequenceFeedback({
+                type: 'warning',
+                message: 'Nao e permitido remover a ultima parada da rota.',
+            })
+            return
+        }
+
+        if (hasPendingSequenceChanges) {
+            setPendingDeleteStopDialog(stop)
+            return
+        }
+
+        setDeleteStopDialog(stop)
+    }, [canEditStopSequence, hasPendingSequenceChanges, sequenceStops.length])
+
+    const handleConfirmDeleteStop = useCallback(async () => {
+        if (!deleteStopDialog) return
+        const targetStop = deleteStopDialog
+        setDeleteStopDialog(null)
+        await executeStopRemoval(targetStop)
+    }, [deleteStopDialog, executeStopRemoval])
+
+    const handleApplyPendingAndDeleteStop = useCallback(async () => {
+        if (!pendingDeleteStopDialog) return
+        const targetStop = pendingDeleteStopDialog
+        setPendingDeleteStopDialog(null)
+
+        const saved = await persistStopSequence({ recalculateAfterSave: false, reloadAfterSave: false })
+        if (!saved) return
+
+        await executeStopRemoval(targetStop, sequenceStops)
+    }, [executeStopRemoval, pendingDeleteStopDialog, persistStopSequence, sequenceStops])
+
+    const handleDiscardPendingAndDeleteStop = useCallback(async () => {
+        if (!pendingDeleteStopDialog) return
+        const targetStop = pendingDeleteStopDialog
+        setPendingDeleteStopDialog(null)
+
+        setDraftStops(null)
+        setLastEditSource(null)
+        setSequenceFeedback(null)
+
+        await executeStopRemoval(targetStop, orderedBaseStops)
+    }, [executeStopRemoval, orderedBaseStops, pendingDeleteStopDialog])
+
+    useEffect(() => {
+        const debounce = window.setTimeout(() => {
+            const normalized = addStopSearchInput.trim()
+            setAddStopSearch(normalized)
+            setAddStopPage(1)
+        }, 320)
+        return () => window.clearTimeout(debounce)
+    }, [addStopSearchInput])
+
+    const loadAddStopOrders = useCallback(async () => {
+        if (!addStopDialogOpen) return
+
+        setAddStopOrdersLoading(true)
+        setAddStopOrdersError(null)
+
+        const response = await getRoutableOrders({
+            status: addStopFilters.status,
+            city: addStopFilters.city || undefined,
+            region: addStopFilters.region || undefined,
+            search: addStopSearch || undefined,
+            date: addStopFilters.date || undefined,
+            page: addStopPage,
+            pageSize: defaultAddStopPagination.pageSize,
+        })
+
+        if ('error' in response && response.error) {
+            setAddStopOrders([])
+            setAddStopPagination({
+                ...defaultAddStopPagination,
+                page: addStopPage,
+                hasPreviousPage: addStopPage > 1,
+            })
+            setAddStopOrdersError(response.error)
+            setAddStopOrdersLoading(false)
+            return
+        }
+
+        if ('data' in response && response.data) {
+            setAddStopOrders(response.data)
+        } else {
+            setAddStopOrders([])
+        }
+
+        if ('pagination' in response && response.pagination) {
+            setAddStopPagination(response.pagination)
+            if (response.pagination.page !== addStopPage) {
+                setAddStopPage(response.pagination.page)
+            }
+        } else {
+            setAddStopPagination({
+                ...defaultAddStopPagination,
+                page: addStopPage,
+                hasPreviousPage: addStopPage > 1,
+            })
+        }
+
+        setAddStopSelectedOrderId((previous) => {
+            if (!previous) return previous
+            const existsInCurrentPage = (response.data || []).some((order) => order.order_id === previous)
+            return existsInCurrentPage ? previous : null
+        })
+        setAddStopOrdersLoading(false)
+    }, [
+        addStopDialogOpen,
+        addStopFilters.city,
+        addStopFilters.date,
+        addStopFilters.region,
+        addStopFilters.status,
+        addStopPage,
+        addStopSearch,
+    ])
+
+    useEffect(() => {
+        void loadAddStopOrders()
+    }, [loadAddStopOrders])
+
+    const handleOpenAddStopDialog = useCallback(() => {
+        if (!canEditStopSequence) return
+        setAddStopDialogOpen(true)
+        setAddStopSearchInput('')
+        setAddStopSearch('')
+        setAddStopFilters({ ...defaultAddStopFilters })
+        setAddStopPage(1)
+        setAddStopPagination({ ...defaultAddStopPagination })
+        setAddStopOrders([])
+        setAddStopOrdersError(null)
+        setAddStopSelectedOrderId(null)
+    }, [canEditStopSequence])
+
+    const handleCloseAddStopDialog = useCallback(() => {
+        if (isAddingStop) return
+        setAddStopDialogOpen(false)
+        setAddStopOrdersError(null)
+        setAddStopSelectedOrderId(null)
+        setPendingAddStopOrderId(null)
+    }, [isAddingStop])
+
+    const executeStopAddition = useCallback(async (
+        orderId: string,
+        sourceStops?: RouteStopCardItem[],
+    ) => {
+        if (!canEditStopSequence) return false
+
+        setIsAddingStop(true)
+        setSequenceFeedback(null)
+        setError(null)
+
+        const response = await addRouteStop(routeId, orderId, 'manual_stop_add')
+        if ('error' in response && response.error) {
+            setSequenceFeedback({ type: 'error', message: response.error })
+            setIsAddingStop(false)
+            return false
+        }
+
+        const row = 'data' in response ? response.data : null
+        const currentStops = normalizeStopPositions(sourceStops || sequenceStops)
+        const addedStopId = String(row?.added_stop_id || '').trim()
+        const currentOrder = addStopOrders.find((order) => order.order_id === orderId) || null
+
+        const nextStop: RouteStopCardItem = {
+            id: addedStopId || `added-${orderId}`,
+            order_id: orderId,
+            stop_position: Number(row?.stop_position || currentStops.length + 1),
+            customer_name: String(
+                row?.customer_name
+                || currentOrder?.company_name
+                || currentOrder?.client_name
+                || 'Cliente sem nome',
+            ),
+            address_snapshot: String(row?.address_snapshot || currentOrder?.shipping_address || ''),
+            status: 'pending',
+            priority: 'normal',
+            latitude: toFiniteNumberOrNull(row?.latitude ?? currentOrder?.address_lat ?? null),
+            longitude: toFiniteNumberOrNull(row?.longitude ?? currentOrder?.address_lng ?? null),
+            estimated_arrival_min: null,
+            estimated_distance_km: null,
+            delivered_at: null,
+            failure_reason: null,
+            address_id: null,
+            orders: {
+                order_number: String(row?.order_number || currentOrder?.order_number || ''),
+                total: Number(currentOrder?.total || 0),
+            },
+        }
+
+        const nextStops = normalizeStopPositions([...currentStops, nextStop])
+        const nextTotalStops = Number(row?.total_stops || nextStops.length)
+
+        setStops(nextStops)
+        setDraftStops(null)
+        setLastEditSource(null)
+        setHighlightStopId(addedStopId || null)
+        setRoute((previous: typeof route) => (previous ? {
+            ...previous,
+            total_stops: nextTotalStops,
+            route_polyline: null,
+            total_distance_km: null,
+            total_duration_min: null,
+        } : previous))
+
+        let recalculateOk = true
+        if (nextStops.length > 0) {
+            setOptimizing(true)
+            recalculateOk = await recalculateRouteGeometry(nextStops)
+            setOptimizing(false)
+        }
+
+        if (!recalculateOk) {
+            setSequenceFeedback({
+                type: 'warning',
+                message: 'Parada adicionada ao fim da sequencia. O recalculo automatico falhou; use "Recalcular rota".',
+            })
+        } else {
+            setSequenceFeedback({
+                type: 'success',
+                message: 'Parada adicionada ao fim da sequencia e rota recalculada.',
+            })
+        }
+
+        setAddStopDialogOpen(false)
+        setPendingAddStopDialogOpen(false)
+        setPendingAddStopOrderId(null)
+        setAddStopSelectedOrderId(null)
+        setIsAddingStop(false)
+        void loadData()
+        return true
+    }, [
+        addStopOrders,
+        canEditStopSequence,
+        loadData,
+        recalculateRouteGeometry,
+        routeId,
+        sequenceStops,
+    ])
+
+    const handleConfirmAddStop = useCallback(async () => {
+        setAddStopOrdersError(null)
+        if (!addStopSelectedOrderId) {
+            setAddStopOrdersError('Selecione um pedido para adicionar como parada.')
+            return
+        }
+
+        if (hasPendingSequenceChanges) {
+            setPendingAddStopOrderId(addStopSelectedOrderId)
+            setAddStopDialogOpen(false)
+            setPendingAddStopDialogOpen(true)
+            return
+        }
+
+        await executeStopAddition(addStopSelectedOrderId)
+    }, [addStopSelectedOrderId, executeStopAddition, hasPendingSequenceChanges])
+
+    const handleApplyPendingAndAddStop = useCallback(async () => {
+        if (!pendingAddStopOrderId) return
+        const orderId = pendingAddStopOrderId
+        setPendingAddStopDialogOpen(false)
+
+        const saved = await persistStopSequence({ recalculateAfterSave: false, reloadAfterSave: false })
+        if (!saved) return
+
+        await executeStopAddition(orderId, sequenceStops)
+    }, [executeStopAddition, pendingAddStopOrderId, persistStopSequence, sequenceStops])
+
+    const handleDiscardPendingAndAddStop = useCallback(async () => {
+        if (!pendingAddStopOrderId) return
+        const orderId = pendingAddStopOrderId
+
+        setPendingAddStopDialogOpen(false)
+        setDraftStops(null)
+        setLastEditSource(null)
+        setSequenceFeedback(null)
+
+        await executeStopAddition(orderId, orderedBaseStops)
+    }, [executeStopAddition, orderedBaseStops, pendingAddStopOrderId])
 
     // Compute progress
     const deliveredCount = stops.filter(s => s.status === 'delivered').length
@@ -972,6 +1394,88 @@ export default function RouteDetailPage() {
     const visibleCenterOptions = selectedCenterId
         ? ensureCurrentOption(centerOptions, selectedCenterId, selectedCenterLabel)
         : centerOptions
+
+    const addStopSelectedOrder = useMemo(
+        () => addStopOrders.find((order) => order.order_id === addStopSelectedOrderId) || null,
+        [addStopOrders, addStopSelectedOrderId],
+    )
+    const pendingAddStopOrder = useMemo(
+        () => addStopOrders.find((order) => order.order_id === pendingAddStopOrderId) || null,
+        [addStopOrders, pendingAddStopOrderId],
+    )
+
+    const addStopRegionCatalog = useMemo(() => (
+        regionsList.map((region) => ({ id: region.id, name: region.name }))
+    ), [regionsList])
+
+    const addStopRegionBaseOptions = useMemo(() => {
+        const rawRegionValues = [
+            ...addStopOrders.map((order) => order.region),
+            ...addStopRegionCatalog.map((region) => region.name),
+        ]
+        return buildRegionDisplayOptions(rawRegionValues, addStopRegionCatalog)
+    }, [addStopOrders, addStopRegionCatalog])
+
+    const addStopRegionLabelMap = useMemo(
+        () => buildOptionLabelMap(addStopRegionBaseOptions),
+        [addStopRegionBaseOptions],
+    )
+
+    const selectedAddStopRegionLabel = useMemo(() => {
+        if (!addStopFilters.region) return 'Todas regioes'
+        return resolveLabelFromMap(
+            addStopFilters.region,
+            addStopRegionLabelMap,
+            getRemovedEntityLabel('region'),
+        )
+    }, [addStopFilters.region, addStopRegionLabelMap])
+
+    const addStopRegionOptions = useMemo(() => (
+        addStopFilters.region
+            ? ensureCurrentOption(addStopRegionBaseOptions, addStopFilters.region, selectedAddStopRegionLabel)
+            : addStopRegionBaseOptions
+    ), [addStopFilters.region, addStopRegionBaseOptions, selectedAddStopRegionLabel])
+
+    const addStopCityBaseOptions = useMemo(() => {
+        const set = new Set<string>()
+        for (const city of citiesList) {
+            const normalized = String(city || '').trim()
+            if (normalized) set.add(normalized)
+        }
+        for (const order of addStopOrders) {
+            const normalized = String(order.city || '').trim()
+            if (normalized) set.add(normalized)
+        }
+        return Array.from(set)
+            .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+            .map((city) => ({ value: city, label: city }))
+    }, [addStopOrders, citiesList])
+
+    const addStopCityLabelMap = useMemo(
+        () => buildOptionLabelMap(addStopCityBaseOptions),
+        [addStopCityBaseOptions],
+    )
+
+    const selectedAddStopCityLabel = useMemo(() => {
+        if (!addStopFilters.city) return 'Todas cidades'
+        return resolveLabelFromMap(addStopFilters.city, addStopCityLabelMap, addStopFilters.city)
+    }, [addStopCityLabelMap, addStopFilters.city])
+
+    const addStopCityOptions = useMemo(() => (
+        addStopFilters.city
+            ? ensureCurrentOption(addStopCityBaseOptions, addStopFilters.city, selectedAddStopCityLabel)
+            : addStopCityBaseOptions
+    ), [addStopCityBaseOptions, addStopFilters.city, selectedAddStopCityLabel])
+
+    const canSubmitAddStop = Boolean(
+        canEditStopSequence
+        && addStopSelectedOrderId
+        && !addStopOrdersLoading
+        && !isAddingStop
+        && !isSavingSequence
+        && !isDeletingStop
+        && !optimizing,
+    )
 
     // Map data (memoized to avoid expensive map re-renders on unrelated renders)
     const mapCenter = useMemo(() => {
@@ -1136,7 +1640,7 @@ export default function RouteDetailPage() {
                         </Button>
 
                         {['draft', 'optimized', 'confirmed'].includes(route.status) && (
-                            <Button size="sm" className="h-8 gap-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => void handleOptimize()} disabled={optimizing || isSavingSequence || ungeocodedStops > 0}>
+                            <Button size="sm" className="h-8 gap-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => void handleOptimize()} disabled={optimizing || isSavingSequence || isDeletingStop || ungeocodedStops > 0}>
                                 {optimizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
                                 {optimizing ? 'Otimizando...' : route.status === 'draft' ? 'Otimizar Rota' : 'Reotimizar'}
                             </Button>
@@ -1433,7 +1937,7 @@ export default function RouteDetailPage() {
                             <RoutePendingChangesBar
                                 hasPendingChanges={hasPendingSequenceChanges}
                                 canEditSequence={canEditStopSequence}
-                                isSavingSequence={isSavingSequence}
+                                isSavingSequence={isSavingSequence || isDeletingStop || isAddingStop}
                                 isReoptimizing={optimizing}
                                 lastEditSource={lastEditSource}
                                 feedback={sequenceFeedback}
@@ -1441,6 +1945,29 @@ export default function RouteDetailPage() {
                                 onDiscard={handleDiscardStopSequenceChanges}
                                 onReoptimize={() => void handleOptimize()}
                             />
+                            <div className="border-b bg-white px-4 py-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-[11px] text-slate-600">
+                                        Inclua novos pedidos aptos ao final da sequencia para complementar a operacao.
+                                    </p>
+                                    {canEditStopSequence ? (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            className="h-8 gap-1 bg-indigo-600 text-[11px] text-white hover:bg-indigo-700"
+                                            onClick={handleOpenAddStopDialog}
+                                            disabled={isSavingSequence || isDeletingStop || isAddingStop || optimizing}
+                                        >
+                                            <Plus className="h-3.5 w-3.5" />
+                                            Adicionar parada
+                                        </Button>
+                                    ) : (
+                                        <Badge variant="outline" className="border-slate-200 bg-slate-50 text-[10px] text-slate-600">
+                                            Somente leitura
+                                        </Badge>
+                                    )}
+                                </div>
+                            </div>
 
                             {sequenceStops.length === 0 ? (
                                 <div className="p-12 text-center text-sm text-muted-foreground">Nenhuma parada nesta rota.</div>
@@ -1449,7 +1976,7 @@ export default function RouteDetailPage() {
                                     stops={sequenceStops}
                                     routeStatus={route.status}
                                     isSequenceEditable={canEditStopSequence}
-                                    actionLoading={actionLoading || isSavingSequence}
+                                    actionLoading={actionLoading || isSavingSequence || isDeletingStop || isAddingStop}
                                     highlightStopId={highlightStopId}
                                     stopStatusConfig={stopStatusConfig}
                                     onToggleHighlight={(stopId) => setHighlightStopId(stopId === highlightStopId ? null : stopId)}
@@ -1464,6 +1991,7 @@ export default function RouteDetailPage() {
                                             lng: stop.longitude ? Number(stop.longitude) : null,
                                         })
                                     }}
+                                    onRequestDeleteStop={handleRequestDeleteStop}
                                     onMarkDelivered={(stopId) => { void handleStopStatus(stopId, 'delivered') }}
                                     onRequestFailure={(stopId, customerName) => setFailureDialog({ stopId, customerName })}
                                     onReorder={(nextStops) => setDraftSequence(nextStops, 'drag')}
@@ -1759,7 +2287,7 @@ export default function RouteDetailPage() {
                             )}
                             {['optimized', 'confirmed', 'in_progress'].includes(route.status) && (
                                 <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                                    onClick={handleRecalculateRoute} disabled={optimizing || isSavingSequence || hasPendingSequenceChanges}>
+                                    onClick={handleRecalculateRoute} disabled={optimizing || isSavingSequence || isDeletingStop || hasPendingSequenceChanges}>
                                     {optimizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Route className="h-3 w-3" />}
                                     {!hasPendingSequenceChanges && route.route_polyline ? 'Recalcular' : 'Traçar Rota'}
                                 </Button>
@@ -1832,7 +2360,7 @@ export default function RouteDetailPage() {
                             type="button"
                             className="justify-start bg-indigo-600 text-white hover:bg-indigo-700"
                             onClick={() => { void handleApplyPendingAndReoptimize() }}
-                            disabled={isSavingSequence || optimizing}
+                            disabled={isSavingSequence || optimizing || isDeletingStop || isAddingStop}
                         >
                             Aplicar pendencias e reotimizar
                         </Button>
@@ -1841,13 +2369,364 @@ export default function RouteDetailPage() {
                             variant="outline"
                             className="justify-start"
                             onClick={() => { void handleDiscardAndReoptimize() }}
-                            disabled={isSavingSequence || optimizing}
+                            disabled={isSavingSequence || optimizing || isDeletingStop || isAddingStop}
                         >
                             Descartar pendencias e reotimizar
                         </Button>
                     </div>
                     <AlertDialogFooter>
-                        <AlertDialogCancel disabled={isSavingSequence || optimizing}>Cancelar</AlertDialogCancel>
+                        <AlertDialogCancel disabled={isSavingSequence || optimizing || isDeletingStop || isAddingStop}>Cancelar</AlertDialogCancel>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <Dialog
+                open={addStopDialogOpen}
+                onOpenChange={(open) => {
+                    if (!open) handleCloseAddStopDialog()
+                }}
+            >
+                <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-4xl overflow-hidden p-0">
+                    <div className="flex max-h-[88dvh] min-h-0 flex-col">
+                        <DialogHeader className="border-b px-5 py-4">
+                            <DialogTitle className="flex items-center gap-2 text-base">
+                                <Plus className="h-4 w-4 text-indigo-600" />
+                                Adicionar parada por pedido
+                            </DialogTitle>
+                            <p className="text-xs text-slate-500">
+                                Selecione um pedido apto para inserir no fim da sequencia desta rota.
+                            </p>
+                        </DialogHeader>
+
+                        <div className="border-b bg-slate-50/70 px-5 py-4">
+                            <div className="grid gap-2 lg:grid-cols-[1.5fr_180px]">
+                                <div className="relative">
+                                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                                    <Input
+                                        value={addStopSearchInput}
+                                        onChange={(event) => setAddStopSearchInput(event.target.value)}
+                                        placeholder="Buscar por pedido ou cliente..."
+                                        className="h-9 pl-8"
+                                    />
+                                </div>
+                                <select
+                                    className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-navy focus:ring-2 focus:ring-violet-200"
+                                    value={addStopFilters.status}
+                                    onChange={(event) => {
+                                        const value = event.target.value
+                                        setAddStopFilters((previous) => ({ ...previous, status: value }))
+                                        setAddStopPage(1)
+                                    }}
+                                >
+                                    {addStopStatusOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                                <select
+                                    className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-navy focus:ring-2 focus:ring-violet-200"
+                                    value={addStopFilters.city}
+                                    onChange={(event) => {
+                                        const value = event.target.value
+                                        setAddStopFilters((previous) => ({ ...previous, city: value }))
+                                        setAddStopPage(1)
+                                    }}
+                                >
+                                    <option value="">Todas cidades</option>
+                                    {addStopCityOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                </select>
+                                <select
+                                    className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-navy focus:ring-2 focus:ring-violet-200"
+                                    value={addStopFilters.region}
+                                    onChange={(event) => {
+                                        const value = event.target.value
+                                        setAddStopFilters((previous) => ({ ...previous, region: value }))
+                                        setAddStopPage(1)
+                                    }}
+                                >
+                                    <option value="">Todas regioes</option>
+                                    {addStopRegionOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                </select>
+                                <Input
+                                    type="date"
+                                    className="h-9"
+                                    value={addStopFilters.date}
+                                    onChange={(event) => {
+                                        const value = event.target.value
+                                        setAddStopFilters((previous) => ({ ...previous, date: value }))
+                                        setAddStopPage(1)
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+                            {addStopOrdersLoading ? (
+                                <div className="space-y-2">
+                                    {Array.from({ length: 6 }).map((_, index) => (
+                                        <Skeleton key={index} className="h-14 w-full rounded-lg" />
+                                    ))}
+                                </div>
+                            ) : addStopOrdersError ? (
+                                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                    {addStopOrdersError}
+                                </div>
+                            ) : addStopOrders.length === 0 ? (
+                                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                                    Nenhum pedido apto encontrado com os filtros atuais.
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {addStopOrders.map((order) => {
+                                        const selected = addStopSelectedOrderId === order.order_id
+                                        return (
+                                            <div
+                                                key={order.order_id}
+                                                role="button"
+                                                tabIndex={0}
+                                                onClick={() => setAddStopSelectedOrderId(order.order_id)}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter' || event.key === ' ') {
+                                                        event.preventDefault()
+                                                        setAddStopSelectedOrderId(order.order_id)
+                                                    }
+                                                }}
+                                                className={cn(
+                                                    'rounded-xl border px-3 py-2.5 transition',
+                                                    'cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/40',
+                                                    selected
+                                                        ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-200'
+                                                        : 'border-slate-200 bg-white',
+                                                )}
+                                            >
+                                                <div className="flex items-start gap-3">
+                                                    <input
+                                                        type="radio"
+                                                        name="add-stop-order"
+                                                        className="mt-1 h-4 w-4 accent-indigo-600"
+                                                        checked={selected}
+                                                        onChange={() => setAddStopSelectedOrderId(order.order_id)}
+                                                        onClick={(event) => event.stopPropagation()}
+                                                    />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <p className="truncate text-sm font-semibold text-navy">{order.company_name || 'Cliente sem nome'}</p>
+                                                            <Badge variant="outline" className="border-slate-200 bg-slate-50 text-[10px] text-slate-600">
+                                                                {order.order_number}
+                                                            </Badge>
+                                                            <Badge
+                                                                variant="outline"
+                                                                className={cn(
+                                                                    'text-[10px]',
+                                                                    order.status === 'approved'
+                                                                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                                                        : 'border-blue-200 bg-blue-50 text-blue-700',
+                                                                )}
+                                                            >
+                                                                {order.status === 'approved' ? 'Aprovado' : 'Em producao'}
+                                                            </Badge>
+                                                        </div>
+                                                        <p className="mt-1 text-xs text-slate-600">
+                                                            {order.shipping_address || '-'}
+                                                        </p>
+                                                        <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+                                                            <span>{order.city || '-'} / {order.state || '-'}</span>
+                                                            <span>R$ {Number(order.total || 0).toFixed(2)}</span>
+                                                            {order.region_label ? <span>{order.region_label}</span> : null}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        <DialogFooter className="border-t px-5 py-3 sm:justify-between">
+                            <div className="text-xs text-slate-500">
+                                Pagina {addStopPagination.page} de {addStopPagination.totalPages} • {addStopPagination.total} pedido(s)
+                                {addStopSelectedOrder ? ` • Selecionado: ${addStopSelectedOrder.order_number}` : ''}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setAddStopPage((previous) => Math.max(1, previous - 1))}
+                                    disabled={!addStopPagination.hasPreviousPage || addStopOrdersLoading || isAddingStop}
+                                >
+                                    Anterior
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setAddStopPage((previous) => previous + 1)}
+                                    disabled={!addStopPagination.hasNextPage || addStopOrdersLoading || isAddingStop}
+                                >
+                                    Proxima
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={handleCloseAddStopDialog}
+                                    disabled={isAddingStop}
+                                >
+                                    Cancelar
+                                </Button>
+                                <Button
+                                    type="button"
+                                    className="bg-indigo-600 text-white hover:bg-indigo-700"
+                                    onClick={() => { void handleConfirmAddStop() }}
+                                    disabled={!canSubmitAddStop}
+                                >
+                                    {isAddingStop ? (
+                                        <>
+                                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                            Adicionando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Plus className="mr-1 h-3.5 w-3.5" />
+                                            Adicionar parada
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </DialogFooter>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <AlertDialog
+                open={pendingAddStopDialogOpen}
+                onOpenChange={(open) => {
+                    if (!open && !isAddingStop && !isSavingSequence) {
+                        setPendingAddStopDialogOpen(false)
+                        setAddStopDialogOpen(true)
+                    }
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Alteracoes pendentes antes de adicionar parada</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Escolha como tratar a sequencia atual antes de adicionar o novo pedido ao fim da rota.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        <p><strong>Pedido:</strong> {pendingAddStopOrder?.order_number || '-'}</p>
+                        <p><strong>Cliente:</strong> {pendingAddStopOrder?.company_name || '-'}</p>
+                    </div>
+                    <div className="grid gap-2">
+                        <Button
+                            type="button"
+                            className="justify-start bg-indigo-600 text-white hover:bg-indigo-700"
+                            onClick={() => { void handleApplyPendingAndAddStop() }}
+                            disabled={isSavingSequence || isAddingStop || optimizing}
+                        >
+                            Salvar pendencias e adicionar
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="justify-start border-red-200 text-red-600 hover:bg-red-50"
+                            onClick={() => { void handleDiscardPendingAndAddStop() }}
+                            disabled={isSavingSequence || isAddingStop || optimizing}
+                        >
+                            Descartar pendencias e adicionar
+                        </Button>
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel
+                            disabled={isSavingSequence || isAddingStop || optimizing}
+                            onClick={() => {
+                                setPendingAddStopDialogOpen(false)
+                                setAddStopDialogOpen(true)
+                            }}
+                        >
+                            Cancelar
+                        </AlertDialogCancel>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+                open={!!deleteStopDialog}
+                onOpenChange={(open) => { if (!open && !isDeletingStop && !isAddingStop) setDeleteStopDialog(null) }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir parada da rota?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta acao remove a parada da rota e devolve o pedido para roteirizacao.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        <p><strong>Cliente:</strong> {deleteStopDialog?.customer_name || '-'}</p>
+                        <p><strong>Pedido:</strong> {deleteStopDialog?.orders?.order_number || deleteStopDialog?.order_id || '-'}</p>
+                        <p><strong>Posicao atual:</strong> #{deleteStopDialog?.stop_position || '-'}</p>
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeletingStop || isAddingStop}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(event) => {
+                                event.preventDefault()
+                                void handleConfirmDeleteStop()
+                            }}
+                            disabled={isDeletingStop || isAddingStop}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                            {isDeletingStop ? 'Excluindo...' : 'Excluir parada'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+                open={!!pendingDeleteStopDialog}
+                onOpenChange={(open) => { if (!open && !isDeletingStop && !isAddingStop) setPendingDeleteStopDialog(null) }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Alteracoes pendentes antes da exclusao</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Escolha como tratar a sequencia atual antes de excluir a parada.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        <p><strong>Cliente:</strong> {pendingDeleteStopDialog?.customer_name || '-'}</p>
+                        <p><strong>Pedido:</strong> {pendingDeleteStopDialog?.orders?.order_number || pendingDeleteStopDialog?.order_id || '-'}</p>
+                        <p><strong>Posicao atual:</strong> #{pendingDeleteStopDialog?.stop_position || '-'}</p>
+                    </div>
+                    <div className="grid gap-2">
+                        <Button
+                            type="button"
+                            className="justify-start bg-indigo-600 text-white hover:bg-indigo-700"
+                            onClick={() => { void handleApplyPendingAndDeleteStop() }}
+                            disabled={isSavingSequence || isDeletingStop || optimizing || isAddingStop}
+                        >
+                            Salvar pendencias e excluir
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="justify-start border-red-200 text-red-600 hover:bg-red-50"
+                            onClick={() => { void handleDiscardPendingAndDeleteStop() }}
+                            disabled={isSavingSequence || isDeletingStop || optimizing || isAddingStop}
+                        >
+                            Descartar pendencias e excluir
+                        </Button>
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isSavingSequence || isDeletingStop || optimizing || isAddingStop}>Cancelar</AlertDialogCancel>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

@@ -31,6 +31,7 @@ interface RouteStopsSortableListProps {
     onToggleHighlight: (stopId: string) => void
     onMoveStop: (stopId: string, direction: 'top' | 'up' | 'down' | 'bottom') => void
     onOpenGeocode: (stop: RouteStopCardItem) => void
+    onRequestDeleteStop: (stop: RouteStopCardItem) => void
     onMarkDelivered: (stopId: string) => void
     onRequestFailure: (stopId: string, customerName: string) => void
     onReorder: (nextStops: RouteStopCardItem[]) => void
@@ -48,6 +49,7 @@ interface SortableStopRowProps {
     onToggleHighlight: (stopId: string) => void
     onMoveStop: (stopId: string, direction: 'top' | 'up' | 'down' | 'bottom') => void
     onOpenGeocode: (stop: RouteStopCardItem) => void
+    onRequestDeleteStop: (stop: RouteStopCardItem) => void
     onMarkDelivered: (stopId: string) => void
     onRequestFailure: (stopId: string, customerName: string) => void
 }
@@ -71,6 +73,7 @@ function SortableStopRow({
     onToggleHighlight,
     onMoveStop,
     onOpenGeocode,
+    onRequestDeleteStop,
     onMarkDelivered,
     onRequestFailure,
 }: SortableStopRowProps) {
@@ -110,6 +113,7 @@ function SortableStopRow({
                 onToggleHighlight={onToggleHighlight}
                 onMoveStop={onMoveStop}
                 onOpenGeocode={onOpenGeocode}
+                onRequestDeleteStop={onRequestDeleteStop}
                 onMarkDelivered={onMarkDelivered}
                 onRequestFailure={onRequestFailure}
             />
@@ -127,6 +131,7 @@ export default function RouteStopsSortableList({
     onToggleHighlight,
     onMoveStop,
     onOpenGeocode,
+    onRequestDeleteStop,
     onMarkDelivered,
     onRequestFailure,
     onReorder,
@@ -181,6 +186,7 @@ export default function RouteStopsSortableList({
                             onToggleHighlight={onToggleHighlight}
                             onMoveStop={onMoveStop}
                             onOpenGeocode={onOpenGeocode}
+                            onRequestDeleteStop={onRequestDeleteStop}
                             onMarkDelivered={onMarkDelivered}
                             onRequestFailure={onRequestFailure}
                         />
