@@ -57,6 +57,8 @@ const defaultFilters: ClientMapFilters = {
     onlySelected: false,
 }
 
+const EMPTY_SELECTED_IDS: string[] = []
+
 export default function ClientMapModeDialog({
     open,
     onOpenChange,
@@ -129,12 +131,32 @@ export default function ClientMapModeDialog({
     }, [initialScope, initialSelectedClientIds, open, resetGeocode])
 
     const selectedIdsForQuery = useMemo(() => (
-        filters.onlySelected ? Array.from(selectedClientIds) : []
+        filters.onlySelected ? Array.from(selectedClientIds).sort((a, b) => a.localeCompare(b)) : EMPTY_SELECTED_IDS
     ), [filters.onlySelected, selectedClientIds])
+
+    const syncSelectedView = useCallback((nextSelectedIds: Set<string>) => {
+        if (!filters.onlySelected) return
+
+        setDataset((prev) => {
+            const visibleItems = prev.items.filter((item) => nextSelectedIds.has(item.store_id))
+            return {
+                ...prev,
+                items: visibleItems,
+                loaded_clients: visibleItems.length,
+                total_clients: visibleItems.length,
+            }
+        })
+
+        setFocusedClientId((prev) => (
+            prev && !nextSelectedIds.has(prev)
+                ? null
+                : prev
+        ))
+    }, [filters.onlySelected])
 
     const loadDataset = useCallback(async () => {
         if (!open) return
-        if (filters.onlySelected && selectedClientIds.size === 0) {
+        if (filters.onlySelected && selectedIdsForQuery.length === 0) {
             setDataset({ ...emptyDataset, scope })
             setError(null)
             setLoading(false)
@@ -191,7 +213,6 @@ export default function ClientMapModeDialog({
         filters.onlyWithCoordinates,
         filters.onlyWithoutCoordinates,
         filters.onlySelected,
-        selectedClientIds,
         selectedIdsForQuery,
     ])
 
@@ -269,17 +290,19 @@ export default function ClientMapModeDialog({
             const next = new Set(prev)
             if (next.has(storeId)) next.delete(storeId)
             else next.add(storeId)
+            syncSelectedView(next)
             return next
         })
-    }, [])
+    }, [syncSelectedView])
 
     const handleSelectAllFiltered = useCallback(() => {
         setSelectedClientIds((prev) => {
             const next = new Set(prev)
             for (const item of dataset.items) next.add(item.store_id)
+            syncSelectedView(next)
             return next
         })
-    }, [dataset.items])
+    }, [dataset.items, syncSelectedView])
 
     const handleSelectWithOrders = useCallback(() => {
         setSelectedClientIds((prev) => {
@@ -287,21 +310,25 @@ export default function ClientMapModeDialog({
             for (const item of dataset.items) {
                 if (item.has_routable_orders) next.add(item.store_id)
             }
+            syncSelectedView(next)
             return next
         })
-    }, [dataset.items])
+    }, [dataset.items, syncSelectedView])
 
     const handleSelectByCurrentArea = useCallback(() => {
         setSelectedClientIds((prev) => {
             const next = new Set(prev)
             for (const item of dataset.items) next.add(item.store_id)
+            syncSelectedView(next)
             return next
         })
-    }, [dataset.items])
+    }, [dataset.items, syncSelectedView])
 
     const handleClearSelection = useCallback(() => {
-        setSelectedClientIds(new Set())
-    }, [])
+        const next = new Set<string>()
+        setSelectedClientIds(next)
+        syncSelectedView(next)
+    }, [syncSelectedView])
 
     const handleOpenGeocode = useCallback((client: ClientMapItem) => {
         setFocusedClientId(client.store_id)

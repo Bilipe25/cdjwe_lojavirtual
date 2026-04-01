@@ -236,6 +236,13 @@ export default function ClientMapSidebar({
                         {clients.map((client) => {
                             const isSelected = selectedClientIds.has(client.store_id)
                             const isFocused = focusedClientId === client.store_id
+                            const rowStateClassName = isFocused && isSelected
+                                ? 'border-indigo-300 bg-indigo-50/80 shadow-sm ring-1 ring-indigo-100'
+                                : isFocused
+                                    ? 'border-sky-300 bg-sky-50/80 shadow-sm'
+                                    : isSelected
+                                        ? 'border-violet-300 bg-violet-50/80 shadow-sm'
+                                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
 
                             return (
                                 <div
@@ -244,26 +251,26 @@ export default function ClientMapSidebar({
                                     tabIndex={0}
                                     onClick={() => onFocusClient(client.store_id)}
                                     onKeyDown={(event) => {
-                                        if (event.key === 'Enter' || event.key === ' ') {
+                                        if (event.key === 'Enter') {
                                             event.preventDefault()
                                             onFocusClient(client.store_id)
                                         }
                                     }}
                                     className={cn(
                                         'flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
-                                        isFocused
-                                            ? 'border-indigo-300 bg-indigo-50/70'
-                                            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50',
+                                        rowStateClassName,
                                     )}
+                                    aria-pressed={isFocused}
                                 >
                                     <div
-                                        onClick={(event) => {
-                                            event.stopPropagation()
-                                            onToggleClient(client.store_id)
-                                        }}
+                                        onClick={(event) => event.stopPropagation()}
                                         className="mt-0.5"
                                     >
-                                        <Checkbox checked={isSelected} />
+                                        <Checkbox
+                                            checked={isSelected}
+                                            aria-label={`Selecionar ${client.company_name || 'cliente'}`}
+                                            onCheckedChange={() => onToggleClient(client.store_id)}
+                                        />
                                     </div>
 
                                     <div className="min-w-0 flex-1">
@@ -272,6 +279,14 @@ export default function ClientMapSidebar({
                                                 {client.company_name || 'Cliente sem nome'}
                                             </p>
                                             <div className="flex items-center gap-1">
+                                                {isSelected ? (
+                                                    <Badge
+                                                        variant="outline"
+                                                        className="shrink-0 border-violet-200 bg-violet-50 text-[10px] text-violet-700"
+                                                    >
+                                                        Selecionado
+                                                    </Badge>
+                                                ) : null}
                                                 {client.has_routable_orders ? (
                                                     <Badge variant="outline" className="shrink-0 border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">
                                                         {client.routable_orders_count} pedido(s)
