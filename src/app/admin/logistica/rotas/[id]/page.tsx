@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import {
@@ -19,7 +19,6 @@ import {
     Flag,
     Ban,
     RefreshCw,
-    Package,
     Navigation,
     Timer,
     Hash,
@@ -27,7 +26,6 @@ import {
     Globe,
     AlertTriangle,
     Loader2,
-    Crosshair,
     Maximize2,
     Minimize2,
     Fuel,
@@ -75,6 +73,7 @@ import {
     updateRouteStatus,
     updateStopStatus,
     applyOptimizationResult,
+    saveRouteStopsOrder,
     updateRouteAssignment,
     updateRoutePolyline,
     updateStopMetrics,
@@ -93,6 +92,9 @@ import {
     type RoutePdfBranding,
     type RoutePdfMode,
 } from '@/lib/pdf/route-pdf-generator'
+import RouteStopsSortableList from '@/components/logistics/route-stops-sortable-list'
+import type { RouteStopCardItem } from '@/components/logistics/route-stop-card'
+import RoutePendingChangesBar from '@/components/logistics/route-pending-changes-bar'
 
 const RouteMap = dynamic(() => import('@/components/logistics/route-map'), { ssr: false })
 const GeocodePickerDialog = dynamic(() => import('@/components/logistics/geocode-picker-dialog'), { ssr: false })
@@ -143,6 +145,27 @@ function parseLocaleNumber(value: string) {
     return Number.isFinite(parsed) ? parsed : Number.NaN
 }
 
+type SequenceFeedbackState = {
+    type: 'success' | 'error' | 'warning'
+    message: string
+}
+
+function sortStopsByPosition<T extends { stop_position?: number | null; id: string }>(input: T[]) {
+    return [...input].sort((a, b) => {
+        const aPos = Number(a.stop_position || 0)
+        const bPos = Number(b.stop_position || 0)
+        if (aPos !== bPos) return aPos - bPos
+        return a.id.localeCompare(b.id)
+    })
+}
+
+function normalizeStopPositions<T extends { stop_position?: number | null }>(input: T[]) {
+    return input.map((stop, index) => ({
+        ...stop,
+        stop_position: index + 1,
+    }))
+}
+
 function roundCurrency(value: number) {
     return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100
 }
@@ -160,12 +183,14 @@ function buildCostFormFromProfile(profile: RouteCostProfile): RouteCostFormState
 
 export default function RouteDetailPage() {
     const params = useParams()
+    const searchParams = useSearchParams()
     const routeId = params.id as string
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [route, setRoute] = useState<any>(null)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [stops, setStops] = useState<any[]>([])
+    const [draftStops, setDraftStops] = useState<RouteStopCardItem[] | null>(null)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [events, setEvents] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
@@ -205,6 +230,10 @@ export default function RouteDetailPage() {
     const [optimizationBanner, setOptimizationBanner] = useState<{ distance: number; duration: number; engine: string; stops: number } | null>(null)
     const [exportingPdfMode, setExportingPdfMode] = useState<RoutePdfMode | null>(null)
     const [pdfBranding, setPdfBranding] = useState<RoutePdfBranding | null>(null)
+    const [isSavingSequence, setIsSavingSequence] = useState(false)
+    const [sequenceFeedback, setSequenceFeedback] = useState<SequenceFeedbackState | null>(null)
+    const [lastEditSource, setLastEditSource] = useState<'drag' | 'quick' | null>(null)
+    const [pendingReoptimizeDialogOpen, setPendingReoptimizeDialogOpen] = useState(false)
 
     const hydrateCostProfile = useCallback((profile: RouteCostProfile) => {
         const nextForm = buildCostFormFromProfile(profile)
@@ -264,8 +293,12 @@ export default function RouteDetailPage() {
                 return s
             })
 
+            const orderedStops = sortStopsByPosition(enrichedStops)
+
             setRoute(rte)
-            setStops(enrichedStops)
+            setStops(orderedStops)
+            setDraftStops(null)
+            setLastEditSource(null)
             setEvents(res.data.events)
         }
 
@@ -278,6 +311,13 @@ export default function RouteDetailPage() {
     }, [routeId, hydrateCostProfile])
 
     useEffect(() => { void loadData() }, [loadData])
+
+    useEffect(() => {
+        const tab = searchParams.get('tab')
+        if (tab === 'assignment' || tab === 'stops' || tab === 'timeline' || tab === 'costs') {
+            setActiveTab(tab)
+        }
+    }, [searchParams])
 
     useEffect(() => {
         const loadResources = async () => {
@@ -315,7 +355,7 @@ export default function RouteDetailPage() {
     }
 
     // Fetch real road directions for the ordered waypoints and save per-stop metrics
-    const fetchDirections = async (
+    const fetchDirections = useCallback(async (
         centerCoords: { lat: number; lng: number },
         orderedStops: Array<{ id: string; lat: number; lng: number }>
     ) => {
@@ -375,46 +415,61 @@ export default function RouteDetailPage() {
             console.warn('[DIRECTIONS] Failed to fetch road geometry:', e)
         }
         return false
-    }
+    }, [routeId])
+
+    const recalculateRouteGeometry = useCallback(async (sourceStops: Array<{ id: string; latitude: number | null; longitude: number | null }>) => {
+        if (!route) return false
+        const center = route.route_centers
+        if (!center?.latitude || !center?.longitude) return false
+
+        const validStops = sortStopsByPosition(sourceStops).filter((stop) => stop.latitude && stop.longitude)
+        if (validStops.length === 0) return false
+
+        return fetchDirections(
+            { lat: Number(center.latitude), lng: Number(center.longitude) },
+            validStops.map((stop) => ({
+                id: stop.id,
+                lat: Number(stop.latitude),
+                lng: Number(stop.longitude),
+            })),
+        )
+    }, [fetchDirections, route])
 
     const handleRecalculateRoute = async () => {
-        if (!route) return
-        const center = route.route_centers
-        if (!center?.latitude || !center?.longitude) return
-
-        const validStops = stops
-            .filter((s: { latitude: number | null; longitude: number | null }) => s.latitude && s.longitude)
-            .sort((a: { stop_position: number }, b: { stop_position: number }) => a.stop_position - b.stop_position)
-
-        if (validStops.length === 0) return
+        if (hasPendingSequenceChanges) {
+            setSequenceFeedback({
+                type: 'warning',
+                message: 'Salve a nova sequencia antes de recalcular a rota.',
+            })
+            return
+        }
 
         setOptimizing(true)
         setError(null)
-        const ok = await fetchDirections(
-            { lat: Number(center.latitude), lng: Number(center.longitude) },
-            validStops.map((s: { id: string; latitude: number; longitude: number }) => ({ id: s.id, lat: Number(s.latitude), lng: Number(s.longitude) }))
-        )
+
+        const ok = await recalculateRouteGeometry(sequenceStops)
         if (ok) {
+            setSequenceFeedback({ type: 'success', message: 'Rota recalculada com base na sequencia atual.' })
             void loadData()
         } else {
-            setError('Não foi possível calcular o trajeto real. Tente novamente.')
+            setError('Nao foi possivel calcular o trajeto real. Tente novamente.')
         }
         setOptimizing(false)
     }
 
-    const handleOptimize = async () => {
-        if (!route) return
+    const executeOptimizeRoute = useCallback(async (sourceStops: Array<{ id: string; latitude: number | null; longitude: number | null; estimated_service_min?: number | null; priority?: string | null }>) => {
+        if (!route) return false
 
         const center = route.route_centers
         if (!center?.latitude || !center?.longitude) {
-            setError('O centro de saída não possui coordenadas. Geocodifique o centro primeiro.')
-            return
+            setError('O centro de saida nao possui coordenadas. Geocodifique o centro primeiro.')
+            return false
         }
 
-        const validStops = stops.filter((s: { latitude: number | null; longitude: number | null }) => s.latitude && s.longitude)
+        const validStops = sortStopsByPosition(sourceStops).filter((stop) => stop.latitude && stop.longitude)
         if (validStops.length === 0) {
-            setError('Nenhuma parada possui coordenadas. Geocodifique os endereços antes de otimizar.')
-            return
+            setError('Nenhuma parada possui coordenadas. Geocodifique os enderecos antes de otimizar.')
+            return false
         }
 
         setOptimizing(true)
@@ -426,12 +481,12 @@ export default function RouteDetailPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     center: { lat: center.latitude, lng: center.longitude },
-                    stops: validStops.map((s: { id: string; latitude: number; longitude: number; estimated_service_min: number; priority: string }) => ({
-                        id: s.id,
-                        lat: s.latitude,
-                        lng: s.longitude,
-                        serviceTime: s.estimated_service_min || 15,
-                        priority: s.priority === 'urgent' ? 100 : s.priority === 'high' ? 75 : s.priority === 'low' ? 25 : 50,
+                    stops: validStops.map((stop) => ({
+                        id: stop.id,
+                        lat: stop.latitude,
+                        lng: stop.longitude,
+                        serviceTime: stop.estimated_service_min || 15,
+                        priority: stop.priority === 'urgent' ? 100 : stop.priority === 'high' ? 75 : stop.priority === 'low' ? 25 : 50,
                     })),
                     vehicle: route.vehicles ? {
                         capacityKg: route.vehicles.capacity_kg,
@@ -441,43 +496,55 @@ export default function RouteDetailPage() {
 
             const result = await response.json()
             if (!response.ok) {
-                setError(result.error || 'Erro na otimização.')
-                setOptimizing(false)
-                return
+                setError(result.error || 'Erro na otimizacao.')
+                return false
             }
 
             const persistRes = await applyOptimizationResult(routeId, result)
             if ('error' in persistRes && persistRes.error) {
                 setError(persistRes.error)
-            } else {
-                // Show optimization banner
-                setOptimizationBanner({
-                    distance: result.summary.totalDistance,
-                    duration: result.summary.totalDuration,
-                    engine: result.engine,
-                    stops: result.summary.totalStops,
-                })
-
-                // Step 2: Fetch real road directions for the optimized order
-                const orderedIds = result.orderedStops
-                    .sort((a: { position: number }, b: { position: number }) => a.position - b.position)
-                    .map((os: { id: string }) => os.id)
-                const orderedWithIds = orderedIds.map((id: string) => {
-                    const s = validStops.find((st: { id: string }) => st.id === id)
-                    return s ? { id, lat: Number(s.latitude), lng: Number(s.longitude) } : null
-                }).filter(Boolean)
-
-                await fetchDirections(
-                    { lat: Number(center.latitude), lng: Number(center.longitude) },
-                    orderedWithIds
-                )
-
-                void loadData()
+                return false
             }
+
+            setOptimizationBanner({
+                distance: result.summary.totalDistance,
+                duration: result.summary.totalDuration,
+                engine: result.engine,
+                stops: result.summary.totalStops,
+            })
+
+            const orderedIds = result.orderedStops
+                .sort((a: { position: number }, b: { position: number }) => a.position - b.position)
+                .map((orderedStop: { id: string }) => orderedStop.id)
+            const orderedWithIds = orderedIds
+                .map((id: string) => {
+                    const stop = validStops.find((candidate: { id: string }) => candidate.id === id)
+                    return stop ? { id, lat: Number(stop.latitude), lng: Number(stop.longitude) } : null
+                })
+                .filter(Boolean) as Array<{ id: string; lat: number; lng: number }>
+
+            await fetchDirections(
+                { lat: Number(center.latitude), lng: Number(center.longitude) },
+                orderedWithIds,
+            )
+
+            setSequenceFeedback({ type: 'success', message: 'Rota reotimizada e sincronizada com sucesso.' })
+            void loadData()
+            return true
         } catch (e) {
             setError('Erro ao otimizar rota: ' + (e instanceof Error ? e.message : 'Erro desconhecido'))
+            return false
+        } finally {
+            setOptimizing(false)
         }
-        setOptimizing(false)
+    }, [fetchDirections, loadData, route, routeId])
+
+    const handleOptimize = async () => {
+        if (hasPendingSequenceChanges) {
+            setPendingReoptimizeDialogOpen(true)
+            return
+        }
+        await executeOptimizeRoute(sequenceStops)
     }
 
     const handleAssignmentChange = async (field: string, value: string | null) => {
@@ -677,6 +744,141 @@ export default function RouteDetailPage() {
     }
 
     const isEditable = route && ['draft', 'optimized'].includes(route.status)
+    const canEditStopSequence = Boolean(route && ['draft', 'optimized', 'confirmed'].includes(route.status))
+
+    const orderedBaseStops = useMemo(
+        () => normalizeStopPositions(sortStopsByPosition(stops)),
+        [stops],
+    )
+    const orderedDraftStops = useMemo(
+        () => (draftStops ? normalizeStopPositions(sortStopsByPosition(draftStops)) : null),
+        [draftStops],
+    )
+    const sequenceStops = orderedDraftStops ?? orderedBaseStops
+
+    const baseSequenceSignature = useMemo(
+        () => orderedBaseStops.map((stop) => stop.id).join('|'),
+        [orderedBaseStops],
+    )
+    const draftSequenceSignature = useMemo(
+        () => sequenceStops.map((stop) => stop.id).join('|'),
+        [sequenceStops],
+    )
+    const hasPendingSequenceChanges = Boolean(canEditStopSequence && baseSequenceSignature !== draftSequenceSignature)
+
+    const setDraftSequence = useCallback((nextStops: RouteStopCardItem[], source: 'drag' | 'quick') => {
+        setDraftStops(normalizeStopPositions(nextStops))
+        setLastEditSource(source)
+        setSequenceFeedback(null)
+    }, [])
+
+    const handleMoveStop = useCallback((stopId: string, direction: 'top' | 'up' | 'down' | 'bottom') => {
+        if (!canEditStopSequence) return
+
+        const source = normalizeStopPositions([...(draftStops ?? orderedBaseStops)])
+        const currentIndex = source.findIndex((stop) => stop.id === stopId)
+        if (currentIndex < 0) return
+
+        let targetIndex = currentIndex
+        if (direction === 'top') targetIndex = 0
+        if (direction === 'up') targetIndex = Math.max(0, currentIndex - 1)
+        if (direction === 'down') targetIndex = Math.min(source.length - 1, currentIndex + 1)
+        if (direction === 'bottom') targetIndex = source.length - 1
+
+        if (targetIndex === currentIndex) return
+
+        const reordered = [...source]
+        const [moved] = reordered.splice(currentIndex, 1)
+        reordered.splice(targetIndex, 0, moved)
+        setDraftSequence(reordered, 'quick')
+    }, [canEditStopSequence, draftStops, orderedBaseStops, setDraftSequence])
+
+    const handleDiscardStopSequenceChanges = useCallback(() => {
+        setDraftStops(null)
+        setLastEditSource(null)
+        setSequenceFeedback(null)
+    }, [])
+
+    const persistStopSequence = useCallback(async (options?: { recalculateAfterSave?: boolean }) => {
+        if (!canEditStopSequence) return false
+        if (!hasPendingSequenceChanges) return true
+
+        const recalculateAfterSave = options?.recalculateAfterSave ?? true
+        const normalizedStops = normalizeStopPositions(sequenceStops)
+        const orderedStopIds = normalizedStops.map((stop) => stop.id)
+
+        setIsSavingSequence(true)
+        setSequenceFeedback(null)
+        setError(null)
+
+        const saveRes = await saveRouteStopsOrder(routeId, orderedStopIds, 'manual_sequence_edit')
+        if ('error' in saveRes && saveRes.error) {
+            setSequenceFeedback({ type: 'error', message: saveRes.error })
+            setIsSavingSequence(false)
+            return false
+        }
+
+        setStops(normalizedStops)
+        setDraftStops(null)
+        setLastEditSource(null)
+        setRoute((prev: typeof route) => (prev ? {
+            ...prev,
+            route_polyline: null,
+            total_distance_km: null,
+            total_duration_min: null,
+        } : prev))
+
+        let recalculateOk = true
+        if (recalculateAfterSave) {
+            setOptimizing(true)
+            recalculateOk = await recalculateRouteGeometry(normalizedStops)
+            setOptimizing(false)
+        }
+
+        if (recalculateAfterSave && !recalculateOk) {
+            setSequenceFeedback({
+                type: 'warning',
+                message: 'Sequencia salva. O recalculo automatico falhou; use "Recalcular" para atualizar o trajeto.',
+            })
+        } else {
+            setSequenceFeedback({
+                type: 'success',
+                message: recalculateAfterSave
+                    ? 'Sequencia salva e rota recalculada com sucesso.'
+                    : 'Sequencia salva. Pronto para reotimizacao.',
+            })
+        }
+
+        setIsSavingSequence(false)
+        void loadData()
+        return true
+    }, [
+        canEditStopSequence,
+        hasPendingSequenceChanges,
+        loadData,
+        recalculateRouteGeometry,
+        routeId,
+        sequenceStops,
+    ])
+
+    const handleSaveStopSequence = useCallback(async () => {
+        await persistStopSequence({ recalculateAfterSave: true })
+    }, [persistStopSequence])
+
+    const handleApplyPendingAndReoptimize = useCallback(async () => {
+        setPendingReoptimizeDialogOpen(false)
+        const saved = await persistStopSequence({ recalculateAfterSave: false })
+        if (!saved) return
+        await executeOptimizeRoute(sequenceStops)
+    }, [executeOptimizeRoute, persistStopSequence, sequenceStops])
+
+    const handleDiscardAndReoptimize = useCallback(async () => {
+        setPendingReoptimizeDialogOpen(false)
+        setDraftStops(null)
+        setLastEditSource(null)
+        setSequenceFeedback(null)
+        await executeOptimizeRoute(orderedBaseStops)
+    }, [executeOptimizeRoute, orderedBaseStops])
 
     // Compute progress
     const deliveredCount = stops.filter(s => s.status === 'delivered').length
@@ -782,7 +984,7 @@ export default function RouteDetailPage() {
     }, [routeCenter])
 
     const mapStops = useMemo(() => (
-        stops.map((s: { id: string; stop_position: number; latitude: number | null; longitude: number | null; customer_name: string; status: string; address_snapshot: string; estimated_arrival_min?: number; estimated_distance_km?: number; orders?: { total?: number } }) => ({
+        sequenceStops.map((s: { id: string; stop_position: number; latitude: number | null; longitude: number | null; customer_name: string; status: string; address_snapshot: string; estimated_arrival_min?: number; estimated_distance_km?: number; orders?: { total?: number } }) => ({
             id: s.id,
             position: s.stop_position,
             latitude: s.latitude ? Number(s.latitude) : null,
@@ -794,7 +996,7 @@ export default function RouteDetailPage() {
             estimated_distance_km: s.estimated_distance_km,
             order_total: s.orders?.total ? Number(s.orders.total) : null,
         }))
-    ), [stops])
+    ), [sequenceStops])
 
     const liveTrackingEnabled = Boolean(routeId && route && ['confirmed', 'in_progress'].includes(route.status))
     const {
@@ -933,10 +1135,10 @@ export default function RouteDetailPage() {
                             {exportingPdfMode === 'operational' ? 'Gerando Operacional...' : 'PDF Operacional'}
                         </Button>
 
-                        {route.status === 'draft' && (
-                            <Button size="sm" className="h-8 gap-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleOptimize} disabled={optimizing || ungeocodedStops > 0}>
+                        {['draft', 'optimized', 'confirmed'].includes(route.status) && (
+                            <Button size="sm" className="h-8 gap-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => void handleOptimize()} disabled={optimizing || isSavingSequence || ungeocodedStops > 0}>
                                 {optimizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-                                {optimizing ? 'Otimizando...' : 'Otimizar Rota'}
+                                {optimizing ? 'Otimizando...' : route.status === 'draft' ? 'Otimizar Rota' : 'Reotimizar'}
                             </Button>
                         )}
                         {['draft', 'optimized'].includes(route.status) && (
@@ -1225,113 +1427,48 @@ export default function RouteDetailPage() {
                             </div>
                         </div>
                     )}
-
                     {/* === STOPS TAB === */}
                     {activeTab === 'stops' && (
-                        <div className="divide-y max-h-[600px] overflow-y-auto">
-                            {stops.length === 0 ? (
+                        <div className="max-h-[600px] overflow-y-auto">
+                            <RoutePendingChangesBar
+                                hasPendingChanges={hasPendingSequenceChanges}
+                                canEditSequence={canEditStopSequence}
+                                isSavingSequence={isSavingSequence}
+                                isReoptimizing={optimizing}
+                                lastEditSource={lastEditSource}
+                                feedback={sequenceFeedback}
+                                onSave={() => void handleSaveStopSequence()}
+                                onDiscard={handleDiscardStopSequenceChanges}
+                                onReoptimize={() => void handleOptimize()}
+                            />
+
+                            {sequenceStops.length === 0 ? (
                                 <div className="p-12 text-center text-sm text-muted-foreground">Nenhuma parada nesta rota.</div>
-                            ) : stops.map((stop, idx: number) => {
-                                const stopSt = stopStatusConfig[stop.status] || stopStatusConfig.pending
-                                const StopIcon = stopSt.icon
-                                const isActive = route.status === 'in_progress' && stop.status === 'pending'
-                                const isHighlighted = highlightStopId === stop.id
-                                return (
-                                    <div key={stop.id}
-                                        className={cn('flex items-start gap-3 p-4 transition cursor-pointer hover:bg-indigo-50/30',
-                                            isActive && 'bg-blue-50/30',
-                                            isHighlighted && 'bg-indigo-50/50 ring-1 ring-indigo-200 ring-inset'
-                                        )}
-                                        onClick={() => setHighlightStopId(stop.id === highlightStopId ? null : stop.id)}
-                                    >
-                                        {/* Position badge */}
-                                        <div className="flex flex-col items-center gap-1 pt-0.5">
-                                            <div className={cn(
-                                                'h-8 w-8 rounded-full flex items-center justify-center text-xs font-black shrink-0 border-2',
-                                                stop.status === 'delivered' ? 'bg-emerald-500 text-white border-emerald-500' :
-                                                stop.status === 'failed' ? 'bg-red-500 text-white border-red-500' :
-                                                isActive ? 'bg-blue-500 text-white border-blue-500 animate-pulse' :
-                                                'bg-white text-slate-500 border-slate-200'
-                                            )}>
-                                                {stop.status === 'delivered' ? <CheckCircle2 className="h-4 w-4" /> :
-                                                 stop.status === 'failed' ? <XCircle className="h-4 w-4" /> :
-                                                 stop.stop_position || idx + 1}
-                                            </div>
-                                            {idx < stops.length - 1 && (
-                                                <div className={cn('w-0.5 h-6', stop.status === 'delivered' ? 'bg-emerald-200' : stop.status === 'failed' ? 'bg-red-200' : 'bg-slate-200')} />
-                                            )}
-                                        </div>
-
-                                        {/* Content */}
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <p className="font-bold text-navy text-sm">{stop.customer_name}</p>
-                                                <Badge variant="outline" className={cn('text-[9px] font-bold rounded-full gap-0.5 border', stopSt.color)}>
-                                                    <StopIcon className="h-2.5 w-2.5" />
-                                                    {stopSt.label}
-                                                </Badge>
-                                                {stop.priority !== 'normal' && (
-                                                    <Badge variant="secondary" className="text-[9px] rounded-full">
-                                                        {stop.priority === 'urgent' ? '🔴 Urgente' : stop.priority === 'high' ? '🟡 Alta' : '⚪ Baixa'}
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1 flex items-center gap-1.5">
-                                                {stop.address_snapshot?.replace(/\[.*?\]\s*/g, '') || '—'}
-                                                {stop.latitude && stop.longitude ? (
-                                                    <Badge variant="outline" className="text-[8px] rounded-full text-emerald-600 border-emerald-200 shrink-0">📍</Badge>
-                                                ) : (
-                                                    <Badge variant="outline" className="text-[8px] rounded-full text-amber-600 border-amber-200 shrink-0">⚠</Badge>
-                                                )}
-                                            </p>
-                                            <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground flex-wrap">
-                                                <span className="flex items-center gap-0.5"><Package className="h-2.5 w-2.5" /> {stop.orders?.order_number || '—'}</span>
-                                                {stop.orders?.total && <span className="font-semibold text-navy">R$ {Number(stop.orders.total).toFixed(2)}</span>}
-                                                {stop.estimated_arrival_min != null && stop.estimated_arrival_min > 0 && <span className="flex items-center gap-0.5 text-indigo-600"><Timer className="h-2.5 w-2.5" /> ETA {stop.estimated_arrival_min} min</span>}
-                                                {stop.estimated_distance_km != null && stop.estimated_distance_km > 0 && <span className="flex items-center gap-0.5"><Navigation className="h-2.5 w-2.5" /> {stop.estimated_distance_km} km</span>}
-                                                {stop.delivered_at && <span className="flex items-center gap-0.5 text-emerald-600"><CheckCircle2 className="h-2.5 w-2.5" /> {formatDateTime(stop.delivered_at)}</span>}
-                                                {stop.failure_reason && <span className="text-red-500">{stop.failure_reason}</span>}
-                                            </div>
-                                        </div>
-
-                                        {/* Actions */}
-                                        <div className="flex flex-col gap-1.5 shrink-0">
-                                            {isEditable && (
-                                                <Button size="sm" variant="outline"
-                                                    className={cn('h-7 text-[10px] gap-1',
-                                                        stop.latitude && stop.longitude
-                                                            ? 'text-emerald-600 border-emerald-200 hover:bg-emerald-50'
-                                                            : 'text-indigo-600 border-indigo-200 hover:bg-indigo-50'
-                                                    )}
-                                                    onClick={(e) => { e.stopPropagation(); setGeocodeDialog({
-                                                        stopId: stop.id,
-                                                        customerName: stop.customer_name,
-                                                        address: stop.address_snapshot || '',
-                                                        addressId: stop.address_id || undefined,
-                                                        lat: stop.latitude ? Number(stop.latitude) : null,
-                                                        lng: stop.longitude ? Number(stop.longitude) : null,
-                                                    })}}
-                                                >
-                                                    <Crosshair className="h-2.5 w-2.5" />
-                                                    {stop.latitude && stop.longitude ? '📍' : 'Geocod.'}
-                                                </Button>
-                                            )}
-                                            {isActive && (
-                                                <>
-                                                    <Button size="sm" className="h-7 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                                                        onClick={(e) => { e.stopPropagation(); void handleStopStatus(stop.id, 'delivered') }} disabled={actionLoading}>
-                                                        <CheckCircle2 className="h-2.5 w-2.5" /> Entregue
-                                                    </Button>
-                                                    <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 text-red-600 border-red-200 hover:bg-red-50"
-                                                        onClick={(e) => { e.stopPropagation(); setFailureDialog({ stopId: stop.id, customerName: stop.customer_name }) }} disabled={actionLoading}>
-                                                        <XCircle className="h-2.5 w-2.5" /> Insucesso
-                                                    </Button>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                )
-                            })}
+                            ) : (
+                                <RouteStopsSortableList
+                                    stops={sequenceStops}
+                                    routeStatus={route.status}
+                                    isSequenceEditable={canEditStopSequence}
+                                    actionLoading={actionLoading || isSavingSequence}
+                                    highlightStopId={highlightStopId}
+                                    stopStatusConfig={stopStatusConfig}
+                                    onToggleHighlight={(stopId) => setHighlightStopId(stopId === highlightStopId ? null : stopId)}
+                                    onMoveStop={handleMoveStop}
+                                    onOpenGeocode={(stop) => {
+                                        setGeocodeDialog({
+                                            stopId: stop.id,
+                                            customerName: stop.customer_name,
+                                            address: stop.address_snapshot || '',
+                                            addressId: stop.address_id || undefined,
+                                            lat: stop.latitude ? Number(stop.latitude) : null,
+                                            lng: stop.longitude ? Number(stop.longitude) : null,
+                                        })
+                                    }}
+                                    onMarkDelivered={(stopId) => { void handleStopStatus(stopId, 'delivered') }}
+                                    onRequestFailure={(stopId, customerName) => setFailureDialog({ stopId, customerName })}
+                                    onReorder={(nextStops) => setDraftSequence(nextStops, 'drag')}
+                                />
+                            )}
                         </div>
                     )}
 
@@ -1615,16 +1752,16 @@ export default function RouteDetailPage() {
                                     )}
                                 </div>
                             )}
-                            {stops.filter(s => !s.latitude || !s.longitude).length > 0 && (
+                            {sequenceStops.filter(s => !s.latitude || !s.longitude).length > 0 && (
                                 <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                                    {stops.filter(s => !s.latitude || !s.longitude).length} sem coordenadas
+                                    {sequenceStops.filter(s => !s.latitude || !s.longitude).length} sem coordenadas
                                 </span>
                             )}
                             {['optimized', 'confirmed', 'in_progress'].includes(route.status) && (
                                 <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                                    onClick={handleRecalculateRoute} disabled={optimizing}>
+                                    onClick={handleRecalculateRoute} disabled={optimizing || isSavingSequence || hasPendingSequenceChanges}>
                                     {optimizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Route className="h-3 w-3" />}
-                                    {route.route_polyline ? 'Recalcular' : 'Traçar Rota'}
+                                    {!hasPendingSequenceChanges && route.route_polyline ? 'Recalcular' : 'Traçar Rota'}
                                 </Button>
                             )}
                             {liveTrackingEnabled && (
@@ -1647,7 +1784,7 @@ export default function RouteDetailPage() {
                         <RouteMap
                             center={mapCenter}
                             stops={mapStops}
-                            polyline={route.route_polyline}
+                            polyline={hasPendingSequenceChanges ? null : route.route_polyline}
                             height={isMapExpanded ? "100%" : "520px"}
                             className={isMapExpanded ? "h-full border-0 rounded-none" : ""}
                             totalDistance={route.total_distance_km}
@@ -1681,6 +1818,39 @@ export default function RouteDetailPage() {
             </div>
 
             {/* ===== DIALOGS ===== */}
+
+            <AlertDialog open={pendingReoptimizeDialogOpen} onOpenChange={setPendingReoptimizeDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Existem alteracoes de sequencia pendentes</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Escolha como deseja seguir antes de reotimizar a rota.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="grid gap-2">
+                        <Button
+                            type="button"
+                            className="justify-start bg-indigo-600 text-white hover:bg-indigo-700"
+                            onClick={() => { void handleApplyPendingAndReoptimize() }}
+                            disabled={isSavingSequence || optimizing}
+                        >
+                            Aplicar pendencias e reotimizar
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="justify-start"
+                            onClick={() => { void handleDiscardAndReoptimize() }}
+                            disabled={isSavingSequence || optimizing}
+                        >
+                            Descartar pendencias e reotimizar
+                        </Button>
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isSavingSequence || optimizing}>Cancelar</AlertDialogCancel>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             {/* Failure Dialog */}
             <Dialog open={!!failureDialog} onOpenChange={(o) => { if (!o) { setFailureDialog(null); setFailureReason('') } }}>
@@ -1767,5 +1937,3 @@ export default function RouteDetailPage() {
         </div>
     )
 }
-
-

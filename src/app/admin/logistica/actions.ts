@@ -1616,6 +1616,60 @@ export async function applyOptimizationResult(
     }
 }
 
+export async function saveRouteStopsOrder(
+    routeId: string,
+    orderedStopIds: string[],
+    reason?: string,
+) {
+    try {
+        const { supabase } = await requireAdmin()
+
+        const normalizedRouteId = String(routeId || '').trim()
+        if (!normalizedRouteId) {
+            return { error: 'Rota invalida para salvar sequencia.' }
+        }
+
+        const normalizedStopIds = (orderedStopIds || [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)
+
+        if (normalizedStopIds.length === 0) {
+            return { error: 'Informe ao menos uma parada para salvar a sequencia.' }
+        }
+
+        const uniqueStopIds = new Set(normalizedStopIds)
+        if (uniqueStopIds.size !== normalizedStopIds.length) {
+            return { error: 'A sequencia enviada contem paradas duplicadas.' }
+        }
+
+        const { data, error } = await supabase.rpc('logistics_reorder_route_stops_atomic', {
+            p_route_id: normalizedRouteId,
+            p_ordered_stop_ids: normalizedStopIds,
+            p_reason: reason?.trim() || null,
+        })
+
+        if (error) {
+            console.error('[SAVE ROUTE STOPS ORDER] RPC error:', error)
+            if (String(error.message || '').includes('idx_delivery_route_stops_route_position_unique')) {
+                return { error: 'Conflito temporario ao reorganizar as paradas. Atualize para a migration 058 e tente novamente.' }
+            }
+            return { error: error.message || 'Erro ao salvar nova ordem das paradas.' }
+        }
+
+        const row = Array.isArray(data) ? data[0] : null
+        return {
+            success: true,
+            data: {
+                route_id: row?.route_id || normalizedRouteId,
+                updated_stops: Number(row?.updated_stops || normalizedStopIds.length),
+                route_status: row?.route_status || null,
+            },
+        }
+    } catch (e) {
+        return { error: e instanceof Error ? e.message : 'Erro inesperado.' }
+    }
+}
+
 // ==================== UPDATE ROUTE POLYLINE ====================
 
 export async function updateRoutePolyline(

@@ -3,6 +3,7 @@
 import {
     updateStopStatus as updateStopStatusAction,
     applyOptimizationResult as applyOptimizationResultAction,
+    saveRouteStopsOrder as saveRouteStopsOrderAction,
     updateRoutePolyline as updateRoutePolylineAction,
     updateStopMetrics as updateStopMetricsAction,
     updateStopCoordinates as updateStopCoordinatesAction,
@@ -14,6 +15,10 @@ export async function updateStopStatus(...args: Parameters<typeof updateStopStat
 
 export async function applyOptimizationResult(...args: Parameters<typeof applyOptimizationResultAction>) {
     return applyOptimizationResultAction(...args)
+}
+
+export async function saveRouteStopsOrder(...args: Parameters<typeof saveRouteStopsOrderAction>) {
+    return saveRouteStopsOrderAction(...args)
 }
 
 export async function updateRoutePolyline(...args: Parameters<typeof updateRoutePolylineAction>) {

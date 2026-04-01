@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
     Route,
     Plus,
@@ -46,6 +47,7 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.E
 }
 
 export default function CentralDeRotasPage() {
+    const router = useRouter()
     const [data, setData] = useState<RouteListItem[]>([])
     const [pagination, setPagination] = useState<PaginationMeta>({
         page: 1,
@@ -249,6 +251,19 @@ export default function CentralDeRotasPage() {
                                             <div className="flex gap-1">
                                                 <Button variant="outline" size="icon" className="h-8 w-8 group-hover:border-indigo-200" title="Ver detalhes" onClick={(e) => e.stopPropagation()}>
                                                     <Eye className="h-3.5 w-3.5" />
+                                                </Button>
+                                                <Button
+                                                    variant="outline"
+                                                    size="icon"
+                                                    className="h-8 w-8 group-hover:border-indigo-200"
+                                                    title="Editar sequencia"
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        router.push(`/admin/logistica/rotas/${route.id}?tab=stops`)
+                                                    }}
+                                                >
+                                                    <Route className="h-3.5 w-3.5" />
                                                 </Button>
                                                 <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-red-600 hover:bg-red-50"
                                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(route) }} title="Excluir">
