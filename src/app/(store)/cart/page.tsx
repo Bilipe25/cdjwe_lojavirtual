@@ -92,8 +92,29 @@ function getFriendlyCouponErrorMessage(message: string) {
     if (normalized.includes('minimo')) return 'Este pedido ainda nao atingiu o valor minimo para este cupom.'
     if (normalized.includes('limite')) return 'Este cupom atingiu o limite de uso.'
     if (normalized.includes('nao encontrado')) return 'Nao encontramos esse cupom. Confira o codigo e tente novamente.'
+    if (normalized.includes('nao se aplica')) return 'Este cupom nao se aplica aos itens do seu carrinho.'
+    if (normalized.includes('ainda nao esta vigente')) return 'Este cupom ainda nao esta vigente.'
+    if (normalized.includes('loja nao pertence ao perfil informado')) {
+        return 'Este cupom nao pode ser aplicado no modo de visualizacao atual. Entre com a conta do cliente para validar.'
+    }
+    if (normalized.includes('subtotal invalido')) return 'Nao foi possivel validar os itens do carrinho para aplicar o cupom.'
+    if (normalized.includes('itens do pedido sao obrigatorios')) return 'Adicione itens no carrinho para aplicar este cupom.'
+    if (normalized.includes('acesso negado')) return 'Sua sessao nao tem permissao para validar este cupom.'
     if (normalized.includes('escopo') || normalized.includes('cliente') || normalized.includes('tabela')) {
         return 'Este cupom nao se aplica a este pedido.'
+    }
+    const cleaned = message
+        .replace(/^falha ao validar cupom:\s*/i, '')
+        .replace(/^erro ao validar cupom:\s*/i, '')
+        .trim()
+    if (
+        cleaned &&
+        cleaned.length <= 180 &&
+        !cleaned.toLowerCase().includes('function public.') &&
+        !cleaned.toLowerCase().includes('sqlstate') &&
+        !cleaned.toLowerCase().includes('stack')
+    ) {
+        return cleaned
     }
     return 'Nao foi possivel aplicar este cupom agora. Tente novamente.'
 }

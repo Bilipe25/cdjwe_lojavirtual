@@ -208,6 +208,21 @@ function mapCouponPreviewErrorToUserMessage(errorMessage: string) {
     if (normalized.includes('loja nao pertence ao perfil')) return 'Nao foi possivel validar a loja do seu perfil.'
     if (normalized.includes('itens do pedido sao obrigatorios')) return 'Adicione itens no carrinho para aplicar cupom.'
     if (normalized.includes('codigo de cupom obrigatorio')) return 'Informe um codigo de cupom.'
+    if (
+        normalized.includes('record "v_size_option" is not assigned yet') ||
+        normalized.includes('tuple structure of a not-yet-assigned record is indeterminate')
+    ) {
+        return 'Validacao de cupom indisponivel por atualizacao pendente no checkout. Aplique a migration 062 de correcao e tente novamente.'
+    }
+    if (normalized.includes('invalid input syntax for type numeric') && normalized.includes('"t"')) {
+        return 'Validacao de cupom indisponivel por correcao pendente no checkout. Aplique a migration 063 e tente novamente.'
+    }
+    if (normalized.includes('function public.client_preview_coupon_for_order') && normalized.includes('does not exist')) {
+        return 'Validacao de cupom indisponivel no banco. Aplique a migration 061 do modulo de cupons.'
+    }
+    if (normalized.includes('function public.checkout_resolve_item_snapshot_v2') && normalized.includes('does not exist')) {
+        return 'Validacao de cupom indisponivel no banco. Aplique as migrations de checkout v2 (055) e cupons (061).'
+    }
     if (normalized.includes('cupom')) return errorMessage
     return `Falha ao validar cupom: ${errorMessage}`
 }
