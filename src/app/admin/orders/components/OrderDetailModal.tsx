@@ -48,6 +48,10 @@ export interface AdminOrderDetailRecord {
     total: number
     subtotal: number
     discount_amount: number
+    coupon_code?: string | null
+    coupon_discount_type?: 'percentage' | 'fixed' | null
+    coupon_discount_value?: number | null
+    coupon_discount_amount?: number | null
     created_at: string
     notes: string | null
     store?: {
@@ -118,6 +122,10 @@ export function OrderDetailModal({
                 total,
                 subtotal,
                 discount_amount,
+                coupon_code,
+                coupon_discount_type,
+                coupon_discount_value,
+                coupon_discount_amount,
                 created_at,
                 notes,
                 sales_channel,
@@ -229,6 +237,8 @@ export function OrderDetailModal({
     const customerName = resolvedOrder.customer_profile?.full_name || resolvedOrder.profile?.full_name || 'N/A'
     const representativeName = resolvedOrder.created_by_profile?.full_name || (isRepresentativeOrder ? 'Nao informado' : 'Portal do cliente')
     const itemCount = resolvedOrder.items?.length || 0
+    const couponDiscountAmount = Number(resolvedOrder.coupon_discount_amount || 0)
+    const paymentDiscountAmount = Math.max(0, Number(resolvedOrder.discount_amount || 0) - couponDiscountAmount)
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -387,8 +397,11 @@ export function OrderDetailModal({
                         
                         <div className="order-1 md:order-2 bg-navy/5 p-6 rounded-xl border border-navy/10 space-y-2 text-sm flex flex-col justify-center">
                             <div className="flex justify-between"><span className="text-muted-foreground">Subtotal dos Produtos</span><span className="font-medium">R$ {resolvedOrder.subtotal?.toFixed(2) || '0.00'}</span></div>
-                            {resolvedOrder.discount_amount > 0 && (
-                                <div className="flex justify-between text-green-600 font-medium"><span>Descontos Aplicados</span><span>- R$ {resolvedOrder.discount_amount.toFixed(2)}</span></div>
+                            {couponDiscountAmount > 0 && (
+                                <div className="flex justify-between text-green-600 font-medium"><span>Cupom ({resolvedOrder.coupon_code || 'aplicado'})</span><span>- R$ {couponDiscountAmount.toFixed(2)}</span></div>
+                            )}
+                            {paymentDiscountAmount > 0 && (
+                                <div className="flex justify-between text-green-600 font-medium"><span>Desconto de pagamento</span><span>- R$ {paymentDiscountAmount.toFixed(2)}</span></div>
                             )}
                             <Separator className="my-2" />
                             <div className="flex justify-between items-center pt-1">

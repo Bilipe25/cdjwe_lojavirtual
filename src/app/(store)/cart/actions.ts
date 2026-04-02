@@ -88,6 +88,34 @@ type CreateOrderAtomicResult = {
     order_number: string
 }
 
+type CouponPreviewRow = {
+    coupon_id: string
+    coupon_code: string
+    coupon_name: string | null
+    discount_type: 'percentage' | 'fixed'
+    discount_value: number
+    max_discount_amount: number | null
+    is_cumulative: boolean
+    subtotal: number
+    eligible_subtotal: number
+    discount_amount: number
+    payment_discount_blocked: boolean
+}
+
+export type CheckoutCouponPreview = {
+    couponId: string
+    couponCode: string
+    couponName: string
+    discountType: 'percentage' | 'fixed'
+    discountValue: number
+    maxDiscountAmount: number | null
+    isCumulative: boolean
+    subtotal: number
+    eligibleSubtotal: number
+    discountAmount: number
+    paymentDiscountBlocked: boolean
+}
+
 type RpcErrorLike = {
     message?: string
     details?: string
@@ -113,6 +141,10 @@ function normalizeVariantPricingRow(variant: RawVariantPricingRow): VariantPrici
 
 function buildCartKey(variantId: string, sizeOptionId: string | null) {
     return `${variantId}::${sizeOptionId || 'legacy'}`
+}
+
+function normalizeCouponCodeInput(value: string | null | undefined) {
+    return (value || '').trim().toUpperCase()
 }
 
 function getRpcErrorMessage(error: RpcErrorLike | null) {
@@ -157,6 +189,7 @@ function mapAtomicOrderErrorToUserMessage(errorMessage: string) {
     if (normalized.includes('somente a vista')) return 'Este cliente pode comprar somente a vista (1 parcela).'
     if (normalized.includes('limite de credito excedido')) return 'Limite de credito excedido para este cliente.'
     if (normalized.includes('politica comercial do cliente')) return 'Pagamento invalido para a politica comercial deste cliente.'
+    if (normalized.includes('cupom')) return errorMessage
     if (isDuplicateOrderNumber(errorMessage)) return 'Conflito temporario na numeracao do pedido. Tente novamente em instantes.'
     if (isMissingV2AtomicFunction(errorMessage)) {
         return 'Checkout V2 indisponivel no banco. Aplique as migrations mais recentes (incluindo 055) ou desative CHECKOUT_V2_ENABLED.'
@@ -165,6 +198,18 @@ function mapAtomicOrderErrorToUserMessage(errorMessage: string) {
         return 'Banco desatualizado para o checkout atomico. Aplique as migrations pendentes de pedidos e pagamentos (013, 023, 025, 027 e 028).'
     }
     return `Erro ao criar pedido de forma atomica: ${errorMessage}`
+}
+
+function mapCouponPreviewErrorToUserMessage(errorMessage: string) {
+    const normalized = errorMessage.toLowerCase()
+    if (!normalized) return 'Nao foi possivel validar o cupom informado.'
+    if (normalized.includes('nao autenticado')) return 'Sua sessao expirou. Entre novamente para continuar.'
+    if (normalized.includes('loja nao encontrada')) return 'Nao foi possivel localizar sua loja para validar o cupom.'
+    if (normalized.includes('loja nao pertence ao perfil')) return 'Nao foi possivel validar a loja do seu perfil.'
+    if (normalized.includes('itens do pedido sao obrigatorios')) return 'Adicione itens no carrinho para aplicar cupom.'
+    if (normalized.includes('codigo de cupom obrigatorio')) return 'Informe um codigo de cupom.'
+    if (normalized.includes('cupom')) return errorMessage
+    return `Falha ao validar cupom: ${errorMessage}`
 }
 
 function normalizePricingLines(input: Array<PricingLineInput> | string[]): PricingLineInput[] {
@@ -557,12 +602,76 @@ export async function getCurrentVariantPricing(input: Array<PricingLineInput> | 
     }
 }
 
+export async function previewCouponForOrder(items: CartItem[], couponCode: string) {
+    if (!items?.length) {
+        return { error: 'Adicione itens no carrinho para aplicar cupom.' }
+    }
+
+    const normalizedCouponCode = normalizeCouponCodeInput(couponCode)
+    if (!normalizedCouponCode) {
+        return { error: 'Informe um codigo de cupom.' }
+    }
+
+    const supabase = await createClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return { error: 'Usuario nao autenticado.' }
+
+    const { data: store, error: storeError } = await supabase
+        .from('stores')
+        .select('id')
+        .eq('profile_id', user.id)
+        .single()
+    if (!store || storeError) return { error: 'Loja do usuario nao localizada no sistema.' }
+
+    const itemsPayload = items.map((item) => ({
+        product_variant_id: item.variantId,
+        size_option_id: item.sizeOptionId ?? null,
+        quantity: item.quantity,
+    }))
+
+    const { data, error } = await supabase.rpc('client_preview_coupon_for_order', {
+        p_store_id: store.id,
+        p_profile_id: user.id,
+        p_coupon_code: normalizedCouponCode,
+        p_items: itemsPayload,
+    })
+
+    const errorMessage = getRpcErrorMessage(error as RpcErrorLike | null)
+    if (error) {
+        return { error: mapCouponPreviewErrorToUserMessage(errorMessage || 'Erro ao validar cupom.') }
+    }
+
+    const previewRow = Array.isArray(data) ? (data[0] as CouponPreviewRow | undefined) : (data as CouponPreviewRow | null)
+    if (!previewRow?.coupon_id) {
+        return { error: 'Nao foi possivel validar o cupom informado.' }
+    }
+
+    const preview: CheckoutCouponPreview = {
+        couponId: previewRow.coupon_id,
+        couponCode: previewRow.coupon_code,
+        couponName: previewRow.coupon_name || previewRow.coupon_code,
+        discountType: previewRow.discount_type,
+        discountValue: Number(previewRow.discount_value || 0),
+        maxDiscountAmount: previewRow.max_discount_amount === null ? null : Number(previewRow.max_discount_amount),
+        isCumulative: Boolean(previewRow.is_cumulative),
+        subtotal: Number(previewRow.subtotal || 0),
+        eligibleSubtotal: Number(previewRow.eligible_subtotal || 0),
+        discountAmount: Number(previewRow.discount_amount || 0),
+        paymentDiscountBlocked: Boolean(previewRow.payment_discount_blocked),
+    }
+
+    return { data: preview }
+}
+
 export async function checkoutAction(
     items: CartItem[],
     selectedPaymentId: string,
     notes: string,
     isTableRule = false,
-    selectedAddressId?: string | null
+    selectedAddressId?: string | null,
+    couponCode?: string | null
 ) {
     if (!items?.length) return { error: 'O carrinho esta vazio.' }
     if (!selectedPaymentId) return { error: 'Condicao de pagamento obrigatoria.' }
@@ -579,6 +688,7 @@ export async function checkoutAction(
         .eq('profile_id', user.id)
         .single()
     if (!store || storeError) return { error: 'Loja do usuario nao localizada no sistema.' }
+    const normalizedCouponCode = normalizeCouponCodeInput(couponCode)
 
     const commercialSettings = await getStoreCommercialSettings(supabase, store.id)
     if (commercialSettings?.financial_profile === 'block_sales') {
@@ -703,8 +813,44 @@ export async function checkoutAction(
     const paymentRuleId = paymentSelection.paymentRuleId
     const paymentConditionId = paymentSelection.paymentConditionId
 
-    const paymentDiscount = (secureSubtotal * discountPercentage) / 100
-    let finalTotal = secureSubtotal - paymentDiscount
+    const couponPreviewItemsPayload = validatedItems.map((item) => ({
+        product_variant_id: item.variantId,
+        size_option_id: item.sizeOptionId ?? null,
+        quantity: item.quantity,
+    }))
+
+    let couponDiscountAmount = 0
+    let paymentDiscountBlockedByCoupon = false
+
+    if (normalizedCouponCode) {
+        const { data: couponPreviewData, error: couponPreviewError } = await supabase.rpc('client_preview_coupon_for_order', {
+            p_store_id: store.id,
+            p_profile_id: user.id,
+            p_coupon_code: normalizedCouponCode,
+            p_items: couponPreviewItemsPayload,
+        })
+
+        const couponPreviewErrorMessage = getRpcErrorMessage(couponPreviewError as RpcErrorLike | null)
+        if (couponPreviewError) {
+            return { error: mapCouponPreviewErrorToUserMessage(couponPreviewErrorMessage || 'Erro ao validar cupom.') }
+        }
+
+        const couponPreviewRow = Array.isArray(couponPreviewData)
+            ? (couponPreviewData[0] as CouponPreviewRow | undefined)
+            : (couponPreviewData as CouponPreviewRow | null)
+
+        if (!couponPreviewRow?.coupon_id) {
+            return { error: 'Nao foi possivel validar o cupom informado.' }
+        }
+
+        couponDiscountAmount = Number(couponPreviewRow.discount_amount || 0)
+        paymentDiscountBlockedByCoupon = Boolean(couponPreviewRow.payment_discount_blocked)
+    }
+
+    const effectivePaymentDiscountPercentage = paymentDiscountBlockedByCoupon ? 0 : discountPercentage
+    const subtotalAfterCoupon = Math.max(0, secureSubtotal - couponDiscountAmount)
+    const paymentDiscount = (subtotalAfterCoupon * effectivePaymentDiscountPercentage) / 100
+    let finalTotal = subtotalAfterCoupon - paymentDiscount
     const paymentSurcharge = (finalTotal * surchargePercentage) / 100
     finalTotal += paymentSurcharge
 
@@ -777,6 +923,7 @@ export async function checkoutAction(
         p_shipping_address: shippingAddressStr,
         p_notes: notes || null,
         p_items: legacyOrderItemsPayload,
+        ...(normalizedCouponCode ? { p_coupon_code: normalizedCouponCode } : {}),
     }
 
     const atomicPayloadV2 = {
@@ -796,6 +943,7 @@ export async function checkoutAction(
         p_shipping_address: shippingAddressStr,
         p_notes: notes || null,
         p_items: checkoutItemsPayloadV2,
+        ...(normalizedCouponCode ? { p_coupon_code: normalizedCouponCode } : {}),
     }
 
     const createdNoteLegacy = buildOrderCreatedAuditNote(validatedItems.length, finalTotal)
@@ -940,7 +1088,7 @@ export async function checkoutAction(
                     clientName,
                     items: emailItems,
                     subtotal: secureSubtotal,
-                    discount: paymentDiscount,
+                    discount: couponDiscountAmount + paymentDiscount,
                     total: finalTotal,
                     snapshotSummary,
                     ...commonProps,

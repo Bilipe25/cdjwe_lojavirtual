@@ -268,6 +268,8 @@ export default function OrderConfirmationPage() {
 
     const statusCfg = statusConfig[order.status as OrderStatus] ?? statusConfig.pending
     const paymentDisplay = getOrderPaymentDisplay(order)
+    const couponDiscountAmount = Number(order.coupon_discount_amount || 0)
+    const paymentDiscountAmount = Math.max(0, Number(order.discount_amount || 0) - couponDiscountAmount)
 
     return (
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 md:py-10 space-y-6">
@@ -509,10 +511,16 @@ export default function OrderConfirmationPage() {
                                         <span>R$ {order.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                     </div>
                                 )}
-                                {order.discount_amount > 0 && (
+                                {couponDiscountAmount > 0 && (
                                     <div className="flex justify-between text-sm text-green-600">
-                                        <span>Desconto</span>
-                                        <span>- R$ {order.discount_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                        <span>Cupom ({order.coupon_code || 'aplicado'})</span>
+                                        <span>- R$ {couponDiscountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                )}
+                                {paymentDiscountAmount > 0 && (
+                                    <div className="flex justify-between text-sm text-green-600">
+                                        <span>Desconto de pagamento</span>
+                                        <span>- R$ {paymentDiscountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                     </div>
                                 )}
                                 <div className="flex justify-between font-bold text-base">

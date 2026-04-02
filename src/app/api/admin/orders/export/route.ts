@@ -26,6 +26,10 @@ type AdminOrdersSearchRpcRow = {
 type AdminOrderExportEnrichmentRow = {
     id: string
     sales_channel: 'customer_portal' | 'representative' | null
+    coupon_code?: string | null
+    coupon_discount_type?: 'percentage' | 'fixed' | null
+    coupon_discount_value?: number | null
+    coupon_discount_amount?: number | null
     customer_profile?: { full_name?: string | null } | null
     created_by_profile?: { full_name?: string | null } | null
     items?: Array<{ count?: number | null }>
@@ -60,6 +64,10 @@ function formatDate(value: string): string {
         minute: '2-digit',
         hour12: false,
     }).format(date)
+}
+
+function formatMoney(value: number): string {
+    return Number(value || 0).toFixed(2).replace('.', ',')
 }
 
 export async function GET(request: Request) {
@@ -116,6 +124,10 @@ export async function GET(request: Request) {
         customerName: string
         representativeName: string
         itemCount: number
+        couponCode: string
+        couponDiscountType: 'percentage' | 'fixed' | null
+        couponDiscountValue: number
+        couponDiscountAmount: number
     }>()
 
     const orderIds = rows.map((row) => row.id)
@@ -125,6 +137,10 @@ export async function GET(request: Request) {
             .select(`
                 id,
                 sales_channel,
+                coupon_code,
+                coupon_discount_type,
+                coupon_discount_value,
+                coupon_discount_amount,
                 customer_profile:profiles!orders_profile_id_fkey(full_name),
                 created_by_profile:profiles!orders_created_by_profile_id_fkey(full_name),
                 items:order_items(count)
@@ -137,11 +153,33 @@ export async function GET(request: Request) {
                 customerName: row.customer_profile?.full_name || '',
                 representativeName: row.created_by_profile?.full_name || '',
                 itemCount: Number(row.items?.[0]?.count || 0),
+                couponCode: row.coupon_code || '',
+                couponDiscountType: row.coupon_discount_type || null,
+                couponDiscountValue: Number(row.coupon_discount_value || 0),
+                couponDiscountAmount: Number(row.coupon_discount_amount || 0),
             })
         })
     }
 
-    const header = ['ID', 'Pedido', 'Canal', 'Representante', 'Cliente', 'CNPJ/Empresa', 'Itens', 'Status', 'Total', 'Data']
+    const header = [
+        'ID',
+        'Pedido',
+        'Canal',
+        'Representante',
+        'Cliente',
+        'CNPJ/Empresa',
+        'Itens',
+        'Status',
+        'Total',
+        'Cupom',
+        'Tipo cupom',
+        'Valor cupom',
+        'Desconto cupom',
+        'Desconto pagamento',
+        'Desconto total',
+        'Data',
+    ]
+
     const lines = rows.map((row) => {
         const enrichment = enrichmentById.get(row.id)
         const channel = (row.sales_channel || enrichment?.salesChannel || 'customer_portal') === 'representative'
@@ -153,8 +191,20 @@ export async function GET(request: Request) {
         const customerName = row.profile_full_name || enrichment?.customerName || ''
         const itemCount = enrichment ? enrichment.itemCount : Number(row.item_count || 0)
         const statusLabel = statusLabelMap[row.status] || row.status
-        const total = Number(row.total || 0).toFixed(2).replace('.', ',')
+        const total = formatMoney(Number(row.total || 0))
+        const couponCode = enrichment?.couponCode || ''
+        const couponDiscountType = enrichment?.couponDiscountType || ''
+        const couponDiscountValue = enrichment?.couponDiscountValue || 0
+        const couponDiscountAmount = enrichment?.couponDiscountAmount || 0
+        const totalDiscountAmount = Number(row.discount_amount || 0)
+        const paymentDiscountAmount = Math.max(0, totalDiscountAmount - couponDiscountAmount)
         const companyInfo = `${row.store_cnpj || ''} - ${row.store_company_name || ''}`.trim()
+        const couponConfiguredValue =
+            couponDiscountType === 'percentage'
+                ? `${couponDiscountValue.toFixed(2).replace('.', ',')}%`
+                : couponDiscountType === 'fixed'
+                    ? formatMoney(couponDiscountValue)
+                    : ''
 
         return [
             escapeCsvValue(row.id),
@@ -166,6 +216,12 @@ export async function GET(request: Request) {
             escapeCsvValue(itemCount),
             escapeCsvValue(statusLabel),
             escapeCsvValue(total),
+            escapeCsvValue(couponCode),
+            escapeCsvValue(couponDiscountType),
+            escapeCsvValue(couponConfiguredValue),
+            escapeCsvValue(formatMoney(couponDiscountAmount)),
+            escapeCsvValue(formatMoney(paymentDiscountAmount)),
+            escapeCsvValue(formatMoney(totalDiscountAmount)),
             escapeCsvValue(formatDate(row.created_at)),
         ].join(',')
     })
@@ -183,4 +239,3 @@ export async function GET(request: Request) {
         },
     })
 }
-

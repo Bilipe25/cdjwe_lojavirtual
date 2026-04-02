@@ -64,6 +64,10 @@ type ReceiptOrder = {
     payment_installments?: number | null
     payment_discount_percentage?: number | null
     payment_surcharge_percentage?: number | null
+    coupon_code?: string | null
+    coupon_discount_type?: 'percentage' | 'fixed' | null
+    coupon_discount_value?: number | null
+    coupon_discount_amount?: number | null
     payment_condition?: {
         name?: string | null
         description?: string | null
@@ -187,6 +191,9 @@ export async function generateOrderReceiptPDF(
 ) {
     const logoBase64 = settings?.logo_url ? await getBase64ImageFromURL(settings.logo_url) : null
     const paymentDisplay = getOrderPaymentDisplay(order)
+    const couponDiscountAmount = Number(order.coupon_discount_amount || 0)
+    const totalDiscountAmount = Number(order.discount_amount || 0)
+    const paymentDiscountAmount = Math.max(0, totalDiscountAmount - couponDiscountAmount)
     const showCombinedPaymentLabel =
         !paymentDisplay.methodName ||
         !paymentDisplay.conditionName ||
@@ -246,6 +253,22 @@ export async function generateOrderReceiptPDF(
         })
     }
 
+    if (paymentDisplay.hasCouponSnapshot) {
+        const couponSummary =
+            paymentDisplay.couponCode && paymentDisplay.couponConfiguredLabel
+                ? `Cupom ${paymentDisplay.couponCode}: ${paymentDisplay.couponConfiguredLabel}`
+                : paymentDisplay.couponCode
+                    ? `Cupom aplicado: ${paymentDisplay.couponCode}`
+                    : 'Cupom aplicado no checkout'
+
+        paymentBoxStack.push({
+            text: couponSummary,
+            fontSize: 8,
+            color: '#b45309',
+            margin: [0, 8, 0, 0],
+        })
+    }
+
     if (paymentDisplay.description) {
         paymentBoxStack.push({
             text: paymentDisplay.description,
@@ -297,6 +320,35 @@ export async function generateOrderReceiptPDF(
             },
         ]
     })
+
+    const financialSummaryRows: Content[] = [
+        createSummaryRow('Subtotal', formatOrderCurrency(order.subtotal)),
+    ]
+
+    if (couponDiscountAmount > 0) {
+        const couponLabel = order.coupon_code ? `Cupom ${order.coupon_code}` : 'Cupom'
+        financialSummaryRows.push(
+            createSummaryRow(couponLabel, `- ${formatOrderCurrency(couponDiscountAmount)}`, { accent: true })
+        )
+    }
+
+    if (paymentDiscountAmount > 0) {
+        financialSummaryRows.push(
+            createSummaryRow('Desconto pagamento', `- ${formatOrderCurrency(paymentDiscountAmount)}`, { accent: true })
+        )
+    }
+
+    if (totalDiscountAmount > 0) {
+        financialSummaryRows.push(
+            createSummaryRow('Descontos totais', `- ${formatOrderCurrency(totalDiscountAmount)}`, { accent: true })
+        )
+    }
+
+    financialSummaryRows.push({
+        canvas: [{ type: 'line', x1: 0, y1: 0, x2: 162, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }],
+        margin: [0, 2, 0, 10],
+    })
+    financialSummaryRows.push(createSummaryRow('Total do pedido', formatOrderCurrency(order.total), { highlight: true }))
 
     const content: Content[] = [
         {
@@ -455,12 +507,7 @@ export async function generateOrderReceiptPDF(
                             table: {
                                 widths: ['*'],
                                 body: [[{
-                                    stack: [
-                                        createSummaryRow('Subtotal', formatOrderCurrency(order.subtotal)),
-                                        createSummaryRow('Desconto', `- ${formatOrderCurrency(order.discount_amount)}`, { accent: true }),
-                                        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 162, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }], margin: [0, 2, 0, 10] },
-                                        createSummaryRow('Total do pedido', formatOrderCurrency(order.total), { highlight: true }),
-                                    ],
+                                    stack: financialSummaryRows,
                                     fillColor: '#f8fafc',
                                     border: [false, false, false, false],
                                     margin: [12, 11, 12, 11],

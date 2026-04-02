@@ -16,6 +16,7 @@ import {
     Plus,
     ShieldCheck,
     ShoppingBag,
+    TicketPercent,
     Trash2,
     Truck,
 } from 'lucide-react'
@@ -41,6 +42,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
@@ -63,7 +65,9 @@ import {
     getAvailablePaymentRules,
     getAvailableStoreAddresses,
     getCurrentVariantPricing,
+    previewCouponForOrder,
 } from './actions'
+import type { CheckoutCouponPreview } from './actions'
 
 function formatCurrency(value: number) {
     return value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
@@ -81,6 +85,19 @@ function getConditionLabel(condition: PaymentCondition) {
     return `${condition.name}${condition.discount_percentage > 0 ? ` -${condition.discount_percentage}%` : ''}`
 }
 
+function getFriendlyCouponErrorMessage(message: string) {
+    const normalized = message.toLowerCase()
+    if (normalized.includes('expir')) return 'Este cupom nao esta mais vigente.'
+    if (normalized.includes('inativ')) return 'Este cupom nao esta disponivel no momento.'
+    if (normalized.includes('minimo')) return 'Este pedido ainda nao atingiu o valor minimo para este cupom.'
+    if (normalized.includes('limite')) return 'Este cupom atingiu o limite de uso.'
+    if (normalized.includes('nao encontrado')) return 'Nao encontramos esse cupom. Confira o codigo e tente novamente.'
+    if (normalized.includes('escopo') || normalized.includes('cliente') || normalized.includes('tabela')) {
+        return 'Este cupom nao se aplica a este pedido.'
+    }
+    return 'Nao foi possivel aplicar este cupom agora. Tente novamente.'
+}
+
 type CheckoutPaymentMethodGroup = {
     method: PaymentMethod
     conditions: PaymentMethodCondition[]
@@ -95,6 +112,11 @@ type CheckoutPaymentOption = {
     surchargePercentage: number
     isTableRule: boolean
     methodId: string | null
+}
+
+type CouponInlineFeedback = {
+    tone: 'info' | 'error'
+    message: string
 }
 
 function buildPaymentOptionsFromMethodGroup(group: CheckoutPaymentMethodGroup): CheckoutPaymentOption[] {
@@ -539,6 +561,10 @@ export default function CartPage() {
     const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
     const [nextOrderNumber, setNextOrderNumber] = useState('')
     const [newAddressDialogOpen, setNewAddressDialogOpen] = useState(false)
+    const [couponInput, setCouponInput] = useState('')
+    const [appliedCoupon, setAppliedCoupon] = useState<CheckoutCouponPreview | null>(null)
+    const [couponApplying, setCouponApplying] = useState(false)
+    const [couponInlineFeedback, setCouponInlineFeedback] = useState<CouponInlineFeedback | null>(null)
     const [priceValidationPending, setPriceValidationPending] = useState(false)
     const [lastValidatedKey, setLastValidatedKey] = useState('')
     const [checkoutBlockedByPolicy, setCheckoutBlockedByPolicy] = useState(false)
@@ -551,6 +577,15 @@ export default function CartPage() {
         () => items.map((item) => getCartItemKey(item)).sort().join('|'),
         [items]
     )
+    const couponValidationKey = useMemo(
+        () =>
+            items
+                .map((item) => `${getCartItemKey(item)}:${item.quantity}:${item.unitPrice}`)
+                .sort()
+                .join('|'),
+        [items]
+    )
+    const lastCouponValidationKeyRef = useRef('')
 
     const selectedAddress = useMemo(
         () => storeAddresses.find((address) => address.id === selectedAddressId) || null,
@@ -624,12 +659,16 @@ export default function CartPage() {
         selectedCondition?.surcharge_percentage ||
         selectedPaymentOption?.surchargePercentage ||
         0
-    const paymentDiscount = total * (discountPercentage / 100)
-    const discountedTotal = total - paymentDiscount
+    const couponDiscount = appliedCoupon?.discountAmount || 0
+    const paymentDiscountBlockedByCoupon = Boolean(appliedCoupon?.paymentDiscountBlocked)
+    const paymentDiscountPercentageEffective = paymentDiscountBlockedByCoupon ? 0 : discountPercentage
+    const baseAfterCoupon = Math.max(0, total - couponDiscount)
+    const paymentDiscount = baseAfterCoupon * (paymentDiscountPercentageEffective / 100)
+    const discountedTotal = Math.max(0, baseAfterCoupon - paymentDiscount)
     const paymentSurcharge = discountedTotal * (surchargePercentage / 100)
     const finalTotal = discountedTotal + paymentSurcharge
     const minOrderMet = !settings?.min_order_amount || total >= settings.min_order_amount
-    const canCheckout = minOrderMet && !checkoutBlockedByPolicy
+    const canCheckout = minOrderMet && !checkoutBlockedByPolicy && !couponApplying
 
     const selectedPaymentLabel = selectedPaymentOption
         ? `${selectedMethodGroup?.method.name ? `${selectedMethodGroup.method.name} · ` : ''}${selectedPaymentOption.label}`
@@ -639,9 +678,102 @@ export default function CartPage() {
         selectedPaymentOption?.description ||
         (isTableRule ? 'Regra comercial exclusiva da sua tabela B2B.' : null)
 
+    const applyCouponCode = useCallback(async (rawCode: string, options?: { silent?: boolean }) => {
+        const normalizedCode = rawCode.trim().toUpperCase()
+        if (!normalizedCode) {
+            if (!options?.silent) {
+                setCouponInlineFeedback({
+                    tone: 'error',
+                    message: 'Digite um cupom para aplicar.',
+                })
+            }
+            return false
+        }
+
+        setCouponApplying(true)
+        try {
+            const result = await previewCouponForOrder(items, normalizedCode)
+            if ('error' in result && result.error) {
+                if (options?.silent) {
+                    setAppliedCoupon(null)
+                    setCouponInput('')
+                    setCouponInlineFeedback({
+                        tone: 'info',
+                        message: 'Seu cupom foi removido porque os itens do carrinho mudaram.',
+                    })
+                    toast.message('Cupom removido apos atualizacao do carrinho.')
+                } else {
+                    setCouponInlineFeedback({
+                        tone: 'error',
+                        message: getFriendlyCouponErrorMessage(result.error),
+                    })
+                }
+                return false
+            }
+
+            if (!('data' in result) || !result.data) {
+                const fallbackMessage = 'Nao conseguimos validar esse cupom agora. Tente novamente.'
+                if (options?.silent) {
+                    setAppliedCoupon(null)
+                    setCouponInput('')
+                    setCouponInlineFeedback({
+                        tone: 'info',
+                        message: 'Seu cupom foi removido porque os itens do carrinho mudaram.',
+                    })
+                    toast.message('Cupom removido apos atualizacao do carrinho.')
+                } else {
+                    setCouponInlineFeedback({
+                        tone: 'error',
+                        message: fallbackMessage,
+                    })
+                }
+                return false
+            }
+
+            setAppliedCoupon(result.data)
+            setCouponInput(result.data.couponCode)
+            setCouponInlineFeedback(null)
+            lastCouponValidationKeyRef.current = `${result.data.couponCode}::${couponValidationKey}`
+            return true
+        } finally {
+            setCouponApplying(false)
+        }
+    }, [couponValidationKey, items])
+
+    const handleApplyCoupon = useCallback(() => {
+        void applyCouponCode(couponInput, { silent: false })
+    }, [applyCouponCode, couponInput])
+
+    const handleRemoveCoupon = useCallback(() => {
+        setAppliedCoupon(null)
+        setCouponInput('')
+        setCouponInlineFeedback({
+            tone: 'info',
+            message: 'Cupom removido.',
+        })
+        lastCouponValidationKeyRef.current = ''
+    }, [])
+
+    const handleCouponInputChange = useCallback((value: string) => {
+        setCouponInput(value.toUpperCase())
+        if (couponInlineFeedback?.tone === 'error') {
+            setCouponInlineFeedback(null)
+        }
+    }, [couponInlineFeedback?.tone])
+
     useEffect(() => {
         selectedPaymentMethodRef.current = selectedPaymentMethod
     }, [selectedPaymentMethod])
+
+    useEffect(() => {
+        if (!appliedCoupon?.couponCode) return
+
+        const nextValidationKey = `${appliedCoupon.couponCode}::${couponValidationKey}`
+        if (nextValidationKey === lastCouponValidationKeyRef.current) return
+
+        lastCouponValidationKeyRef.current = nextValidationKey
+        void applyCouponCode(appliedCoupon.couponCode, { silent: true })
+    }, [appliedCoupon?.couponCode, applyCouponCode, couponValidationKey])
 
     useEffect(() => {
         if (!selectedMethodGroup) return
@@ -656,6 +788,93 @@ export default function CartPage() {
         settings?.default_delivery_days && settings.default_delivery_days > 0
             ? `${settings.default_delivery_days} dias uteis estimados`
             : null
+
+    const renderCouponSection = (className?: string) => (
+        <CheckoutSection
+            icon={TicketPercent}
+            eyebrow="Cupom"
+            title="Cupom de desconto"
+            description="Aplique um cupom e acompanhe sua economia em tempo real."
+            className={cn('border-slate-200', className)}
+        >
+            <div className="space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                        value={couponInput}
+                        onChange={(event) => handleCouponInputChange(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                                event.preventDefault()
+                                if (!couponApplying && couponInput.trim()) {
+                                    handleApplyCoupon()
+                                }
+                            }
+                        }}
+                        placeholder="Tem cupom? Digite aqui"
+                        className="h-11 rounded-xl border-slate-200"
+                        disabled={couponApplying}
+                    />
+                    <div className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            className="h-11 rounded-xl border-slate-200"
+                            onClick={handleApplyCoupon}
+                            disabled={couponApplying || !couponInput.trim()}
+                        >
+                            {couponApplying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Aplicar
+                        </Button>
+                        {appliedCoupon && (
+                            <Button
+                                variant="ghost"
+                                className="h-11 rounded-xl text-slate-500 hover:text-slate-900"
+                                onClick={handleRemoveCoupon}
+                                disabled={couponApplying}
+                            >
+                                Remover
+                            </Button>
+                        )}
+                    </div>
+                </div>
+
+                {couponApplying ? (
+                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Validando cupom...
+                    </div>
+                ) : appliedCoupon ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                Cupom aplicado
+                            </span>
+                            <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold tracking-[0.08em] text-emerald-800">
+                                {appliedCoupon.couponCode}
+                            </span>
+                        </div>
+                        <p className="mt-2 text-sm font-medium text-emerald-900">
+                            Voce economizou R$ {formatCurrency(appliedCoupon.discountAmount)}.
+                        </p>
+                    </div>
+                ) : couponInlineFeedback ? (
+                    <div
+                        className={cn(
+                            'rounded-xl border px-3 py-3 text-sm',
+                            couponInlineFeedback.tone === 'error'
+                                ? 'border-red-200 bg-red-50 text-red-700'
+                                : 'border-slate-200 bg-slate-50 text-slate-600'
+                        )}
+                    >
+                        {couponInlineFeedback.message}
+                    </div>
+                ) : (
+                    <p className="text-xs text-slate-500">
+                        Digite seu codigo e clique em aplicar para calcular sua economia.
+                    </p>
+                )}
+            </div>
+        </CheckoutSection>
+    )
 
     useEffect(() => {
         const validatePrices = async () => {
@@ -868,8 +1087,14 @@ export default function CartPage() {
             return
         }
 
+        if (couponApplying) {
+            toast.message('Aguarde a validacao do cupom antes de finalizar.')
+            return
+        }
+
         setConfirmCheckoutOpen(true)
     }, [
+        couponApplying,
         checkoutBlockedByPolicy,
         items.length,
         minOrderMet,
@@ -879,6 +1104,11 @@ export default function CartPage() {
     ])
 
     const processOrder = useCallback(async () => {
+        if (couponApplying) {
+            toast.message('Aguarde a validacao do cupom antes de confirmar.')
+            return
+        }
+
         if (checkoutBlockedByPolicy) {
             toast.error(
                 paymentRestrictionMessage ||
@@ -896,7 +1126,8 @@ export default function CartPage() {
                 selectedPayment,
                 notes,
                 isTableRule,
-                selectedAddressId
+                selectedAddressId,
+                appliedCoupon?.couponCode || null
             )
 
             if ('error' in result && result.error) {
@@ -936,6 +1167,7 @@ export default function CartPage() {
             setLoading(false)
         }
     }, [
+        couponApplying,
         checkoutBlockedByPolicy,
         clearCart,
         isTableRule,
@@ -943,6 +1175,7 @@ export default function CartPage() {
         notes,
         paymentRestrictionMessage,
         router,
+        appliedCoupon?.couponCode,
         selectedAddressId,
         selectedPayment,
     ])
@@ -1156,9 +1389,9 @@ export default function CartPage() {
                                                 <Label className="text-sm font-semibold text-slate-800">
                                                     Tipo de Pagamento
                                                 </Label>
-                                                {discountPercentage > 0 && (
+                                                {paymentDiscountPercentageEffective > 0 && (
                                                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200/80">
-                                                        {discountPercentage.toFixed(0)}% off
+                                                        {paymentDiscountPercentageEffective.toFixed(0)}% off
                                                     </span>
                                                 )}
                                             </div>
@@ -1299,6 +1532,8 @@ export default function CartPage() {
                             </div>
                         </div>
 
+                        {renderCouponSection('sm:hidden')}
+
                         {/* -- Mobile: Observações Card ---------------- */}
                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
                             <div className="border-b border-slate-100 px-4 py-3.5">
@@ -1413,6 +1648,8 @@ export default function CartPage() {
                             </div>
                         </CheckoutSection>
 
+                        {renderCouponSection('hidden sm:block sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm')}
+
                         {/* -- Desktop: Observações -------------------- */}
                         <CheckoutSection
                             icon={MessageSquare}
@@ -1506,9 +1743,9 @@ export default function CartPage() {
                                             <Label className="text-sm font-semibold text-slate-800">
                                                 Tipo de Pagamento
                                             </Label>
-                                            {discountPercentage > 0 && (
+                                            {paymentDiscountPercentageEffective > 0 && (
                                                 <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200/80">
-                                                    {discountPercentage.toFixed(0)}% off
+                                                    {paymentDiscountPercentageEffective.toFixed(0)}% off
                                                 </span>
                                             )}
                                         </div>
@@ -1550,9 +1787,16 @@ export default function CartPage() {
                                             label={`Itens (${count})`}
                                             value={`R$ ${formatCurrency(total)}`}
                                         />
+                                        {couponDiscount > 0 && (
+                                            <SummaryRow
+                                                label={`Cupom (${appliedCoupon?.couponCode || 'aplicado'})`}
+                                                value={`- R$ ${formatCurrency(couponDiscount)}`}
+                                                emphasis="success"
+                                            />
+                                        )}
                                         {paymentDiscount > 0 && (
                                             <SummaryRow
-                                                label={`Desconto de pagamento (${discountPercentage}%)`}
+                                                label={`Desconto de pagamento (${paymentDiscountPercentageEffective}%)`}
                                                 value={`- R$ ${formatCurrency(paymentDiscount)}`}
                                                 emphasis="success"
                                             />
@@ -1563,6 +1807,11 @@ export default function CartPage() {
                                                 value={`+ R$ ${formatCurrency(paymentSurcharge)}`}
                                                 emphasis="warning"
                                             />
+                                        )}
+                                        {paymentDiscountBlockedByCoupon && discountPercentage > 0 && (
+                                            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+                                                Este cupom ja contempla o melhor beneficio para este pedido.
+                                            </p>
                                         )}
                                     </div>
 
@@ -1693,6 +1942,13 @@ export default function CartPage() {
                                 label={`Itens (${count})`}
                                 value={`R$ ${formatCurrency(total)}`}
                             />
+                            {couponDiscount > 0 && (
+                                <SummaryRow
+                                    label={`Cupom (${appliedCoupon?.couponCode || 'aplicado'})`}
+                                    value={`- R$ ${formatCurrency(couponDiscount)}`}
+                                    emphasis="success"
+                                />
+                            )}
                             <SummaryRow label="Pagamento" value={selectedPaymentLabel} />
                             {selectedAddress && (
                                 <SummaryRow label="Entrega" value={selectedAddress.title} />
@@ -1709,6 +1965,11 @@ export default function CartPage() {
                                         paymentDiscount > 0 ? 'success' : 'warning'
                                     }
                                 />
+                            )}
+                            {paymentDiscountBlockedByCoupon && discountPercentage > 0 && (
+                                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+                                    Este cupom ja contempla o melhor beneficio para este pedido.
+                                </p>
                             )}
                             <Separator />
                             <div className="flex items-center justify-between gap-3 text-sm">

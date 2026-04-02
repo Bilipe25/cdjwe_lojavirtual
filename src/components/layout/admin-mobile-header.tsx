@@ -32,6 +32,7 @@ import {
     UserCircle,
     Warehouse,
     DollarSign,
+    TicketPercent,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -57,6 +58,7 @@ const cadastrosNavItems = [
 
 const marketingNavItems = [
     { href: '/admin/marketing/campaigns', label: 'Campanhas', icon: Megaphone },
+    { href: '/admin/marketing/coupons', label: 'Cupons', icon: TicketPercent },
     { href: '/admin/marketing/notifications', label: 'Notificações', icon: Bell },
     { href: '/admin/marketing/push', label: 'Push Notifications', icon: Send },
     { href: '/admin/marketing/popups', label: 'Popups', icon: ImageIcon },

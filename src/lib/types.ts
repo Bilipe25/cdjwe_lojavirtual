@@ -327,6 +327,11 @@ export interface Order {
   negotiation_reason?: string | null
   subtotal: number
   discount_amount: number
+  coupon_id?: string | null
+  coupon_code?: string | null
+  coupon_discount_type?: 'percentage' | 'fixed' | null
+  coupon_discount_value?: number | null
+  coupon_discount_amount?: number | null
   total: number
   notes: string | null
   shipping_address: string | null
@@ -472,16 +477,25 @@ export interface PaymentCondition {
 export interface DiscountCoupon {
   id: string
   code: string
+  name?: string | null
   description: string | null
   discount_type: 'percentage' | 'fixed'
   discount_value: number
   min_order_amount: number | null
+  max_discount_amount?: number | null
   max_uses: number | null
   current_uses: number
+  max_uses_per_customer?: number | null
+  is_cumulative?: boolean
   valid_from: string
   valid_until: string | null
   is_active: boolean
   created_at: string
+  updated_at?: string
+  customer_type_scope_ids?: string[]
+  price_table_scope_ids?: string[]
+  product_scope_ids?: string[]
+  category_scope_ids?: string[]
 }
 
 export interface SystemSettings {
