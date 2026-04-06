@@ -18,7 +18,7 @@ import type { CustomerType, CustomerTag, Profile } from '@/lib/types'
 const companySchema = z.object({
     companyName: z.string().min(2, 'Razão Social obrigatória').max(150, 'Nome muito longo'),
     tradeName: z.string().optional(),
-    cnpj: z.string().min(14, 'CNPJ deve ter pelo menos 14 caracteres'),
+    documentNumber: z.string().min(11, 'Documento fiscal invalido'),
     customerTypeId: z.string().optional(),
     representativeId: z.string().optional(),
     tagIds: z.array(z.string()).optional(),
@@ -47,7 +47,7 @@ export function ClientCompanyCard({ customer, customerTypes, customerTags, repre
         defaultValues: {
             companyName: store?.company_name || '',
             tradeName: store?.trade_name || '',
-            cnpj: store?.cnpj || '',
+            documentNumber: store?.document_number || store?.cnpj || '',
             customerTypeId: store?.customer_type_id || '',
             representativeId: store?.representative_id || '',
             tagIds: store?.store_tags?.map(st => st.tag_id) || [],
@@ -77,7 +77,7 @@ export function ClientCompanyCard({ customer, customerTypes, customerTags, repre
         reset({
             companyName: store?.company_name || '',
             tradeName: store?.trade_name || '',
-            cnpj: store?.cnpj || '',
+            documentNumber: store?.document_number || store?.cnpj || '',
             customerTypeId: store?.customer_type_id || '',
             representativeId: store?.representative_id || '',
             tagIds: store?.store_tags?.map(st => st.tag_id) || [],
@@ -94,7 +94,10 @@ export function ClientCompanyCard({ customer, customerTypes, customerTags, repre
                 email: customer.email || '',
                 companyName: data.companyName,
                 tradeName: data.tradeName,
-                cnpj: data.cnpj,
+                cnpj: data.documentNumber,
+                personType: store?.person_type || 'legal_entity',
+                documentType: store?.document_type || 'CNPJ',
+                documentNumber: data.documentNumber,
                 customerTypeId: data.customerTypeId === 'none' ? undefined : data.customerTypeId,
                 representativeId: data.representativeId === 'none' ? undefined : data.representativeId,
                 tagIds: data.tagIds,
@@ -140,8 +143,8 @@ export function ClientCompanyCard({ customer, customerTypes, customerTags, repre
                         <p className="text-sm font-medium">{store?.trade_name || '—'}</p>
                     </div>
                     <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">CNPJ</p>
-                        <p className="text-sm font-medium">{store?.cnpj || '—'}</p>
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Documento Fiscal</p>
+                        <p className="text-sm font-medium">{store?.document_number || store?.cnpj || '—'}</p>
                     </div>
                     <div className="space-y-1">
                         <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Tipo de Cliente</p>
@@ -196,9 +199,9 @@ export function ClientCompanyCard({ customer, customerTypes, customerTags, repre
                     <Input {...register('tradeName')} className="bg-white h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">
-                    <Label className="text-xs">CNPJ *</Label>
-                    <Input {...register('cnpj')} className="bg-white h-9 text-sm" />
-                    {errors.cnpj && <p className="text-xs text-red-500">{errors.cnpj.message}</p>}
+                    <Label className="text-xs">Documento Fiscal *</Label>
+                    <Input {...register('documentNumber')} className="bg-white h-9 text-sm" />
+                    {errors.documentNumber && <p className="text-xs text-red-500">{errors.documentNumber.message}</p>}
                 </div>
                 <div className="space-y-1.5">
                     <Label className="text-xs">Tipo de Cliente</Label>
@@ -290,3 +293,4 @@ export function ClientCompanyCard({ customer, customerTypes, customerTags, repre
         </form>
     )
 }
+

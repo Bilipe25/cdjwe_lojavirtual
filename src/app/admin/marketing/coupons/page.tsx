@@ -408,7 +408,7 @@ export default function CouponsPage() {
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                         <Input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Buscar codigo, nome ou descricao" className="pl-9" />
                     </div>
-                    <Select value={statusFilter} onValueChange={(value: CouponStatusFilter) => { setStatusFilter(value); setPage(1) }}>
+                    <Select value={statusFilter} onValueChange={(value) => { if (!value) return; setStatusFilter(value); setPage(1) }}>
                         <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Todos os status</SelectItem>
@@ -418,7 +418,7 @@ export default function CouponsPage() {
                             <SelectItem value="scheduled">Agendados</SelectItem>
                         </SelectContent>
                     </Select>
-                    <Select value={typeFilter} onValueChange={(value: CouponTypeFilter) => { setTypeFilter(value); setPage(1) }}>
+                    <Select value={typeFilter} onValueChange={(value) => { if (!value) return; setTypeFilter(value); setPage(1) }}>
                         <SelectTrigger><SelectValue placeholder="Tipo" /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Todos os tipos</SelectItem>
@@ -522,7 +522,7 @@ export default function CouponsPage() {
                         <section className="space-y-3 rounded-xl border border-slate-200 p-4">
                             <h3 className="text-sm font-semibold">2. Regra do desconto</h3>
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                                <div className="space-y-1.5"><Label>Tipo</Label><Select value={formState.discountType} onValueChange={(value: 'percentage' | 'fixed') => setFormState((p) => ({ ...p, discountType: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="percentage">Percentual</SelectItem><SelectItem value="fixed">Valor fixo</SelectItem></SelectContent></Select></div>
+                                <div className="space-y-1.5"><Label>Tipo</Label><Select value={formState.discountType} onValueChange={(value) => { if (!value) return; setFormState((p) => ({ ...p, discountType: value })) }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="percentage">Percentual</SelectItem><SelectItem value="fixed">Valor fixo</SelectItem></SelectContent></Select></div>
                                 <div className="space-y-1.5"><Label>Valor</Label><Input type="number" min="0" step="0.01" value={formState.discountValue} onChange={(e) => setFormState((p) => ({ ...p, discountValue: e.target.value }))} /></div>
                                 <div className="space-y-1.5"><Label>Max. desconto</Label><Input type="number" min="0" step="0.01" value={formState.maxDiscountAmount} onChange={(e) => setFormState((p) => ({ ...p, maxDiscountAmount: e.target.value }))} /></div>
                                 <div className="space-y-1.5"><Label>Pedido minimo</Label><Input type="number" min="0" step="0.01" value={formState.minOrderAmount} onChange={(e) => setFormState((p) => ({ ...p, minOrderAmount: e.target.value }))} /></div>
@@ -605,7 +605,7 @@ export default function CouponsPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <Select value={usageFilter} onValueChange={(value: UsageStatusFilter) => { setUsageFilter(value); setUsagePage(1) }}>
+                                <Select value={usageFilter} onValueChange={(value) => { if (!value) return; setUsageFilter(value); setUsagePage(1) }}>
                                     <SelectTrigger className="w-[220px]"><SelectValue placeholder="Status" /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="all">Todos</SelectItem>

@@ -34,10 +34,11 @@ export function CustomerAccessTab({ customer, onRoleUpdated }: CustomerAccessTab
     const primaryIdentifier = useMemo(
         () =>
             getPrimaryCustomerAccessIdentifier({
+                document: store?.document_number,
                 cnpj: store?.cnpj,
                 email: hasRealEmail ? customer?.email : null,
             }),
-        [customer?.email, hasRealEmail, store?.cnpj]
+        [customer?.email, hasRealEmail, store?.cnpj, store?.document_number]
     )
     const isDriver = customer?.role === 'driver'
 
@@ -81,7 +82,7 @@ export function CustomerAccessTab({ customer, onRoleUpdated }: CustomerAccessTab
     const handleCopyCredentials = () => {
         const text = [
             `Link de acesso: ${loginUrl}`,
-            `Acesso principal (CNPJ): ${primaryIdentifier || 'Nao informado'}`,
+            `Acesso principal (documento): ${primaryIdentifier || 'Nao informado'}`,
             hasRealEmail ? `Acesso alternativo (e-mail): ${customerEmail}` : 'E-mail do cliente ainda pendente de cadastro',
             password ? `Senha: ${password}` : null,
         ]
@@ -161,7 +162,7 @@ export function CustomerAccessTab({ customer, onRoleUpdated }: CustomerAccessTab
                         <div className="rounded-md border bg-white px-3 py-2.5 shadow-sm">
                             <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                                 <Building2 className="h-3.5 w-3.5" />
-                                CNPJ
+                                Documento
                             </div>
                             <p className="font-mono text-sm font-medium text-navy">{primaryIdentifier || 'Nao informado'}</p>
                         </div>
@@ -192,7 +193,7 @@ export function CustomerAccessTab({ customer, onRoleUpdated }: CustomerAccessTab
                         <Label className="text-xs text-muted-foreground font-medium">Senha em Tela</Label>
                         <div className="flex items-center gap-2">
                             <p className="flex-1 rounded-md border border-green-200 bg-green-50 px-3 py-2 font-mono text-sm font-medium text-green-800 shadow-sm">
-                                {showPassword ? password : '••••••••'}
+                                {showPassword ? password : '********'}
                             </p>
                             <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => setShowPassword(!showPassword)}>
                                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

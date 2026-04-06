@@ -4,11 +4,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
     ArrowDown,
     ArrowUp,
+    AlertTriangle,
     Loader2,
     Info,
     Palette,
     Plus,
     Ruler,
+    ShieldCheck,
     Trash2,
 } from 'lucide-react';
 import {
@@ -36,6 +38,18 @@ interface ProductFormModalProps {
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
     categories: Category[];
+    taxProfiles: Array<{
+        id: string
+        name: string
+        code: string
+        ncm: string | null
+        cest: string | null
+        default_output_cfop: string | null
+        is_active: boolean
+        version: number
+        products_count: number
+        updated_at: string
+    }>;
     editingProduct: ProductWithDetails | null;
     saving: boolean;
     onSave: (
@@ -49,12 +63,13 @@ interface ProductFormModalProps {
     ) => Promise<void>;
 }
 
-type ActiveTab = 'info' | 'fabrics';
+type ActiveTab = 'info' | 'fiscal' | 'fabrics';
 
 export function ProductFormModal({
     isOpen,
     onOpenChange,
     categories,
+    taxProfiles,
     editingProduct,
     saving,
     onSave,
@@ -65,6 +80,7 @@ export function ProductFormModal({
             name: '',
             description: '',
             category_id: '',
+            tax_profile_id: '',
             size: '',
             has_size_variants: false,
             size_options: [],
@@ -116,6 +132,7 @@ export function ProductFormModal({
                     name: editingProduct.name,
                     description: editingProduct.description || '',
                     category_id: editingProduct.category_id || '',
+                    tax_profile_id: editingProduct.tax_profile_id || '',
                     size: editingProduct.size || '',
                     has_size_variants: Boolean(editingProduct.has_size_variants),
                     size_options: [],
@@ -172,6 +189,7 @@ export function ProductFormModal({
                     name: '',
                     description: '',
                     category_id: categories[0]?.id || '',
+                    tax_profile_id: '',
                     size: '',
                     has_size_variants: false,
                     size_options: [],
@@ -206,6 +224,10 @@ export function ProductFormModal({
     };
 
     const onSubmit = async (data: ProductFormData) => {
+        if (!data.tax_profile_id) {
+            toast.warning('Produto sem perfil tributario. A emissao de NF-e pode ficar incompleta.');
+        }
+
         const normalizedSizeOptions = (data.size_options || []).map((option, index) => ({
             ...option,
             sort_order: index,
@@ -300,6 +322,7 @@ export function ProductFormModal({
     }, []);
 
     const categoryIdValue = useWatch({ control: form.control, name: 'category_id' }) || undefined;
+    const taxProfileIdValue = useWatch({ control: form.control, name: 'tax_profile_id' }) || '';
     const isActiveValue = useWatch({ control: form.control, name: 'is_active' }) ?? false;
     const isFeaturedValue = useWatch({ control: form.control, name: 'is_featured' }) ?? false;
     const hasSizeVariantsValue = useWatch({ control: form.control, name: 'has_size_variants' }) ?? false;
@@ -307,9 +330,11 @@ export function ProductFormModal({
     const activeSizeOptionsCount = sizeOptionsValue.filter((option) => option?.is_active).length;
     const defaultSizeOptionName =
         sizeOptionsValue.find((option) => option?.is_default)?.name || sizeOptionsValue[0]?.name || null;
+    const selectedTaxProfile = taxProfiles.find((profile) => profile.id === taxProfileIdValue) || null;
 
     const tabs: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
         { id: 'info', label: 'Informacoes', icon: <Info className="h-3.5 w-3.5" /> },
+        { id: 'fiscal', label: 'Fiscal', icon: <ShieldCheck className="h-3.5 w-3.5" /> },
         { id: 'fabrics', label: 'Tecidos & Cores', icon: <Palette className="h-3.5 w-3.5" /> },
     ];
 
@@ -617,6 +642,106 @@ export function ProductFormModal({
                         </div>
                     )}
 
+                    {activeTab === 'fiscal' && (
+                        <div className="pt-4 space-y-4">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                                    Perfil Tributario do Produto
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-[1.5fr_auto] gap-3">
+                                    <div className="space-y-2">
+                                        <Label className="text-navy font-medium">Perfil Tributario</Label>
+                                        <Select
+                                            value={taxProfileIdValue || '__none__'}
+                                            onValueChange={(value) => {
+                                                const resolvedValue =
+                                                    value && value !== '__none__'
+                                                        ? value
+                                                        : ''
+                                                setValue('tax_profile_id', resolvedValue, {
+                                                    shouldDirty: true,
+                                                })
+                                            }}
+                                        >
+                                            <SelectTrigger className="bg-white/80">
+                                                <SelectValue placeholder="Selecione um perfil tributario" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="__none__">Sem perfil vinculado</SelectItem>
+                                                {taxProfiles.map((profile) => (
+                                                    <SelectItem key={profile.id} value={profile.id}>
+                                                        {profile.name} ({profile.code})
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            O produto herda NCM, CEST, CFOP e flags fiscais a partir do perfil selecionado.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-end">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="w-full md:w-auto"
+                                            onClick={() => window.open('/admin/product-tax-profiles', '_blank')}
+                                        >
+                                            Gerenciar Perfis
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {!selectedTaxProfile ? (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                                    <p className="text-sm font-medium text-amber-800 flex items-center gap-2">
+                                        <AlertTriangle className="h-4 w-4" />
+                                        Produto sem perfil tributario
+                                    </p>
+                                    <p className="text-xs text-amber-700 mt-1">
+                                        O cadastro continua permitido nesta fase, mas este produto nao ficara pronto para emissao fiscal robusta.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-emerald-900">
+                                                {selectedTaxProfile.name}
+                                            </p>
+                                            <p className="text-xs text-emerald-700">
+                                                Codigo: {selectedTaxProfile.code} - Versao {selectedTaxProfile.version}
+                                            </p>
+                                        </div>
+                                        <span className="rounded-full border border-emerald-300 px-2 py-0.5 text-[11px] font-medium text-emerald-700 bg-white/70">
+                                            {selectedTaxProfile.is_active ? 'Ativo' : 'Inativo'}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                                        <div className="rounded-lg border border-emerald-200/80 bg-white/70 px-3 py-2">
+                                            <p className="text-muted-foreground uppercase tracking-wide">NCM</p>
+                                            <p className="font-semibold text-emerald-900">
+                                                {selectedTaxProfile.ncm || 'Nao informado'}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-lg border border-emerald-200/80 bg-white/70 px-3 py-2">
+                                            <p className="text-muted-foreground uppercase tracking-wide">CEST</p>
+                                            <p className="font-semibold text-emerald-900">
+                                                {selectedTaxProfile.cest || 'Nao informado'}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-lg border border-emerald-200/80 bg-white/70 px-3 py-2">
+                                            <p className="text-muted-foreground uppercase tracking-wide">CFOP Saida</p>
+                                            <p className="font-semibold text-emerald-900">
+                                                {selectedTaxProfile.default_output_cfop || 'Nao informado'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Tab: Tecidos & Cores */}
                     {activeTab === 'fabrics' && (
                         <div className="pt-4">
@@ -649,4 +774,5 @@ export function ProductFormModal({
         </Dialog>
     );
 }
+
 

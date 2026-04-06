@@ -32,6 +32,7 @@ type AdminOrderExportEnrichmentRow = {
     coupon_discount_amount?: number | null
     customer_profile?: { full_name?: string | null } | null
     created_by_profile?: { full_name?: string | null } | null
+    store?: { document_number?: string | null; cnpj?: string | null; company_name?: string | null } | null
     items?: Array<{ count?: number | null }>
 }
 
@@ -128,6 +129,8 @@ export async function GET(request: Request) {
         couponDiscountType: 'percentage' | 'fixed' | null
         couponDiscountValue: number
         couponDiscountAmount: number
+        primaryDocument: string
+        companyName: string
     }>()
 
     const orderIds = rows.map((row) => row.id)
@@ -143,6 +146,7 @@ export async function GET(request: Request) {
                 coupon_discount_amount,
                 customer_profile:profiles!orders_profile_id_fkey(full_name),
                 created_by_profile:profiles!orders_created_by_profile_id_fkey(full_name),
+                store:stores(document_number, cnpj, company_name),
                 items:order_items(count)
             `)
             .in('id', orderIds)
@@ -157,6 +161,8 @@ export async function GET(request: Request) {
                 couponDiscountType: row.coupon_discount_type || null,
                 couponDiscountValue: Number(row.coupon_discount_value || 0),
                 couponDiscountAmount: Number(row.coupon_discount_amount || 0),
+                primaryDocument: row.store?.document_number || row.store?.cnpj || '',
+                companyName: row.store?.company_name || '',
             })
         })
     }
@@ -167,7 +173,7 @@ export async function GET(request: Request) {
         'Canal',
         'Representante',
         'Cliente',
-        'CNPJ/Empresa',
+        'Documento/Empresa',
         'Itens',
         'Status',
         'Total',
@@ -198,7 +204,9 @@ export async function GET(request: Request) {
         const couponDiscountAmount = enrichment?.couponDiscountAmount || 0
         const totalDiscountAmount = Number(row.discount_amount || 0)
         const paymentDiscountAmount = Math.max(0, totalDiscountAmount - couponDiscountAmount)
-        const companyInfo = `${row.store_cnpj || ''} - ${row.store_company_name || ''}`.trim()
+        const primaryDocument = enrichment?.primaryDocument || row.store_cnpj || ''
+        const companyName = enrichment?.companyName || row.store_company_name || ''
+        const companyInfo = `${primaryDocument} - ${companyName}`.trim()
         const couponConfiguredValue =
             couponDiscountType === 'percentage'
                 ? `${couponDiscountValue.toFixed(2).replace('.', ',')}%`
@@ -239,3 +247,4 @@ export async function GET(request: Request) {
         },
     })
 }
+

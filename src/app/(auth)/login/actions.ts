@@ -14,6 +14,7 @@ import { cookies, headers } from 'next/headers'
 import { loginSchema, type LoginFormData } from './schema'
 
 type StoreLoginRow = {
+    document_number?: string | null
     cnpj: string | null
     profiles?: { email?: string | null } | { email?: string | null }[] | null
 }
@@ -44,6 +45,35 @@ function readStoreProfileEmail(store?: StoreLoginRow | null) {
     return normalizeEmail(profileData?.email)
 }
 
+async function findStoreByDocument(
+    lookupClient: ReturnType<typeof getLookupClient>,
+    candidates: string[]
+) {
+    const byDocument = await lookupClient
+        .from('stores')
+        .select('document_number, cnpj, profiles!stores_profile_id_fkey!inner(email)')
+        .in('document_number', candidates)
+        .limit(1)
+        .maybeSingle()
+
+    if (!byDocument.error && byDocument.data) {
+        return { data: byDocument.data as StoreLoginRow, error: null as string | null }
+    }
+
+    const byCnpj = await lookupClient
+        .from('stores')
+        .select('document_number, cnpj, profiles!stores_profile_id_fkey!inner(email)')
+        .in('cnpj', candidates)
+        .limit(1)
+        .maybeSingle()
+
+    if (byCnpj.error) {
+        return { data: null as StoreLoginRow | null, error: byCnpj.error.message || 'Falha ao localizar documento.' }
+    }
+
+    return { data: (byCnpj.data as StoreLoginRow | null) || null, error: null as string | null }
+}
+
 export async function loginAction(data: LoginFormData) {
     const parsed = loginSchema.safeParse(data)
     if (!parsed.success) {
@@ -66,12 +96,10 @@ export async function loginAction(data: LoginFormData) {
 
             const documentCandidates = getDocumentCandidates(trimmedIdentifier)
             const lookupClient = getLookupClient()
-            const { data: storeData, error: lookupError } = await lookupClient
-                .from('stores')
-                .select('cnpj, profiles!stores_profile_id_fkey!inner(email)')
-                .in('cnpj', documentCandidates)
-                .limit(1)
-                .maybeSingle()
+            const { data: storeData, error: lookupError } = await findStoreByDocument(
+                lookupClient,
+                documentCandidates
+            )
 
             if (lookupError) {
                 console.error('Login lookup error:', lookupError)
@@ -110,7 +138,7 @@ export async function loginAction(data: LoginFormData) {
 
         const { data: profile } = await supabase
             .from('profiles')
-            .select('role, status, full_name, email, stores!stores_profile_id_fkey(company_name, cnpj)')
+            .select('role, status, full_name, email, stores!stores_profile_id_fkey(company_name, cnpj, document_number)')
             .eq('id', user.id)
             .single()
 
@@ -122,6 +150,7 @@ export async function loginAction(data: LoginFormData) {
         const preferredIdentifier =
             role === 'client'
                 ? getPrimaryCustomerAccessIdentifier({
+                    document: primaryStore?.document_number,
                     cnpj: primaryStore?.cnpj,
                     email: hasRealCustomerEmail(profile?.email) ? profile?.email : null,
                 }) || trimmedIdentifier

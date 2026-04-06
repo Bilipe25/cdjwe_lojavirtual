@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Package, MoreHorizontal, Edit, Trash2, ImageIcon, Star, CheckSquare, Square } from 'lucide-react';
+import { Package, MoreHorizontal, Edit, Trash2, ImageIcon, Star, CheckSquare, Square, ShieldAlert } from 'lucide-react';
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -131,6 +131,16 @@ export function ProductList({
                                                 <span className="text-[11px] font-medium bg-muted px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[150px]">
                                                     {product.category?.name || 'Sem Categoria'}
                                                 </span>
+                                                {product.tax_profile_id ? (
+                                                    <span className="text-[11px] font-medium bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded truncate max-w-[160px]">
+                                                        Fiscal: {product.tax_profile?.code || 'Perfil vinculado'}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[11px] font-medium bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                                                        <ShieldAlert className="h-3 w-3" />
+                                                        Sem perfil fiscal
+                                                    </span>
+                                                )}
                                                 {product.has_size_variants && (
                                                     <span className="text-[11px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
                                                         Tamanhos
@@ -216,6 +226,16 @@ export function ProductList({
                                             <span className="text-[10px] sm:text-xs font-medium bg-muted px-1 sm:px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[80px] sm:max-w-[120px]">
                                                 {product.category?.name || 'Sem Categoria'}
                                             </span>
+                                            {product.tax_profile_id ? (
+                                                <span className="text-[9px] sm:text-[10px] font-medium bg-emerald-50 text-emerald-700 px-1 py-0.5 rounded truncate max-w-[110px]">
+                                                    {product.tax_profile?.code || 'Fiscal'}
+                                                </span>
+                                            ) : (
+                                                <span className="text-[9px] sm:text-[10px] font-medium bg-amber-50 text-amber-700 px-1 py-0.5 rounded inline-flex items-center gap-1">
+                                                    <ShieldAlert className="h-3 w-3" />
+                                                    Sem fiscal
+                                                </span>
+                                            )}
                                             {product.has_size_variants && (
                                                 <span className="text-[9px] sm:text-[10px] font-medium bg-blue-50 text-blue-700 px-1 py-0.5 rounded">
                                                     Tamanhos

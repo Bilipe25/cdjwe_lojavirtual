@@ -73,9 +73,13 @@ export function hasRealCustomerEmail(email?: string | null) {
 }
 
 export function getPrimaryCustomerAccessIdentifier(params: {
+    document?: string | null
     cnpj?: string | null
     email?: string | null
 }) {
+    const document = (params.document || '').trim()
+    if (document) return document
+
     const cnpj = (params.cnpj || '').trim()
     if (cnpj) return cnpj
 

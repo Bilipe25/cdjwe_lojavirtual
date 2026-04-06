@@ -124,10 +124,14 @@ export default function CustomersPage() {
         }
         
         if (debouncedSearch) {
-            const { data: storeMatches } = await supabase
+            const storesSearch = await supabase
                 .from('stores')
                 .select('profile_id')
-                .or(`company_name.ilike.%${debouncedSearch}%,cnpj.ilike.%${debouncedSearch}%`);
+                .or(
+                    `company_name.ilike.%${debouncedSearch}%,trade_name.ilike.%${debouncedSearch}%,document_number.ilike.%${debouncedSearch}%,cnpj.ilike.%${debouncedSearch}%`
+                )
+
+            const storeMatches = storesSearch.data || []
                 
             const storeProfileIds = storeMatches?.map(s => s.profile_id) || [];
             
@@ -354,10 +358,18 @@ export default function CustomersPage() {
         formData.append('email', data.email)
         formData.append('password', data.password)
         formData.append('companyName', data.companyName)
-        formData.append('cnpj', data.cnpj)
+        formData.append('cnpj', data.cnpj || data.documentNumber)
+        formData.append('personType', data.personType)
+        formData.append('documentType', data.documentType)
+        formData.append('documentNumber', data.documentNumber)
+        formData.append('taxpayerIndicator', data.taxpayerIndicator)
         
         if (data.phone) formData.append('phone', data.phone)
         if (data.tradeName) formData.append('tradeName', data.tradeName)
+        if (data.stateRegistration) formData.append('stateRegistration', data.stateRegistration)
+        if (data.municipalRegistration) formData.append('municipalRegistration', data.municipalRegistration)
+        if (data.fiscalEmail) formData.append('fiscalEmail', data.fiscalEmail)
+        if (data.fiscalNotes) formData.append('fiscalNotes', data.fiscalNotes)
         if (data.customerTypeId) formData.append('customerTypeId', data.customerTypeId)
         if (data.representativeId) formData.append('representativeId', data.representativeId)
         if (data.tagIds) formData.append('tagIds', JSON.stringify(data.tagIds))
@@ -387,7 +399,15 @@ export default function CustomersPage() {
             phone: data.phone,
             companyName: data.companyName,
             tradeName: data.tradeName,
-            cnpj: data.cnpj,
+            cnpj: data.cnpj || data.documentNumber,
+            personType: data.personType,
+            documentType: data.documentType,
+            documentNumber: data.documentNumber,
+            stateRegistration: data.stateRegistration,
+            municipalRegistration: data.municipalRegistration,
+            taxpayerIndicator: data.taxpayerIndicator,
+            fiscalEmail: data.fiscalEmail,
+            fiscalNotes: data.fiscalNotes,
             customerTypeId: data.customerTypeId,
             representativeId: data.representativeId,
             tagIds: data.tagIds,

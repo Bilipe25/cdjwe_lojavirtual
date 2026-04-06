@@ -32,6 +32,7 @@ function getAnonClient() {
 }
 
 type StoreResetRow = {
+    document_number?: string | null
     cnpj: string | null
     profiles?: { email?: string | null } | { email?: string | null }[] | null
 }
@@ -43,6 +44,35 @@ function readStoreProfileEmail(store?: StoreResetRow | null) {
     }
 
     return normalizeEmail(profileData?.email)
+}
+
+async function findStoreByDocument(
+    adminClient: ReturnType<typeof getAdminClient>,
+    candidates: string[]
+) {
+    const byDocument = await adminClient
+        .from('stores')
+        .select('document_number, cnpj, profiles!stores_profile_id_fkey(email)')
+        .in('document_number', candidates)
+        .limit(1)
+        .maybeSingle()
+
+    if (!byDocument.error && byDocument.data) {
+        return { data: byDocument.data as StoreResetRow, error: null as string | null }
+    }
+
+    const byCnpj = await adminClient
+        .from('stores')
+        .select('document_number, cnpj, profiles!stores_profile_id_fkey(email)')
+        .in('cnpj', candidates)
+        .limit(1)
+        .maybeSingle()
+
+    if (byCnpj.error) {
+        return { data: null as StoreResetRow | null, error: byCnpj.error.message || 'Falha ao localizar documento.' }
+    }
+
+    return { data: (byCnpj.data as StoreResetRow | null) || null, error: null as string | null }
 }
 
 export async function requestPasswordReset(identifier: string, origin: string) {
@@ -60,11 +90,11 @@ export async function requestPasswordReset(identifier: string, origin: string) {
             }
 
             const documentCandidates = getDocumentCandidates(trimmedIdentifier)
-            const { data: store } = await admin
-                .from('stores')
-                .select('cnpj, profiles!stores_profile_id_fkey(email)')
-                .in('cnpj', documentCandidates)
-                .maybeSingle()
+            const { data: store, error: lookupError } = await findStoreByDocument(admin, documentCandidates)
+            if (lookupError) {
+                console.error('Password reset lookup error:', lookupError)
+                return { error: 'Nao foi possivel validar o documento agora. Tente novamente.' }
+            }
 
             const resolvedEmail = readStoreProfileEmail(store as StoreResetRow | null)
             if (!resolvedEmail) {

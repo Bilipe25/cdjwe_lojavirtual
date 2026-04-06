@@ -13,6 +13,8 @@ export const storeAddressSchema = z.object({
     neighborhood: z.string().optional(),
     city: z.string().min(2, 'Cidade invalida'),
     state: z.string().length(2, 'Use a sigla do estado (ex: SP)'),
+    municipalityCode: z.string().optional(),
+    countryCode: z.string().optional(),
 })
 
 export type StoreAddressFormData = z.infer<typeof storeAddressSchema>
@@ -30,6 +32,8 @@ export function toStoreAddressFormData(address: StoreAddress, fallbackStoreId: s
         neighborhood: address.neighborhood || '',
         city: address.city,
         state: address.state,
+        municipalityCode: address.municipality_code || '',
+        countryCode: address.country_code || '',
     }
 }
 
@@ -45,5 +49,7 @@ export function createEmptyStoreAddressFormData(storeId: string, isMain: boolean
         neighborhood: '',
         city: '',
         state: '',
+        municipalityCode: '',
+        countryCode: '1058',
     }
 }

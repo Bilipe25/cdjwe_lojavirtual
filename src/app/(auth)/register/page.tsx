@@ -60,10 +60,13 @@ export default function RegisterPage() {
 
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!companyName || !cnpj) {
-            toast.error('Preencha o nome da empresa e CNPJ')
+        const normalizedDocument = cnpj.replace(/\D/g, '')
+        if (!companyName || !normalizedDocument) {
+            toast.error('Preencha o nome da empresa e o documento fiscal')
             return
         }
+        const inferredDocumentType = normalizedDocument.length === 11 ? 'CPF' : 'CNPJ'
+        const inferredPersonType = inferredDocumentType === 'CPF' ? 'individual' : 'legal_entity'
 
         setLoading(true)
         try {
@@ -106,7 +109,10 @@ export default function RegisterPage() {
                 profile_id: authData.user.id,
                 company_name: companyName,
                 trade_name: tradeName || null,
-                cnpj,
+                cnpj: normalizedDocument,
+                person_type: inferredPersonType,
+                document_type: inferredDocumentType,
+                document_number: normalizedDocument,
                 state_registration: stateRegistration || null,
                 address: address || null,
                 city: city || null,
@@ -126,7 +132,7 @@ export default function RegisterPage() {
                         clientName: fullName,
                         clientEmail: email,
                         companyName,
-                        cnpj,
+                        cnpj: normalizedDocument,
                     },
                 }),
             }).catch(() => {}) // Silent fail - registration should not be blocked by email
@@ -193,7 +199,7 @@ export default function RegisterPage() {
                                 className="space-y-4"
                             >
                                 <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs leading-5 text-muted-foreground">
-                                    O acesso principal da sua conta sera pelo <strong>CNPJ</strong> apos a aprovacao. O e-mail informado abaixo continuara como acesso alternativo e canal de comunicacao.
+                                    O acesso principal da sua conta sera pelo <strong>documento fiscal (CPF/CNPJ)</strong> apos a aprovacao. O e-mail informado abaixo continuara como acesso alternativo e canal de comunicacao.
                                 </div>
 
                                 <div className="space-y-2">
@@ -291,10 +297,10 @@ export default function RegisterPage() {
                                     </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="cnpj">CNPJ *</Label>
+                                    <Label htmlFor="cnpj">Documento Fiscal (CPF/CNPJ) *</Label>
                                     <Input
                                         id="cnpj"
-                                        placeholder="00.000.000/0000-00"
+                                        placeholder="Somente numeros ou formatado"
                                             value={cnpj}
                                         onChange={(e) => setCnpj(e.target.value)}
                                         className="h-11 bg-white/60"

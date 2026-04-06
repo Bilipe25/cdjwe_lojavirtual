@@ -9,6 +9,7 @@ export interface UpsertProductDomainInput {
     slug: string
     description?: string | null
     categoryId: string
+    taxProfileId?: string | null
     size?: string | null
     hasSizeVariants?: boolean
     sizeOptions?: ProductSizeOptionInput[] | null
@@ -43,6 +44,80 @@ interface ProductImagesRpcRow {
     deleted_urls: string[] | null
     inserted_image_ids: string[] | null
     total_images: number
+}
+
+export interface ProductTaxProfileRuleInput {
+    id?: string | null
+    ruleName: string
+    operationDirection: 'outbound' | 'inbound'
+    originUf?: string | null
+    destinationUf?: string | null
+    customerTypeId?: string | null
+    personType?: 'individual' | 'legal_entity' | null
+    taxpayerIndicator?: 'contributor' | 'non_contributor' | 'exempt' | null
+    cfopOverride?: string | null
+    priority?: number
+    isActive?: boolean
+    effectiveFrom?: string | null
+    effectiveTo?: string | null
+    rulePayload?: Record<string, unknown> | null
+    futureTaxPayload?: Record<string, unknown> | null
+}
+
+export interface ProductTaxProfileInput {
+    id?: string | null
+    name: string
+    code: string
+    description?: string | null
+    ncm?: string | null
+    cest?: string | null
+    originCode?: string
+    commercialUnit?: string | null
+    taxUnit?: string | null
+    eanGtin?: string | null
+    taxEanGtin?: string | null
+    defaultFiscalDescription?: string | null
+    fiscalType?: string | null
+    itemType?: string | null
+    hasSubstitutionTax?: boolean
+    requiresCest?: boolean
+    hasIpi?: boolean
+    ipiCstOut?: string | null
+    ipiEnquadramentoCodigo?: string | null
+    pisCst?: string | null
+    cofinsCst?: string | null
+    pisAliquota?: number | null
+    cofinsAliquota?: number | null
+    defaultOutputCfop?: string | null
+    defaultInputCfop?: string | null
+    internalFiscalCode?: string | null
+    defaultFiscalNotes?: string | null
+    isActive?: boolean
+    requiresTaxConfiguration?: boolean
+    futureTaxPayload?: Record<string, unknown> | null
+    metadata?: Record<string, unknown> | null
+    rules?: ProductTaxProfileRuleInput[]
+}
+
+export interface ProductTaxProfileListItem {
+    id: string
+    name: string
+    code: string
+    ncm: string | null
+    cest: string | null
+    default_output_cfop: string | null
+    is_active: boolean
+    version: number
+    products_count: number
+    updated_at: string
+}
+
+export interface ProductTaxProfileUsageItem {
+    product_id: string
+    product_name: string
+    product_slug: string
+    product_is_active: boolean
+    product_updated_at: string
 }
 
 export interface SaveProductImagesMetadataInput {
@@ -152,6 +227,16 @@ function normalizeSizeOptions(
     }
 
     return normalized
+}
+
+function sanitizeFiscalCode(value?: string | null) {
+    const trimmed = (value || '').trim()
+    return trimmed.length > 0 ? trimmed : null
+}
+
+function sanitizeJsonPayload(input?: Record<string, unknown> | null) {
+    if (!input || typeof input !== 'object') return {}
+    return input
 }
 
 async function ensureAdminAccess(): Promise<string> {
@@ -275,6 +360,7 @@ async function upsertProductDomainFallback(input: UpsertProductDomainInput): Pro
         slug: input.slug.trim(),
         description: input.description?.trim() ? input.description.trim() : null,
         category_id: input.categoryId,
+        tax_profile_id: input.taxProfileId ?? null,
         size: input.size?.trim() ? input.size.trim() : null,
         has_size_variants: input.hasSizeVariants === true,
         base_price: input.basePrice,
@@ -595,6 +681,7 @@ export async function upsertProductDomainAction(
             p_slug: input.slug.trim(),
             p_description: input.description?.trim() ? input.description.trim() : null,
             p_category_id: input.categoryId,
+            p_tax_profile_id: input.taxProfileId ?? null,
             p_size: input.size?.trim() ? input.size.trim() : null,
             p_has_size_variants: input.hasSizeVariants === true,
             p_size_options: normalizeSizeOptions(input.sizeOptions),
@@ -890,5 +977,292 @@ export async function cleanupProductImageUploadsAction(params: {
             },
         })
         return { success: false, error: message }
+    }
+}
+
+export async function listProductTaxProfilesAction(params?: {
+    search?: string
+    includeInactive?: boolean
+}): Promise<{ success: boolean; data?: ProductTaxProfileListItem[]; error?: string }> {
+    try {
+        await ensureAdminAccess()
+        const adminSupabase = createServiceRoleClient()
+        const { data, error } = await adminSupabase.rpc('admin_list_product_tax_profiles', {
+            p_search: sanitizeFiscalCode(params?.search),
+            p_include_inactive: params?.includeInactive !== false,
+        })
+
+        if (error) throw error
+        return {
+            success: true,
+            data: (data || []) as ProductTaxProfileListItem[],
+        }
+    } catch (error: unknown) {
+        return {
+            success: false,
+            error: getErrorMessage(error, 'Erro ao listar perfis tributarios.'),
+        }
+    }
+}
+
+export async function getProductTaxProfileUsageAction(
+    taxProfileId: string,
+    limit = 200
+): Promise<{ success: boolean; data?: ProductTaxProfileUsageItem[]; error?: string }> {
+    try {
+        await ensureAdminAccess()
+        if (!isValidUuid(taxProfileId)) {
+            throw new Error('Perfil tributario invalido.')
+        }
+
+        const adminSupabase = createServiceRoleClient()
+        const { data, error } = await adminSupabase.rpc('admin_list_product_tax_profile_usage', {
+            p_tax_profile_id: taxProfileId,
+            p_limit: Math.max(1, Math.min(500, limit)),
+        })
+
+        if (error) throw error
+        return { success: true, data: (data || []) as ProductTaxProfileUsageItem[] }
+    } catch (error: unknown) {
+        return {
+            success: false,
+            error: getErrorMessage(error, 'Erro ao carregar produtos vinculados ao perfil.'),
+        }
+    }
+}
+
+export async function getProductTaxProfileDetailAction(
+    taxProfileId: string
+): Promise<{
+    success: boolean
+    data?: {
+        profile: ProductTaxProfileInput & { id: string; version?: number; createdAt?: string; updatedAt?: string }
+        rules: ProductTaxProfileRuleInput[]
+    }
+    error?: string
+}> {
+    try {
+        await ensureAdminAccess()
+        if (!isValidUuid(taxProfileId)) {
+            throw new Error('Perfil tributario invalido.')
+        }
+
+        const adminSupabase = createServiceRoleClient()
+        const [{ data: profile, error: profileError }, { data: rules, error: rulesError }] = await Promise.all([
+            adminSupabase
+                .from('product_tax_profiles')
+                .select('*')
+                .eq('id', taxProfileId)
+                .single(),
+            adminSupabase
+                .from('product_tax_profile_rules')
+                .select('*')
+                .eq('tax_profile_id', taxProfileId)
+                .order('priority', { ascending: false })
+                .order('created_at', { ascending: false }),
+        ])
+
+        if (profileError || !profile) throw profileError || new Error('Perfil tributario nao encontrado.')
+        if (rulesError) throw rulesError
+
+        return {
+            success: true,
+            data: {
+                profile: {
+                    id: profile.id,
+                    name: profile.name,
+                    code: profile.code,
+                    description: profile.description,
+                    ncm: profile.ncm,
+                    cest: profile.cest,
+                    originCode: profile.origin_code,
+                    commercialUnit: profile.commercial_unit,
+                    taxUnit: profile.tax_unit,
+                    eanGtin: profile.ean_gtin,
+                    taxEanGtin: profile.tax_ean_gtin,
+                    defaultFiscalDescription: profile.default_fiscal_description,
+                    fiscalType: profile.fiscal_type,
+                    itemType: profile.item_type,
+                    hasSubstitutionTax: profile.has_substitution_tax,
+                    requiresCest: profile.requires_cest,
+                    hasIpi: profile.has_ipi,
+                    ipiCstOut: profile.ipi_cst_out,
+                    ipiEnquadramentoCodigo: profile.ipi_enquadramento_codigo,
+                    pisCst: profile.pis_cst,
+                    cofinsCst: profile.cofins_cst,
+                    pisAliquota: profile.pis_aliquota,
+                    cofinsAliquota: profile.cofins_aliquota,
+                    defaultOutputCfop: profile.default_output_cfop,
+                    defaultInputCfop: profile.default_input_cfop,
+                    internalFiscalCode: profile.internal_fiscal_code,
+                    defaultFiscalNotes: profile.default_fiscal_notes,
+                    isActive: profile.is_active,
+                    requiresTaxConfiguration: profile.requires_tax_configuration,
+                    futureTaxPayload: profile.future_tax_payload,
+                    metadata: profile.metadata_jsonb,
+                    version: profile.version,
+                    createdAt: profile.created_at,
+                    updatedAt: profile.updated_at,
+                },
+                rules: ((rules || []) as Array<Record<string, unknown>>).map((rule) => ({
+                    id: String(rule.id),
+                    ruleName: String(rule.rule_name || ''),
+                    operationDirection: (rule.operation_direction as 'outbound' | 'inbound') || 'outbound',
+                    originUf: (rule.origin_uf as string | null) || null,
+                    destinationUf: (rule.destination_uf as string | null) || null,
+                    customerTypeId: (rule.customer_type_id as string | null) || null,
+                    personType: (rule.person_type as 'individual' | 'legal_entity' | null) || null,
+                    taxpayerIndicator:
+                        (rule.taxpayer_indicator as 'contributor' | 'non_contributor' | 'exempt' | null) || null,
+                    cfopOverride: (rule.cfop_override as string | null) || null,
+                    priority: Number(rule.priority || 0),
+                    isActive: rule.is_active !== false,
+                    effectiveFrom: (rule.effective_from as string | null) || null,
+                    effectiveTo: (rule.effective_to as string | null) || null,
+                    rulePayload: (rule.rule_payload_jsonb as Record<string, unknown> | null) || null,
+                    futureTaxPayload: (rule.future_tax_payload as Record<string, unknown> | null) || null,
+                })),
+            },
+        }
+    } catch (error: unknown) {
+        return {
+            success: false,
+            error: getErrorMessage(error, 'Erro ao carregar detalhes do perfil tributario.'),
+        }
+    }
+}
+
+export async function upsertProductTaxProfileAction(
+    input: ProductTaxProfileInput
+): Promise<{ success: boolean; data?: { taxProfileId: string; created: boolean; version: number }; error?: string }> {
+    try {
+        await ensureAdminAccess()
+
+        if (!input.name?.trim()) throw new Error('Nome do perfil tributario e obrigatorio.')
+        if (!input.code?.trim()) throw new Error('Codigo do perfil tributario e obrigatorio.')
+
+        const adminSupabase = createServiceRoleClient()
+        const { data, error } = await adminSupabase.rpc('admin_upsert_product_tax_profile', {
+            p_tax_profile_id: input.id ?? null,
+            p_name: input.name.trim(),
+            p_code: input.code.trim(),
+            p_description: sanitizeFiscalCode(input.description),
+            p_ncm: sanitizeFiscalCode(input.ncm),
+            p_cest: sanitizeFiscalCode(input.cest),
+            p_origin_code: sanitizeFiscalCode(input.originCode) ?? '0',
+            p_commercial_unit: sanitizeFiscalCode(input.commercialUnit),
+            p_tax_unit: sanitizeFiscalCode(input.taxUnit),
+            p_ean_gtin: sanitizeFiscalCode(input.eanGtin),
+            p_tax_ean_gtin: sanitizeFiscalCode(input.taxEanGtin),
+            p_default_fiscal_description: sanitizeFiscalCode(input.defaultFiscalDescription),
+            p_fiscal_type: sanitizeFiscalCode(input.fiscalType) ?? 'goods',
+            p_item_type: sanitizeFiscalCode(input.itemType) ?? 'goods',
+            p_has_substitution_tax: input.hasSubstitutionTax === true,
+            p_requires_cest: input.requiresCest === true,
+            p_has_ipi: input.hasIpi === true,
+            p_ipi_cst_out: sanitizeFiscalCode(input.ipiCstOut),
+            p_ipi_enquadramento_codigo: sanitizeFiscalCode(input.ipiEnquadramentoCodigo),
+            p_pis_cst: sanitizeFiscalCode(input.pisCst),
+            p_cofins_cst: sanitizeFiscalCode(input.cofinsCst),
+            p_pis_aliquota: input.pisAliquota ?? null,
+            p_cofins_aliquota: input.cofinsAliquota ?? null,
+            p_default_output_cfop: sanitizeFiscalCode(input.defaultOutputCfop),
+            p_default_input_cfop: sanitizeFiscalCode(input.defaultInputCfop),
+            p_internal_fiscal_code: sanitizeFiscalCode(input.internalFiscalCode),
+            p_default_fiscal_notes: sanitizeFiscalCode(input.defaultFiscalNotes),
+            p_is_active: input.isActive !== false,
+            p_requires_tax_configuration: input.requiresTaxConfiguration !== false,
+            p_future_tax_payload: sanitizeJsonPayload(input.futureTaxPayload),
+            p_metadata_jsonb: sanitizeJsonPayload(input.metadata),
+        })
+
+        if (error) throw error
+        const row = Array.isArray(data) ? data[0] : data
+        if (!row?.tax_profile_id) {
+            throw new Error('Falha ao salvar perfil tributario.')
+        }
+
+        return {
+            success: true,
+            data: {
+                taxProfileId: row.tax_profile_id as string,
+                created: Boolean(row.created),
+                version: Number(row.version || 1),
+            },
+        }
+    } catch (error: unknown) {
+        return {
+            success: false,
+            error: getErrorMessage(error, 'Erro ao salvar perfil tributario.'),
+        }
+    }
+}
+
+export async function duplicateProductTaxProfileAction(
+    taxProfileId: string,
+    options?: { newName?: string; newCode?: string }
+): Promise<{ success: boolean; data?: { taxProfileId: string; name: string; code: string }; error?: string }> {
+    try {
+        await ensureAdminAccess()
+        if (!isValidUuid(taxProfileId)) throw new Error('Perfil tributario invalido.')
+
+        const adminSupabase = createServiceRoleClient()
+        const { data, error } = await adminSupabase.rpc('admin_duplicate_product_tax_profile', {
+            p_tax_profile_id: taxProfileId,
+            p_new_name: sanitizeFiscalCode(options?.newName),
+            p_new_code: sanitizeFiscalCode(options?.newCode),
+        })
+        if (error) throw error
+
+        const row = Array.isArray(data) ? data[0] : data
+        if (!row?.new_tax_profile_id) throw new Error('Falha ao duplicar perfil tributario.')
+
+        return {
+            success: true,
+            data: {
+                taxProfileId: row.new_tax_profile_id as string,
+                name: (row.new_name as string) || '',
+                code: (row.new_code as string) || '',
+            },
+        }
+    } catch (error: unknown) {
+        return {
+            success: false,
+            error: getErrorMessage(error, 'Erro ao duplicar perfil tributario.'),
+        }
+    }
+}
+
+export async function toggleProductTaxProfileStatusAction(
+    taxProfileId: string,
+    isActive: boolean
+): Promise<{ success: boolean; data?: { taxProfileId: string; isActive: boolean; version: number }; error?: string }> {
+    try {
+        await ensureAdminAccess()
+        if (!isValidUuid(taxProfileId)) throw new Error('Perfil tributario invalido.')
+
+        const adminSupabase = createServiceRoleClient()
+        const { data, error } = await adminSupabase.rpc('admin_toggle_product_tax_profile_status', {
+            p_tax_profile_id: taxProfileId,
+            p_is_active: isActive,
+        })
+        if (error) throw error
+
+        const row = Array.isArray(data) ? data[0] : data
+        if (!row?.tax_profile_id) throw new Error('Falha ao atualizar status do perfil tributario.')
+
+        return {
+            success: true,
+            data: {
+                taxProfileId: row.tax_profile_id as string,
+                isActive: Boolean(row.is_active),
+                version: Number(row.version || 1),
+            },
+        }
+    } catch (error: unknown) {
+        return {
+            success: false,
+            error: getErrorMessage(error, 'Erro ao atualizar status do perfil tributario.'),
+        }
     }
 }

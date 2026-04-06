@@ -62,6 +62,15 @@ type UpsertCustomerDomainInput = {
     companyName: string
     tradeName?: string | null
     cnpj: string
+    personType?: 'legal_entity' | 'individual' | null
+    documentType?: 'CNPJ' | 'CPF' | null
+    documentNumber?: string | null
+    stateRegistration?: string | null
+    municipalRegistration?: string | null
+    taxpayerIndicator?: 'contributor' | 'non_contributor' | 'exempt' | null
+    fiscalEmail?: string | null
+    fiscalNotes?: string | null
+    fiscalAddressId?: string | null
     email: string
     customerTypeId?: string | null
     representativeId?: string | null
@@ -150,6 +159,15 @@ async function upsertCustomerDomainViaRpc(
         p_company_name: input.companyName,
         p_trade_name: input.tradeName ?? null,
         p_cnpj: input.cnpj,
+        p_person_type: input.personType ?? null,
+        p_document_type: input.documentType ?? null,
+        p_document_number: input.documentNumber ?? null,
+        p_state_registration: input.stateRegistration ?? null,
+        p_municipal_registration: input.municipalRegistration ?? null,
+        p_taxpayer_indicator: input.taxpayerIndicator ?? null,
+        p_fiscal_email: input.fiscalEmail ?? null,
+        p_fiscal_notes: input.fiscalNotes ?? null,
+        p_fiscal_address_id: input.fiscalAddressId ?? null,
         p_email: input.email,
         p_customer_type_id: input.customerTypeId ?? null,
         p_representative_id: input.representativeId ?? null,
@@ -451,6 +469,15 @@ export async function updateCustomerAsAdmin(
         companyName: string
         tradeName?: string
         cnpj: string
+        personType?: 'legal_entity' | 'individual'
+        documentType?: 'CNPJ' | 'CPF'
+        documentNumber?: string
+        stateRegistration?: string
+        municipalRegistration?: string
+        taxpayerIndicator?: 'contributor' | 'non_contributor' | 'exempt'
+        fiscalEmail?: string
+        fiscalNotes?: string
+        fiscalAddressId?: string
         customerTypeId?: string
         representativeId?: string
         tagIds?: string[]
@@ -472,6 +499,23 @@ export async function createCustomerAsAdminTx(formData: FormData) {
     const phone = formData.get('phone') as string
     const companyName = formData.get('companyName') as string
     const cnpj = formData.get('cnpj') as string
+    const personTypeRaw = (formData.get('personType') as string) || 'legal_entity'
+    const documentTypeRaw = (formData.get('documentType') as string) || 'CNPJ'
+    const documentNumberRaw = (formData.get('documentNumber') as string) || cnpj
+    const personType = personTypeRaw === 'individual' ? 'individual' : 'legal_entity'
+    const documentType = documentTypeRaw === 'CPF' ? 'CPF' : 'CNPJ'
+    const documentNumber = documentNumberRaw?.replace(/\D/g, '') || ''
+    const stateRegistration = formData.get('stateRegistration') as string
+    const municipalRegistration = formData.get('municipalRegistration') as string
+    const taxpayerIndicatorRaw = (formData.get('taxpayerIndicator') as string) || 'contributor'
+    const taxpayerIndicator =
+        taxpayerIndicatorRaw === 'non_contributor'
+            ? 'non_contributor'
+            : taxpayerIndicatorRaw === 'exempt'
+              ? 'exempt'
+              : 'contributor'
+    const fiscalEmail = formData.get('fiscalEmail') as string
+    const fiscalNotes = formData.get('fiscalNotes') as string
     const tradeName = formData.get('tradeName') as string
     const customerTypeId = formData.get('customerTypeId') as string
     const representativeId = formData.get('representativeId') as string
@@ -485,7 +529,7 @@ export async function createCustomerAsAdminTx(formData: FormData) {
     const state = formData.get('state') as string
     const zipCode = formData.get('zipCode') as string
 
-    if (!email || !password || !fullName || !companyName || !cnpj) {
+    if (!email || !password || !fullName || !companyName || !documentNumber) {
         return { error: 'Campos obrigatorios faltando.' }
     }
 
@@ -526,7 +570,15 @@ export async function createCustomerAsAdminTx(formData: FormData) {
             status: 'approved',
             companyName,
             tradeName: tradeName || null,
-            cnpj,
+            cnpj: cnpj || documentNumber,
+            personType,
+            documentType,
+            documentNumber,
+            stateRegistration: stateRegistration || null,
+            municipalRegistration: municipalRegistration || null,
+            taxpayerIndicator,
+            fiscalEmail: fiscalEmail || null,
+            fiscalNotes: fiscalNotes || null,
             email: normalizedEmail,
             customerTypeId: customerTypeId || null,
             representativeId: representativeId || null,
@@ -573,6 +625,15 @@ export async function updateCustomerAsAdminTx(
         companyName: string
         tradeName?: string
         cnpj: string
+        personType?: 'legal_entity' | 'individual'
+        documentType?: 'CNPJ' | 'CPF'
+        documentNumber?: string
+        stateRegistration?: string
+        municipalRegistration?: string
+        taxpayerIndicator?: 'contributor' | 'non_contributor' | 'exempt'
+        fiscalEmail?: string
+        fiscalNotes?: string
+        fiscalAddressId?: string
         customerTypeId?: string
         representativeId?: string
         tagIds?: string[]
@@ -627,7 +688,16 @@ export async function updateCustomerAsAdminTx(
             phone: data.phone || null,
             companyName: data.companyName,
             tradeName: data.tradeName || null,
-            cnpj: data.cnpj,
+            cnpj: data.cnpj || data.documentNumber || '',
+            personType: data.personType || null,
+            documentType: data.documentType || null,
+            documentNumber: data.documentNumber || data.cnpj || null,
+            stateRegistration: data.stateRegistration || null,
+            municipalRegistration: data.municipalRegistration || null,
+            taxpayerIndicator: data.taxpayerIndicator || null,
+            fiscalEmail: data.fiscalEmail || null,
+            fiscalNotes: data.fiscalNotes || null,
+            fiscalAddressId: data.fiscalAddressId || null,
             email: normalizedEmail,
             customerTypeId: data.customerTypeId || null,
             representativeId: data.representativeId || null,
@@ -793,7 +863,7 @@ export async function getCustomerAccessSnapshot(profileId: string) {
                 .maybeSingle(),
             supabaseAdmin
                 .from('stores')
-                .select('cnpj')
+                .select('cnpj, document_number')
                 .eq('profile_id', profileId)
                 .limit(1)
                 .maybeSingle(),
@@ -804,6 +874,7 @@ export async function getCustomerAccessSnapshot(profileId: string) {
         const hasRealEmail = hasRealCustomerEmail(normalizedEmail)
         const primaryIdentifier =
             getPrimaryCustomerAccessIdentifier({
+                document: store?.document_number,
                 cnpj: store?.cnpj,
                 email: hasRealEmail ? normalizedEmail : null,
             }) || null
@@ -940,6 +1011,7 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
                 const fullName = row.fullName?.trim() || ''
                 const companyName = row.companyName?.trim() || ''
                 const cnpj = row.cnpj?.trim() || ''
+                const normalizedDocument = normalizeCnpj(cnpj)
                 const rawEmail = normalizeOptionalImportEmail(row.email)
                 const hasProvidedEmail = Boolean(rawEmail)
 
@@ -968,12 +1040,25 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
                 let rowResolvedWithoutEmail = !hasProvidedEmail
                 let effectiveEmailForDomain = normalizedEmail
 
-                const { data: existingStoreByCnpj } = await supabaseAdmin
-                    .from('stores')
-                    .select('id, profile_id')
-                    .eq('cnpj', cnpj)
-                    .limit(1)
-                    .maybeSingle()
+                const findByDocument = normalizedDocument
+                    ? await supabaseAdmin
+                        .from('stores')
+                        .select('id, profile_id')
+                        .eq('document_number', normalizedDocument)
+                        .limit(1)
+                        .maybeSingle()
+                    : { data: null as { id: string; profile_id: string } | null, error: null as { message?: string } | null }
+
+                let existingStoreByCnpj = findByDocument.data as { id: string; profile_id: string } | null
+                if (!existingStoreByCnpj) {
+                    const fallbackStore = await supabaseAdmin
+                        .from('stores')
+                        .select('id, profile_id')
+                        .eq('cnpj', cnpj)
+                        .limit(1)
+                        .maybeSingle()
+                    existingStoreByCnpj = (fallbackStore.data as { id: string; profile_id: string } | null) || null
+                }
 
                 const existingProfileByCnpj = existingStoreByCnpj?.profile_id
                     ? await supabaseAdmin
@@ -1115,7 +1200,10 @@ export async function importCustomersFromCSVTx(rows: CSVCustomerRow[]) {
                     status: 'imported',
                     companyName,
                     tradeName: null,
-                    cnpj,
+                    cnpj: normalizedDocument || cnpj,
+                    documentType: normalizedDocument.length === 11 ? 'CPF' : 'CNPJ',
+                    personType: normalizedDocument.length === 11 ? 'individual' : 'legal_entity',
+                    documentNumber: normalizedDocument || cnpj,
                     email: effectiveEmailForDomain,
                     customerTypeId: row.customerType
                         ? typeMap.get(row.customerType.toLowerCase()) || null
@@ -1187,7 +1275,7 @@ export async function sendAccessLink(
 
         const { data: store } = await supabaseAdmin
             .from('stores')
-            .select('cnpj, company_name')
+            .select('cnpj, document_number, company_name')
             .eq('profile_id', profileId)
             .limit(1)
             .maybeSingle()
@@ -1203,6 +1291,7 @@ export async function sendAccessLink(
         const loginUrl = `${appUrl}/login`
         const primaryIdentifier =
             getPrimaryCustomerAccessIdentifier({
+                document: store?.document_number,
                 cnpj: store?.cnpj,
                 email: hasRealCustomerEmail(profile.email) ? profile.email : null,
             }) || profile.email
@@ -1244,7 +1333,7 @@ export async function sendAccessLink(
                     react: React.createElement(AccountApprovedEmail, {
                         clientName: profile.full_name,
                         clientEmail: normalizeEmail(profile.email),
-                        clientDocument: store?.cnpj || undefined,
+                        clientDocument: store?.document_number || store?.cnpj || undefined,
                         password: password || undefined,
                         systemName,
                         appUrl,
@@ -2332,6 +2421,7 @@ export async function searchRepresentativePortfolioStores(input: {
                 company_name,
                 trade_name,
                 customer_code,
+                document_number,
                 cnpj,
                 city,
                 state,
@@ -2349,6 +2439,7 @@ export async function searchRepresentativePortfolioStores(input: {
                     `company_name.ilike.%${term}%`,
                     `trade_name.ilike.%${term}%`,
                     `customer_code.ilike.%${term}%`,
+                    `document_number.ilike.%${term}%`,
                     `cnpj.ilike.%${term}%`,
                     `city.ilike.%${term}%`,
                     `state.ilike.%${term}%`,
@@ -2363,6 +2454,76 @@ export async function searchRepresentativePortfolioStores(input: {
     } catch (err: unknown) {
         console.error('Search Representative Portfolio Stores Error:', err)
         return { error: toErrorMessage(err, 'Erro ao buscar clientes da carteira.') }
+    }
+}
+
+// ==================== STORE FISCAL DATA ====================
+
+export async function getStoreFiscalData(storeId: string) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        if (!storeId) return { error: 'Loja nao informada.' }
+
+        const { data, error } = await supabaseAdmin.rpc('admin_get_store_fiscal_data', {
+            p_store_id: storeId,
+        })
+
+        if (error) throw error
+        const row = Array.isArray(data) ? data[0] : data
+        return { data: row || null }
+    } catch (err: unknown) {
+        console.error('Get Store Fiscal Data Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao buscar dados fiscais do cliente.') }
+    }
+}
+
+export async function upsertStoreFiscalData(payload: {
+    storeId: string
+    personType?: 'individual' | 'legal_entity'
+    documentType?: 'CPF' | 'CNPJ'
+    documentNumber?: string
+    stateRegistration?: string
+    municipalRegistration?: string
+    taxpayerIndicator?: 'contributor' | 'non_contributor' | 'exempt'
+    fiscalEmail?: string
+    fiscalNotes?: string
+    fiscalAddressId?: string | null
+}) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        if (!payload.storeId) return { error: 'Loja nao informada.' }
+
+        const normalizedDocument = (payload.documentNumber || '').replace(/\D/g, '')
+        if (!normalizedDocument) {
+            return { error: 'Documento fiscal obrigatorio.' }
+        }
+
+        const { data, error } = await supabaseAdmin.rpc('admin_upsert_store_fiscal_data', {
+            p_store_id: payload.storeId,
+            p_person_type: payload.personType || null,
+            p_document_type: payload.documentType || null,
+            p_document_number: normalizedDocument,
+            p_state_registration: payload.stateRegistration || null,
+            p_municipal_registration: payload.municipalRegistration || null,
+            p_taxpayer_indicator: payload.taxpayerIndicator || null,
+            p_fiscal_email: payload.fiscalEmail || null,
+            p_fiscal_notes: payload.fiscalNotes || null,
+            p_fiscal_address_id: payload.fiscalAddressId || null,
+        })
+
+        if (error) throw error
+        const row = Array.isArray(data) ? data[0] : data
+        return {
+            success: true,
+            data: row || null,
+        }
+    } catch (err: unknown) {
+        console.error('Upsert Store Fiscal Data Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao salvar dados fiscais do cliente.') }
     }
 }
 
@@ -2399,7 +2560,9 @@ export async function upsertStoreAddress(data: {
     complement?: string,
     neighborhood?: string,
     city: string,
-    state: string
+    state: string,
+    municipalityCode?: string,
+    countryCode?: string,
 }) {
     try {
         await verifyAdmin()
@@ -2416,6 +2579,8 @@ export async function upsertStoreAddress(data: {
             neighborhood: data.neighborhood || null,
             city: data.city,
             state: data.state,
+            municipality_code: (data.municipalityCode || '').trim() || null,
+            country_code: (data.countryCode || '').trim() || null,
             updated_at: new Date().toISOString()
         }
 

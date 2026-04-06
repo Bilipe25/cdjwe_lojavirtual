@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { useForm, useWatch, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, Users, Building2, MapPin, Check, Tag } from 'lucide-react';
 import {
@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { customerSchema, type CustomerFormData } from '../schema';
@@ -37,7 +38,7 @@ export function CustomerFormModal({
     representatives
 }: CustomerFormModalProps) {
     const form = useForm<CustomerFormData>({
-        resolver: zodResolver(customerSchema),
+        resolver: zodResolver(customerSchema) as Resolver<CustomerFormData>,
         defaultValues: {
             fullName: '',
             email: '',
@@ -46,6 +47,14 @@ export function CustomerFormModal({
             companyName: '',
             tradeName: '',
             cnpj: '',
+            personType: 'legal_entity',
+            documentType: 'CNPJ',
+            documentNumber: '',
+            stateRegistration: '',
+            municipalRegistration: '',
+            taxpayerIndicator: 'contributor',
+            fiscalEmail: '',
+            fiscalNotes: '',
             customerTypeId: '',
             representativeId: '',
             tagIds: [],
@@ -60,6 +69,9 @@ export function CustomerFormModal({
     const selectedCustomerTypeId = useWatch({ control: form.control, name: 'customerTypeId' }) || '';
     const selectedRepresentativeId = useWatch({ control: form.control, name: 'representativeId' }) || '';
     const selectedTagIds = useWatch({ control: form.control, name: 'tagIds' }) || [];
+    const selectedPersonType = useWatch({ control: form.control, name: 'personType' }) || 'legal_entity';
+    const selectedDocumentType = useWatch({ control: form.control, name: 'documentType' }) || 'CNPJ';
+    const selectedTaxpayerIndicator = useWatch({ control: form.control, name: 'taxpayerIndicator' }) || 'contributor';
     const selectedCustomerType = customerTypes.find((type) => type.id === selectedCustomerTypeId);
     const selectedRepresentative = representatives.find((rep) => rep.id === selectedRepresentativeId);
     const willBecomeRepresentative =
@@ -83,6 +95,14 @@ export function CustomerFormModal({
                 companyName: '',
                 tradeName: '',
                 cnpj: '',
+                personType: 'legal_entity',
+                documentType: 'CNPJ',
+                documentNumber: '',
+                stateRegistration: '',
+                municipalRegistration: '',
+                taxpayerIndicator: 'contributor',
+                fiscalEmail: '',
+                fiscalNotes: '',
                 customerTypeId: '',
                 representativeId: '',
                 tagIds: [],
@@ -115,7 +135,7 @@ export function CustomerFormModal({
                         Novo Cliente
                     </DialogTitle>
                     <DialogDescription>
-                        Crie um novo acesso de lojista. O login principal sera pelo CNPJ e a conta ja sera aprovada automaticamente.
+                        Crie um novo acesso de lojista. O login principal sera pelo documento fiscal (CPF/CNPJ) e a conta ja sera aprovada automaticamente.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -129,14 +149,14 @@ export function CustomerFormModal({
                         <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
                             <div className="flex flex-wrap items-center gap-2">
                                 <Badge variant="outline" className="border-navy/20 bg-white text-navy">
-                                    CNPJ = acesso principal
+                                    Documento fiscal = acesso principal
                                 </Badge>
                                 <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
                                     E-mail = acesso alternativo
                                 </Badge>
                             </div>
                             <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                                Mesmo que o cliente tenha e-mail, o fluxo principal de entrada no portal passa a ser pelo CNPJ. O e-mail continua como opcional e alternativo.
+                                Mesmo que o cliente tenha e-mail, o fluxo principal de entrada no portal passa a ser pelo documento fiscal. O e-mail continua como opcional e alternativo.
                             </p>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -184,12 +204,88 @@ export function CustomerFormModal({
                                 {errors.tradeName && <p className="text-xs text-red-500">{errors.tradeName.message}</p>}
                             </div>
                             <div className="space-y-2">
-                                <Label>CNPJ *</Label>
-                                <Input {...register('cnpj')} placeholder="00.000.000/0001-00" className="bg-white/60" />
+                                <Label>Tipo Pessoa *</Label>
+                                <Select
+                                    value={selectedPersonType}
+                                    onValueChange={(v) => {
+                                        const nextDocumentType = v === 'individual' ? 'CPF' : 'CNPJ';
+                                        setValue('personType', v as 'individual' | 'legal_entity', { shouldDirty: true });
+                                        setValue('documentType', nextDocumentType, { shouldDirty: true });
+                                    }}
+                                >
+                                    <SelectTrigger className="bg-white/60">
+                                        <SelectValue placeholder="Selecione..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="legal_entity">Pessoa Juridica</SelectItem>
+                                        <SelectItem value="individual">Pessoa Fisica</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Documento Fiscal *</Label>
+                                <div className="grid grid-cols-[130px_1fr] gap-2">
+                                    <Select
+                                        value={selectedDocumentType}
+                                        onValueChange={(v) =>
+                                            setValue('documentType', v as 'CPF' | 'CNPJ', { shouldDirty: true })
+                                        }
+                                    >
+                                        <SelectTrigger className="bg-white/60">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="CNPJ">CNPJ</SelectItem>
+                                            <SelectItem value="CPF">CPF</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <Input
+                                        {...register('documentNumber')}
+                                        placeholder="Digite o documento"
+                                        className="bg-white/60"
+                                    />
+                                </div>
+                                <Input {...register('cnpj')} type="hidden" />
                                 <p className="text-[11px] text-muted-foreground">
-                                    Este sera o identificador principal de acesso do cliente no portal.
+                                    Este sera o identificador fiscal principal para pedidos e futura NF-e.
                                 </p>
-                                {errors.cnpj && <p className="text-xs text-red-500">{errors.cnpj.message}</p>}
+                                {errors.documentNumber && <p className="text-xs text-red-500">{errors.documentNumber.message}</p>}
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Inscricao Estadual</Label>
+                                <Input {...register('stateRegistration')} placeholder="Opcional" className="bg-white/60" />
+                                {errors.stateRegistration && <p className="text-xs text-red-500">{errors.stateRegistration.message}</p>}
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Inscricao Municipal</Label>
+                                <Input {...register('municipalRegistration')} placeholder="Opcional" className="bg-white/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Indicador Contribuinte</Label>
+                                <Select
+                                    value={selectedTaxpayerIndicator}
+                                    onValueChange={(v) =>
+                                        setValue('taxpayerIndicator', v as 'contributor' | 'non_contributor' | 'exempt', { shouldDirty: true })
+                                    }
+                                >
+                                    <SelectTrigger className="bg-white/60">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="contributor">Contribuinte</SelectItem>
+                                        <SelectItem value="non_contributor">Nao contribuinte</SelectItem>
+                                        <SelectItem value="exempt">Isento</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>E-mail Fiscal</Label>
+                                <Input {...register('fiscalEmail')} type="email" placeholder="fiscal@empresa.com" className="bg-white/60" />
+                                {errors.fiscalEmail && <p className="text-xs text-red-500">{errors.fiscalEmail.message}</p>}
+                            </div>
+                            <div className="space-y-2 sm:col-span-2">
+                                <Label>Observacoes Fiscais</Label>
+                                <Textarea {...register('fiscalNotes')} rows={3} placeholder="Informacoes fiscais internas" className="bg-white/60 resize-none" />
                             </div>
                             <div className="space-y-2">
                                 <Label>Tipo de Cliente</Label>

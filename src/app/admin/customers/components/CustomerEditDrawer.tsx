@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { useForm, useWatch, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, Save, Building2, Users, Tag, Mail, KeyRound, ShieldCheck } from 'lucide-react';
 import {
@@ -13,13 +13,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { customerEditSchema, type CustomerEditFormData } from '../schema';
 import type { CustomerType, CustomerTag, Profile } from '@/lib/types';
 import type { CustomerWithStore } from './CustomerList';
 import { CustomerAddressManager } from './CustomerAddressManager';
-import { getCustomerAccessSnapshot } from '../actions';
+import { getCustomerAccessSnapshot, getStoreFiscalData } from '../actions';
 
 interface CustomerEditDrawerProps {
     customer: CustomerWithStore | null;
@@ -56,13 +57,16 @@ export function CustomerEditDrawer({
     const canEditEmail = Boolean(customer && (customer.status === 'imported' || customer.status === 'pending' || hasPlaceholderEmail));
 
     const form = useForm<CustomerEditFormData>({
-        resolver: zodResolver(customerEditSchema),
+        resolver: zodResolver(customerEditSchema) as Resolver<CustomerEditFormData>,
     });
 
     const { register, handleSubmit, reset, formState: { errors }, setValue } = form;
     const selectedCustomerTypeId = useWatch({ control: form.control, name: 'customerTypeId' }) || '';
     const selectedRepresentativeId = useWatch({ control: form.control, name: 'representativeId' }) || '';
     const selectedTagIds = useWatch({ control: form.control, name: 'tagIds' }) || [];
+    const selectedPersonType = useWatch({ control: form.control, name: 'personType' }) || 'legal_entity';
+    const selectedDocumentType = useWatch({ control: form.control, name: 'documentType' }) || 'CNPJ';
+    const selectedTaxpayerIndicator = useWatch({ control: form.control, name: 'taxpayerIndicator' }) || 'contributor';
     const selectedCustomerType = customerTypes.find((type) => type.id === selectedCustomerTypeId);
     const selectedRepresentative = representatives.find((rep) => rep.id === selectedRepresentativeId);
     const hasMissingCustomerTypeOption = Boolean(
@@ -94,6 +98,14 @@ export function CustomerEditDrawer({
                 companyName: store?.company_name || '',
                 tradeName: store?.trade_name || '',
                 cnpj: store?.cnpj || '',
+                personType: store?.person_type || 'legal_entity',
+                documentType: store?.document_type || 'CNPJ',
+                documentNumber: store?.document_number || store?.cnpj || '',
+                stateRegistration: store?.state_registration || '',
+                municipalRegistration: '',
+                taxpayerIndicator: 'contributor',
+                fiscalEmail: store?.email || '',
+                fiscalNotes: '',
                 customerTypeId: store?.customer_type_id || '',
                 representativeId: store?.representative_id || '',
                 tagIds: store?.store_tags?.map(st => st.tag_id) || [],
@@ -104,6 +116,35 @@ export function CustomerEditDrawer({
             });
         }
     }, [isOpen, customer, store, reset]);
+
+    useEffect(() => {
+        let active = true
+
+        const loadFiscalData = async () => {
+            if (!isOpen || !store?.id) return
+            const result = await getStoreFiscalData(store.id)
+            if (!active) return
+            if ('data' in result && result.data) {
+                const fiscalData = result.data as Record<string, unknown>
+                setValue('personType', (fiscalData.person_type as 'legal_entity' | 'individual') || 'legal_entity')
+                setValue('documentType', (fiscalData.document_type as 'CNPJ' | 'CPF') || 'CNPJ')
+                setValue('documentNumber', String(fiscalData.document_number || store?.document_number || store?.cnpj || ''))
+                setValue('stateRegistration', String(fiscalData.state_registration || ''))
+                setValue('municipalRegistration', String(fiscalData.municipal_registration || ''))
+                setValue(
+                    'taxpayerIndicator',
+                    (fiscalData.taxpayer_indicator as 'contributor' | 'non_contributor' | 'exempt') || 'contributor'
+                )
+                setValue('fiscalEmail', String(fiscalData.fiscal_email || store?.email || ''))
+                setValue('fiscalNotes', String(fiscalData.fiscal_notes || ''))
+            }
+        }
+
+        void loadFiscalData()
+        return () => {
+            active = false
+        }
+    }, [isOpen, store?.id, store?.document_number, store?.cnpj, store?.email, setValue])
 
     useEffect(() => {
         let active = true;
@@ -180,10 +221,10 @@ export function CustomerEditDrawer({
                                 <div className="rounded-xl border bg-white p-3">
                                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                         <Building2 className="h-3.5 w-3.5" />
-                                        CNPJ principal
+                                        Documento principal
                                     </div>
                                     <p className="mt-2 text-sm font-semibold text-navy">
-                                        {accessSnapshot?.primaryIdentifier || store?.cnpj || 'Nao informado'}
+                                        {accessSnapshot?.primaryIdentifier || store?.document_number || store?.cnpj || 'Nao informado'}
                                     </p>
                                     <p className="mt-1 text-[11px] text-muted-foreground">
                                         Identificador preferencial de login do cliente.
@@ -251,7 +292,7 @@ export function CustomerEditDrawer({
                                 <Input {...register('email')} type="email" className="bg-white/60" disabled={!canEditEmail} />
                                 {hasPlaceholderEmail && (
                                     <p className="text-[11px] text-muted-foreground">
-                                        Este cliente pode acessar pelo CNPJ enquanto o e-mail definitivo nao for informado.
+                                        Este cliente pode acessar pelo documento principal enquanto o e-mail definitivo nao for informado.
                                     </p>
                                 )}
                                 {!canEditEmail && (
@@ -285,9 +326,81 @@ export function CustomerEditDrawer({
                                 <Input {...register('tradeName')} className="bg-white/60" />
                             </div>
                             <div className="space-y-2">
-                                <Label>CNPJ *</Label>
-                                <Input {...register('cnpj')} className="bg-white/60" />
-                                {errors.cnpj && <p className="text-xs text-red-500">{errors.cnpj.message}</p>}
+                                <Label>Tipo de Pessoa *</Label>
+                                <Select
+                                    value={selectedPersonType}
+                                    onValueChange={(value) => {
+                                        const nextDocType = value === 'individual' ? 'CPF' : 'CNPJ'
+                                        setValue('personType', value as 'individual' | 'legal_entity', { shouldDirty: true })
+                                        setValue('documentType', nextDocType, { shouldDirty: true })
+                                    }}
+                                >
+                                    <SelectTrigger className="bg-white/60">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="legal_entity">Pessoa Juridica</SelectItem>
+                                        <SelectItem value="individual">Pessoa Fisica</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Documento Fiscal *</Label>
+                                <div className="grid grid-cols-[130px_1fr] gap-2">
+                                    <Select
+                                        value={selectedDocumentType}
+                                        onValueChange={(value) =>
+                                            setValue('documentType', value as 'CPF' | 'CNPJ', { shouldDirty: true })
+                                        }
+                                    >
+                                        <SelectTrigger className="bg-white/60">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="CNPJ">CNPJ</SelectItem>
+                                            <SelectItem value="CPF">CPF</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <Input {...register('documentNumber')} className="bg-white/60" />
+                                </div>
+                                <Input {...register('cnpj')} type="hidden" />
+                                {errors.documentNumber && <p className="text-xs text-red-500">{errors.documentNumber.message}</p>}
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Inscricao Estadual</Label>
+                                <Input {...register('stateRegistration')} className="bg-white/60" />
+                                {errors.stateRegistration && <p className="text-xs text-red-500">{errors.stateRegistration.message}</p>}
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Inscricao Municipal</Label>
+                                <Input {...register('municipalRegistration')} className="bg-white/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Indicador Contribuinte</Label>
+                                <Select
+                                    value={selectedTaxpayerIndicator}
+                                    onValueChange={(value) =>
+                                        setValue('taxpayerIndicator', value as 'contributor' | 'non_contributor' | 'exempt', { shouldDirty: true })
+                                    }
+                                >
+                                    <SelectTrigger className="bg-white/60">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="contributor">Contribuinte</SelectItem>
+                                        <SelectItem value="non_contributor">Nao contribuinte</SelectItem>
+                                        <SelectItem value="exempt">Isento</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>E-mail Fiscal</Label>
+                                <Input {...register('fiscalEmail')} type="email" className="bg-white/60" />
+                                {errors.fiscalEmail && <p className="text-xs text-red-500">{errors.fiscalEmail.message}</p>}
+                            </div>
+                            <div className="space-y-2 sm:col-span-2">
+                                <Label>Observacoes Fiscais</Label>
+                                <Textarea {...register('fiscalNotes')} rows={3} className="bg-white/60 resize-none" />
                             </div>
                             <div className="space-y-2">
                                 <Label>Tipo de Cliente</Label>

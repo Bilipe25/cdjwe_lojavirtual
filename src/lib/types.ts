@@ -60,8 +60,20 @@ export interface StoreAddress {
   neighborhood: string | null
   city: string
   state: string
+  municipality_code?: string | null
+  country_code?: string | null
   created_at: string
   updated_at: string
+}
+
+export type PersonType = 'individual' | 'legal_entity'
+export type FiscalDocumentType = 'CPF' | 'CNPJ'
+export type TaxpayerIndicator = 'contributor' | 'non_contributor' | 'exempt'
+
+export interface FiscalDocument {
+  person_type: PersonType
+  document_type: FiscalDocumentType
+  document_number: string
 }
 
 export interface StoreCommercialSettings {
@@ -78,6 +90,23 @@ export interface StoreCommercialSettings {
   updated_at: string
 }
 
+export interface StoreFiscalData {
+  id: string
+  store_id: string
+  person_type: PersonType
+  document_type: FiscalDocumentType
+  document_number: string
+  state_registration: string | null
+  municipal_registration: string | null
+  taxpayer_indicator: TaxpayerIndicator
+  fiscal_email: string | null
+  fiscal_notes: string | null
+  fiscal_address_id: string | null
+  future_tax_payload?: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
 // ==================== STORES (Clientes) ====================
 
 export interface Store {
@@ -87,6 +116,9 @@ export interface Store {
   company_name: string
   trade_name: string | null
   cnpj: string
+  person_type?: PersonType | null
+  document_type?: FiscalDocumentType | null
+  document_number?: string | null
   state_registration: string | null
   address: string | null
   city: string | null
@@ -107,6 +139,7 @@ export interface Store {
   store_tags?: StoreTag[]
   store_addresses?: StoreAddress[]
   commercial_settings?: StoreCommercialSettings | null
+  fiscal_data?: StoreFiscalData | null
 }
 
 // ==================== PRODUCT CATALOG ====================
@@ -124,12 +157,71 @@ export interface Category {
   updated_at?: string
 }
 
+export interface ProductTaxProfile {
+  id: string
+  name: string
+  code: string
+  description: string | null
+  ncm: string | null
+  cest: string | null
+  origin_code: string
+  commercial_unit: string | null
+  tax_unit: string | null
+  ean_gtin: string | null
+  tax_ean_gtin: string | null
+  fiscal_type: string
+  item_type: string
+  has_substitution_tax: boolean
+  requires_cest: boolean
+  has_ipi: boolean
+  ipi_cst_out: string | null
+  ipi_enquadramento_codigo: string | null
+  pis_cst: string | null
+  cofins_cst: string | null
+  pis_aliquota: number | null
+  cofins_aliquota: number | null
+  default_output_cfop: string | null
+  default_input_cfop: string | null
+  internal_fiscal_code: string | null
+  default_fiscal_notes: string | null
+  is_active: boolean
+  requires_tax_configuration: boolean
+  future_tax_payload?: Record<string, unknown> | null
+  metadata_jsonb?: Record<string, unknown> | null
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductTaxProfileRule {
+  id: string
+  tax_profile_id: string
+  rule_name: string
+  operation_direction: 'outbound' | 'inbound'
+  origin_uf: string | null
+  destination_uf: string | null
+  customer_type_id: string | null
+  person_type: PersonType | null
+  taxpayer_indicator: TaxpayerIndicator | null
+  cfop_override: string | null
+  priority: number
+  is_active: boolean
+  effective_from: string | null
+  effective_to: string | null
+  rule_payload_jsonb?: Record<string, unknown> | null
+  future_tax_payload?: Record<string, unknown> | null
+  version: number
+  created_at: string
+  updated_at: string
+}
+
 export interface Product {
   id: string
   name: string
   slug: string
   description: string | null
   category_id: string
+  tax_profile_id?: string | null
   size: string | null // ex: "3x2 lugares"
   has_size_variants?: boolean
   base_price: number
@@ -140,6 +232,7 @@ export interface Product {
   updated_at: string
   // Relations
   category?: Category
+  tax_profile?: ProductTaxProfile | null
   images?: ProductImage[]
   variants?: ProductVariant[]
   size_options?: ProductSizeOption[]
@@ -336,6 +429,8 @@ export interface Order {
   notes: string | null
   shipping_address: string | null
   estimated_delivery: string | null
+  fiscal_snapshot?: Record<string, unknown> | null
+  fiscal_ready?: boolean
   created_at: string
   updated_at: string
   // Relations
@@ -366,10 +461,29 @@ export interface OrderItem {
   size_price?: number | null
   variation_price?: number | null
   final_price?: number | null
+  tax_profile_id?: string | null
+  tax_profile_version?: number | null
+  fiscal_ncm?: string | null
+  fiscal_cest?: string | null
+  fiscal_origin_code?: string | null
+  fiscal_cfop?: string | null
+  fiscal_context?: Record<string, unknown> | null
+  fiscal_payload?: Record<string, unknown> | null
   subtotal: number
   created_at: string
   // Relations
   product_variant?: ProductVariant
+}
+
+export interface OrderItemFiscalSnapshot {
+  tax_profile_id: string | null
+  tax_profile_version: number | null
+  fiscal_ncm: string | null
+  fiscal_cest: string | null
+  fiscal_origin_code: string | null
+  fiscal_cfop: string | null
+  fiscal_context: Record<string, unknown> | null
+  fiscal_payload: Record<string, unknown> | null
 }
 
 export interface OrderStatusHistory {

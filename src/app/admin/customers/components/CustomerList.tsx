@@ -181,19 +181,22 @@ export function CustomerList({
                                                 ))}
                                             </div>
                                             <p className="text-sm text-muted-foreground truncate" title={store?.company_name || 'Sem empresa'}>
-                                                {store?.company_name || 'Sem empresa'} <span className="text-xs opacity-70">• {store?.cnpj || 'S/ CNPJ'}</span>
+                                                {store?.company_name || 'Sem empresa'}{' '}
+                                                <span className="text-xs opacity-70">
+                                                    - {store?.document_number || store?.cnpj || 'Sem documento'}
+                                                </span>
                                             </p>
                                             <p className="text-xs text-muted-foreground mt-0.5 opacity-80 flex items-center gap-2">
                                                 <span>{isEmailPending ? 'E-mail pendente de cadastro' : customer.email}</span>
                                                 {representativeName && (
                                                     <>
-                                                        <span>•</span>
+                                                        <span>-</span>
                                                         <span className="text-navy font-medium text-[11px]" title="Representante">
-                                                            👤 {representativeName}
+                                                            Rep: {representativeName}
                                                         </span>
                                                     </>
                                                 )}
-                                                <span>•</span>
+                                                <span>-</span>
                                                 <span>{format(new Date(customer.created_at), 'dd/MM/yyyy', { locale: ptBR })}</span>
                                             </p>
                                         </div>
@@ -280,7 +283,7 @@ export function CustomerList({
                         <TableRow className="hover:bg-transparent">
                             <TableHead className="w-[50px]"></TableHead>
                             <TableHead>Cliente</TableHead>
-                            <TableHead>Empresa / CNPJ</TableHead>
+                            <TableHead>Empresa / Documento</TableHead>
                             <TableHead>Contato</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Tags</TableHead>
@@ -330,7 +333,9 @@ export function CustomerList({
                                     <TableCell className="py-3">
                                         <div className="flex flex-col">
                                             <span className="font-medium text-sm text-foreground">{store?.company_name || 'Sem empresa cadastrada'}</span>
-                                            <span className="text-xs text-muted-foreground">{store?.cnpj || 'Sem CNPJ'}</span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {store?.document_number || store?.cnpj || 'Sem documento'}
+                                            </span>
                                         </div>
                                     </TableCell>
                                     <TableCell className="py-3">

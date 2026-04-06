@@ -13,6 +13,7 @@ import { type ProductFormData } from './schema'
 import {
     cleanupProductImageUploadsAction,
     createProductImageSignedUploadUrlsAction,
+    listProductTaxProfilesAction,
     saveProductImagesMetadataAction,
     upsertProductDomainAction,
 } from '@/app/admin/actions/products'
@@ -30,6 +31,20 @@ export default function AdminProductsPage() {
 
     const [products, setProducts] = useState<ProductWithDetails[]>([])
     const [categories, setCategories] = useState<Category[]>([])
+    const [taxProfiles, setTaxProfiles] = useState<
+        Array<{
+            id: string
+            name: string
+            code: string
+            ncm: string | null
+            cest: string | null
+            default_output_cfop: string | null
+            is_active: boolean
+            version: number
+            products_count: number
+            updated_at: string
+        }>
+    >([])
     
     // Server-side State
     const [loading, setLoading] = useState(true)
@@ -62,7 +77,7 @@ export default function AdminProductsPage() {
         
         let query = supabase
             .from('products')
-            .select('*, category:categories(*), images:product_images(*)', { count: 'exact' });
+            .select('*, category:categories(*), images:product_images(*), tax_profile:product_tax_profiles(*)', { count: 'exact' });
 
         if (debouncedSearch) {
             query = query.ilike('name', `%${debouncedSearch}%`);
@@ -76,11 +91,14 @@ export default function AdminProductsPage() {
         const to = from + ITEMS_PER_PAGE - 1;
         query = query.order('sort_order', { ascending: true }).order('created_at', { ascending: false }).range(from, to);
 
-        const [prodsRes, catsRes] = await Promise.all([
+        const [prodsRes, catsRes, taxProfilesRes] = await Promise.all([
             query,
             categories.length === 0 
                 ? supabase.from('categories').select('*').eq('is_active', true).order('sort_order')
-                : Promise.resolve({ data: categories })
+                : Promise.resolve({ data: categories }),
+            taxProfiles.length === 0
+                ? listProductTaxProfilesAction({ includeInactive: true })
+                : Promise.resolve({ success: true, data: taxProfiles }),
         ])
 
         if (prodsRes.error) {
@@ -92,9 +110,10 @@ export default function AdminProductsPage() {
         if (prodsRes.data) setProducts(prodsRes.data)
         if (prodsRes.count !== null) setTotalCount(prodsRes.count)
         if (catsRes.data) setCategories(catsRes.data)
+        if (taxProfilesRes.success && taxProfilesRes.data) setTaxProfiles(taxProfilesRes.data)
         
         setLoading(false)
-    }, [debouncedSearch, categoryFilter, currentPage, categories, supabase])
+    }, [debouncedSearch, categoryFilter, currentPage, categories, supabase, taxProfiles])
 
     useEffect(() => {
         loadData()
@@ -138,6 +157,7 @@ export default function AdminProductsPage() {
             slug,
             description: data.description || null,
             category_id: data.category_id,
+            tax_profile_id: data.tax_profile_id || null,
             size: data.size || null,
             has_size_variants: data.has_size_variants === true,
             size_options: data.size_options || [],
@@ -173,6 +193,7 @@ export default function AdminProductsPage() {
                 slug: payload.slug,
                 description: payload.description,
                 categoryId: payload.category_id,
+                taxProfileId: payload.tax_profile_id,
                 size: payload.size,
                 hasSizeVariants: payload.has_size_variants,
                 sizeOptions: payload.size_options.map((sizeOption) => ({
@@ -383,6 +404,7 @@ export default function AdminProductsPage() {
                 isOpen={dialogOpen}
                 onOpenChange={setDialogOpen}
                 categories={categories}
+                taxProfiles={taxProfiles}
                 editingProduct={editingProduct}
                 saving={saving}
                 onSave={handleSave}

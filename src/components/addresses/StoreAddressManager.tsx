@@ -222,6 +222,16 @@ export function StoreAddressManager({
                             <Input {...form.register('state')} placeholder="SP" maxLength={2} className="bg-white uppercase" />
                             {form.formState.errors.state && <p className="text-xs text-red-500">{form.formState.errors.state.message}</p>}
                         </div>
+
+                        <div className="space-y-2">
+                            <Label>Codigo Municipio (IBGE)</Label>
+                            <Input {...form.register('municipalityCode')} placeholder="3550308" className="bg-white" />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Codigo Pais (BACEN)</Label>
+                            <Input {...form.register('countryCode')} placeholder="1058" className="bg-white" />
+                        </div>
                     </div>
 
                     <div className="flex justify-end gap-2 pt-4 border-t">
@@ -309,6 +319,11 @@ export function StoreAddressManager({
                                         {address.city} - {address.state}
                                     </p>
                                     <p>CEP: {address.zip_code}</p>
+                                    {(address.municipality_code || address.country_code) && (
+                                        <p className="text-[11px]">
+                                            Municipio: {address.municipality_code || 'N/D'} | Pais: {address.country_code || 'N/D'}
+                                        </p>
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>
@@ -318,3 +333,4 @@ export function StoreAddressManager({
         </div>
     )
 }
+

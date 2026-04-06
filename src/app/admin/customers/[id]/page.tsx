@@ -24,6 +24,7 @@ import { CustomerAddressManager } from '../components/CustomerAddressManager'
 import { CustomerCommercialTab } from '../components/CustomerCommercialTab'
 import { CustomerRepresentativeTab } from '../components/CustomerRepresentativeTab'
 import { CustomerFinancialTab } from '../components/CustomerFinancialTab'
+import { ClientFiscalSection } from '../components/ClientFiscalSection'
 
 const statusConfig: Record<string, { label: string; color: string }> = {
     pending: { label: 'Pendente', color: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -42,7 +43,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
     const [customer, setCustomer] = useState<CustomerWithStore | null>(null)
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
-    const [activeTab, setActiveTab] = useState<'general' | 'access' | 'orders' | 'audit' | 'addresses' | 'commercial' | 'representative' | 'financial'>('general')
+    const [activeTab, setActiveTab] = useState<'general' | 'access' | 'orders' | 'audit' | 'addresses' | 'commercial' | 'fiscal' | 'representative' | 'financial'>('general')
 
     // Lookup data states for Edit Drawer
     const [customerTypes, setCustomerTypes] = useState<CustomerType[]>([])
@@ -269,7 +270,11 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                             <p className="text-muted-foreground mt-1 text-xs sm:text-sm md:text-base flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 flex-wrap">
                                 <Building2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 opacity-70 shrink-0" />
                                 <span className="truncate">{store?.company_name || 'Sem empresa cadastrada'}</span>
-                                {store?.cnpj && <span className="text-xs opacity-70 hidden sm:inline">CNPJ: {store.cnpj}</span>}
+                                {(store?.document_number || store?.cnpj) && (
+                                    <span className="text-xs opacity-70 hidden sm:inline">
+                                        Documento: {store?.document_number || store?.cnpj}
+                                    </span>
+                                )}
                             </p>
                             
                             <div className="flex items-center justify-center sm:justify-start gap-2 mt-3 flex-wrap">
@@ -401,6 +406,15 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                         Financeiro/Comercial
                     </button>
                     <button
+                        onClick={() => setActiveTab('fiscal')}
+                        className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            activeTab === 'fiscal' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        Fiscal NF-e
+                    </button>
+                    <button
                         onClick={() => setActiveTab('financial')}
                         className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                             activeTab === 'financial' ? 'border-navy text-navy' : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -484,6 +498,18 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                         ) : (
                             <p className="text-sm text-muted-foreground">
                                 Cliente nao possui loja associada para configuracao comercial.
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {activeTab === 'fiscal' && (
+                    <div className="bg-white rounded-2xl border p-6 shadow-sm">
+                        {store ? (
+                            <ClientFiscalSection storeId={store.id} />
+                        ) : (
+                            <p className="text-sm text-muted-foreground">
+                                Cliente nao possui loja associada para configuracao fiscal.
                             </p>
                         )}
                     </div>
