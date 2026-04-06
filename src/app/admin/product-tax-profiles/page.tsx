@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
@@ -7,30 +9,24 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
     duplicateProductTaxProfileAction,
-    getProductTaxProfileDetailAction,
     getProductTaxProfileUsageAction,
     listProductTaxProfilesAction,
     toggleProductTaxProfileStatusAction,
-    upsertProductTaxProfileAction,
     type ProductTaxProfileListItem,
     type ProductTaxProfileUsageItem,
 } from '@/app/admin/actions/products'
-import { ProductTaxProfileForm } from './components/ProductTaxProfileForm'
 import { ProductTaxProfileList } from './components/ProductTaxProfileList'
 import { ProductTaxProfileSummary } from './components/ProductTaxProfileSummary'
 import { TaxProfileUsagePanel } from './components/TaxProfileUsagePanel'
-import type { ProductTaxProfileFormData } from './schema'
 
 export default function ProductTaxProfilesPage() {
+    const router = useRouter()
     const [profiles, setProfiles] = useState<ProductTaxProfileListItem[]>([])
     const [loading, setLoading] = useState(true)
     const [search, setSearch] = useState('')
     const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null)
     const [usage, setUsage] = useState<ProductTaxProfileUsageItem[]>([])
     const [usageLoading, setUsageLoading] = useState(false)
-    const [formOpen, setFormOpen] = useState(false)
-    const [saving, setSaving] = useState(false)
-    const [editingData, setEditingData] = useState<Partial<ProductTaxProfileFormData> | null>(null)
 
     const loadProfiles = useCallback(async () => {
         setLoading(true)
@@ -85,68 +81,6 @@ export default function ProductTaxProfilesPage() {
         return { total: profiles.length, active, inactive }
     }, [profiles])
 
-    const handleOpenNew = () => {
-        setEditingData(null)
-        setFormOpen(true)
-    }
-
-    const handleEdit = async (profileId: string) => {
-        const result = await getProductTaxProfileDetailAction(profileId)
-        if (!result.success || !result.data) {
-            toast.error(result.error || 'Nao foi possivel abrir o perfil.')
-            return
-        }
-        setEditingData(result.data.profile as unknown as Partial<ProductTaxProfileFormData>)
-        setFormOpen(true)
-    }
-
-    const handleSave = async (data: ProductTaxProfileFormData) => {
-        setSaving(true)
-        const result = await upsertProductTaxProfileAction({
-            id: data.id,
-            name: data.name,
-            code: data.code,
-            description: data.description,
-            ncm: data.ncm,
-            cest: data.cest,
-            originCode: data.originCode,
-            commercialUnit: data.commercialUnit,
-            taxUnit: data.taxUnit,
-            eanGtin: data.eanGtin,
-            taxEanGtin: data.taxEanGtin,
-            defaultFiscalDescription: data.defaultFiscalDescription,
-            fiscalType: data.fiscalType,
-            itemType: data.itemType,
-            hasSubstitutionTax: data.hasSubstitutionTax,
-            requiresCest: data.requiresCest,
-            hasIpi: data.hasIpi,
-            ipiCstOut: data.ipiCstOut,
-            ipiEnquadramentoCodigo: data.ipiEnquadramentoCodigo,
-            pisCst: data.pisCst,
-            cofinsCst: data.cofinsCst,
-            pisAliquota: data.pisAliquota ?? null,
-            cofinsAliquota: data.cofinsAliquota ?? null,
-            defaultOutputCfop: data.defaultOutputCfop,
-            defaultInputCfop: data.defaultInputCfop,
-            internalFiscalCode: data.internalFiscalCode,
-            defaultFiscalNotes: data.defaultFiscalNotes,
-            isActive: data.isActive,
-            requiresTaxConfiguration: data.requiresTaxConfiguration,
-        })
-
-        if (!result.success || !result.data) {
-            toast.error(result.error || 'Falha ao salvar perfil tributario.')
-            setSaving(false)
-            return
-        }
-
-        toast.success(result.data.created ? 'Perfil tributario criado.' : 'Perfil tributario atualizado.')
-        setFormOpen(false)
-        setSelectedProfileId(result.data.taxProfileId)
-        await loadProfiles()
-        setSaving(false)
-    }
-
     const handleDuplicate = async (profileId: string) => {
         const result = await duplicateProductTaxProfileAction(profileId)
         if (!result.success || !result.data) {
@@ -182,9 +116,11 @@ export default function ProductTaxProfilesPage() {
                         <RefreshCw className="h-4 w-4 mr-1.5" />
                         Atualizar
                     </Button>
-                    <Button onClick={handleOpenNew} className="gradient-navy border-0 text-white">
-                        <Plus className="h-4 w-4 mr-1.5" />
-                        Novo Perfil
+                    <Button asChild className="gradient-navy border-0 text-white">
+                        <Link href="/admin/product-tax-profiles/novo">
+                            <Plus className="h-4 w-4 mr-1.5" />
+                            Novo Perfil
+                        </Link>
                     </Button>
                 </div>
             </div>
@@ -207,21 +143,13 @@ export default function ProductTaxProfilesPage() {
                     selectedId={selectedProfileId}
                     loading={loading}
                     onSelect={setSelectedProfileId}
-                    onEdit={(profileId) => void handleEdit(profileId)}
+                    onEdit={(profileId) => router.push(`/admin/product-tax-profiles/${profileId}/editar`)}
                     onDuplicate={(profileId) => void handleDuplicate(profileId)}
                     onToggle={(profileId, nextState) => void handleToggle(profileId, nextState)}
                 />
 
                 <TaxProfileUsagePanel loading={usageLoading} usage={usage} />
             </div>
-
-            <ProductTaxProfileForm
-                open={formOpen}
-                saving={saving}
-                initialData={editingData}
-                onOpenChange={setFormOpen}
-                onSubmit={handleSave}
-            />
         </div>
     )
 }
