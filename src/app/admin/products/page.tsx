@@ -72,48 +72,91 @@ export default function AdminProductsPage() {
         return () => clearTimeout(timer)
     }, [search])
 
+    const shouldLoadCategories = categories.length === 0
+    const shouldLoadTaxProfiles = taxProfiles.length === 0
+
     const loadData = useCallback(async () => {
         setLoading(true)
-        
-        let query = supabase
-            .from('products')
-            .select('*, category:categories(*), images:product_images(*), tax_profile:product_tax_profiles(*)', { count: 'exact' });
 
-        if (debouncedSearch) {
-            query = query.ilike('name', `%${debouncedSearch}%`);
-        }
-        if (categoryFilter !== 'all') {
-            query = query.eq('category_id', categoryFilter);
-        }
+        try {
+            let query = supabase
+                .from('products')
+                .select('*, category:categories(*), images:product_images(*), tax_profile:product_tax_profiles(*)', {
+                    count: 'exact',
+                })
 
-        // Pagination
-        const from = (currentPage - 1) * ITEMS_PER_PAGE;
-        const to = from + ITEMS_PER_PAGE - 1;
-        query = query.order('sort_order', { ascending: true }).order('created_at', { ascending: false }).range(from, to);
+            if (debouncedSearch) {
+                query = query.ilike('name', `%${debouncedSearch}%`)
+            }
+            if (categoryFilter !== 'all') {
+                query = query.eq('category_id', categoryFilter)
+            }
 
-        const [prodsRes, catsRes, taxProfilesRes] = await Promise.all([
-            query,
-            categories.length === 0 
-                ? supabase.from('categories').select('*').eq('is_active', true).order('sort_order')
-                : Promise.resolve({ data: categories }),
-            taxProfiles.length === 0
-                ? listProductTaxProfilesAction({ includeInactive: true })
-                : Promise.resolve({ success: true, data: taxProfiles }),
-        ])
+            const from = (currentPage - 1) * ITEMS_PER_PAGE
+            const to = from + ITEMS_PER_PAGE - 1
+            query = query.order('sort_order', { ascending: true }).order('created_at', { ascending: false }).range(from, to)
 
-        if (prodsRes.error) {
-            toast.error('Erro ao carregar produtos.')
+            const [prodsRes, catsRes, taxProfilesRes] = await Promise.allSettled([
+                query,
+                shouldLoadCategories
+                    ? supabase.from('categories').select('*').eq('is_active', true).order('sort_order')
+                    : Promise.resolve({ data: categories, error: null }),
+                shouldLoadTaxProfiles
+                    ? listProductTaxProfilesAction({ includeInactive: true })
+                    : Promise.resolve({ success: true, data: taxProfiles }),
+            ])
+
+            if (prodsRes.status === 'fulfilled') {
+                if (prodsRes.value.error) {
+                    toast.error('Erro ao carregar produtos.')
+                } else {
+                    setProducts(prodsRes.value.data || [])
+                    if (prodsRes.value.count !== null) {
+                        setTotalCount(prodsRes.value.count)
+                    }
+                }
+            } else {
+                console.error('[ADMIN_PRODUCTS] products load failed:', prodsRes.reason)
+                setProducts([])
+                setTotalCount(0)
+                toast.error('Erro inesperado ao carregar produtos.')
+            }
+
+            if (catsRes.status === 'fulfilled') {
+                if (catsRes.value.error) {
+                    toast.error('Erro ao carregar categorias.')
+                } else if (catsRes.value.data) {
+                    setCategories(catsRes.value.data)
+                }
+            } else {
+                console.error('[ADMIN_PRODUCTS] categories load failed:', catsRes.reason)
+                toast.error('Erro inesperado ao carregar categorias.')
+            }
+
+            if (taxProfilesRes.status === 'fulfilled') {
+                if (taxProfilesRes.value.success && taxProfilesRes.value.data) {
+                    setTaxProfiles(taxProfilesRes.value.data)
+                } else if (!taxProfilesRes.value.success) {
+                    const taxProfileError =
+                        'error' in taxProfilesRes.value ? taxProfilesRes.value.error : 'Erro ao carregar perfis tributarios.'
+                    console.error('[ADMIN_PRODUCTS] tax profiles load returned failure:', taxProfileError)
+                    toast.error('Nao foi possivel carregar os perfis tributarios. O catalogo de produtos continuara disponivel.')
+                }
+            } else {
+                console.error('[ADMIN_PRODUCTS] tax profiles load failed:', taxProfilesRes.reason)
+                toast.error('Falha ao carregar perfis tributarios. Os produtos continuam disponiveis.')
+            }
+        } finally {
+            setLoading(false)
         }
-        if ('error' in catsRes && catsRes.error) {
-            toast.error('Erro ao carregar categorias.')
-        }
-        if (prodsRes.data) setProducts(prodsRes.data)
-        if (prodsRes.count !== null) setTotalCount(prodsRes.count)
-        if (catsRes.data) setCategories(catsRes.data)
-        if (taxProfilesRes.success && taxProfilesRes.data) setTaxProfiles(taxProfilesRes.data)
-        
-        setLoading(false)
-    }, [debouncedSearch, categoryFilter, currentPage, categories, supabase, taxProfiles])
+    }, [
+        debouncedSearch,
+        categoryFilter,
+        currentPage,
+        supabase,
+        shouldLoadCategories,
+        shouldLoadTaxProfiles,
+    ])
 
     useEffect(() => {
         loadData()
