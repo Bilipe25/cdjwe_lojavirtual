@@ -30,10 +30,13 @@ export interface FiscalImportPreviewSummary {
     tableType: FiscalBaseType
     sourceType: FiscalImportSourceType
     sheetName?: string | null
+    readRows: number
     totalRows: number
     validRows: number
     invalidRows: number
     warningRows: number
+    skippedRows: number
+    structuralRows: number
     items: FiscalImportPreviewItem[]
 }
 
@@ -41,6 +44,11 @@ export interface FiscalImportTemplateConfig {
     requiredColumns: string[]
     optionalColumns: string[]
     exampleRows: string[][]
+}
+
+interface FiscalHeaderConfig {
+    requiredColumns: string[]
+    aliases?: Record<string, string[]>
 }
 
 export interface BuildFiscalImportPreviewInput {
@@ -52,12 +60,17 @@ export interface BuildFiscalImportPreviewInput {
 export const FISCAL_IMPORT_TEMPLATES: Record<FiscalBaseType, FiscalImportTemplateConfig> = {
     ncm: {
         requiredColumns: ['code', 'description'],
-        optionalColumns: ['full_description'],
+        optionalColumns: ['full_description', 'start_date', 'end_date', 'legal_act', 'legal_number', 'legal_year'],
         exampleRows: [
             [
                 '94016100',
                 'Assentos estofados com estrutura de madeira',
                 'Assentos estofados, com armacao de madeira, exceto os transformaveis em camas',
+                '2022-04-01',
+                '9999-12-31',
+                'Res Camex',
+                '272',
+                '2021',
             ],
         ],
     },
@@ -78,6 +91,36 @@ export const FISCAL_IMPORT_TEMPLATES: Record<FiscalBaseType, FiscalImportTemplat
     },
 }
 
+const FISCAL_IMPORT_HEADER_ALIASES: Record<FiscalBaseType, Record<string, string[]>> = {
+    ncm: {
+        code: ['code', 'codigo'],
+        description: ['description', 'descricao'],
+        full_description: ['full_description', 'descricao_completa', 'descricao_detalhada'],
+        start_date: ['start_date', 'data_inicio', 'inicio_vigencia', 'vigencia_inicio'],
+        end_date: ['end_date', 'data_fim', 'fim_vigencia', 'vigencia_fim'],
+        legal_act: ['legal_act', 'ato_legal', 'ato_legal_inicio'],
+        legal_number: ['legal_number', 'numero', 'numero_ato'],
+        legal_year: ['legal_year', 'ano', 'ano_ato'],
+    },
+    tipi: {
+        ncm_code: ['ncm_code', 'ncm', 'codigo_ncm'],
+        description: ['description', 'descricao'],
+        ipi_rate: ['ipi_rate', 'aliquota_ipi', 'aliquota'],
+        ex_tipi: ['ex_tipi', 'ex', 'extipi'],
+    },
+    cest: {
+        code: ['code', 'codigo'],
+        description: ['description', 'descricao'],
+        segment: ['segment', 'segmento'],
+        ncm_codes: ['ncm_codes', 'ncms', 'ncm'],
+    },
+    cfop: {
+        code: ['code', 'codigo'],
+        description: ['description', 'descricao'],
+        operation_direction: ['operation_direction', 'direcao_operacao', 'tipo_operacao'],
+    },
+}
+
 function normalizeHeader(header: string) {
     return header
         .trim()
@@ -93,6 +136,16 @@ function normalizeCellValue(value: unknown): string {
     if (value === null || value === undefined) return ''
     if (value instanceof Date) return value.toISOString()
     return String(value).trim()
+}
+
+function mapHeaderToCanonical(header: string, aliases?: Record<string, string[]>) {
+    if (!aliases) return header
+
+    for (const [canonical, acceptedHeaders] of Object.entries(aliases)) {
+        if (acceptedHeaders.includes(header)) return canonical
+    }
+
+    return header
 }
 
 function detectSeparator(line: string) {
@@ -164,13 +217,29 @@ function parseCsvToMatrix(text: string): string[][] {
     return rows
 }
 
-function parseMatrixToRows(matrix: string[][]): { rows: FiscalCsvRow[]; headers: string[] } {
+function findHeaderRowIndex(matrix: string[][], config?: FiscalHeaderConfig) {
+    if (!config) return 0
+
+    for (let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1) {
+        const normalizedHeaders = matrix[rowIndex].map((cell) => mapHeaderToCanonical(normalizeHeader(cell), config.aliases))
+        if (config.requiredColumns.every((column) => normalizedHeaders.includes(column))) {
+            return rowIndex
+        }
+    }
+
+    return 0
+}
+
+function parseMatrixToRows(matrix: string[][], config?: FiscalHeaderConfig): { rows: FiscalCsvRow[]; headers: string[] } {
     if (matrix.length === 0) return { rows: [], headers: [] }
 
-    const headers = matrix[0].map((cell) => normalizeHeader(cell))
+    const headerRowIndex = findHeaderRowIndex(matrix, config)
+    const headers = matrix[headerRowIndex].map((cell) =>
+        mapHeaderToCanonical(normalizeHeader(cell), config?.aliases)
+    )
     const rows: FiscalCsvRow[] = []
 
-    for (let rowIndex = 1; rowIndex < matrix.length; rowIndex += 1) {
+    for (let rowIndex = headerRowIndex + 1; rowIndex < matrix.length; rowIndex += 1) {
         const columns = matrix[rowIndex]
         const raw = headers.reduce<Record<string, string>>((acc, header, index) => {
             acc[header] = normalizeCellValue(columns[index] || '')
@@ -198,7 +267,7 @@ export function parseFiscalCsv(text: string): FiscalParsedImportFile {
     }
 }
 
-export function parseFiscalWorkbook(fileBase64: string): FiscalParsedImportFile {
+export function parseFiscalWorkbook(fileBase64: string, config?: FiscalHeaderConfig): FiscalParsedImportFile {
     const normalizedBase64 = fileBase64.trim()
     if (!normalizedBase64) throw new Error('Arquivo XLSX vazio ou invalido.')
 
@@ -228,13 +297,20 @@ export function parseFiscalWorkbook(fileBase64: string): FiscalParsedImportFile 
 
         if (!matrix.some((row) => row.some((cell) => cell.length > 0))) continue
 
-        if (Array.isArray(worksheet['!merges']) && worksheet['!merges'].length > 0) {
+        const headerRowIndex = findHeaderRowIndex(matrix, config)
+
+        const firstDataRowIndex = headerRowIndex + 1
+
+        if (
+            Array.isArray(worksheet['!merges']) &&
+            worksheet['!merges'].some((merge) => (merge?.e?.r ?? -1) >= firstDataRowIndex)
+        ) {
             throw new Error(
-                `A aba "${sheetName}" possui celulas mescladas. Reorganize a planilha e exporte novamente em XLSX limpo.`
+                `A aba "${sheetName}" possui celulas mescladas na area de dados. Reorganize a planilha e exporte novamente em XLSX limpo.`
             )
         }
 
-        const parsed = parseMatrixToRows(matrix)
+        const parsed = parseMatrixToRows(matrix, config)
         return {
             ...parsed,
             sourceType: 'xlsx',
@@ -260,6 +336,41 @@ function normalizeDocumentCode(value: string, digits: number) {
     return normalized.length === digits ? normalized : normalized
 }
 
+function normalizeOfficialNcmCode(value: string) {
+    const trimmed = (value || '').trim()
+    if (!trimmed) return ''
+
+    const rawSegments = trimmed
+        .split('.')
+        .map((segment) => segment.replace(/\D/g, ''))
+        .filter((segment) => segment.length > 0)
+
+    if (rawSegments.length === 0) {
+        return trimmed.replace(/\D/g, '')
+    }
+
+    const segments = [...rawSegments]
+
+    if (segments.length === 1) {
+        if (segments[0].length === 1) segments[0] = segments[0].padStart(2, '0')
+        return segments.join('')
+    }
+
+    if (segments.length === 2) {
+        const targetFirstLength =
+            segments[1].length === 2 && segments[0].length <= 2
+                ? 2
+                : 4
+
+        segments[0] = segments[0].padStart(targetFirstLength, '0')
+        return segments.join('')
+    }
+
+    segments[0] = segments[0].padStart(4, '0')
+    if (segments[1]) segments[1] = segments[1].padStart(2, '0')
+    return segments.join('')
+}
+
 function normalizeDecimal(value: string) {
     const trimmed = (value || '').trim()
     if (!trimmed) return null
@@ -271,6 +382,23 @@ function normalizeDecimal(value: string) {
     if (!sanitized) return null
     const numeric = Number(sanitized)
     return Number.isFinite(numeric) ? numeric : null
+}
+
+function normalizeDate(value: string) {
+    const trimmed = (value || '').trim()
+    if (!trimmed) return null
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+
+    const match = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+    if (match) {
+        const [, day, month, year] = match
+        return `${year}-${month}-${day}`
+    }
+
+    const parsed = new Date(trimmed)
+    if (Number.isNaN(parsed.getTime())) return null
+    return parsed.toISOString().slice(0, 10)
 }
 
 function normalizeOperationDirection(value: string) {
@@ -288,13 +416,31 @@ function validateRequiredColumns(tableType: FiscalBaseType, headers: string[]) {
 }
 
 function buildNcmPreviewItem(row: FiscalCsvRow): FiscalImportPreviewItem {
-    const code = normalizeDocumentCode(row.raw.code || '', 8)
+    const sourceCode = (row.raw.code || '').trim()
+    const code = normalizeOfficialNcmCode(sourceCode)
+    const isStructural = code.length >= 2 && code.length < 8
     const description = (row.raw.description || '').trim()
     const fullDescription = (row.raw.full_description || '').trim()
+    const startDate = normalizeDate(row.raw.start_date || '')
+    const endDate = normalizeDate(row.raw.end_date || '')
+    const legalAct = (row.raw.legal_act || '').trim()
+    const legalNumber = (row.raw.legal_number || '').trim()
+    const legalYear = (row.raw.legal_year || '').trim()
     const validationErrors: string[] = []
+    const validationWarnings: string[] = []
 
-    if (!/^\d{8}$/.test(code)) validationErrors.push('Codigo NCM deve ter 8 digitos.')
+    if (!/^\d{8}$/.test(code) && !isStructural) {
+        validationErrors.push('Codigo NCM deve ter entre 2 e 8 digitos numericos.')
+    }
     if (!description) validationErrors.push('Descricao do NCM e obrigatoria.')
+    if ((row.raw.start_date || '').trim() && !startDate) validationErrors.push('Data Inicio invalida.')
+    if ((row.raw.end_date || '').trim() && !endDate) validationErrors.push('Data Fim invalida.')
+    if (startDate && endDate && endDate < startDate) validationErrors.push('Data Fim nao pode ser anterior a Data Inicio.')
+    if (legalYear && !/^\d{4}$/.test(legalYear)) validationErrors.push('Ano do ato legal deve ter 4 digitos.')
+    if (!startDate) validationWarnings.push('Data Inicio nao informada.')
+    if (isStructural) {
+        validationWarnings.push('Linha estrutural da NCM detectada. Ela sera importada apenas para consulta e navegacao, nao para uso fiscal final em perfis tributarios.')
+    }
 
     return {
         rowNumber: row.rowNumber,
@@ -304,10 +450,25 @@ function buildNcmPreviewItem(row: FiscalCsvRow): FiscalImportPreviewItem {
             code,
             description,
             full_description: fullDescription || null,
+            start_date: startDate,
+            end_date: endDate,
+            legal_act: legalAct || null,
+            legal_number: legalNumber || null,
+            legal_year: legalYear || null,
+            source_code: sourceCode || null,
         },
         validationErrors,
-        validationWarnings: [],
+        validationWarnings,
     }
+}
+
+function isStructuralNcmRow(row: FiscalCsvRow) {
+    const sourceCode = (row.raw.code || '').trim()
+    const numericCode = normalizeOfficialNcmCode(sourceCode)
+    const description = (row.raw.description || '').trim()
+
+    if (!sourceCode || !description) return false
+    return numericCode.length > 0 && numericCode.length < 8
 }
 
 function buildTipiPreviewItem(row: FiscalCsvRow): FiscalImportPreviewItem {
@@ -399,7 +560,26 @@ export function buildFiscalImportPreview(
     tableType: FiscalBaseType,
     input: BuildFiscalImportPreviewInput
 ): FiscalImportPreviewSummary {
-    const parsed = parseFiscalImportFile(input)
+    const parsed = (() => {
+        const config: FiscalHeaderConfig = {
+            requiredColumns: FISCAL_IMPORT_TEMPLATES[tableType].requiredColumns,
+            aliases: FISCAL_IMPORT_HEADER_ALIASES[tableType],
+        }
+
+        if (input.sourceType === 'xlsx') {
+            if (!input.fileBase64?.trim()) throw new Error('Conteudo do arquivo XLSX vazio.')
+            return parseFiscalWorkbook(input.fileBase64, config)
+        }
+
+        if (!input.textContent?.trim()) throw new Error('Conteudo do arquivo CSV vazio.')
+        const matrix = parseCsvToMatrix(input.textContent)
+        const parsedCsv = parseMatrixToRows(matrix, config)
+        return {
+            ...parsedCsv,
+            sourceType: 'csv' as const,
+            sheetName: null,
+        }
+    })()
     const missingColumns = validateRequiredColumns(tableType, parsed.headers)
 
     if (missingColumns.length > 0) {
@@ -408,7 +588,12 @@ export function buildFiscalImportPreview(
         )
     }
 
-    const items = parsed.rows.map((row) => {
+    const readRows = parsed.rows.length
+    const structuralRows =
+        tableType === 'ncm' ? parsed.rows.filter((row) => isStructuralNcmRow(row)).length : 0
+    const candidateRows = parsed.rows
+
+    const items = candidateRows.map((row) => {
         switch (tableType) {
             case 'ncm':
                 return buildNcmPreviewItem(row)
@@ -473,10 +658,13 @@ export function buildFiscalImportPreview(
         tableType,
         sourceType: parsed.sourceType,
         sheetName: parsed.sheetName,
+        readRows,
         totalRows: items.length,
         validRows: items.filter((item) => item.validationStatus === 'valid').length,
         invalidRows: items.filter((item) => item.validationStatus === 'invalid').length,
         warningRows: items.filter((item) => item.validationWarnings.length > 0).length,
+        skippedRows: 0,
+        structuralRows,
         items,
     }
 }

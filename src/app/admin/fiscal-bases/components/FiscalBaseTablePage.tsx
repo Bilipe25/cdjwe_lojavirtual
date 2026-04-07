@@ -29,6 +29,18 @@ interface FiscalBaseTablePageProps {
 type VersionFilter = 'all' | 'active' | 'inactive'
 
 function getDetailLabel(entry: FiscalBaseEntryRecord) {
+    if (entry.startDate || entry.endDate || entry.legalAct || entry.legalNumber || entry.legalYear) {
+        const validityParts = [
+            entry.startDate ? `Inicio ${new Date(entry.startDate).toLocaleDateString('pt-BR')}` : null,
+            entry.endDate ? `Fim ${new Date(entry.endDate).toLocaleDateString('pt-BR')}` : null,
+        ].filter(Boolean)
+        const legalReference = entry.legalAct
+            ? `${entry.legalAct}${entry.legalNumber ? ` ${entry.legalNumber}` : ''}${entry.legalYear ? `/${entry.legalYear}` : ''}`
+            : null
+        const parts = [...validityParts, legalReference, entry.sourceCode && entry.sourceCode !== entry.code ? `Origem ${entry.sourceCode}` : null]
+            .filter(Boolean)
+        if (parts.length > 0) return parts.join(' | ')
+    }
     if (entry.fullDescription) return entry.fullDescription
     if (entry.segment) return entry.segment
     if (entry.exTipi) return `EX TIPI ${entry.exTipi}`

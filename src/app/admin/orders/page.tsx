@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import type { OrderStatus } from '@/lib/types'
@@ -72,6 +72,8 @@ type AdminOrderListEnrichmentRow = {
 export default function AdminOrdersPage() {
     const [orders, setOrders] = useState<OrderWithDetails[]>([])
     const [loading, setLoading] = useState(true)
+    const [deletingOrderIds, setDeletingOrderIds] = useState<string[]>([])
+    const deletingOrderIdsRef = useRef<Set<string>>(new Set())
     
     // Server-Side Search & Filters
     const [search, setSearch] = useState('')
@@ -319,19 +321,37 @@ export default function AdminOrdersPage() {
     }
 
     const deleteOrder = async (orderId: string) => {
-        const result = await deleteOrderAction(orderId)
-
-        if (result.error) {
-            toast.error(result.error)
+        if (deletingOrderIdsRef.current.has(orderId)) {
             return false
         }
 
-        setOrders(prev => prev.filter(o => o.id !== orderId))
-        if (selectedOrderDetail?.id === orderId) {
-            setSelectedOrderDetail(null)
+        deletingOrderIdsRef.current.add(orderId)
+        setDeletingOrderIds((prev) => [...prev, orderId])
+
+        try {
+            const result = await deleteOrderAction(orderId)
+
+            if (result.error) {
+                toast.error(result.error)
+                return false
+            }
+
+            setOrders((prev) => prev.filter((order) => order.id !== orderId))
+            setSelectedOrders((prev) => prev.filter((id) => id !== orderId))
+            if (selectedOrderDetail?.id === orderId) {
+                setSelectedOrderDetail(null)
+            }
+
+            toast.success(
+                'alreadyDeleted' in result && result.alreadyDeleted
+                    ? 'Pedido ja havia sido excluido e a tela foi sincronizada.'
+                    : 'Pedido excluido com sucesso.'
+            )
+            return true
+        } finally {
+            deletingOrderIdsRef.current.delete(orderId)
+            setDeletingOrderIds((prev) => prev.filter((id) => id !== orderId))
         }
-        toast.success('Pedido excluído com sucesso.')
-        return true
     }
 
     const toggleSelectOrder = (id: string) => {
@@ -409,6 +429,7 @@ export default function AdminOrdersPage() {
             <OrderList 
                 orders={orders}
                 loading={loading}
+                deletingOrderIds={deletingOrderIds}
                 selectedOrders={selectedOrders}
                 onToggleSelect={toggleSelectOrder}
                 onViewDetail={setSelectedOrderDetail}
@@ -448,9 +469,11 @@ export default function AdminOrdersPage() {
                 order={selectedOrderDetail}
                 open={!!selectedOrderDetail}
                 onOpenChange={(open) => !open && setSelectedOrderDetail(null)}
+                deletingOrderIds={deletingOrderIds}
                 onDelete={deleteOrder}
             />
         </div>
     )
 }
+
 

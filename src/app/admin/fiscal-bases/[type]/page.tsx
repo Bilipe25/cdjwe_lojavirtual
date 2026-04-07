@@ -4,6 +4,7 @@ import {
     listFiscalReferenceVersionsAction,
 } from '@/app/admin/actions/fiscal-bases'
 import { FiscalBaseTablePage } from '../components/FiscalBaseTablePage'
+import { FiscalNcmTablePage } from '../components/FiscalNcmTablePage'
 import { isFiscalBaseType } from '@/lib/fiscal/constants'
 
 interface FiscalBaseDetailPageProps {
@@ -17,7 +18,11 @@ export default async function FiscalBaseDetailPage({ params }: FiscalBaseDetailP
     const [entriesResult, versionsResult] = await Promise.all([
         listFiscalBaseEntriesAction({
             tableType: type,
-            limit: 150,
+            page: 1,
+            pageSize: type === 'ncm' ? 50 : 150,
+            sortBy: type === 'ncm' ? 'code' : undefined,
+            sortOrder: type === 'ncm' ? 'asc' : undefined,
+            includeStructuralRows: false,
         }),
         listFiscalReferenceVersionsAction(type),
     ])
@@ -27,6 +32,15 @@ export default async function FiscalBaseDetailPage({ params }: FiscalBaseDetailP
             <div className="rounded-2xl border bg-white p-8 text-center text-sm text-muted-foreground">
                 {entriesResult.error || versionsResult.error || 'Não foi possível carregar a base fiscal.'}
             </div>
+        )
+    }
+
+    if (type === 'ncm') {
+        return (
+            <FiscalNcmTablePage
+                initialResult={entriesResult.data}
+                initialVersions={versionsResult.data}
+            />
         )
     }
 

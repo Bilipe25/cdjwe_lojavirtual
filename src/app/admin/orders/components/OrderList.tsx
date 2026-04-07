@@ -10,7 +10,8 @@ import {
     Square,
     ClipboardList,
     Trash2,
-    AlertCircle
+    AlertCircle,
+    Loader2
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -58,16 +59,18 @@ export interface OrderWithDetails {
 interface OrderListProps {
     orders: OrderWithDetails[];
     loading: boolean;
+    deletingOrderIds: string[];
     selectedOrders: string[];
     onToggleSelect: (id: string) => void;
     onViewDetail: (order: OrderWithDetails) => void;
     onUpdateStatus: (id: string, newStatus: OrderStatus) => void;
-    onDelete?: (id: string) => void;
+    onDelete?: (id: string) => Promise<boolean> | boolean;
 }
 
 export function OrderList({
     orders,
     loading,
+    deletingOrderIds,
     selectedOrders,
     onToggleSelect,
     onViewDetail,
@@ -120,6 +123,7 @@ export function OrderList({
                 const isRepresentativeOrder = order.sales_channel === 'representative'
                 const customerName = order.customer_profile?.full_name || order.profile?.full_name || 'Cliente nao informado'
                 const representativeName = order.created_by_profile?.full_name || 'Representante nao informado'
+                const isDeleting = deletingOrderIds.includes(order.id)
 
                 return (
                     <motion.div 
@@ -252,9 +256,10 @@ export function OrderList({
                                                             <DropdownMenuSeparator />
                                                             <DropdownMenuItem 
                                                                 onClick={() => setOrderToDelete(order.id)} 
+                                                                disabled={isDeleting}
                                                                 className="text-destructive focus:bg-destructive/10"
                                                             >
-                                                                <Trash2 className="h-4 w-4 mr-2" /> Excluir Pedido
+                                                                {isDeleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />} Excluir Pedido
                                                             </DropdownMenuItem>
                                                         </>
                                                     )}
@@ -285,15 +290,25 @@ export function OrderList({
                     <AlertDialogFooter className="flex-row gap-3 sm:gap-0 mt-4">
                         <AlertDialogCancel className="flex-1 mt-0 rounded-xl border-navy/10 hover:bg-navy/5">Cancelar</AlertDialogCancel>
                         <AlertDialogAction 
-                            onClick={() => {
+                            onClick={async () => {
                                 if (orderToDelete) {
-                                    onDelete?.(orderToDelete)
-                                    setOrderToDelete(null)
+                                    const success = await onDelete?.(orderToDelete)
+                                    if (success) {
+                                        setOrderToDelete(null)
+                                    }
                                 }
                             }}
+                            disabled={Boolean(orderToDelete && deletingOrderIds.includes(orderToDelete))}
                             className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl shadow-lg shadow-destructive/20"
                         >
-                            Excluir Agora
+                            {orderToDelete && deletingOrderIds.includes(orderToDelete) ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Excluindo...
+                                </>
+                            ) : (
+                                'Excluir Agora'
+                            )}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

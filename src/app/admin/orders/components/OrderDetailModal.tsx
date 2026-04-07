@@ -91,13 +91,25 @@ interface OrderDetailModalProps {
     order: AdminOrderDetailRecord | null
     open: boolean
     onOpenChange: (open: boolean) => void
+    deletingOrderIds: string[]
     onDelete?: (id: string) => Promise<boolean> | boolean
+}
+
+type OrderRouteAssignmentRecord = {
+    id: string
+    route_id: string
+    route?: {
+        route_number?: string | null
+        status?: string | null
+        is_deleted?: boolean | null
+    } | null
 }
 
 export function OrderDetailModal({
     order,
     open,
     onOpenChange,
+    deletingOrderIds,
     onDelete
 }: OrderDetailModalProps) {
     const [orderData, setOrderData] = useState<AdminOrderDetailRecord | null>(null)
@@ -109,6 +121,9 @@ export function OrderDetailModal({
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
     const [hasInvoice, setHasInvoice] = useState(false)
+    const [checkingInvoice, setCheckingInvoice] = useState(false)
+    const [routeAssignment, setRouteAssignment] = useState<OrderRouteAssignmentRecord | null>(null)
+    const [checkingRouteAssignment, setCheckingRouteAssignment] = useState(false)
 
     const fetchOrderDetail = useCallback(async (orderId: string) => {
         setLoadingOrder(true)
@@ -199,13 +214,46 @@ export function OrderDetailModal({
     }
 
     const checkInvoiceExists = useCallback(async (orderId: string) => {
+        setCheckingInvoice(true)
         const supabase = createClient()
-        const { data } = await supabase
+        const { data, error } = await supabase
             .from('invoices')
             .select('id')
             .eq('order_id', orderId)
             .limit(1)
+
+        if (error) {
+            console.error('[ADMIN ORDERS] Falha ao verificar fatura do pedido:', error)
+            setHasInvoice(false)
+            setCheckingInvoice(false)
+            return
+        }
+
         setHasInvoice((data?.length ?? 0) > 0)
+        setCheckingInvoice(false)
+    }, [])
+
+    const checkRouteAssignment = useCallback(async (orderId: string) => {
+        setCheckingRouteAssignment(true)
+        const supabase = createClient()
+        const { data, error } = await supabase
+            .from('delivery_route_stops')
+            .select('id, route_id, route:delivery_routes(route_number, status, is_deleted)')
+            .eq('order_id', orderId)
+            .limit(20)
+
+        if (error) {
+            console.error('[ADMIN ORDERS] Falha ao verificar roteirizacao do pedido:', error)
+            setRouteAssignment(null)
+            setCheckingRouteAssignment(false)
+            return
+        }
+
+        const assignments = (Array.isArray(data) ? data : []) as OrderRouteAssignmentRecord[]
+        const activeAssignment = assignments.find((assignment) => !assignment.route?.is_deleted) || null
+
+        setRouteAssignment(activeAssignment)
+        setCheckingRouteAssignment(false)
     }, [])
 
     useEffect(() => {
@@ -214,12 +262,16 @@ export function OrderDetailModal({
             fetchHistory(order.id)
             fetchSettings()
             checkInvoiceExists(order.id)
+            checkRouteAssignment(order.id)
         } else {
             setOrderData(null)
             setHistory([])
             setHasInvoice(false)
+            setCheckingInvoice(false)
+            setRouteAssignment(null)
+            setCheckingRouteAssignment(false)
         }
-    }, [open, order?.id, fetchOrderDetail, checkInvoiceExists])
+    }, [open, order?.id, fetchOrderDetail, checkInvoiceExists, checkRouteAssignment])
 
     const handlePrint = async () => {
         if (!orderData) return
@@ -239,6 +291,10 @@ export function OrderDetailModal({
     const itemCount = resolvedOrder.items?.length || 0
     const couponDiscountAmount = Number(resolvedOrder.coupon_discount_amount || 0)
     const paymentDiscountAmount = Math.max(0, Number(resolvedOrder.discount_amount || 0) - couponDiscountAmount)
+    const isDeleting = deletingOrderIds.includes(resolvedOrder.id)
+    const cannotDeleteBecauseInvoice = hasInvoice || checkingInvoice
+    const cannotDeleteBecauseRoute = Boolean(routeAssignment) || checkingRouteAssignment
+    const cannotDelete = cannotDeleteBecauseInvoice || cannotDeleteBecauseRoute
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -266,7 +322,15 @@ export function OrderDetailModal({
                         <div className="flex items-center gap-2 shrink-0">
                             {/* Fatura button - shows status or lets admin generate */}
                             {resolvedOrder.status !== 'pending' && resolvedOrder.status !== 'cancelled' && (
-                                hasInvoice ? (
+                                checkingInvoice ? (
+                                    <Badge
+                                        variant="outline"
+                                        className="h-9 px-3 gap-1.5 rounded-lg text-slate-600 bg-slate-50 border-slate-200 font-bold text-xs cursor-default"
+                                    >
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        <span className="hidden sm:inline">Validando fatura</span>
+                                    </Badge>
+                                ) : hasInvoice ? (
                                     <Badge
                                         variant="outline"
                                         className="h-9 px-3 gap-1.5 rounded-lg text-emerald-700 bg-emerald-50 border-emerald-200 font-bold text-xs cursor-default"
@@ -292,10 +356,13 @@ export function OrderDetailModal({
                                     variant="outline" 
                                     size="sm" 
                                     className="h-9 w-9 sm:w-auto px-0 sm:px-3 text-destructive hover:bg-destructive/5 border-destructive/20 gap-2 shrink-0 rounded-lg"
+                                    disabled={isDeleting || cannotDelete}
                                     onClick={() => setIsDeleteDialogOpen(true)}
                                 >
-                                    <Trash2 className="h-4 w-4" />
-                                    <span className="hidden sm:inline">Excluir</span>
+                                    {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                    <span className="hidden sm:inline">
+                                        {hasInvoice ? 'Pedido faturado' : routeAssignment ? 'Pedido em rota' : 'Excluir'}
+                                    </span>
                                 </Button>
                             )}
 
@@ -312,6 +379,17 @@ export function OrderDetailModal({
                             </Button>
                         </div>
                     </div>
+
+                    {hasInvoice && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            Este pedido possui fatura vinculada no financeiro e nao pode ser excluido. Cancele ou exclua a fatura primeiro.
+                        </div>
+                    )}
+                    {routeAssignment && (
+                        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                            Este pedido esta vinculado a rota {routeAssignment.route?.route_number || routeAssignment.route_id} e nao pode ser excluido. Remova a parada da rota na logistica antes de continuar.
+                        </div>
+                    )}
                 </DialogHeader>
                 
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 md:space-y-8">
@@ -516,9 +594,19 @@ export function OrderDetailModal({
                                     setIsDeleteDialogOpen(false)
                                 }
                             }}
+                            disabled={isDeleting || cannotDelete}
                             className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl shadow-lg shadow-destructive/20"
                         >
-                            Confirmar Exclusão
+                            {isDeleting ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Excluindo...
+                                </>
+                            ) : cannotDelete ? (
+                                'Exclusao bloqueada'
+                            ) : (
+                                'Confirmar Exclusao'
+                            )}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -526,5 +614,6 @@ export function OrderDetailModal({
         </Dialog>
     )
 }
+
 
 

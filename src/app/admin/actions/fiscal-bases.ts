@@ -1,4 +1,4 @@
-'use server'
+﻿'use server'
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
@@ -59,7 +59,15 @@ export interface FiscalBaseEntryRecord {
     versionLabel: string
     code: string
     description: string
+    rowType: 'final' | 'structural'
+    metadata?: Record<string, unknown>
     fullDescription?: string | null
+    sourceCode?: string | null
+    startDate?: string | null
+    endDate?: string | null
+    legalAct?: string | null
+    legalNumber?: string | null
+    legalYear?: string | null
     segment?: string | null
     exTipi?: string | null
     ipiRate?: number | null
@@ -121,9 +129,28 @@ export interface FiscalImportBatchDetail extends FiscalImportBatchListItem {
 
 export interface FiscalBaseEntriesResult {
     version: FiscalReferenceVersionItem | null
+    items: FiscalBaseEntryRecord[]
     entries: FiscalBaseEntryRecord[]
     baseState: 'empty' | 'inactive_only' | 'active_or_selected'
+    totalCount: number
+    page: number
+    pageSize: number
+    totalPages: number
+    structuralRowCount: number
+    finalRowCount: number
+    includeStructuralRows?: boolean
+    sortBy?: string
+    sortOrder?: 'asc' | 'desc'
 }
+
+export type FiscalNcmSortBy =
+    | 'code'
+    | 'description'
+    | 'start_date'
+    | 'end_date'
+    | 'legal_act'
+    | 'legal_number'
+    | 'legal_year'
 
 export interface FiscalNcmSuggestions {
     ncm: FiscalSearchOption | null
@@ -140,6 +167,41 @@ function getErrorMessage(error: unknown, fallback: string) {
     return fallback
 }
 
+function normalizeFiscalImportConstraintError(error: unknown, fallback: string) {
+    const message = getErrorMessage(error, fallback)
+    const normalized = message.toLowerCase()
+
+    if (
+        normalized.includes('fiscal_import_batches_source_type_check') ||
+        (normalized.includes('fiscal_import_batches') && normalized.includes('source_type_check'))
+    ) {
+        return 'A base de dados ainda nao foi atualizada para aceitar importacao XLSX. Aplique a migration 072 do modulo fiscal.'
+    }
+
+    if (
+        normalized.includes('fiscal_reference_versions_source_type_check') ||
+        (normalized.includes('fiscal_reference_versions') && normalized.includes('source_type_check'))
+    ) {
+        return 'A base de dados ainda nao foi atualizada para registrar versoes fiscais com origem XLSX. Aplique a migration 072 do modulo fiscal.'
+    }
+
+    return message
+}
+
+function normalizeFiscalVersionActivationError(error: unknown, fallback: string) {
+    const message = getErrorMessage(error, fallback)
+    const normalized = message.toLowerCase()
+
+    if (
+        normalized.includes('table_type') &&
+        normalized.includes('ambiguous')
+    ) {
+        return 'A base de dados ainda está com a versão antiga da função de ativação fiscal. Aplique a migration 074_fix_activate_fiscal_version_table_type_ambiguity.sql e tente novamente.'
+    }
+
+    return message
+}
+
 function isValidUuid(value: string) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
@@ -152,11 +214,11 @@ function sanitizeText(value?: string | null) {
 function normalizeMojibakeText(value?: string | null) {
     const trimmed = (value || '').trim()
     if (!trimmed) return null
-    if (!/[ÃÂâ�]/.test(trimmed)) return trimmed
+    if (!/[ÃƒÃ‚Ã¢ï¿½]/.test(trimmed)) return trimmed
 
     try {
         const decoded = Buffer.from(trimmed, 'latin1').toString('utf8').trim()
-        if (decoded && !/[ÃÂ�]/.test(decoded)) {
+        if (decoded && !/[ÃƒÃ‚ï¿½]/.test(decoded)) {
             return decoded
         }
     } catch {
@@ -179,6 +241,16 @@ function sanitizeJsonObject(value: unknown): Record<string, unknown> {
 function sanitizeJsonArray(value: unknown): string[] {
     if (!Array.isArray(value)) return []
     return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+}
+
+function getNcmRowType(code: string): FiscalBaseEntryRecord['rowType'] {
+    return /^\d{8}$/.test(code) ? 'final' : 'structural'
+}
+
+function isFiscalNcmSortBy(value?: string | null): value is FiscalNcmSortBy {
+    return ['code', 'description', 'start_date', 'end_date', 'legal_act', 'legal_number', 'legal_year'].includes(
+        String(value || '')
+    )
 }
 
 async function ensureAdminAccess() {
@@ -298,6 +370,14 @@ async function insertFiscalEntriesForVersion(params: {
 }) {
     const adminSupabase = createServiceRoleClient()
     const validItems = params.items.filter((item) => item.validationStatus === 'valid')
+    const insertInChunks = async (table: 'fiscal_ncm_entries' | 'fiscal_tipi_entries' | 'fiscal_cest_entries' | 'fiscal_cest_ncm_links' | 'fiscal_cfop_entries', rows: Record<string, unknown>[], chunkSize = 500) => {
+        for (let index = 0; index < rows.length; index += chunkSize) {
+            const chunk = rows.slice(index, index + chunkSize)
+            if (chunk.length === 0) continue
+            const { error } = await adminSupabase.from(table).insert(chunk as never)
+            if (error) throw error
+        }
+    }
 
     switch (params.tableType) {
         case 'ncm': {
@@ -306,12 +386,19 @@ async function insertFiscalEntriesForVersion(params: {
                 code: String(item.normalizedPayload.code || ''),
                 description: String(item.normalizedPayload.description || ''),
                 full_description: sanitizeText(item.normalizedPayload.full_description as string | null),
-                metadata_jsonb: {},
+                metadata_jsonb: {
+                    source_code: sanitizeText(item.normalizedPayload.source_code as string | null),
+                    start_date: sanitizeText(item.normalizedPayload.start_date as string | null),
+                    end_date: sanitizeText(item.normalizedPayload.end_date as string | null),
+                    legal_act: sanitizeText(item.normalizedPayload.legal_act as string | null),
+                    legal_number: sanitizeText(item.normalizedPayload.legal_number as string | null),
+                    legal_year: sanitizeText(item.normalizedPayload.legal_year as string | null),
+                    row_type: /^\d{8}$/.test(String(item.normalizedPayload.code || '')) ? 'final' : 'structural',
+                },
                 future_tax_payload: {},
             }))
             if (rows.length === 0) return
-            const { error } = await adminSupabase.from('fiscal_ncm_entries').insert(rows)
-            if (error) throw error
+            await insertInChunks('fiscal_ncm_entries', rows)
             return
         }
         case 'tipi': {
@@ -325,8 +412,7 @@ async function insertFiscalEntriesForVersion(params: {
                 future_tax_payload: {},
             }))
             if (rows.length === 0) return
-            const { error } = await adminSupabase.from('fiscal_tipi_entries').insert(rows)
-            if (error) throw error
+            await insertInChunks('fiscal_tipi_entries', rows)
             return
         }
         case 'cest': {
@@ -340,10 +426,12 @@ async function insertFiscalEntriesForVersion(params: {
             }))
             if (rows.length === 0) return
 
+            await insertInChunks('fiscal_cest_entries', rows)
+
             const { data: insertedRows, error } = await adminSupabase
                 .from('fiscal_cest_entries')
-                .insert(rows)
                 .select('id, code')
+                .eq('version_id', params.versionId)
 
             if (error) throw error
 
@@ -362,8 +450,7 @@ async function insertFiscalEntriesForVersion(params: {
             })
 
             if (linkRows.length > 0) {
-                const { error: linkError } = await adminSupabase.from('fiscal_cest_ncm_links').insert(linkRows)
-                if (linkError) throw linkError
+                await insertInChunks('fiscal_cest_ncm_links', linkRows)
             }
             return
         }
@@ -377,11 +464,34 @@ async function insertFiscalEntriesForVersion(params: {
                 future_tax_payload: {},
             }))
             if (rows.length === 0) return
-            const { error } = await adminSupabase.from('fiscal_cfop_entries').insert(rows)
-            if (error) throw error
+            await insertInChunks('fiscal_cfop_entries', rows)
             return
         }
     }
+}
+
+async function listAllFiscalImportBatchItems(batchId: string) {
+    const adminSupabase = createServiceRoleClient()
+    const allRows: Array<Record<string, unknown>> = []
+    const pageSize = 1000
+
+    for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await adminSupabase
+            .from('fiscal_import_batch_items')
+            .select('*')
+            .eq('batch_id', batchId)
+            .order('row_number', { ascending: true })
+            .range(offset, offset + pageSize - 1)
+
+        if (error) throw error
+
+        const rows = (data || []) as Array<Record<string, unknown>>
+        allRows.push(...rows)
+
+        if (rows.length < pageSize) break
+    }
+
+    return allRows
 }
 
 async function validatePreviewAgainstCurrentBases(
@@ -394,7 +504,7 @@ async function validatePreviewAgainstCurrentBases(
     if (!activeNcmCodes) {
         preview.items.forEach((item) => {
             if (item.validationStatus === 'valid') {
-                item.validationWarnings.push('Base NCM ativa não encontrada. Validação cruzada de NCM não executada.')
+                item.validationWarnings.push('Base NCM ativa nÃ£o encontrada. ValidaÃ§Ã£o cruzada de NCM nÃ£o executada.')
             }
         })
         preview.warningRows = preview.items.filter((item) => item.validationWarnings.length > 0).length
@@ -407,7 +517,7 @@ async function validatePreviewAgainstCurrentBases(
         if (tableType === 'tipi') {
             const ncmCode = String(item.normalizedPayload.ncm_code || '')
             if (ncmCode && !activeNcmCodes.has(ncmCode)) {
-                item.validationErrors.push(`NCM ${ncmCode} não encontrado na base NCM ativa.`)
+                item.validationErrors.push(`NCM ${ncmCode} nÃ£o encontrado na base NCM ativa.`)
                 item.validationStatus = 'invalid'
             }
         }
@@ -416,7 +526,7 @@ async function validatePreviewAgainstCurrentBases(
             const ncmCodes = sanitizeJsonArray(item.normalizedPayload.ncm_codes)
             const missing = ncmCodes.filter((code) => !activeNcmCodes.has(code))
             if (missing.length > 0) {
-                item.validationErrors.push(`NCM(s) não encontrados na base NCM ativa: ${missing.join(', ')}.`)
+                item.validationErrors.push(`NCM(s) nÃ£o encontrados na base NCM ativa: ${missing.join(', ')}.`)
                 item.validationStatus = 'invalid'
             }
         }
@@ -536,6 +646,11 @@ export async function listFiscalBaseEntriesAction(params: {
     versionId?: string | null
     search?: string | null
     limit?: number
+    page?: number
+    pageSize?: number
+    sortBy?: string | null
+    sortOrder?: 'asc' | 'desc' | null
+    includeStructuralRows?: boolean
 }): Promise<{
     success: boolean
     data?: FiscalBaseEntriesResult
@@ -551,15 +666,29 @@ export async function listFiscalBaseEntriesAction(params: {
         })
         const adminSupabase = createServiceRoleClient()
         const search = sanitizeText(params.search)
-        const limit = Math.max(1, Math.min(300, params.limit || 100))
+        const pageSize = Math.max(10, Math.min(200, params.pageSize || params.limit || 50))
+        const page = Math.max(1, params.page || 1)
+        const sortOrder: 'asc' | 'desc' = params.sortOrder === 'desc' ? 'desc' : 'asc'
+        const rangeFrom = (page - 1) * pageSize
+        const rangeTo = rangeFrom + pageSize - 1
 
         if (!version) {
             return {
                 success: true,
                 data: {
                     version: null,
+                    items: [],
                     entries: [],
                     baseState: 'empty',
+                    totalCount: 0,
+                    page: 1,
+                    pageSize,
+                    totalPages: 0,
+                    structuralRowCount: 0,
+                    finalRowCount: 0,
+                    includeStructuralRows: params.includeStructuralRows === true,
+                    sortBy: params.sortBy || 'code',
+                    sortOrder,
                 },
             }
         }
@@ -567,30 +696,110 @@ export async function listFiscalBaseEntriesAction(params: {
         const baseState: FiscalBaseEntriesResult['baseState'] = version.isActive ? 'active_or_selected' : 'inactive_only'
 
         if (params.tableType === 'ncm') {
-            let query = adminSupabase
+            const includeStructuralRows = params.includeStructuralRows === true
+            const sortBy: FiscalNcmSortBy = isFiscalNcmSortBy(params.sortBy) ? params.sortBy : 'code'
+            const sortColumnByField: Record<FiscalNcmSortBy, string> = {
+                code: 'code',
+                description: 'description',
+                start_date: 'metadata_jsonb->>start_date',
+                end_date: 'metadata_jsonb->>end_date',
+                legal_act: 'metadata_jsonb->>legal_act',
+                legal_number: 'metadata_jsonb->>legal_number',
+                legal_year: 'metadata_jsonb->>legal_year',
+            }
+
+            const applyNcmFilters = (query: any) => {
+                let next = query.eq('version_id', version.id)
+
+                if (!includeStructuralRows) {
+                    next = next.filter('code', 'match', '^\\d{8}$')
+                }
+
+                if (search) {
+                    const safeSearch = search.replace(/,/g, ' ').trim()
+                    next = next.or(
+                        [
+                            `code.ilike.%${safeSearch}%`,
+                            `description.ilike.%${safeSearch}%`,
+                            `full_description.ilike.%${safeSearch}%`,
+                        ].join(',')
+                    )
+                }
+
+                return next
+            }
+
+            let dataQuery = adminSupabase
                 .from('fiscal_ncm_entries')
                 .select('*')
-                .eq('version_id', version.id)
-                .order('code', { ascending: true })
-                .limit(limit)
-            if (search) {
-                query = query.or(`code.ilike.%${search}%,description.ilike.%${search}%`)
-            }
-            const { data, error } = await query
+                .range(rangeFrom, rangeTo)
+
+            dataQuery = applyNcmFilters(dataQuery)
+            dataQuery = dataQuery.order(sortColumnByField[sortBy], { ascending: sortOrder === 'asc' })
+
+            const [dataResult, totalResult, finalCountResult, structuralCountResult] = await Promise.all([
+                dataQuery,
+                applyNcmFilters(
+                    adminSupabase.from('fiscal_ncm_entries').select('id', { count: 'exact', head: true })
+                ),
+                adminSupabase
+                    .from('fiscal_ncm_entries')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('version_id', version.id)
+                    .filter('code', 'match', '^\\d{8}$'),
+                adminSupabase
+                    .from('fiscal_ncm_entries')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('version_id', version.id)
+                    .filter('code', 'not.match', '^\\d{8}$'),
+            ])
+
+            const { data, error } = dataResult
             if (error) throw error
+            if (totalResult.error) throw totalResult.error
+            if (finalCountResult.error) throw finalCountResult.error
+            if (structuralCountResult.error) throw structuralCountResult.error
+
+            const items = ((data || []) as Array<Record<string, unknown>>).map((row) => {
+                const metadata = sanitizeJsonObject(row.metadata_jsonb)
+                const code = String(row.code || '')
+                return {
+                    id: String(row.id),
+                    versionId: String(row.version_id),
+                    versionLabel: version.versionLabel,
+                    code,
+                    rowType: getNcmRowType(code),
+                    metadata,
+                    description: normalizeRequiredText(row.description),
+                    fullDescription: normalizeMojibakeText((row.full_description as string | null) || null),
+                    sourceCode: normalizeMojibakeText((metadata.source_code as string | null) || null),
+                    startDate: (metadata.start_date as string | null) || null,
+                    endDate: (metadata.end_date as string | null) || null,
+                    legalAct: normalizeMojibakeText((metadata.legal_act as string | null) || null),
+                    legalNumber: normalizeMojibakeText((metadata.legal_number as string | null) || null),
+                    legalYear: normalizeMojibakeText((metadata.legal_year as string | null) || null),
+                } satisfies FiscalBaseEntryRecord
+            })
+
+            const totalCount = Number(totalResult.count || 0)
+            const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / pageSize)
+
             return {
                 success: true,
                 data: {
                     version,
+                    items,
                     baseState,
-                    entries: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
-                        id: String(row.id),
-                        versionId: String(row.version_id),
-                        versionLabel: version.versionLabel,
-                        code: String(row.code || ''),
-                        description: normalizeRequiredText(row.description),
-                        fullDescription: normalizeMojibakeText((row.full_description as string | null) || null),
-                    })),
+                    entries: items,
+                    totalCount,
+                    page,
+                    pageSize,
+                    totalPages,
+                    structuralRowCount: Number(structuralCountResult.count || 0),
+                    finalRowCount: Number(finalCountResult.count || 0),
+                    includeStructuralRows,
+                    sortBy,
+                    sortOrder,
                 },
             }
         }
@@ -601,7 +810,7 @@ export async function listFiscalBaseEntriesAction(params: {
                 .select('*')
                 .eq('version_id', version.id)
                 .order('ncm_code', { ascending: true })
-                .limit(limit)
+                .limit(pageSize)
             if (search) {
                 query = query.or(`ncm_code.ilike.%${search}%,description.ilike.%${search}%`)
             }
@@ -611,16 +820,36 @@ export async function listFiscalBaseEntriesAction(params: {
                 success: true,
                 data: {
                     version,
+                    items: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
+                        id: String(row.id),
+                        versionId: String(row.version_id),
+                        versionLabel: version.versionLabel,
+                        code: String(row.ncm_code || ''),
+                        rowType: 'final',
+                        description: normalizeRequiredText(row.description),
+                        exTipi: (row.ex_tipi as string | null) || null,
+                        ipiRate: Number(row.ipi_rate || 0),
+                    })),
                     baseState,
                     entries: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
                         id: String(row.id),
                         versionId: String(row.version_id),
                         versionLabel: version.versionLabel,
                         code: String(row.ncm_code || ''),
+                        rowType: 'final',
                         description: normalizeRequiredText(row.description),
                         exTipi: (row.ex_tipi as string | null) || null,
                         ipiRate: Number(row.ipi_rate || 0),
                     })),
+                    totalCount: (data || []).length,
+                    page: 1,
+                    pageSize,
+                    totalPages: (data || []).length > 0 ? 1 : 0,
+                    structuralRowCount: 0,
+                    finalRowCount: (data || []).length,
+                    includeStructuralRows: false,
+                    sortBy: 'code',
+                    sortOrder: 'asc',
                 },
             }
         }
@@ -631,7 +860,7 @@ export async function listFiscalBaseEntriesAction(params: {
                 .select('*')
                 .eq('version_id', version.id)
                 .order('code', { ascending: true })
-                .limit(limit)
+                .limit(pageSize)
             if (search) {
                 query = query.or(`code.ilike.%${search}%,description.ilike.%${search}%`)
             }
@@ -658,15 +887,35 @@ export async function listFiscalBaseEntriesAction(params: {
                 data: {
                     version,
                     baseState,
+                    items: rows.map((row) => ({
+                        id: String(row.id),
+                        versionId: String(row.version_id),
+                        versionLabel: version.versionLabel,
+                        code: String(row.code || ''),
+                        rowType: 'final',
+                        description: normalizeRequiredText(row.description),
+                        segment: normalizeMojibakeText((row.segment as string | null) || null),
+                        ncmCodes: ncmCodesByCestId.get(String(row.id)) || [],
+                    })),
                     entries: rows.map((row) => ({
                         id: String(row.id),
                         versionId: String(row.version_id),
                         versionLabel: version.versionLabel,
                         code: String(row.code || ''),
+                        rowType: 'final',
                         description: normalizeRequiredText(row.description),
                         segment: normalizeMojibakeText((row.segment as string | null) || null),
                         ncmCodes: ncmCodesByCestId.get(String(row.id)) || [],
                     })),
+                    totalCount: rows.length,
+                    page: 1,
+                    pageSize,
+                    totalPages: rows.length > 0 ? 1 : 0,
+                    structuralRowCount: 0,
+                    finalRowCount: rows.length,
+                    includeStructuralRows: false,
+                    sortBy: 'code',
+                    sortOrder: 'asc',
                 },
             }
         }
@@ -676,7 +925,7 @@ export async function listFiscalBaseEntriesAction(params: {
             .select('*')
             .eq('version_id', version.id)
             .order('code', { ascending: true })
-            .limit(limit)
+            .limit(pageSize)
         if (search) {
             query = query.or(`code.ilike.%${search}%,description.ilike.%${search}%`)
         }
@@ -684,18 +933,37 @@ export async function listFiscalBaseEntriesAction(params: {
         if (error) throw error
 
         return {
-                success: true,
-                data: {
-                    version,
-                    baseState,
-                    entries: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
+            success: true,
+            data: {
+                version,
+                items: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
                     id: String(row.id),
                     versionId: String(row.version_id),
                     versionLabel: version.versionLabel,
                     code: String(row.code || ''),
-                        description: normalizeRequiredText(row.description),
+                    rowType: 'final',
+                    description: normalizeRequiredText(row.description),
                     operationDirection: (row.operation_direction as 'outbound' | 'inbound' | 'both') || 'both',
                 })),
+                baseState,
+                entries: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
+                    id: String(row.id),
+                    versionId: String(row.version_id),
+                    versionLabel: version.versionLabel,
+                    code: String(row.code || ''),
+                    rowType: 'final',
+                    description: normalizeRequiredText(row.description),
+                    operationDirection: (row.operation_direction as 'outbound' | 'inbound' | 'both') || 'both',
+                })),
+                totalCount: (data || []).length,
+                page: 1,
+                pageSize,
+                totalPages: (data || []).length > 0 ? 1 : 0,
+                structuralRowCount: 0,
+                finalRowCount: (data || []).length,
+                includeStructuralRows: false,
+                sortBy: 'code',
+                sortOrder: 'asc',
             },
         }
     } catch (error: unknown) {
@@ -755,6 +1023,7 @@ export async function createFiscalImportPreviewAction(params: {
                 error_summary_jsonb: {
                     preview_invalid_rows: preview.invalidRows,
                     preview_valid_rows: preview.validRows,
+                    preview_structural_rows: preview.structuralRows,
                     source_type: preview.sourceType,
                     source_sheet_name: preview.sheetName || null,
                 },
@@ -775,8 +1044,11 @@ export async function createFiscalImportPreviewAction(params: {
         }))
 
         if (itemsPayload.length > 0) {
-            const { error: itemsError } = await adminSupabase.from('fiscal_import_batch_items').insert(itemsPayload)
-            if (itemsError) throw itemsError
+            for (let index = 0; index < itemsPayload.length; index += 500) {
+                const chunk = itemsPayload.slice(index, index + 500)
+                const { error: itemsError } = await adminSupabase.from('fiscal_import_batch_items').insert(chunk)
+                if (itemsError) throw itemsError
+            }
         }
 
         revalidatePath('/admin/fiscal-bases')
@@ -793,7 +1065,7 @@ export async function createFiscalImportPreviewAction(params: {
     } catch (error: unknown) {
         return {
             success: false,
-            error: getErrorMessage(error, 'Erro ao gerar preview da importacao fiscal.'),
+            error: normalizeFiscalImportConstraintError(error, 'Erro ao gerar preview da importacao fiscal.'),
         }
     }
 }
@@ -814,21 +1086,16 @@ export async function confirmFiscalImportAction(params: {
         if (!isValidUuid(params.batchId)) throw new Error('Lote fiscal invalido.')
 
         const adminSupabase = createServiceRoleClient()
-        const [{ data: batch, error: batchError }, { data: items, error: itemsError }] = await Promise.all([
+        const [{ data: batch, error: batchError }, items] = await Promise.all([
             adminSupabase.from('fiscal_import_batches').select('*').eq('id', params.batchId).single(),
-            adminSupabase
-                .from('fiscal_import_batch_items')
-                .select('*')
-                .eq('batch_id', params.batchId)
-                .order('row_number', { ascending: true }),
+            listAllFiscalImportBatchItems(params.batchId),
         ])
 
         if (batchError || !batch) throw batchError || new Error('Lote fiscal nao encontrado.')
-        if (itemsError) throw itemsError
         if (!isFiscalBaseType(String(batch.table_type || ''))) throw new Error('Tipo do lote fiscal invalido.')
         if (batch.status !== 'draft') throw new Error('Somente lotes em rascunho podem ser confirmados.')
 
-        const previewItems = ((items || []) as Array<Record<string, unknown>>).map((row) => ({
+        const previewItems = (items as Array<Record<string, unknown>>).map((row) => ({
             rowNumber: Number(row.row_number || 0),
             validationStatus: (row.validation_status as 'valid' | 'invalid') || 'invalid',
             rawPayload: sanitizeJsonObject(row.raw_payload_jsonb) as Record<string, string>,
@@ -857,7 +1124,11 @@ export async function confirmFiscalImportAction(params: {
                 source_file_name: batch.source_file_name,
                 source_type: batch.source_type,
                 row_count: validItems.length,
-                metadata_jsonb: {},
+                metadata_jsonb: {
+                    structural_rows: batch.error_summary_jsonb && typeof batch.error_summary_jsonb === 'object'
+                        ? Number((batch.error_summary_jsonb as Record<string, unknown>).preview_structural_rows || 0)
+                        : 0,
+                },
                 future_tax_payload: {},
             })
             .select('id, version_label')
@@ -880,11 +1151,15 @@ export async function confirmFiscalImportAction(params: {
                 error_summary_jsonb: {
                     ...sanitizeJsonObject(batch.error_summary_jsonb),
                     version_id: createdVersionId,
-                    version_label: version.version_label,
-                    imported_records: validItems.length,
-                    invalid_rows: previewItems.filter((item) => item.validationStatus === 'invalid').length,
-                },
-            })
+                        version_label: version.version_label,
+                        imported_records: validItems.length,
+                        invalid_rows: previewItems.filter((item) => item.validationStatus === 'invalid').length,
+                        structural_rows: previewItems.filter((item) => {
+                            const code = String(item.normalizedPayload.code || '')
+                            return batch.table_type === 'ncm' && code.length >= 2 && code.length < 8
+                        }).length,
+                    },
+                })
             .eq('id', batch.id)
 
         if (updateBatchError) throw updateBatchError
@@ -932,7 +1207,7 @@ export async function confirmFiscalImportAction(params: {
 
         return {
             success: false,
-            error: getErrorMessage(error, 'Erro ao confirmar importacao fiscal.'),
+            error: normalizeFiscalImportConstraintError(error, 'Erro ao confirmar importacao fiscal.'),
         }
     }
 }
@@ -1017,7 +1292,7 @@ export async function activateFiscalReferenceVersionAction(versionId: string): P
     } catch (error: unknown) {
         return {
             success: false,
-            error: getErrorMessage(error, 'Erro ao ativar versao fiscal.'),
+            error: normalizeFiscalVersionActivationError(error, 'Erro ao ativar versao fiscal.'),
         }
     }
 }
@@ -1083,7 +1358,7 @@ export async function listFiscalImportBatchesAction(params?: {
         })
         const importerById = new Map<string, string>()
         ;((importerRows || []) as Array<Record<string, unknown>>).forEach((row) => {
-            importerById.set(String(row.id), String(row.full_name || row.email || 'Usuário removido'))
+            importerById.set(String(row.id), String(row.full_name || row.email || 'UsuÃ¡rio removido'))
         })
 
         return {
@@ -1129,14 +1404,10 @@ export async function getFiscalImportBatchDetailAction(batchId: string): Promise
         if (!isValidUuid(batchId)) throw new Error('Lote fiscal invalido.')
 
         const adminSupabase = createServiceRoleClient()
-        const [{ data: batch, error: batchError }, { data: items, error: itemsError }, { data: versionRows, error: versionError }] =
+        const [{ data: batch, error: batchError }, items, { data: versionRows, error: versionError }] =
             await Promise.all([
                 adminSupabase.from('fiscal_import_batches').select('*').eq('id', batchId).single(),
-                adminSupabase
-                    .from('fiscal_import_batch_items')
-                    .select('*')
-                    .eq('batch_id', batchId)
-                    .order('row_number', { ascending: true }),
+                listAllFiscalImportBatchItems(batchId),
                 adminSupabase
                     .from('fiscal_reference_versions')
                     .select('id, version_label, import_batch_id, is_active')
@@ -1145,7 +1416,6 @@ export async function getFiscalImportBatchDetailAction(batchId: string): Promise
             ])
 
         if (batchError || !batch) throw batchError || new Error('Lote fiscal nao encontrado.')
-        if (itemsError) throw itemsError
         if (versionError) throw versionError
 
         const version = ((versionRows || []) as Array<Record<string, unknown>>)[0]
@@ -1178,7 +1448,7 @@ export async function getFiscalImportBatchDetailAction(batchId: string): Promise
                 versionId: version ? String(version.id) : null,
                 versionLabel: version ? String(version.version_label || '') : null,
                 activeVersion: version ? version.is_active === true : false,
-                items: ((items || []) as Array<Record<string, unknown>>).map((row) => ({
+                items: (items as Array<Record<string, unknown>>).map((row) => ({
                     id: String(row.id),
                     rowNumber: Number(row.row_number || 0),
                     validationStatus: (row.validation_status as 'valid' | 'invalid') || 'invalid',
@@ -1211,6 +1481,7 @@ export async function searchFiscalNcmEntriesAction(params: {
             .from('fiscal_ncm_entries')
             .select('*')
             .eq('version_id', version.id)
+            .filter('code', 'match', '^\\d{8}$')
             .order('code', { ascending: true })
             .limit(Math.max(1, Math.min(20, params.limit || 10)))
 
@@ -1222,14 +1493,31 @@ export async function searchFiscalNcmEntriesAction(params: {
 
         return {
             success: true,
-            data: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
-                id: String(row.id),
-                versionId: version.id,
-                versionLabel: version.versionLabel,
-                code: String(row.code || ''),
-                description: normalizeRequiredText(row.description),
-                secondaryText: normalizeMojibakeText((row.full_description as string | null) || null),
-            })),
+            data: ((data || []) as Array<Record<string, unknown>>).map((row) => {
+                const metadata = sanitizeJsonObject(row.metadata_jsonb)
+                const secondaryParts = [
+                    normalizeMojibakeText((row.full_description as string | null) || null),
+                    [
+                        metadata.start_date ? `Inicio ${new Date(String(metadata.start_date)).toLocaleDateString('pt-BR')}` : null,
+                        metadata.end_date ? `Fim ${new Date(String(metadata.end_date)).toLocaleDateString('pt-BR')}` : null,
+                        metadata.legal_act
+                            ? `${String(metadata.legal_act)}${metadata.legal_number ? ` ${String(metadata.legal_number)}` : ''}${metadata.legal_year ? `/${String(metadata.legal_year)}` : ''}`
+                            : null,
+                    ]
+                        .filter(Boolean)
+                        .join(' | '),
+                ].filter((value): value is string => Boolean(value && value.trim()))
+
+                return {
+                    id: String(row.id),
+                    versionId: version.id,
+                    versionLabel: version.versionLabel,
+                    code: String(row.code || ''),
+                    description: normalizeRequiredText(row.description),
+                    secondaryText: secondaryParts.join(' | ') || null,
+                    metadata,
+                }
+            }),
         }
     } catch (error: unknown) {
         return {
@@ -1483,3 +1771,4 @@ export async function downloadFiscalImportTemplateAction(tableType: FiscalBaseTy
         }
     }
 }
+

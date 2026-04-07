@@ -1,4 +1,4 @@
-import { Badge } from '@/components/ui/badge'
+﻿import { Badge } from '@/components/ui/badge'
 import type { FiscalReferenceVersionItem } from '@/app/admin/actions/fiscal-bases'
 
 interface FiscalVersionBadgeProps {
@@ -31,3 +31,4 @@ export function FiscalVersionBadge({ version, stale = false, compact = false }: 
         </Badge>
     )
 }
+

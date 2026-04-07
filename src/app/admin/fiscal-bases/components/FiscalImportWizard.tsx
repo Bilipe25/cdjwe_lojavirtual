@@ -11,7 +11,6 @@ import { Badge } from '@/components/ui/badge'
 import {
     cancelFiscalImportBatchAction,
     confirmFiscalImportAction,
-    createFiscalImportPreviewAction,
     downloadFiscalImportTemplateAction,
 } from '@/app/admin/actions/fiscal-bases'
 import {
@@ -37,19 +36,6 @@ function detectImportSourceType(fileName: string): FiscalImportSourceType | null
     if (normalized.endsWith('.xlsx')) return 'xlsx'
     if (normalized.endsWith('.csv') || normalized.endsWith('.txt')) return 'csv'
     return null
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-    const bytes = new Uint8Array(buffer)
-    const chunkSize = 0x8000
-    let binary = ''
-
-    for (let index = 0; index < bytes.length; index += chunkSize) {
-        const chunk = bytes.subarray(index, index + chunkSize)
-        binary += String.fromCharCode(...chunk)
-    }
-
-    return btoa(binary)
 }
 
 export function FiscalImportWizard({ initialType = 'ncm' }: FiscalImportWizardProps) {
@@ -112,22 +98,21 @@ export function FiscalImportWizard({ initialType = 'ncm' }: FiscalImportWizardPr
         setDetectedSourceType(sourceType)
 
         try {
-            const previewPayload =
-                sourceType === 'xlsx'
-                    ? {
-                          tableType,
-                          fileName: file.name,
-                          sourceType,
-                          fileBase64: arrayBufferToBase64(await file.arrayBuffer()),
-                      }
-                    : {
-                          tableType,
-                          fileName: file.name,
-                          sourceType,
-                          textContent: await file.text(),
-                      }
+            const formData = new FormData()
+            formData.set('tableType', tableType)
+            formData.set('sourceType', sourceType)
+            formData.set('file', file, file.name)
 
-            const result = await createFiscalImportPreviewAction(previewPayload)
+            const response = await fetch('/api/admin/fiscal-bases/preview', {
+                method: 'POST',
+                body: formData,
+            })
+
+            const result = (await response.json()) as {
+                success: boolean
+                data?: PreviewState
+                error?: string
+            }
 
             if (!result.success || !result.data) {
                 toast.error(result.error || 'Nao foi possivel gerar o preview da importacao.')
@@ -138,8 +123,12 @@ export function FiscalImportWizard({ initialType = 'ncm' }: FiscalImportWizardPr
             setPreview(result.data)
             setVersionLabel(result.data.suggestedVersionLabel)
             toast.success('Preview gerado com sucesso.')
-        } catch {
-            toast.error('Falha ao ler o arquivo selecionado.')
+        } catch (error) {
+            const message =
+                error instanceof Error && error.message
+                    ? error.message
+                    : 'Falha ao enviar o arquivo selecionado para validacao.'
+            toast.error(message)
             resetPreviewState()
         } finally {
             setLoadingPreview(false)
