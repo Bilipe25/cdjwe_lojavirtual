@@ -61,26 +61,61 @@ export const productTaxProfileSchema = z
         defaultFiscalNotes: optionalTrimmedString,
         isActive: z.boolean().default(true),
         requiresTaxConfiguration: z.boolean().default(true),
+        ncmReferenceId: z.string().uuid().optional(),
+        ncmVersionId: z.string().uuid().optional(),
+        tipiReferenceId: z.string().uuid().optional(),
+        tipiVersionId: z.string().uuid().optional(),
+        cestReferenceId: z.string().uuid().optional(),
+        cestVersionId: z.string().uuid().optional(),
+        defaultOutputCfopReferenceId: z.string().uuid().optional(),
+        defaultOutputCfopVersionId: z.string().uuid().optional(),
+        defaultInputCfopReferenceId: z.string().uuid().optional(),
+        defaultInputCfopVersionId: z.string().uuid().optional(),
+        fiscalReferenceSnapshot: z.record(z.string(), z.unknown()).optional(),
     })
     .superRefine((value, ctx) => {
         const ncmDigits = (value.ncm || '').replace(/\D/g, '')
         const cestDigits = (value.cest || '').replace(/\D/g, '')
         const outCfopDigits = (value.defaultOutputCfop || '').replace(/\D/g, '')
         const inCfopDigits = (value.defaultInputCfop || '').replace(/\D/g, '')
+        const hasNcmReference = Boolean(value.ncmReferenceId)
+        const hasCestReference = Boolean(value.cestReferenceId)
+        const hasOutputCfopReference = Boolean(value.defaultOutputCfopReferenceId)
+        const hasInputCfopReference = Boolean(value.defaultInputCfopReferenceId)
 
-        if (value.requiresTaxConfiguration && ncmDigits.length !== 8) {
+        if (value.requiresTaxConfiguration && !hasNcmReference && ncmDigits.length !== 8) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['ncm'],
-                message: 'NCM deve ter 8 digitos quando o perfil exige configuracao fiscal.',
+                message: 'Selecione um NCM da base fiscal ou informe um NCM de 8 digitos.',
             })
         }
 
-        if (value.requiresCest && cestDigits.length !== 7) {
+        const referencePairs = [
+            ['ncmReferenceId', 'ncmVersionId', 'NCM'],
+            ['tipiReferenceId', 'tipiVersionId', 'TIPI'],
+            ['cestReferenceId', 'cestVersionId', 'CEST'],
+            ['defaultOutputCfopReferenceId', 'defaultOutputCfopVersionId', 'CFOP de saida'],
+            ['defaultInputCfopReferenceId', 'defaultInputCfopVersionId', 'CFOP de entrada'],
+        ] as const
+
+        referencePairs.forEach(([referenceKey, versionKey, label]) => {
+            const hasReference = Boolean(value[referenceKey])
+            const hasVersion = Boolean(value[versionKey])
+            if (hasReference !== hasVersion) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: [versionKey],
+                    message: `${label} precisa manter referencia e versao sincronizadas.`,
+                })
+            }
+        })
+
+        if (value.requiresCest && !hasCestReference && cestDigits.length !== 7) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['cest'],
-                message: 'CEST deve ter 7 digitos quando obrigatorio.',
+                message: 'Selecione um CEST da base fiscal ou informe um CEST de 7 digitos.',
             })
         }
 
@@ -100,7 +135,7 @@ export const productTaxProfileSchema = z
             })
         }
 
-        if (value.defaultOutputCfop && outCfopDigits.length !== 4) {
+        if (value.defaultOutputCfop && !hasOutputCfopReference && outCfopDigits.length !== 4) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['defaultOutputCfop'],
@@ -108,7 +143,7 @@ export const productTaxProfileSchema = z
             })
         }
 
-        if (value.defaultInputCfop && inCfopDigits.length !== 4) {
+        if (value.defaultInputCfop && !hasInputCfopReference && inCfopDigits.length !== 4) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['defaultInputCfop'],
@@ -118,4 +153,3 @@ export const productTaxProfileSchema = z
     })
 
 export type ProductTaxProfileFormData = z.infer<typeof productTaxProfileSchema>
-

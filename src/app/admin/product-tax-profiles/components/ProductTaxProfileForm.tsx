@@ -1,15 +1,38 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
+import { Badge } from '@/components/ui/badge'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select'
+import {
+    getFiscalSuggestionsByNcmAction,
+    listFiscalCatalogItemsAction,
+    listFiscalReferenceVersionsAction,
+    searchFiscalCestEntriesAction,
+    searchFiscalCfopEntriesAction,
+    searchFiscalNcmEntriesAction,
+    type FiscalCatalogItemOption,
+    type FiscalNcmSuggestions,
+    type FiscalReferenceVersionItem,
+    type FiscalSearchOption,
+} from '@/app/admin/actions/fiscal-bases'
 import { productTaxProfileSchema, type ProductTaxProfileFormData } from '../schema'
+import { TaxProfileNcmSelector } from './TaxProfileNcmSelector'
+import { TaxProfileCestSelector } from './TaxProfileCestSelector'
+import { TaxProfileCfopSelector } from './TaxProfileCfopSelector'
 
 interface ProductTaxProfileFormProps {
     saving: boolean
@@ -49,6 +72,132 @@ const defaultValues: ProductTaxProfileFormData = {
     defaultFiscalNotes: undefined,
     isActive: true,
     requiresTaxConfiguration: true,
+    ncmReferenceId: undefined,
+    ncmVersionId: undefined,
+    tipiReferenceId: undefined,
+    tipiVersionId: undefined,
+    cestReferenceId: undefined,
+    cestVersionId: undefined,
+    defaultOutputCfopReferenceId: undefined,
+    defaultOutputCfopVersionId: undefined,
+    defaultInputCfopReferenceId: undefined,
+    defaultInputCfopVersionId: undefined,
+    fiscalReferenceSnapshot: undefined,
+}
+
+function sanitizeVersionLookup(node: unknown, versionId: string) {
+    if (!node || typeof node !== 'object' || !versionId) return ''
+    const map = node as Record<string, unknown>
+    const entry = map[versionId]
+    if (!entry || typeof entry !== 'object') return ''
+    return String((entry as Record<string, unknown>).version_label || '')
+}
+
+function buildInitialOption(
+    snapshot: Record<string, unknown> | undefined,
+    key: 'ncm' | 'tipi' | 'cest' | 'default_output_cfop' | 'default_input_cfop'
+): FiscalSearchOption | null {
+    const node = snapshot?.[key]
+    if (!node || typeof node !== 'object') return null
+    const value = node as Record<string, unknown>
+    const referenceId = value.reference_id
+    const versionId = value.version_id
+
+    if (!referenceId || !versionId) return null
+
+    const versionLookup = sanitizeVersionLookup(snapshot?.version_labels, String(versionId))
+    if (key === 'tipi') {
+        const ipiRate =
+            typeof value.ipi_rate === 'number'
+                ? `${value.ipi_rate.toFixed(2)}%`
+                : String(value.ipi_rate || '').trim()
+        return {
+            id: String(referenceId),
+            versionId: String(versionId),
+            versionLabel: versionLookup || '',
+            code: String(value.ncm_code || ''),
+            description: String(value.description || ''),
+            secondaryText: `IPI ${ipiRate}${value.ex_tipi ? ` | EX ${String(value.ex_tipi)}` : ''}`,
+        }
+    }
+
+    return {
+        id: String(referenceId),
+        versionId: String(versionId),
+        versionLabel: versionLookup || '',
+        code: String(value.code || ''),
+        description: String(value.description || ''),
+        secondaryText:
+            key === 'default_output_cfop' || key === 'default_input_cfop'
+                ? String(value.operation_direction || '')
+                : String(value.segment || value.full_description || ''),
+    }
+}
+
+function CatalogSelectField({
+    label,
+    value,
+    options,
+    placeholder,
+    onChange,
+}: {
+    label: string
+    value?: string
+    options: FiscalCatalogItemOption[]
+    placeholder: string
+    onChange: (nextValue: string | null) => void
+}) {
+    return (
+        <div className="space-y-1.5">
+            <Label>{label}</Label>
+            <Select value={value || undefined} onValueChange={onChange}>
+                <SelectTrigger className="w-full">
+                    <SelectValue placeholder={placeholder} />
+                </SelectTrigger>
+                <SelectContent>
+                    {options.map((option) => (
+                        <SelectItem key={option.id} value={option.code}>
+                            {option.code} - {option.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    )
+}
+
+function VersionStateBadge({
+    label,
+    selectedVersionLabel,
+    activeVersion,
+}: {
+    label: string
+    selectedVersionLabel?: string | null
+    activeVersion?: FiscalReferenceVersionItem | null
+}) {
+    if (!selectedVersionLabel) return null
+
+    if (!activeVersion) {
+        return (
+            <Badge variant="outline" className="bg-white text-slate-700">
+                {label}: usando {selectedVersionLabel} | sem versao ativa
+            </Badge>
+        )
+    }
+
+    if (activeVersion.versionLabel !== selectedVersionLabel) {
+        return (
+            <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                {label}: usando {selectedVersionLabel} | ativa atual {activeVersion.versionLabel}
+            </Badge>
+        )
+    }
+
+    return (
+        <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
+            {label}: base ativa {selectedVersionLabel}
+        </Badge>
+    )
 }
 
 export function ProductTaxProfileForm({
@@ -63,34 +212,230 @@ export function ProductTaxProfileForm({
         defaultValues,
     })
 
-    const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = form
+    const {
+        register,
+        handleSubmit,
+        reset,
+        setValue,
+        getValues,
+        watch,
+        formState: { errors },
+    } = form
+
+    const [catalogs, setCatalogs] = useState<Record<string, FiscalCatalogItemOption[]>>({})
+    const [catalogsLoading, setCatalogsLoading] = useState(true)
+    const [activeVersions, setActiveVersions] = useState<
+        Partial<Record<'ncm' | 'tipi' | 'cest' | 'cfop', FiscalReferenceVersionItem | null>>
+    >({})
+    const [ncmOptions, setNcmOptions] = useState<FiscalSearchOption[]>([])
+    const [cestOptions, setCestOptions] = useState<FiscalSearchOption[]>([])
+    const [outputCfopOptions, setOutputCfopOptions] = useState<FiscalSearchOption[]>([])
+    const [inputCfopOptions, setInputCfopOptions] = useState<FiscalSearchOption[]>([])
+    const [ncmLoading, setNcmLoading] = useState(false)
+    const [cestLoading, setCestLoading] = useState(false)
+    const [outputCfopLoading, setOutputCfopLoading] = useState(false)
+    const [inputCfopLoading, setInputCfopLoading] = useState(false)
+    const [selectedNcm, setSelectedNcm] = useState<FiscalSearchOption | null>(null)
+    const [selectedTipi, setSelectedTipi] = useState<FiscalSearchOption | null>(null)
+    const [selectedCest, setSelectedCest] = useState<FiscalSearchOption | null>(null)
+    const [selectedOutputCfop, setSelectedOutputCfop] = useState<FiscalSearchOption | null>(null)
+    const [selectedInputCfop, setSelectedInputCfop] = useState<FiscalSearchOption | null>(null)
+    const [ncmSuggestions, setNcmSuggestions] = useState<FiscalNcmSuggestions | null>(null)
+
     const hasSt = watch('hasSubstitutionTax')
     const requiresCest = watch('requiresCest')
     const hasIpi = watch('hasIpi')
     const isActive = watch('isActive')
     const requiresTaxConfiguration = watch('requiresTaxConfiguration')
+    const currentTipiReferenceId = watch('tipiReferenceId')
 
     useEffect(() => {
+        const loadCatalogsAndVersions = async () => {
+            setCatalogsLoading(true)
+            const catalogKeys = [
+                'origin',
+                'commercial_unit',
+                'tax_unit',
+                'pis_cst',
+                'cofins_cst',
+                'ipi_cst',
+                'item_type',
+                'fiscal_type',
+            ] as const
+
+            const [catalogResults, versionResults] = await Promise.all([
+                Promise.all(catalogKeys.map((key) => listFiscalCatalogItemsAction(key))),
+                Promise.all([
+                    listFiscalReferenceVersionsAction('ncm'),
+                    listFiscalReferenceVersionsAction('tipi'),
+                    listFiscalReferenceVersionsAction('cest'),
+                    listFiscalReferenceVersionsAction('cfop'),
+                ]),
+            ])
+
+            const mappedCatalogs = catalogResults.reduce<Record<string, FiscalCatalogItemOption[]>>(
+                (acc, result, index) => {
+                    acc[catalogKeys[index]] = result.success && result.data ? result.data : []
+                    return acc
+                },
+                {}
+            )
+            setCatalogs(mappedCatalogs)
+
+            const [ncmVersions, tipiVersions, cestVersions, cfopVersions] = versionResults
+            setActiveVersions({
+                ncm: ncmVersions.success && ncmVersions.data ? ncmVersions.data.find((item) => item.isActive) || null : null,
+                tipi:
+                    tipiVersions.success && tipiVersions.data ? tipiVersions.data.find((item) => item.isActive) || null : null,
+                cest:
+                    cestVersions.success && cestVersions.data ? cestVersions.data.find((item) => item.isActive) || null : null,
+                cfop:
+                    cfopVersions.success && cfopVersions.data ? cfopVersions.data.find((item) => item.isActive) || null : null,
+            })
+            setCatalogsLoading(false)
+        }
+
+        void loadCatalogsAndVersions()
+    }, [])
+
+    useEffect(() => {
+        const snapshot = initialData?.fiscalReferenceSnapshot as Record<string, unknown> | undefined
         reset({
             ...defaultValues,
             ...(initialData || {}),
         })
+        setSelectedNcm(buildInitialOption(snapshot, 'ncm'))
+        setSelectedTipi(buildInitialOption(snapshot, 'tipi'))
+        setSelectedCest(buildInitialOption(snapshot, 'cest'))
+        setSelectedOutputCfop(buildInitialOption(snapshot, 'default_output_cfop'))
+        setSelectedInputCfop(buildInitialOption(snapshot, 'default_input_cfop'))
+        setNcmSuggestions(null)
     }, [initialData, reset])
+
+    useEffect(() => {
+        const loadSuggestions = async () => {
+            if (!selectedNcm?.code) {
+                setNcmSuggestions(null)
+                setSelectedTipi(null)
+                setValue('tipiReferenceId', undefined, { shouldDirty: true })
+                setValue('tipiVersionId', undefined, { shouldDirty: true })
+                return
+            }
+
+            const result = await getFiscalSuggestionsByNcmAction(selectedNcm.code)
+            if (result.success && result.data) {
+                setNcmSuggestions(result.data)
+
+                const currentTipiId = getValues('tipiReferenceId')
+                const matchedCurrent = result.data.tipi.find((item) => item.id === currentTipiId)
+                const singleTipi = result.data.tipi.length === 1 ? result.data.tipi[0] : null
+                const chosenTipi = matchedCurrent || singleTipi || null
+
+                if (chosenTipi) {
+                    setSelectedTipi(chosenTipi)
+                    setValue('tipiReferenceId', chosenTipi.id, { shouldDirty: true })
+                    setValue('tipiVersionId', chosenTipi.versionId, { shouldDirty: true })
+                } else {
+                    setSelectedTipi(null)
+                    setValue('tipiReferenceId', undefined, { shouldDirty: true })
+                    setValue('tipiVersionId', undefined, { shouldDirty: true })
+                }
+            } else {
+                setNcmSuggestions(null)
+                setSelectedTipi(null)
+                setValue('tipiReferenceId', undefined, { shouldDirty: true })
+                setValue('tipiVersionId', undefined, { shouldDirty: true })
+            }
+        }
+
+        void loadSuggestions()
+    }, [getValues, selectedNcm, setValue])
+
+    const referenceSummary = useMemo(() => {
+        const parts = [
+            selectedNcm ? `NCM ${selectedNcm.code}` : null,
+            selectedTipi ? `TIPI ${selectedTipi.code}` : null,
+            selectedCest ? `CEST ${selectedCest.code}` : null,
+            selectedOutputCfop ? `CFOP saida ${selectedOutputCfop.code}` : null,
+            selectedInputCfop ? `CFOP entrada ${selectedInputCfop.code}` : null,
+        ].filter((value): value is string => Boolean(value))
+
+        if (parts.length === 0) return 'Perfil ainda sem referencias estruturadas da base fiscal.'
+        return parts.join(' | ')
+    }, [selectedCest, selectedInputCfop, selectedNcm, selectedOutputCfop, selectedTipi])
+
+    const hasReferenceMismatch = useMemo(() => {
+        return (
+            Boolean(selectedNcm?.versionLabel && activeVersions.ncm && selectedNcm.versionLabel !== activeVersions.ncm.versionLabel) ||
+            Boolean(selectedTipi?.versionLabel && activeVersions.tipi && selectedTipi.versionLabel !== activeVersions.tipi.versionLabel) ||
+            Boolean(selectedCest?.versionLabel && activeVersions.cest && selectedCest.versionLabel !== activeVersions.cest.versionLabel) ||
+            Boolean(
+                selectedOutputCfop?.versionLabel &&
+                    activeVersions.cfop &&
+                    selectedOutputCfop.versionLabel !== activeVersions.cfop.versionLabel
+            ) ||
+            Boolean(
+                selectedInputCfop?.versionLabel &&
+                    activeVersions.cfop &&
+                    selectedInputCfop.versionLabel !== activeVersions.cfop.versionLabel
+            )
+        )
+    }, [activeVersions, selectedCest, selectedInputCfop, selectedNcm, selectedOutputCfop, selectedTipi])
+
+    const handleNcmSearch = async (query: string) => {
+        setNcmLoading(true)
+        const result = await searchFiscalNcmEntriesAction({ query, limit: 12 })
+        setNcmOptions(result.success && result.data ? result.data : [])
+        setNcmLoading(false)
+    }
+
+    const handleCestSearch = async (query: string) => {
+        setCestLoading(true)
+        const result = await searchFiscalCestEntriesAction({
+            query,
+            ncmCode: selectedNcm?.code || undefined,
+            limit: 12,
+        })
+        setCestOptions(result.success && result.data ? result.data : [])
+        setCestLoading(false)
+    }
+
+    const handleOutputCfopSearch = async (query: string) => {
+        setOutputCfopLoading(true)
+        const result = await searchFiscalCfopEntriesAction({
+            query,
+            direction: 'outbound',
+            limit: 12,
+        })
+        setOutputCfopOptions(result.success && result.data ? result.data : [])
+        setOutputCfopLoading(false)
+    }
+
+    const handleInputCfopSearch = async (query: string) => {
+        setInputCfopLoading(true)
+        const result = await searchFiscalCfopEntriesAction({
+            query,
+            direction: 'inbound',
+            limit: 12,
+        })
+        setInputCfopOptions(result.success && result.data ? result.data : [])
+        setInputCfopLoading(false)
+    }
 
     return (
         <form onSubmit={handleSubmit((data) => onSubmit(data))} className="space-y-5">
-            <section className="rounded-xl border bg-white p-4 space-y-3">
+            <section className="space-y-3 rounded-2xl border bg-white p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-navy">1. Informacoes Gerais</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div className="space-y-1 md:col-span-2">
                         <Label>Nome do Perfil *</Label>
                         <Input {...register('name')} />
-                        {errors.name && <p className="text-xs text-red-500">{errors.name.message}</p>}
+                        {errors.name ? <p className="text-xs text-red-500">{errors.name.message}</p> : null}
                     </div>
                     <div className="space-y-1">
                         <Label>Codigo Interno *</Label>
                         <Input {...register('code')} />
-                        {errors.code && <p className="text-xs text-red-500">{errors.code.message}</p>}
+                        {errors.code ? <p className="text-xs text-red-500">{errors.code.message}</p> : null}
                     </div>
                     <div className="space-y-1 md:col-span-3">
                         <Label>Descricao</Label>
@@ -99,144 +444,431 @@ export function ProductTaxProfileForm({
                 </div>
             </section>
 
-            <section className="rounded-xl border bg-white p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-navy">2. Identificacao Fiscal</h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div className="space-y-1">
-                        <Label>NCM</Label>
-                        <Input {...register('ncm')} />
-                        {errors.ncm && <p className="text-xs text-red-500">{errors.ncm.message}</p>}
+            <section className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <h3 className="text-sm font-semibold text-navy">2. Base Fiscal do Perfil</h3>
+                        <p className="text-xs text-muted-foreground">
+                            Selecione referencias versionadas da base interna e reduza digitacao manual no cadastro.
+                        </p>
                     </div>
-                    <div className="space-y-1">
-                        <Label>CEST</Label>
-                        <Input {...register('cest')} />
-                        {errors.cest && <p className="text-xs text-red-500">{errors.cest.message}</p>}
+                    <div className="rounded-full border bg-slate-50 px-3 py-1 text-xs text-slate-700">
+                        {referenceSummary}
                     </div>
-                    <div className="space-y-1">
-                        <Label>Origem</Label>
-                        <Input {...register('originCode')} />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>Unidade Comercial</Label>
-                        <Input {...register('commercialUnit')} />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>Unidade Tributavel</Label>
-                        <Input {...register('taxUnit')} />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>EAN/GTIN</Label>
-                        <Input {...register('eanGtin')} />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>EAN Tributavel</Label>
-                        <Input {...register('taxEanGtin')} />
-                    </div>
-                    <div className="space-y-1 md:col-span-4">
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <TaxProfileNcmSelector
+                        value={selectedNcm}
+                        options={ncmOptions}
+                        loading={ncmLoading}
+                        onSearch={(query) => void handleNcmSearch(query)}
+                        onSelect={(option) => {
+                            setSelectedNcm(option)
+                            setValue('ncmReferenceId', option.id, { shouldDirty: true })
+                            setValue('ncmVersionId', option.versionId, { shouldDirty: true })
+                            setValue('ncm', option.code, { shouldDirty: true })
+                            if (!watch('defaultFiscalDescription')) {
+                                setValue('defaultFiscalDescription', option.description, { shouldDirty: true })
+                            }
+                        }}
+                        onClear={() => {
+                            setSelectedNcm(null)
+                            setSelectedTipi(null)
+                            setNcmSuggestions(null)
+                            setValue('ncmReferenceId', undefined, { shouldDirty: true })
+                            setValue('ncmVersionId', undefined, { shouldDirty: true })
+                            setValue('tipiReferenceId', undefined, { shouldDirty: true })
+                            setValue('tipiVersionId', undefined, { shouldDirty: true })
+                            setValue('ncm', undefined, { shouldDirty: true })
+                        }}
+                    />
+                    {errors.ncm ? <p className="-mt-2 text-xs text-red-500">{errors.ncm.message}</p> : null}
+
+                    <TaxProfileCestSelector
+                        value={selectedCest}
+                        options={cestOptions}
+                        loading={cestLoading}
+                        onSearch={(query) => void handleCestSearch(query)}
+                        onSelect={(option) => {
+                            setSelectedCest(option)
+                            setValue('cestReferenceId', option.id, { shouldDirty: true })
+                            setValue('cestVersionId', option.versionId, { shouldDirty: true })
+                            setValue('cest', option.code, { shouldDirty: true })
+                        }}
+                        onClear={() => {
+                            setSelectedCest(null)
+                            setValue('cestReferenceId', undefined, { shouldDirty: true })
+                            setValue('cestVersionId', undefined, { shouldDirty: true })
+                            setValue('cest', undefined, { shouldDirty: true })
+                        }}
+                    />
+                    {errors.cest ? <p className="-mt-2 text-xs text-red-500">{errors.cest.message}</p> : null}
+
+                    <div className="space-y-1.5 md:col-span-2">
                         <Label>Descricao Fiscal Padrao</Label>
                         <Textarea rows={2} {...register('defaultFiscalDescription')} />
                     </div>
                 </div>
+
+                <div className="flex flex-wrap gap-2 text-xs">
+                    <VersionStateBadge
+                        label="NCM"
+                        selectedVersionLabel={selectedNcm?.versionLabel}
+                        activeVersion={activeVersions.ncm}
+                    />
+                    <VersionStateBadge
+                        label="TIPI"
+                        selectedVersionLabel={selectedTipi?.versionLabel}
+                        activeVersion={activeVersions.tipi}
+                    />
+                    <VersionStateBadge
+                        label="CEST"
+                        selectedVersionLabel={selectedCest?.versionLabel}
+                        activeVersion={activeVersions.cest}
+                    />
+                    <VersionStateBadge
+                        label="CFOP saida"
+                        selectedVersionLabel={selectedOutputCfop?.versionLabel}
+                        activeVersion={activeVersions.cfop}
+                    />
+                    <VersionStateBadge
+                        label="CFOP entrada"
+                        selectedVersionLabel={selectedInputCfop?.versionLabel}
+                        activeVersion={activeVersions.cfop}
+                    />
+                </div>
+
+                {hasReferenceMismatch ? (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        Este perfil usa pelo menos uma referencia de versao diferente da base ativa atual. Isso nao e um
+                        erro, mas merece revisao antes de usar o perfil em novas operacoes fiscais.
+                    </div>
+                ) : null}
+
+                {ncmSuggestions ? (
+                    <div className="rounded-2xl border border-dashed bg-slate-50/70 p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium text-navy">
+                            <Sparkles className="h-4 w-4 text-bronze" />
+                            Assistente de preenchimento
+                        </div>
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div className="rounded-xl border bg-white p-3">
+                                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                    TIPI / IPI efetivamente resolvido
+                                </p>
+                                {selectedTipi ? (
+                                    <div className="mt-2 space-y-2 text-sm text-slate-700">
+                                        <p className="font-medium">
+                                            {selectedTipi.code} - {selectedTipi.description}
+                                        </p>
+                                        {selectedTipi.secondaryText ? (
+                                            <p className="text-xs text-muted-foreground">
+                                                {selectedTipi.secondaryText}
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                ) : (
+                                    <p className="mt-2 text-sm text-muted-foreground">
+                                        Nenhum TIPI foi resolvido automaticamente para este NCM.
+                                    </p>
+                                )}
+
+                                {ncmSuggestions.tipi.length > 1 ? (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {ncmSuggestions.tipi.map((item) => (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                className={`rounded-full border px-2.5 py-1 text-xs ${
+                                                    currentTipiReferenceId === item.id
+                                                        ? 'border-navy bg-navy/5 text-navy'
+                                                        : 'bg-white text-slate-700 hover:border-navy hover:text-navy'
+                                                }`}
+                                                onClick={() => {
+                                                    setSelectedTipi(item)
+                                                    setValue('tipiReferenceId', item.id, { shouldDirty: true })
+                                                    setValue('tipiVersionId', item.versionId, { shouldDirty: true })
+                                                }}
+                                            >
+                                                {item.secondaryText ? `${item.code} - ${item.secondaryText}` : item.code}
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : null}
+                            </div>
+
+                            <div className="rounded-xl border bg-white p-3">
+                                <p className="text-xs uppercase tracking-wide text-muted-foreground">CESTs compativeis</p>
+                                {ncmSuggestions.cest.length > 0 ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        {ncmSuggestions.cest.map((item) => (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                className="rounded-full border bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-navy hover:text-navy"
+                                                onClick={() => {
+                                                    setSelectedCest(item)
+                                                    setValue('cestReferenceId', item.id, { shouldDirty: true })
+                                                    setValue('cestVersionId', item.versionId, { shouldDirty: true })
+                                                    setValue('cest', item.code, { shouldDirty: true })
+                                                }}
+                                            >
+                                                {item.code}
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="mt-2 text-sm text-muted-foreground">
+                                        Sem CEST relacionado para este NCM.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
             </section>
 
-            <section className="rounded-xl border bg-white p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-navy">3. Classificacao Fiscal</h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div className="space-y-1">
-                        <Label>PIS CST</Label>
-                        <Input {...register('pisCst')} />
-                    </div>
-                    <div className="space-y-1">
-                        <Label>COFINS CST</Label>
-                        <Input {...register('cofinsCst')} />
-                    </div>
-                    <div className="space-y-1">
+            <section className="space-y-3 rounded-2xl border bg-white p-5 shadow-sm">
+                <h3 className="text-sm font-semibold text-navy">3. Identificacao Fiscal e Ajustes Complementares</h3>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    <CatalogSelectField
+                        label="Origem"
+                        value={watch('originCode')}
+                        options={catalogs.origin || []}
+                        placeholder={catalogsLoading ? 'Carregando...' : 'Selecione a origem'}
+                        onChange={(value) => setValue('originCode', value || '0', { shouldDirty: true })}
+                    />
+                    <CatalogSelectField
+                        label="Unidade Comercial"
+                        value={watch('commercialUnit') || ''}
+                        options={catalogs.commercial_unit || []}
+                        placeholder={catalogsLoading ? 'Carregando...' : 'Selecione a unidade'}
+                        onChange={(value) => setValue('commercialUnit', value || undefined, { shouldDirty: true })}
+                    />
+                    <CatalogSelectField
+                        label="Unidade Tributavel"
+                        value={watch('taxUnit') || ''}
+                        options={catalogs.tax_unit || []}
+                        placeholder={catalogsLoading ? 'Carregando...' : 'Selecione a unidade'}
+                        onChange={(value) => setValue('taxUnit', value || undefined, { shouldDirty: true })}
+                    />
+                    <CatalogSelectField
+                        label="Tipo Fiscal"
+                        value={watch('fiscalType') || 'goods'}
+                        options={catalogs.fiscal_type || []}
+                        placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o tipo fiscal'}
+                        onChange={(value) => setValue('fiscalType', value || 'goods', { shouldDirty: true })}
+                    />
+                    <CatalogSelectField
+                        label="Tipo de Item"
+                        value={watch('itemType') || 'goods'}
+                        options={catalogs.item_type || []}
+                        placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o tipo de item'}
+                        onChange={(value) => setValue('itemType', value || 'goods', { shouldDirty: true })}
+                    />
+                    <CatalogSelectField
+                        label="PIS CST"
+                        value={watch('pisCst') || ''}
+                        options={catalogs.pis_cst || []}
+                        placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o CST'}
+                        onChange={(value) => setValue('pisCst', value || undefined, { shouldDirty: true })}
+                    />
+                    <CatalogSelectField
+                        label="COFINS CST"
+                        value={watch('cofinsCst') || ''}
+                        options={catalogs.cofins_cst || []}
+                        placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o CST'}
+                        onChange={(value) => setValue('cofinsCst', value || undefined, { shouldDirty: true })}
+                    />
+                    <CatalogSelectField
+                        label="IPI CST Saida"
+                        value={watch('ipiCstOut') || ''}
+                        options={catalogs.ipi_cst || []}
+                        placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o CST'}
+                        onChange={(value) => setValue('ipiCstOut', value || undefined, { shouldDirty: true })}
+                    />
+                    <div className="space-y-1.5">
                         <Label>Aliquota PIS</Label>
                         <Input type="number" step="0.01" {...register('pisAliquota')} />
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                         <Label>Aliquota COFINS</Label>
                         <Input type="number" step="0.01" {...register('cofinsAliquota')} />
                     </div>
+                    <div className="space-y-1.5">
+                        <Label>Codigo de enquadramento IPI</Label>
+                        <Input {...register('ipiEnquadramentoCodigo')} />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>EAN / GTIN</Label>
+                        <Input {...register('eanGtin')} />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>EAN Tributavel</Label>
+                        <Input {...register('taxEanGtin')} />
+                    </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="rounded-lg border p-3 flex items-center justify-between">
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div className="flex items-center justify-between rounded-xl border p-3">
                         <Label>Substituicao Tributaria</Label>
-                        <Switch checked={hasSt} onCheckedChange={(value) => setValue('hasSubstitutionTax', value, { shouldDirty: true })} />
+                        <Switch
+                            checked={hasSt}
+                            onCheckedChange={(value) => setValue('hasSubstitutionTax', value, { shouldDirty: true })}
+                        />
                     </div>
-                    <div className="rounded-lg border p-3 flex items-center justify-between">
+                    <div className="flex items-center justify-between rounded-xl border p-3">
                         <Label>Exige CEST</Label>
-                        <Switch checked={requiresCest} onCheckedChange={(value) => setValue('requiresCest', value, { shouldDirty: true })} />
+                        <Switch
+                            checked={requiresCest}
+                            onCheckedChange={(value) => setValue('requiresCest', value, { shouldDirty: true })}
+                        />
                     </div>
-                    <div className="rounded-lg border p-3 flex items-center justify-between">
+                    <div className="flex items-center justify-between rounded-xl border p-3">
                         <Label>Possui IPI</Label>
                         <Switch checked={hasIpi} onCheckedChange={(value) => setValue('hasIpi', value, { shouldDirty: true })} />
                     </div>
                 </div>
-                {hasIpi && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                            <Label>IPI CST Saida</Label>
-                            <Input {...register('ipiCstOut')} />
-                            {errors.ipiCstOut && <p className="text-xs text-red-500">{errors.ipiCstOut.message}</p>}
-                        </div>
-                        <div className="space-y-1">
-                            <Label>Codigo de Enquadramento IPI</Label>
-                            <Input {...register('ipiEnquadramentoCodigo')} />
-                        </div>
+
+                {hasIpi && !selectedTipi ? (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        O perfil esta marcado com IPI, mas ainda nao ha TIPI resolvido para este NCM. Revise a
+                        sugestao automatica ou confirme se o enquadramento sera tratado manualmente.
                     </div>
-                )}
+                ) : null}
             </section>
 
-            <section className="rounded-xl border bg-white p-4 space-y-3">
+            <section className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-navy">4. CFOP e Apoio a Emissao</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                        <Label>CFOP Padrao Saida</Label>
-                        <Input {...register('defaultOutputCfop')} />
-                        {errors.defaultOutputCfop && <p className="text-xs text-red-500">{errors.defaultOutputCfop.message}</p>}
-                    </div>
-                    <div className="space-y-1">
-                        <Label>CFOP Padrao Entrada</Label>
-                        <Input {...register('defaultInputCfop')} />
-                        {errors.defaultInputCfop && <p className="text-xs text-red-500">{errors.defaultInputCfop.message}</p>}
-                    </div>
-                    <div className="space-y-1">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <TaxProfileCfopSelector
+                        label="CFOP Padrao de Saida"
+                        value={selectedOutputCfop}
+                        options={outputCfopOptions}
+                        loading={outputCfopLoading}
+                        onSearch={(query) => void handleOutputCfopSearch(query)}
+                        onSelect={(option) => {
+                            setSelectedOutputCfop(option)
+                            setValue('defaultOutputCfopReferenceId', option.id, { shouldDirty: true })
+                            setValue('defaultOutputCfopVersionId', option.versionId, { shouldDirty: true })
+                            setValue('defaultOutputCfop', option.code, { shouldDirty: true })
+                        }}
+                        onClear={() => {
+                            setSelectedOutputCfop(null)
+                            setValue('defaultOutputCfopReferenceId', undefined, { shouldDirty: true })
+                            setValue('defaultOutputCfopVersionId', undefined, { shouldDirty: true })
+                            setValue('defaultOutputCfop', undefined, { shouldDirty: true })
+                        }}
+                    />
+                    {errors.defaultOutputCfop ? (
+                        <p className="-mt-2 text-xs text-red-500">{errors.defaultOutputCfop.message}</p>
+                    ) : null}
+
+                    <TaxProfileCfopSelector
+                        label="CFOP Padrao de Entrada"
+                        value={selectedInputCfop}
+                        options={inputCfopOptions}
+                        loading={inputCfopLoading}
+                        onSearch={(query) => void handleInputCfopSearch(query)}
+                        onSelect={(option) => {
+                            setSelectedInputCfop(option)
+                            setValue('defaultInputCfopReferenceId', option.id, { shouldDirty: true })
+                            setValue('defaultInputCfopVersionId', option.versionId, { shouldDirty: true })
+                            setValue('defaultInputCfop', option.code, { shouldDirty: true })
+                        }}
+                        onClear={() => {
+                            setSelectedInputCfop(null)
+                            setValue('defaultInputCfopReferenceId', undefined, { shouldDirty: true })
+                            setValue('defaultInputCfopVersionId', undefined, { shouldDirty: true })
+                            setValue('defaultInputCfop', undefined, { shouldDirty: true })
+                        }}
+                    />
+                    {errors.defaultInputCfop ? (
+                        <p className="-mt-2 text-xs text-red-500">{errors.defaultInputCfop.message}</p>
+                    ) : null}
+
+                    <div className="space-y-1.5">
                         <Label>Codigo Fiscal Interno</Label>
                         <Input {...register('internalFiscalCode')} />
                     </div>
-                    <div className="space-y-1 md:col-span-3">
+                    <div className="space-y-1.5">
                         <Label>Observacoes Fiscais</Label>
                         <Textarea rows={2} {...register('defaultFiscalNotes')} />
                     </div>
                 </div>
             </section>
 
-            <section className="rounded-xl border bg-white p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-navy">5. Flags e Evolucao</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="rounded-lg border p-3 flex items-center justify-between">
+            <section className="space-y-3 rounded-2xl border bg-white p-5 shadow-sm">
+                <h3 className="text-sm font-semibold text-navy">5. Status e Governanca</h3>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="flex items-center justify-between rounded-xl border p-3">
                         <Label>Perfil ativo</Label>
                         <Switch checked={isActive} onCheckedChange={(value) => setValue('isActive', value, { shouldDirty: true })} />
                     </div>
-                    <div className="rounded-lg border p-3 flex items-center justify-between">
+                    <div className="flex items-center justify-between rounded-xl border p-3">
                         <Label>Exige configuracao fiscal</Label>
                         <Switch
                             checked={requiresTaxConfiguration}
-                            onCheckedChange={(value) =>
-                                setValue('requiresTaxConfiguration', value, { shouldDirty: true })
-                            }
+                            onCheckedChange={(value) => setValue('requiresTaxConfiguration', value, { shouldDirty: true })}
                         />
                     </div>
                 </div>
+
+                {(errors.ncm ||
+                    errors.cest ||
+                    errors.defaultOutputCfop ||
+                    errors.defaultInputCfop ||
+                    errors.ipiCstOut) && (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        Revise os campos fiscais destacados antes de salvar o perfil.
+                    </div>
+                )}
+
+                {hasReferenceMismatch ? (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        Este perfil continuara salvo com o snapshot atual. Se a mudanca de versao for intencional, tudo
+                        bem; se nao for, revise as referencias antes de concluir.
+                    </div>
+                ) : null}
+
+                {!activeVersions.ncm && !activeVersions.cest && !activeVersions.cfop ? (
+                    <div className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                        Ainda nao ha bases fiscais ativas para pelo menos uma das referencias principais. O perfil pode
+                        ser salvo, mas ficara dependente de revisao antes do uso em emissao futura.
+                    </div>
+                ) : null}
             </section>
+
+            <input type="hidden" {...register('ncm')} />
+            <input type="hidden" {...register('cest')} />
+            <input type="hidden" {...register('defaultOutputCfop')} />
+            <input type="hidden" {...register('defaultInputCfop')} />
+            <input type="hidden" {...register('originCode')} />
+            <input type="hidden" {...register('commercialUnit')} />
+            <input type="hidden" {...register('taxUnit')} />
+            <input type="hidden" {...register('fiscalType')} />
+            <input type="hidden" {...register('itemType')} />
+            <input type="hidden" {...register('pisCst')} />
+            <input type="hidden" {...register('cofinsCst')} />
+            <input type="hidden" {...register('ipiCstOut')} />
+            <input type="hidden" {...register('ncmReferenceId')} />
+            <input type="hidden" {...register('ncmVersionId')} />
+            <input type="hidden" {...register('tipiReferenceId')} />
+            <input type="hidden" {...register('tipiVersionId')} />
+            <input type="hidden" {...register('cestReferenceId')} />
+            <input type="hidden" {...register('cestVersionId')} />
+            <input type="hidden" {...register('defaultOutputCfopReferenceId')} />
+            <input type="hidden" {...register('defaultOutputCfopVersionId')} />
+            <input type="hidden" {...register('defaultInputCfopReferenceId')} />
+            <input type="hidden" {...register('defaultInputCfopVersionId')} />
 
             <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
                     Cancelar
                 </Button>
                 <Button type="submit" disabled={saving}>
-                    {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                    {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     {submitLabel || 'Salvar Perfil'}
                 </Button>
             </div>

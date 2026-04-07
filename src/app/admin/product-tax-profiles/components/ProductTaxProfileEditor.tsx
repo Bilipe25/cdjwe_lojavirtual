@@ -78,6 +78,17 @@ export function ProductTaxProfileEditor({ mode, taxProfileId }: ProductTaxProfil
             defaultFiscalNotes: data.defaultFiscalNotes,
             isActive: data.isActive,
             requiresTaxConfiguration: data.requiresTaxConfiguration,
+            ncmReferenceId: data.ncmReferenceId,
+            ncmVersionId: data.ncmVersionId,
+            tipiReferenceId: data.tipiReferenceId,
+            tipiVersionId: data.tipiVersionId,
+            cestReferenceId: data.cestReferenceId,
+            cestVersionId: data.cestVersionId,
+            defaultOutputCfopReferenceId: data.defaultOutputCfopReferenceId,
+            defaultOutputCfopVersionId: data.defaultOutputCfopVersionId,
+            defaultInputCfopReferenceId: data.defaultInputCfopReferenceId,
+            defaultInputCfopVersionId: data.defaultInputCfopVersionId,
+            fiscalReferenceSnapshot: data.fiscalReferenceSnapshot,
         })
 
         if (!result.success || !result.data) {
@@ -128,4 +139,3 @@ export function ProductTaxProfileEditor({ mode, taxProfileId }: ProductTaxProfil
         </div>
     )
 }
-

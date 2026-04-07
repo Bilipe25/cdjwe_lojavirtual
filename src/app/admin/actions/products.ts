@@ -96,6 +96,17 @@ export interface ProductTaxProfileInput {
     requiresTaxConfiguration?: boolean
     futureTaxPayload?: Record<string, unknown> | null
     metadata?: Record<string, unknown> | null
+    ncmReferenceId?: string | null
+    ncmVersionId?: string | null
+    tipiReferenceId?: string | null
+    tipiVersionId?: string | null
+    cestReferenceId?: string | null
+    cestVersionId?: string | null
+    defaultOutputCfopReferenceId?: string | null
+    defaultOutputCfopVersionId?: string | null
+    defaultInputCfopReferenceId?: string | null
+    defaultInputCfopVersionId?: string | null
+    fiscalReferenceSnapshot?: Record<string, unknown> | null
     rules?: ProductTaxProfileRuleInput[]
 }
 
@@ -110,6 +121,9 @@ export interface ProductTaxProfileListItem {
     version: number
     products_count: number
     updated_at: string
+    reference_mode?: 'manual' | 'base-backed' | 'mixed'
+    has_outdated_references?: boolean
+    outdated_reference_types?: string[]
 }
 
 export interface ProductTaxProfileUsageItem {
@@ -237,6 +251,160 @@ function sanitizeFiscalCode(value?: string | null) {
 function sanitizeJsonPayload(input?: Record<string, unknown> | null) {
     if (!input || typeof input !== 'object') return {}
     return input
+}
+
+async function buildFiscalReferenceSnapshot(
+    adminSupabase: ReturnType<typeof createServiceRoleClient>,
+    input: ProductTaxProfileInput
+) {
+    const snapshot: Record<string, unknown> = {}
+
+    if (input.ncmReferenceId && isValidUuid(input.ncmReferenceId)) {
+        const { data } = await adminSupabase
+            .from('fiscal_ncm_entries')
+            .select('id, version_id, code, description, full_description')
+            .eq('id', input.ncmReferenceId)
+            .single()
+
+        if (data) {
+            snapshot.ncm = {
+                reference_id: data.id,
+                version_id: data.version_id,
+                code: data.code,
+                description: data.description,
+                full_description: data.full_description,
+            }
+        }
+    }
+
+    if (input.tipiReferenceId && isValidUuid(input.tipiReferenceId)) {
+        const { data } = await adminSupabase
+            .from('fiscal_tipi_entries')
+            .select('id, version_id, ncm_code, ex_tipi, description, ipi_rate')
+            .eq('id', input.tipiReferenceId)
+            .single()
+
+        if (data) {
+            snapshot.tipi = {
+                reference_id: data.id,
+                version_id: data.version_id,
+                ncm_code: data.ncm_code,
+                ex_tipi: data.ex_tipi,
+                description: data.description,
+                ipi_rate: data.ipi_rate,
+            }
+        }
+    }
+
+    if (input.cestReferenceId && isValidUuid(input.cestReferenceId)) {
+        const { data } = await adminSupabase
+            .from('fiscal_cest_entries')
+            .select('id, version_id, code, description, segment')
+            .eq('id', input.cestReferenceId)
+            .single()
+
+        if (data) {
+            snapshot.cest = {
+                reference_id: data.id,
+                version_id: data.version_id,
+                code: data.code,
+                description: data.description,
+                segment: data.segment,
+            }
+        }
+    }
+
+    if (input.defaultOutputCfopReferenceId && isValidUuid(input.defaultOutputCfopReferenceId)) {
+        const { data } = await adminSupabase
+            .from('fiscal_cfop_entries')
+            .select('id, version_id, code, description, operation_direction')
+            .eq('id', input.defaultOutputCfopReferenceId)
+            .single()
+
+        if (data) {
+            snapshot.default_output_cfop = {
+                reference_id: data.id,
+                version_id: data.version_id,
+                code: data.code,
+                description: data.description,
+                operation_direction: data.operation_direction,
+            }
+        }
+    }
+
+    if (input.defaultInputCfopReferenceId && isValidUuid(input.defaultInputCfopReferenceId)) {
+        const { data } = await adminSupabase
+            .from('fiscal_cfop_entries')
+            .select('id, version_id, code, description, operation_direction')
+            .eq('id', input.defaultInputCfopReferenceId)
+            .single()
+
+        if (data) {
+            snapshot.default_input_cfop = {
+                reference_id: data.id,
+                version_id: data.version_id,
+                code: data.code,
+                description: data.description,
+                operation_direction: data.operation_direction,
+            }
+        }
+    }
+
+    const versionIds = [
+        (snapshot.ncm as { version_id?: string } | undefined)?.version_id,
+        (snapshot.tipi as { version_id?: string } | undefined)?.version_id,
+        (snapshot.cest as { version_id?: string } | undefined)?.version_id,
+        (snapshot.default_output_cfop as { version_id?: string } | undefined)?.version_id,
+        (snapshot.default_input_cfop as { version_id?: string } | undefined)?.version_id,
+    ].filter((value): value is string => Boolean(value && isValidUuid(value)))
+
+    if (versionIds.length > 0) {
+        const { data } = await adminSupabase
+            .from('fiscal_reference_versions')
+            .select('id, table_type, version_label, is_active')
+            .in('id', versionIds)
+
+        snapshot.version_labels = (data || []).reduce<Record<string, unknown>>((acc, row) => {
+            acc[String(row.id)] = {
+                table_type: row.table_type,
+                version_label: row.version_label,
+                is_active: row.is_active,
+            }
+            return acc
+        }, {})
+    }
+
+    snapshot.captured_at = new Date().toISOString()
+
+    return snapshot
+}
+
+function inferReferenceMode(profile: {
+    ncm: string | null
+    cest: string | null
+    default_output_cfop: string | null
+    ncm_reference_id?: unknown
+    tipi_reference_id?: unknown
+    cest_reference_id?: unknown
+    default_output_cfop_reference_id?: unknown
+    default_input_cfop_reference_id?: unknown
+}) {
+    const hasReferences = Boolean(
+        profile.ncm_reference_id ||
+            profile.tipi_reference_id ||
+            profile.cest_reference_id ||
+            profile.default_output_cfop_reference_id ||
+            profile.default_input_cfop_reference_id
+    )
+    const hasManualValues = Boolean(
+        (profile.ncm && !profile.ncm_reference_id) ||
+            (profile.cest && !profile.cest_reference_id) ||
+            (profile.default_output_cfop && !profile.default_output_cfop_reference_id)
+    )
+
+    if (hasReferences && hasManualValues) return 'mixed' as const
+    if (hasReferences) return 'base-backed' as const
+    return 'manual' as const
 }
 
 async function ensureAdminAccess(): Promise<string> {
@@ -987,15 +1155,74 @@ export async function listProductTaxProfilesAction(params?: {
     try {
         await ensureAdminAccess()
         const adminSupabase = createServiceRoleClient()
-        const { data, error } = await adminSupabase.rpc('admin_list_product_tax_profiles', {
-            p_search: sanitizeFiscalCode(params?.search),
-            p_include_inactive: params?.includeInactive !== false,
-        })
+        const [{ data, error }, { data: referenceRows, error: referenceError }, { data: activeVersionRows, error: activeVersionError }] = await Promise.all([
+            adminSupabase.rpc('admin_list_product_tax_profiles', {
+                p_search: sanitizeFiscalCode(params?.search),
+                p_include_inactive: params?.includeInactive !== false,
+            }),
+            adminSupabase
+                .from('product_tax_profiles')
+                .select(
+                    'id, ncm_reference_id, ncm_version_id, tipi_reference_id, tipi_version_id, cest_reference_id, cest_version_id, default_output_cfop_reference_id, default_output_cfop_version_id, default_input_cfop_reference_id, default_input_cfop_version_id'
+                ),
+            adminSupabase
+                .from('fiscal_reference_versions')
+                .select('id, table_type')
+                .eq('is_active', true),
+        ])
 
         if (error) throw error
+        if (referenceError) throw referenceError
+        if (activeVersionError) throw activeVersionError
+
+        const activeVersionByType = ((activeVersionRows || []) as Array<Record<string, unknown>>).reduce<Record<string, string>>(
+            (acc, row) => {
+                acc[String(row.table_type)] = String(row.id)
+                return acc
+            },
+            {}
+        )
+
+        const referenceByProfileId = ((referenceRows || []) as Array<Record<string, unknown>>).reduce<
+            Record<string, Record<string, unknown>>
+        >((acc, row) => {
+            acc[String(row.id)] = row
+            return acc
+        }, {})
+
+        const mapped = ((data || []) as ProductTaxProfileListItem[]).map((item) => {
+            const refs = referenceByProfileId[item.id] || {}
+
+            const outdatedReferenceTypes = [
+                refs.ncm_reference_id && (!refs.ncm_version_id || (activeVersionByType.ncm && refs.ncm_version_id !== activeVersionByType.ncm)) ? 'ncm' : null,
+                refs.tipi_reference_id && (!refs.tipi_version_id || (activeVersionByType.tipi && refs.tipi_version_id !== activeVersionByType.tipi)) ? 'tipi' : null,
+                refs.cest_reference_id && (!refs.cest_version_id || (activeVersionByType.cest && refs.cest_version_id !== activeVersionByType.cest)) ? 'cest' : null,
+                refs.default_output_cfop_reference_id &&
+                (!refs.default_output_cfop_version_id || (activeVersionByType.cfop && refs.default_output_cfop_version_id !== activeVersionByType.cfop))
+                    ? 'cfop_saida'
+                    : null,
+                refs.default_input_cfop_reference_id &&
+                (!refs.default_input_cfop_version_id || (activeVersionByType.cfop && refs.default_input_cfop_version_id !== activeVersionByType.cfop))
+                    ? 'cfop_entrada'
+                    : null,
+            ].filter((value): value is string => Boolean(value))
+
+            return {
+                ...item,
+                reference_mode: inferReferenceMode({
+                    ncm: item.ncm,
+                    cest: item.cest,
+                    default_output_cfop: item.default_output_cfop,
+                    ...refs,
+                }) as ProductTaxProfileListItem['reference_mode'],
+                has_outdated_references: outdatedReferenceTypes.length > 0,
+                outdated_reference_types: outdatedReferenceTypes,
+            }
+        })
+
         return {
             success: true,
-            data: (data || []) as ProductTaxProfileListItem[],
+            data: mapped,
         }
     } catch (error: unknown) {
         return {
@@ -1100,6 +1327,17 @@ export async function getProductTaxProfileDetailAction(
                     requiresTaxConfiguration: profile.requires_tax_configuration,
                     futureTaxPayload: profile.future_tax_payload,
                     metadata: profile.metadata_jsonb,
+                    ncmReferenceId: profile.ncm_reference_id,
+                    ncmVersionId: profile.ncm_version_id,
+                    tipiReferenceId: profile.tipi_reference_id,
+                    tipiVersionId: profile.tipi_version_id,
+                    cestReferenceId: profile.cest_reference_id,
+                    cestVersionId: profile.cest_version_id,
+                    defaultOutputCfopReferenceId: profile.default_output_cfop_reference_id,
+                    defaultOutputCfopVersionId: profile.default_output_cfop_version_id,
+                    defaultInputCfopReferenceId: profile.default_input_cfop_reference_id,
+                    defaultInputCfopVersionId: profile.default_input_cfop_version_id,
+                    fiscalReferenceSnapshot: profile.fiscal_reference_snapshot_jsonb,
                     version: profile.version,
                     createdAt: profile.created_at,
                     updatedAt: profile.updated_at,
@@ -1142,19 +1380,54 @@ export async function upsertProductTaxProfileAction(
         if (!input.code?.trim()) throw new Error('Codigo do perfil tributario e obrigatorio.')
 
         const adminSupabase = createServiceRoleClient()
+        const fiscalReferenceSnapshot = await buildFiscalReferenceSnapshot(adminSupabase, input)
+        if (input.ncmReferenceId && !fiscalReferenceSnapshot.ncm) {
+            throw new Error('A referência de NCM informada não foi encontrada na base fiscal.')
+        }
+        if (input.tipiReferenceId && !fiscalReferenceSnapshot.tipi) {
+            throw new Error('A referência de TIPI informada não foi encontrada na base fiscal.')
+        }
+        if (input.cestReferenceId && !fiscalReferenceSnapshot.cest) {
+            throw new Error('A referência de CEST informada não foi encontrada na base fiscal.')
+        }
+        if (input.defaultOutputCfopReferenceId && !fiscalReferenceSnapshot.default_output_cfop) {
+            throw new Error('A referência de CFOP de saída informada não foi encontrada na base fiscal.')
+        }
+        if (input.defaultInputCfopReferenceId && !fiscalReferenceSnapshot.default_input_cfop) {
+            throw new Error('A referência de CFOP de entrada informada não foi encontrada na base fiscal.')
+        }
+        const ncmFromReference = (fiscalReferenceSnapshot.ncm as { code?: string } | undefined)?.code || null
+        const ncmVersionFromReference = (fiscalReferenceSnapshot.ncm as { version_id?: string } | undefined)?.version_id || null
+        const cestFromReference = (fiscalReferenceSnapshot.cest as { code?: string } | undefined)?.code || null
+        const cestVersionFromReference = (fiscalReferenceSnapshot.cest as { version_id?: string } | undefined)?.version_id || null
+        const defaultOutputCfopFromReference =
+            (fiscalReferenceSnapshot.default_output_cfop as { code?: string } | undefined)?.code || null
+        const defaultOutputCfopVersionFromReference =
+            (fiscalReferenceSnapshot.default_output_cfop as { version_id?: string } | undefined)?.version_id || null
+        const defaultInputCfopFromReference =
+            (fiscalReferenceSnapshot.default_input_cfop as { code?: string } | undefined)?.code || null
+        const defaultInputCfopVersionFromReference =
+            (fiscalReferenceSnapshot.default_input_cfop as { version_id?: string } | undefined)?.version_id || null
+        const tipiVersionFromReference =
+            (fiscalReferenceSnapshot.tipi as { version_id?: string } | undefined)?.version_id || null
+        const defaultFiscalDescriptionFromReference =
+            (fiscalReferenceSnapshot.ncm as { description?: string } | undefined)?.description || null
+
         const { data, error } = await adminSupabase.rpc('admin_upsert_product_tax_profile', {
             p_tax_profile_id: input.id ?? null,
             p_name: input.name.trim(),
             p_code: input.code.trim(),
             p_description: sanitizeFiscalCode(input.description),
-            p_ncm: sanitizeFiscalCode(input.ncm),
-            p_cest: sanitizeFiscalCode(input.cest),
+            p_ncm: sanitizeFiscalCode(ncmFromReference || input.ncm),
+            p_cest: sanitizeFiscalCode(cestFromReference || input.cest),
             p_origin_code: sanitizeFiscalCode(input.originCode) ?? '0',
             p_commercial_unit: sanitizeFiscalCode(input.commercialUnit),
             p_tax_unit: sanitizeFiscalCode(input.taxUnit),
             p_ean_gtin: sanitizeFiscalCode(input.eanGtin),
             p_tax_ean_gtin: sanitizeFiscalCode(input.taxEanGtin),
-            p_default_fiscal_description: sanitizeFiscalCode(input.defaultFiscalDescription),
+            p_default_fiscal_description: sanitizeFiscalCode(
+                input.defaultFiscalDescription || defaultFiscalDescriptionFromReference
+            ),
             p_fiscal_type: sanitizeFiscalCode(input.fiscalType) ?? 'goods',
             p_item_type: sanitizeFiscalCode(input.itemType) ?? 'goods',
             p_has_substitution_tax: input.hasSubstitutionTax === true,
@@ -1166,14 +1439,28 @@ export async function upsertProductTaxProfileAction(
             p_cofins_cst: sanitizeFiscalCode(input.cofinsCst),
             p_pis_aliquota: input.pisAliquota ?? null,
             p_cofins_aliquota: input.cofinsAliquota ?? null,
-            p_default_output_cfop: sanitizeFiscalCode(input.defaultOutputCfop),
-            p_default_input_cfop: sanitizeFiscalCode(input.defaultInputCfop),
+            p_default_output_cfop: sanitizeFiscalCode(defaultOutputCfopFromReference || input.defaultOutputCfop),
+            p_default_input_cfop: sanitizeFiscalCode(defaultInputCfopFromReference || input.defaultInputCfop),
             p_internal_fiscal_code: sanitizeFiscalCode(input.internalFiscalCode),
             p_default_fiscal_notes: sanitizeFiscalCode(input.defaultFiscalNotes),
             p_is_active: input.isActive !== false,
             p_requires_tax_configuration: input.requiresTaxConfiguration !== false,
             p_future_tax_payload: sanitizeJsonPayload(input.futureTaxPayload),
             p_metadata_jsonb: sanitizeJsonPayload(input.metadata),
+            p_ncm_reference_id: input.ncmReferenceId ?? null,
+            p_ncm_version_id: ncmVersionFromReference,
+            p_tipi_reference_id: input.tipiReferenceId ?? null,
+            p_tipi_version_id: tipiVersionFromReference,
+            p_cest_reference_id: input.cestReferenceId ?? null,
+            p_cest_version_id: cestVersionFromReference,
+            p_default_output_cfop_reference_id: input.defaultOutputCfopReferenceId ?? null,
+            p_default_output_cfop_version_id: defaultOutputCfopVersionFromReference,
+            p_default_input_cfop_reference_id: input.defaultInputCfopReferenceId ?? null,
+            p_default_input_cfop_version_id: defaultInputCfopVersionFromReference,
+            p_fiscal_reference_snapshot_jsonb: {
+                ...sanitizeJsonPayload(input.fiscalReferenceSnapshot),
+                ...fiscalReferenceSnapshot,
+            },
         })
 
         if (error) throw error

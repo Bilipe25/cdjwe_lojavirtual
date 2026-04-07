@@ -1,3 +1,5 @@
+import type { FiscalBaseType, FiscalCatalogType, FiscalImportSourceType } from '@/lib/fiscal/constants'
+
 // Database & Application Types for CDJWE B2B System
 
 // ==================== AUTH & USERS ====================
@@ -188,6 +190,17 @@ export interface ProductTaxProfile {
   requires_tax_configuration: boolean
   future_tax_payload?: Record<string, unknown> | null
   metadata_jsonb?: Record<string, unknown> | null
+  ncm_reference_id?: string | null
+  ncm_version_id?: string | null
+  tipi_reference_id?: string | null
+  tipi_version_id?: string | null
+  cest_reference_id?: string | null
+  cest_version_id?: string | null
+  default_output_cfop_reference_id?: string | null
+  default_output_cfop_version_id?: string | null
+  default_input_cfop_reference_id?: string | null
+  default_input_cfop_version_id?: string | null
+  fiscal_reference_snapshot_jsonb?: Record<string, unknown> | null
   version: number
   created_at: string
   updated_at: string
@@ -211,6 +224,114 @@ export interface ProductTaxProfileRule {
   rule_payload_jsonb?: Record<string, unknown> | null
   future_tax_payload?: Record<string, unknown> | null
   version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface FiscalReferenceVersion {
+  id: string
+  table_type: FiscalBaseType
+  version_label: string
+  import_batch_id: string | null
+  imported_at: string
+  imported_by: string | null
+  valid_from: string | null
+  valid_to: string | null
+  is_active: boolean
+  source_file_name: string | null
+  source_type: string
+  row_count: number
+  activated_at: string | null
+  activated_by: string | null
+  metadata_jsonb?: Record<string, unknown> | null
+  future_tax_payload?: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FiscalImportBatch {
+  id: string
+  table_type: FiscalBaseType
+  status: 'draft' | 'imported' | 'failed' | 'cancelled'
+  source_file_name: string | null
+  source_type: FiscalImportSourceType
+  imported_by: string | null
+  started_at: string
+  finished_at: string | null
+  total_rows: number
+  valid_rows: number
+  invalid_rows: number
+  error_summary_jsonb?: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FiscalImportBatchItem {
+  id: string
+  batch_id: string
+  row_number: number
+  validation_status: 'valid' | 'invalid'
+  raw_payload_jsonb?: Record<string, unknown> | null
+  normalized_payload_jsonb?: Record<string, unknown> | null
+  validation_errors_jsonb?: string[] | null
+  validation_warnings_jsonb?: string[] | null
+  created_at: string
+}
+
+export interface FiscalNcmEntry {
+  id: string
+  version_id: string
+  code: string
+  description: string
+  full_description: string | null
+  metadata_jsonb?: Record<string, unknown> | null
+  future_tax_payload?: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface FiscalTipiEntry {
+  id: string
+  version_id: string
+  ncm_code: string
+  ex_tipi: string | null
+  description: string
+  ipi_rate: number
+  metadata_jsonb?: Record<string, unknown> | null
+  future_tax_payload?: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface FiscalCestEntry {
+  id: string
+  version_id: string
+  code: string
+  description: string
+  segment: string | null
+  metadata_jsonb?: Record<string, unknown> | null
+  future_tax_payload?: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface FiscalCfopEntry {
+  id: string
+  version_id: string
+  code: string
+  description: string
+  operation_direction: 'outbound' | 'inbound' | 'both'
+  metadata_jsonb?: Record<string, unknown> | null
+  future_tax_payload?: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface FiscalCatalogItem {
+  id: string
+  catalog_type: FiscalCatalogType
+  code: string
+  label: string
+  description: string | null
+  sort_order: number
+  is_active: boolean
+  metadata_jsonb?: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
@@ -484,6 +605,12 @@ export interface OrderItemFiscalSnapshot {
   fiscal_cfop: string | null
   fiscal_context: Record<string, unknown> | null
   fiscal_payload: Record<string, unknown> | null
+  ncm_version_id?: string | null
+  tipi_version_id?: string | null
+  cest_version_id?: string | null
+  default_output_cfop_version_id?: string | null
+  default_input_cfop_version_id?: string | null
+  fiscal_reference_snapshot?: Record<string, unknown> | null
 }
 
 export interface OrderStatusHistory {

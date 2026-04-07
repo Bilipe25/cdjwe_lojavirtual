@@ -35,6 +35,7 @@ import {
     DollarSign,
     TicketPercent,
     ShieldCheck,
+    Database,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -60,6 +61,7 @@ const cadastrosNavItems = [
     { href: '/admin/categories', label: 'Categorias', icon: Layers },
     { href: '/admin/products', label: 'Produtos', icon: Package },
     { href: '/admin/product-tax-profiles', label: 'Perfis Tributarios', icon: ShieldCheck },
+    { href: '/admin/fiscal-bases', label: 'Bases Fiscais', icon: Database },
     { href: '/admin/fabrics', label: 'Tecidos & Cores', icon: Palette },
     { href: '/admin/price-tables', label: 'Tabelas de Preço', icon: Tag },
     { href: '/admin/payment-conditions', label: 'Meios de Pagamento', icon: CreditCard },
