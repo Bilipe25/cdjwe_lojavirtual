@@ -19,6 +19,16 @@ export function FiscalImportPreview({ preview }: FiscalImportPreviewProps) {
                         Estruturais detectadas: {preview.structuralRows}
                     </Badge>
                 ) : null}
+                {Number(preview.exactLinkCount || 0) > 0 ? (
+                    <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
+                        Vinculos NCM exatos: {Number(preview.exactLinkCount || 0)}
+                    </Badge>
+                ) : null}
+                {Number(preview.prefixLinkCount || 0) > 0 ? (
+                    <Badge variant="outline" className="border-violet-300 bg-violet-50 text-violet-700">
+                        NCMs abrangentes: {Number(preview.prefixLinkCount || 0)}
+                    </Badge>
+                ) : null}
                 <Badge variant="outline" className="bg-white text-slate-700">
                     Formato: {preview.sourceType.toUpperCase()}
                 </Badge>
@@ -40,15 +50,19 @@ export function FiscalImportPreview({ preview }: FiscalImportPreviewProps) {
                 Revise erros e avisos antes de confirmar. O lote so cria uma nova versao quando voce concluir a
                 importacao no passo final.
                 {preview.referenceValidation ? (
+                    <p className="mt-2 text-xs text-slate-600">{preview.referenceValidation.message}</p>
+                ) : null}
+                {Number(preview.prefixLinkCount || 0) > 0 ? (
                     <p className="mt-2 text-xs text-slate-600">
-                        {preview.referenceValidation.message}
+                        Prefixos NCM com 2 a 7 digitos serao tratados como vinculos abrangentes. Exemplo: `9401`
+                        cobre todos os NCMs finais iniciados por `9401`, como `94014100` e `94017100`.
                     </p>
                 ) : null}
                 {preview.structuralRows > 0 ? (
                     <p className="mt-2 text-xs text-slate-600">
-                        {preview.structuralRows} linha(s) estruturais da tabela oficial foram reconhecidas e serão
-                        importadas para consulta e navegação hierárquica da base selecionada. O uso fiscal final
-                        continua restrito aos códigos finais aplicáveis em perfis tributários.
+                        {preview.structuralRows} linha(s) estruturais da tabela oficial foram reconhecidas e serao
+                        importadas para consulta e navegacao hierarquica da base selecionada. O uso fiscal final
+                        continua restrito aos codigos finais aplicaveis em perfis tributarios.
                     </p>
                 ) : null}
             </div>
@@ -68,6 +82,7 @@ export function FiscalImportPreview({ preview }: FiscalImportPreviewProps) {
                             {preview.items.map((item) => {
                                 const hasWarnings = item.validationWarnings.length > 0
                                 const isValid = item.validationStatus === 'valid'
+
                                 return (
                                     <tr key={item.rowNumber} className="border-t align-top">
                                         <td className="px-3 py-2 text-navy">{item.rowNumber}</td>

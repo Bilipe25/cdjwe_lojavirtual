@@ -26,6 +26,12 @@ export interface FiscalImportPreviewItem {
     validationWarnings: string[]
 }
 
+export interface FiscalCestNcmLinkPreview {
+    ncm_code: string
+    match_type: 'exact' | 'prefix'
+    prefix_length: number
+}
+
 export interface FiscalImportPreviewSummary {
     tableType: FiscalBaseType
     sourceType: FiscalImportSourceType
@@ -37,6 +43,8 @@ export interface FiscalImportPreviewSummary {
     warningRows: number
     skippedRows: number
     structuralRows: number
+    exactLinkCount?: number
+    prefixLinkCount?: number
     items: FiscalImportPreviewItem[]
 }
 
@@ -541,16 +549,25 @@ function buildCestPreviewItem(row: FiscalCsvRow): FiscalImportPreviewItem {
     const code = normalizeDocumentCode(row.raw.code || '', 7)
     const description = (row.raw.description || '').trim()
     const segment = (row.raw.segment || '').trim()
-    const ncmCodes = (row.raw.ncm_codes || '')
+    const rawNcmCodes = (row.raw.ncm_codes || '')
         .split(/[,\|/]/)
         .map((value) => value.replace(/\D/g, ''))
         .filter((value) => value.length > 0)
+    const ncmCodes = Array.from(new Set(rawNcmCodes))
     const validationErrors: string[] = []
+    const invalidNcmCodes = ncmCodes.filter((value) => !/^\d{2,8}$/.test(value))
+    const ncmLinks: FiscalCestNcmLinkPreview[] = ncmCodes
+        .filter((value) => /^\d{2,8}$/.test(value))
+        .map((value) => ({
+            ncm_code: value,
+            match_type: value.length === 8 ? 'exact' : 'prefix',
+            prefix_length: value.length,
+        }))
 
     if (!/^\d{7}$/.test(code)) validationErrors.push('Codigo CEST deve ter 7 digitos.')
     if (!description) validationErrors.push('Descricao do CEST e obrigatoria.')
-    if (ncmCodes.some((value) => !/^\d{8}$/.test(value))) {
-        validationErrors.push('Todos os NCMs associados ao CEST devem ter 8 digitos.')
+    if (invalidNcmCodes.length > 0) {
+        validationErrors.push('Cada NCM associado ao CEST deve ter entre 2 e 8 digitos numericos.')
     }
 
     return {
@@ -561,7 +578,10 @@ function buildCestPreviewItem(row: FiscalCsvRow): FiscalImportPreviewItem {
             code,
             description,
             segment: segment || null,
-            ncm_codes: Array.from(new Set(ncmCodes)),
+            ncm_codes: ncmCodes,
+            ncm_links: ncmLinks,
+            exact_match_count: ncmLinks.filter((item) => item.match_type === 'exact').length,
+            prefix_match_count: ncmLinks.filter((item) => item.match_type === 'prefix').length,
         },
         validationErrors,
         validationWarnings: [],
@@ -652,6 +672,24 @@ export function buildFiscalImportPreview(
     })
 
     const structuralRows = items.filter((item) => item.normalizedPayload.row_type === 'structural').length
+    const exactLinkCount =
+        tableType === 'cest'
+            ? items.reduce((sum, item) => {
+                  const links = Array.isArray(item.normalizedPayload.ncm_links)
+                      ? (item.normalizedPayload.ncm_links as FiscalCestNcmLinkPreview[])
+                      : []
+                  return sum + links.filter((link) => link.match_type === 'exact').length
+              }, 0)
+            : 0
+    const prefixLinkCount =
+        tableType === 'cest'
+            ? items.reduce((sum, item) => {
+                  const links = Array.isArray(item.normalizedPayload.ncm_links)
+                      ? (item.normalizedPayload.ncm_links as FiscalCestNcmLinkPreview[])
+                      : []
+                  return sum + links.filter((link) => link.match_type === 'prefix').length
+              }, 0)
+            : 0
 
     const duplicates = new Map<string, number[]>()
     items.forEach((item) => {
@@ -703,6 +741,8 @@ export function buildFiscalImportPreview(
         warningRows: items.filter((item) => item.validationWarnings.length > 0).length,
         skippedRows: 0,
         structuralRows,
+        exactLinkCount,
+        prefixLinkCount,
         items,
     }
 }

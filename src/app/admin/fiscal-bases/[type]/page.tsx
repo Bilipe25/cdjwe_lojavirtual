@@ -1,10 +1,12 @@
-import { notFound } from 'next/navigation'
+﻿import { notFound } from 'next/navigation'
 import {
     listFiscalBaseEntriesAction,
     listFiscalReferenceVersionsAction,
 } from '@/app/admin/actions/fiscal-bases'
 import { FiscalBaseTablePage } from '../components/FiscalBaseTablePage'
+import { FiscalCestTablePage } from '../components/FiscalCestTablePage'
 import { FiscalNcmTablePage } from '../components/FiscalNcmTablePage'
+import { FiscalTipiTablePage } from '../components/FiscalTipiTablePage'
 import { isFiscalBaseType } from '@/lib/fiscal/constants'
 
 interface FiscalBaseDetailPageProps {
@@ -19,10 +21,14 @@ export default async function FiscalBaseDetailPage({ params }: FiscalBaseDetailP
         listFiscalBaseEntriesAction({
             tableType: type,
             page: 1,
-            pageSize: type === 'ncm' ? 50 : 150,
-            sortBy: type === 'ncm' ? 'code' : undefined,
-            sortOrder: type === 'ncm' ? 'asc' : undefined,
+            pageSize: type === 'ncm' || type === 'tipi' || type === 'cest' ? 50 : 150,
+            sortBy: type === 'ncm' ? 'code' : type === 'tipi' ? 'ncm_code' : type === 'cest' ? 'code' : undefined,
+            sortOrder: type === 'ncm' || type === 'tipi' || type === 'cest' ? 'asc' : undefined,
             includeStructuralRows: false,
+            filterRateMode: type === 'tipi' ? 'all' : undefined,
+            filterExTipi: type === 'tipi' ? 'all' : undefined,
+            filterLinkMode: type === 'cest' ? 'all' : undefined,
+            filterSegmentMode: type === 'cest' ? 'all' : undefined,
         }),
         listFiscalReferenceVersionsAction(type),
     ])
@@ -44,6 +50,24 @@ export default async function FiscalBaseDetailPage({ params }: FiscalBaseDetailP
         )
     }
 
+    if (type === 'tipi') {
+        return (
+            <FiscalTipiTablePage
+                initialResult={entriesResult.data}
+                initialVersions={versionsResult.data}
+            />
+        )
+    }
+
+    if (type === 'cest') {
+        return (
+            <FiscalCestTablePage
+                initialResult={entriesResult.data}
+                initialVersions={versionsResult.data}
+            />
+        )
+    }
+
     return (
         <FiscalBaseTablePage
             tableType={type}
@@ -54,3 +78,4 @@ export default async function FiscalBaseDetailPage({ params }: FiscalBaseDetailP
         />
     )
 }
+

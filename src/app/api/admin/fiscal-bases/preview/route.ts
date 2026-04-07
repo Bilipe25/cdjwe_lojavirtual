@@ -190,6 +190,9 @@ export async function POST(request: Request) {
                 error_summary_jsonb: {
                     preview_invalid_rows: preview.invalidRows,
                     preview_valid_rows: preview.validRows,
+                    preview_structural_rows: Number(preview.structuralRows || 0),
+                    preview_exact_link_count: Number(preview.exactLinkCount || 0),
+                    preview_prefix_link_count: Number(preview.prefixLinkCount || 0),
                     source_type: preview.sourceType,
                     source_sheet_name: preview.sheetName || null,
                 },
@@ -238,6 +241,8 @@ export async function POST(request: Request) {
         )
     }
 }
+
+
 
 
 

@@ -17,6 +17,7 @@ import {
     buildFiscalImportPreview,
     buildFiscalTemplateCsv,
     type BuildFiscalImportPreviewInput,
+    type FiscalCestNcmLinkPreview,
     type FiscalImportPreviewSummary,
 } from '@/lib/fiscal/import-utils'
 import { validateFiscalPreviewAgainstReferenceBases } from '@/lib/fiscal/cross-validation'
@@ -142,6 +143,13 @@ export interface FiscalBaseEntriesResult {
     includeStructuralRows?: boolean
     sortBy?: string
     sortOrder?: 'asc' | 'desc'
+    ntRowCount?: number
+    exTipiRowCount?: number
+    linkedNcmCount?: number
+    exactLinkCount?: number
+    prefixLinkCount?: number
+    segmentedRowCount?: number
+    withoutNcmCount?: number
 }
 
 export type FiscalNcmSortBy =
@@ -152,6 +160,19 @@ export type FiscalNcmSortBy =
     | 'legal_act'
     | 'legal_number'
     | 'legal_year'
+
+export type FiscalTipiSortBy =
+    | 'ncm_code'
+    | 'description'
+    | 'ipi_rate'
+    | 'ex_tipi'
+    | 'source_ncm_code'
+
+export type FiscalTipiRateMode = 'all' | 'nt_only' | 'taxed_only'
+export type FiscalTipiExFilter = 'all' | 'with_ex' | 'without_ex'
+export type FiscalCestSortBy = 'code' | 'description' | 'segment' | 'linked_ncm_count'
+export type FiscalCestLinkMode = 'all' | 'with_ncm' | 'without_ncm'
+export type FiscalCestSegmentMode = 'all' | 'with_segment' | 'without_segment'
 
 export interface FiscalNcmSuggestions {
     ncm: FiscalSearchOption | null
@@ -244,6 +265,56 @@ function sanitizeJsonArray(value: unknown): string[] {
     return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
 }
 
+function sanitizeCestLinkPayload(value: unknown, fallbackCodes?: unknown): FiscalCestNcmLinkPreview[] {
+    if (Array.isArray(value)) {
+        const links = value
+            .map((item) => {
+                if (!item || typeof item !== 'object') return null
+                const record = item as Record<string, unknown>
+                const ncmCode = String(record.ncm_code || '').trim()
+                const matchType = record.match_type === 'prefix' ? 'prefix' : 'exact'
+                const prefixLength = Number(record.prefix_length || ncmCode.length || 0)
+
+                if (!/^\d{2,8}$/.test(ncmCode)) return null
+
+                return {
+                    ncm_code: ncmCode,
+                    match_type: matchType,
+                    prefix_length: prefixLength,
+                } satisfies FiscalCestNcmLinkPreview
+            })
+            .filter((item): item is FiscalCestNcmLinkPreview => Boolean(item))
+
+        if (links.length > 0) return links
+    }
+
+    return sanitizeJsonArray(fallbackCodes)
+        .filter((code) => /^\d{2,8}$/.test(code))
+        .map((code) => ({
+            ncm_code: code,
+            match_type: code.length === 8 ? 'exact' : 'prefix',
+            prefix_length: code.length,
+        }))
+}
+
+function matchesCestLink(ncmCode: string, link: FiscalCestNcmLinkPreview) {
+    return link.match_type === 'exact' ? ncmCode === link.ncm_code : ncmCode.startsWith(link.ncm_code)
+}
+
+function sortCestLinksForResolution(links: FiscalCestNcmLinkPreview[]) {
+    return [...links].sort((left, right) => {
+        if (left.match_type !== right.match_type) {
+            return left.match_type === 'exact' ? -1 : 1
+        }
+
+        if (left.prefix_length !== right.prefix_length) {
+            return right.prefix_length - left.prefix_length
+        }
+
+        return left.ncm_code.localeCompare(right.ncm_code)
+    })
+}
+
 function getNcmRowType(code: string): FiscalBaseEntryRecord['rowType'] {
     return /^\d{8}$/.test(code) ? 'final' : 'structural'
 }
@@ -252,6 +323,14 @@ function isFiscalNcmSortBy(value?: string | null): value is FiscalNcmSortBy {
     return ['code', 'description', 'start_date', 'end_date', 'legal_act', 'legal_number', 'legal_year'].includes(
         String(value || '')
     )
+}
+
+function isFiscalTipiSortBy(value?: string | null): value is FiscalTipiSortBy {
+    return ['ncm_code', 'description', 'ipi_rate', 'ex_tipi', 'source_ncm_code'].includes(String(value || ''))
+}
+
+function isFiscalCestSortBy(value?: string | null): value is FiscalCestSortBy {
+    return ['code', 'description', 'segment', 'linked_ncm_count'].includes(String(value || ''))
 }
 
 async function ensureAdminAccess() {
@@ -450,10 +529,17 @@ async function insertFiscalEntriesForVersion(params: {
             const linkRows = validItems.flatMap((item) => {
                 const cestId = idByCode.get(String(item.normalizedPayload.code || ''))
                 if (!cestId) return []
-                return sanitizeJsonArray(item.normalizedPayload.ncm_codes).map((ncmCode) => ({
+                return sanitizeCestLinkPayload(
+                    item.normalizedPayload.ncm_links,
+                    item.normalizedPayload.ncm_codes
+                ).map((link) => ({
                     cest_entry_id: cestId,
-                    ncm_code: ncmCode,
-                    metadata_jsonb: {},
+                    ncm_code: link.ncm_code,
+                    match_type: link.match_type,
+                    prefix_length: link.prefix_length,
+                    metadata_jsonb: {
+                        source_ncm_code: link.ncm_code,
+                    },
                 }))
             })
 
@@ -622,6 +708,10 @@ export async function listFiscalBaseEntriesAction(params: {
     sortBy?: string | null
     sortOrder?: 'asc' | 'desc' | null
     includeStructuralRows?: boolean
+    filterRateMode?: FiscalTipiRateMode | null
+    filterExTipi?: FiscalTipiExFilter | null
+    filterLinkMode?: FiscalCestLinkMode | null
+    filterSegmentMode?: FiscalCestSegmentMode | null
 }): Promise<{
     success: boolean
     data?: FiscalBaseEntriesResult
@@ -660,6 +750,13 @@ export async function listFiscalBaseEntriesAction(params: {
                     includeStructuralRows: params.includeStructuralRows === true,
                     sortBy: params.sortBy || 'code',
                     sortOrder,
+                    ntRowCount: 0,
+                    exTipiRowCount: 0,
+                    linkedNcmCount: 0,
+                    exactLinkCount: 0,
+                    prefixLinkCount: 0,
+                    segmentedRowCount: 0,
+                    withoutNcmCount: 0,
                 },
             }
         }
@@ -771,24 +868,118 @@ export async function listFiscalBaseEntriesAction(params: {
                     includeStructuralRows,
                     sortBy,
                     sortOrder,
+                    ntRowCount: 0,
+                    exTipiRowCount: 0,
+                    linkedNcmCount: 0,
+                    exactLinkCount: 0,
+                    prefixLinkCount: 0,
+                    segmentedRowCount: 0,
+                    withoutNcmCount: 0,
                 },
             }
         }
 
         if (params.tableType === 'tipi') {
-            let query = adminSupabase
+            const includeStructuralRows = params.includeStructuralRows === true
+            const sortBy: FiscalTipiSortBy = isFiscalTipiSortBy(params.sortBy) ? params.sortBy : 'ncm_code'
+            const filterRateMode: FiscalTipiRateMode =
+                params.filterRateMode === 'nt_only' || params.filterRateMode === 'taxed_only'
+                    ? params.filterRateMode
+                    : 'all'
+            const filterExTipi: FiscalTipiExFilter =
+                params.filterExTipi === 'with_ex' || params.filterExTipi === 'without_ex'
+                    ? params.filterExTipi
+                    : 'all'
+            const sortColumnByField: Record<FiscalTipiSortBy, string> = {
+                ncm_code: 'ncm_code',
+                description: 'description',
+                ipi_rate: 'ipi_rate',
+                ex_tipi: 'ex_tipi',
+                source_ncm_code: 'metadata_jsonb->>source_ncm_code',
+            }
+
+            const applyTipiFilters = (query: any) => {
+                let next = query.eq('version_id', version.id)
+
+                if (!includeStructuralRows) {
+                    next = next.filter('ncm_code', 'match', '^\\d{8}$')
+                }
+
+                if (filterRateMode === 'nt_only') {
+                    next = next.filter('metadata_jsonb->>ipi_rate_label', 'eq', 'NT')
+                } else if (filterRateMode === 'taxed_only') {
+                    next = next.gt('ipi_rate', 0)
+                }
+
+                if (filterExTipi === 'with_ex') {
+                    next = next.not('ex_tipi', 'is', null)
+                } else if (filterExTipi === 'without_ex') {
+                    next = next.is('ex_tipi', null)
+                }
+
+                if (search) {
+                    const safeSearch = search.replace(/,/g, ' ').trim()
+                    next = next.or(
+                        [
+                            `ncm_code.ilike.%${safeSearch}%`,
+                            `description.ilike.%${safeSearch}%`,
+                            `ex_tipi.ilike.%${safeSearch}%`,
+                            `metadata_jsonb->>source_ncm_code.ilike.%${safeSearch}%`,
+                        ].join(',')
+                    )
+                }
+
+                return next
+            }
+
+            let dataQuery = adminSupabase
                 .from('fiscal_tipi_entries')
                 .select('*')
-                .eq('version_id', version.id)
-                .order('ncm_code', { ascending: true })
-                .limit(pageSize)
-            if (search) {
-                query = query.or(`ncm_code.ilike.%${search}%,description.ilike.%${search}%`)
-            }
-            const { data, error } = await query
+                .range(rangeFrom, rangeTo)
+
+            dataQuery = applyTipiFilters(dataQuery)
+            dataQuery = dataQuery.order(sortColumnByField[sortBy], {
+                ascending: sortOrder === 'asc',
+                nullsFirst: sortOrder !== 'asc',
+            })
+
+            const [dataResult, totalResult, finalCountResult, structuralCountResult, ntCountResult, exTipiCountResult] =
+                await Promise.all([
+                    dataQuery,
+                    applyTipiFilters(
+                        adminSupabase.from('fiscal_tipi_entries').select('id', { count: 'exact', head: true })
+                    ),
+                    adminSupabase
+                        .from('fiscal_tipi_entries')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('version_id', version.id)
+                        .filter('ncm_code', 'match', '^\\d{8}$'),
+                    adminSupabase
+                        .from('fiscal_tipi_entries')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('version_id', version.id)
+                        .filter('ncm_code', 'not.match', '^\\d{8}$'),
+                    adminSupabase
+                        .from('fiscal_tipi_entries')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('version_id', version.id)
+                        .filter('metadata_jsonb->>ipi_rate_label', 'eq', 'NT'),
+                    adminSupabase
+                        .from('fiscal_tipi_entries')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('version_id', version.id)
+                        .not('ex_tipi', 'is', null),
+                ])
+
+            const { data, error } = dataResult
             if (error) throw error
-            const rows = (data || []) as Array<Record<string, unknown>>
-            const mappedRows = rows.map((row) => {
+            if (totalResult.error) throw totalResult.error
+            if (finalCountResult.error) throw finalCountResult.error
+            if (structuralCountResult.error) throw structuralCountResult.error
+            if (ntCountResult.error) throw ntCountResult.error
+            if (exTipiCountResult.error) throw exTipiCountResult.error
+
+            const items = ((data || []) as Array<Record<string, unknown>>).map((row) => {
                 const metadata = sanitizeJsonObject(row.metadata_jsonb)
                 const code = String(row.ncm_code || '')
                 const rowType =
@@ -804,94 +995,186 @@ export async function listFiscalBaseEntriesAction(params: {
                     rowType,
                     metadata,
                     description: normalizeRequiredText(row.description),
-                    exTipi: (row.ex_tipi as string | null) || null,
-                    ipiRate: Number(row.ipi_rate || 0),
                     sourceCode: normalizeMojibakeText((metadata.source_ncm_code as string | null) || null),
+                    exTipi: normalizeMojibakeText((row.ex_tipi as string | null) || null),
+                    ipiRate: row.ipi_rate === null || row.ipi_rate === undefined ? null : Number(row.ipi_rate),
                 } satisfies FiscalBaseEntryRecord
             })
+
+            const totalCount = Number(totalResult.count || 0)
+            const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / pageSize)
 
             return {
                 success: true,
                 data: {
                     version,
-                    items: mappedRows,
+                    items,
                     baseState,
-                    entries: mappedRows,
-                    totalCount: rows.length,
-                    page: 1,
+                    entries: items,
+                    totalCount,
+                    page,
                     pageSize,
-                    totalPages: rows.length > 0 ? 1 : 0,
-                    structuralRowCount: mappedRows.filter((row) => row.rowType === 'structural').length,
-                    finalRowCount: mappedRows.filter((row) => row.rowType === 'final').length,
-                    includeStructuralRows: false,
-                    sortBy: 'code',
-                    sortOrder: 'asc',
+                    totalPages,
+                    structuralRowCount: Number(structuralCountResult.count || 0),
+                    finalRowCount: Number(finalCountResult.count || 0),
+                    includeStructuralRows,
+                    sortBy,
+                    sortOrder,
+                    ntRowCount: Number(ntCountResult.count || 0),
+                    exTipiRowCount: Number(exTipiCountResult.count || 0),
                 },
             }
         }
 
         if (params.tableType === 'cest') {
-            let query = adminSupabase
+            const sortBy: FiscalCestSortBy = isFiscalCestSortBy(params.sortBy) ? params.sortBy : 'code'
+            const filterLinkMode: FiscalCestLinkMode =
+                params.filterLinkMode === 'with_ncm' || params.filterLinkMode === 'without_ncm'
+                    ? params.filterLinkMode
+                    : 'all'
+            const filterSegmentMode: FiscalCestSegmentMode =
+                params.filterSegmentMode === 'with_segment' || params.filterSegmentMode === 'without_segment'
+                    ? params.filterSegmentMode
+                    : 'all'
+
+            const { data, error } = await adminSupabase
                 .from('fiscal_cest_entries')
                 .select('*')
                 .eq('version_id', version.id)
-                .order('code', { ascending: true })
-                .limit(pageSize)
-            if (search) {
-                query = query.or(`code.ilike.%${search}%,description.ilike.%${search}%`)
-            }
-            const { data, error } = await query
+
             if (error) throw error
 
             const rows = (data || []) as Array<Record<string, unknown>>
             const entryIds = rows.map((row) => String(row.id))
-            const { data: links } = await adminSupabase
+            const { data: links, error: linksError } = await adminSupabase
                 .from('fiscal_cest_ncm_links')
-                .select('cest_entry_id, ncm_code')
+                .select('cest_entry_id, ncm_code, match_type, prefix_length, metadata_jsonb')
                 .in('cest_entry_id', entryIds.length > 0 ? entryIds : ['00000000-0000-0000-0000-000000000000'])
 
-            const ncmCodesByCestId = new Map<string, string[]>()
+            if (linksError) throw linksError
+
+            const ncmLinksByCestId = new Map<string, FiscalCestNcmLinkPreview[]>()
             ;((links || []) as Array<Record<string, unknown>>).forEach((row) => {
                 const key = String(row.cest_entry_id)
-                const list = ncmCodesByCestId.get(key) || []
-                list.push(String(row.ncm_code || ''))
-                ncmCodesByCestId.set(key, list)
+                const list = ncmLinksByCestId.get(key) || []
+                list.push({
+                    ncm_code: String(row.ncm_code || ''),
+                    match_type: row.match_type === 'prefix' ? 'prefix' : 'exact',
+                    prefix_length: Number(row.prefix_length || String(row.ncm_code || '').length || 0),
+                })
+                ncmLinksByCestId.set(key, list)
             })
+
+            const allItems = rows.map((row) => {
+                const sortedLinks = sortCestLinksForResolution(ncmLinksByCestId.get(String(row.id)) || [])
+                const item = {
+                    id: String(row.id),
+                    versionId: String(row.version_id),
+                    versionLabel: version.versionLabel,
+                    code: String(row.code || ''),
+                    rowType: 'final' as const,
+                    description: normalizeRequiredText(row.description),
+                    segment: normalizeMojibakeText((row.segment as string | null) || null),
+                    ncmCodes: sortedLinks.map((link) => link.ncm_code),
+                    metadata: {
+                        exact_link_count: sortedLinks.filter((link) => link.match_type === 'exact').length,
+                        prefix_link_count: sortedLinks.filter((link) => link.match_type === 'prefix').length,
+                        ncm_link_details: sortedLinks,
+                    },
+                } satisfies FiscalBaseEntryRecord
+
+                return item
+            })
+
+            const filteredItems = allItems
+                .filter((item) => {
+                    if (filterLinkMode === 'with_ncm') return item.ncmCodes && item.ncmCodes.length > 0
+                    if (filterLinkMode === 'without_ncm') return !item.ncmCodes || item.ncmCodes.length === 0
+                    return true
+                })
+                .filter((item) => {
+                    if (filterSegmentMode === 'with_segment') return Boolean(item.segment)
+                    if (filterSegmentMode === 'without_segment') return !item.segment
+                    return true
+                })
+                .filter((item) => {
+                    if (!search) return true
+                    const haystacks = [
+                        item.code,
+                        item.description,
+                        item.segment || '',
+                        ...(item.ncmCodes || []),
+                    ]
+                    return haystacks.some((value) => value.toLowerCase().includes(search.toLowerCase()))
+                })
+
+            filteredItems.sort((left, right) => {
+                const normalize = (value: string | number | null | undefined) =>
+                    typeof value === 'number' ? value : (value || '').toString().toLowerCase()
+
+                const leftValue =
+                    sortBy === 'description'
+                        ? normalize(left.description)
+                        : sortBy === 'segment'
+                          ? normalize(left.segment)
+                          : sortBy === 'linked_ncm_count'
+                            ? left.ncmCodes?.length || 0
+                            : normalize(left.code)
+                const rightValue =
+                    sortBy === 'description'
+                        ? normalize(right.description)
+                        : sortBy === 'segment'
+                          ? normalize(right.segment)
+                          : sortBy === 'linked_ncm_count'
+                            ? right.ncmCodes?.length || 0
+                            : normalize(right.code)
+
+                if (leftValue === rightValue) {
+                    return left.code.localeCompare(right.code)
+                }
+
+                if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+                    return sortOrder === 'asc' ? leftValue - rightValue : rightValue - leftValue
+                }
+
+                return sortOrder === 'asc'
+                    ? String(leftValue).localeCompare(String(rightValue))
+                    : String(rightValue).localeCompare(String(leftValue))
+            })
+
+            const totalCount = filteredItems.length
+            const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / pageSize)
+            const items = filteredItems.slice(rangeFrom, rangeTo + 1)
 
             return {
                 success: true,
                 data: {
                     version,
                     baseState,
-                    items: rows.map((row) => ({
-                        id: String(row.id),
-                        versionId: String(row.version_id),
-                        versionLabel: version.versionLabel,
-                        code: String(row.code || ''),
-                        rowType: 'final',
-                        description: normalizeRequiredText(row.description),
-                        segment: normalizeMojibakeText((row.segment as string | null) || null),
-                        ncmCodes: ncmCodesByCestId.get(String(row.id)) || [],
-                    })),
-                    entries: rows.map((row) => ({
-                        id: String(row.id),
-                        versionId: String(row.version_id),
-                        versionLabel: version.versionLabel,
-                        code: String(row.code || ''),
-                        rowType: 'final',
-                        description: normalizeRequiredText(row.description),
-                        segment: normalizeMojibakeText((row.segment as string | null) || null),
-                        ncmCodes: ncmCodesByCestId.get(String(row.id)) || [],
-                    })),
-                    totalCount: rows.length,
-                    page: 1,
+                    items,
+                    entries: items,
+                    totalCount,
+                    page,
                     pageSize,
-                    totalPages: rows.length > 0 ? 1 : 0,
+                    totalPages,
                     structuralRowCount: 0,
-                    finalRowCount: rows.length,
+                    finalRowCount: allItems.length,
                     includeStructuralRows: false,
-                    sortBy: 'code',
-                    sortOrder: 'asc',
+                    sortBy,
+                    sortOrder,
+                    ntRowCount: 0,
+                    exTipiRowCount: 0,
+                    linkedNcmCount: allItems.reduce((sum, item) => sum + (item.ncmCodes?.length || 0), 0),
+                    exactLinkCount: allItems.reduce(
+                        (sum, item) => sum + Number(item.metadata?.exact_link_count || 0),
+                        0
+                    ),
+                    prefixLinkCount: allItems.reduce(
+                        (sum, item) => sum + Number(item.metadata?.prefix_link_count || 0),
+                        0
+                    ),
+                    segmentedRowCount: allItems.filter((item) => Boolean(item.segment)).length,
+                    withoutNcmCount: allItems.filter((item) => !item.ncmCodes || item.ncmCodes.length === 0).length,
                 },
             }
         }
@@ -1000,6 +1283,8 @@ export async function createFiscalImportPreviewAction(params: {
                     preview_invalid_rows: preview.invalidRows,
                     preview_valid_rows: preview.validRows,
                     preview_structural_rows: preview.structuralRows,
+                    preview_exact_link_count: Number(preview.exactLinkCount || 0),
+                    preview_prefix_link_count: Number(preview.prefixLinkCount || 0),
                     source_type: preview.sourceType,
                     source_sheet_name: preview.sheetName || null,
                 },
@@ -1103,6 +1388,12 @@ export async function confirmFiscalImportAction(params: {
                 metadata_jsonb: {
                     structural_rows: batch.error_summary_jsonb && typeof batch.error_summary_jsonb === 'object'
                         ? Number((batch.error_summary_jsonb as Record<string, unknown>).preview_structural_rows || 0)
+                        : 0,
+                    exact_link_count: batch.error_summary_jsonb && typeof batch.error_summary_jsonb === 'object'
+                        ? Number((batch.error_summary_jsonb as Record<string, unknown>).preview_exact_link_count || 0)
+                        : 0,
+                    prefix_link_count: batch.error_summary_jsonb && typeof batch.error_summary_jsonb === 'object'
+                        ? Number((batch.error_summary_jsonb as Record<string, unknown>).preview_prefix_link_count || 0)
                         : 0,
                 },
                 future_tax_payload: {},
@@ -1560,43 +1851,111 @@ export async function searchFiscalCestEntriesAction(params: {
         if (!version) return { success: true, data: [] }
         const adminSupabase = createServiceRoleClient()
         const ncmCode = sanitizeText(params.ncmCode)?.replace(/\D/g, '') || null
+        const limit = Math.max(1, Math.min(20, params.limit || 10))
 
-        let allowedIds: string[] | null = null
-        if (ncmCode) {
-            const { data: links, error: linksError } = await adminSupabase
-                .from('fiscal_cest_ncm_links')
-                .select('cest_entry_id')
-                .eq('ncm_code', ncmCode)
-            if (linksError) throw linksError
-            allowedIds = ((links || []) as Array<Record<string, unknown>>).map((row) => String(row.cest_entry_id))
-            if (allowedIds.length === 0) return { success: true, data: [] }
-        }
-
-        let query = adminSupabase
+        const { data: entryRows, error: entryError } = await adminSupabase
             .from('fiscal_cest_entries')
             .select('*')
             .eq('version_id', version.id)
-            .order('code', { ascending: true })
-            .limit(Math.max(1, Math.min(20, params.limit || 10)))
 
-        if (allowedIds) query = query.in('id', allowedIds)
-        const search = sanitizeText(params.query)
-        if (search) query = query.or(`code.ilike.%${search}%,description.ilike.%${search}%`)
+        if (entryError) throw entryError
 
-        const { data, error } = await query
-        if (error) throw error
+        const entries = (entryRows || []) as Array<Record<string, unknown>>
+        const entryIds = entries.map((row) => String(row.id))
+        if (entryIds.length === 0) return { success: true, data: [] }
 
-        return {
-            success: true,
-            data: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
-                id: String(row.id),
-                versionId: version.id,
-                versionLabel: version.versionLabel,
-                code: String(row.code || ''),
-                description: normalizeRequiredText(row.description),
-                secondaryText: normalizeMojibakeText((row.segment as string | null) || null),
-            })),
-        }
+        const { data: linkRows, error: linksError } = await adminSupabase
+            .from('fiscal_cest_ncm_links')
+            .select('cest_entry_id, ncm_code, match_type, prefix_length, metadata_jsonb')
+            .in('cest_entry_id', entryIds)
+
+        if (linksError) throw linksError
+
+        const linksByCestId = new Map<string, FiscalCestNcmLinkPreview[]>()
+        ;((linkRows || []) as Array<Record<string, unknown>>).forEach((row) => {
+            const key = String(row.cest_entry_id)
+            const list = linksByCestId.get(key) || []
+            list.push({
+                ncm_code: String(row.ncm_code || ''),
+                match_type: row.match_type === 'prefix' ? 'prefix' : 'exact',
+                prefix_length: Number(row.prefix_length || String(row.ncm_code || '').length || 0),
+            })
+            linksByCestId.set(key, list)
+        })
+
+        const search = sanitizeText(params.query)?.toLowerCase() || ''
+
+        const mappedItems: Array<FiscalSearchOption | null> = entries
+            .map((row) => {
+                const sortedLinks = sortCestLinksForResolution(linksByCestId.get(String(row.id)) || [])
+                const matchingLinks = ncmCode
+                    ? sortedLinks.filter((link) => matchesCestLink(ncmCode, link))
+                    : sortedLinks
+
+                if (ncmCode && matchingLinks.length === 0) return null
+
+                const segment = normalizeMojibakeText((row.segment as string | null) || null)
+                const haystacks = [
+                    String(row.code || ''),
+                    normalizeRequiredText(row.description),
+                    segment || '',
+                    ...sortedLinks.map((link) => link.ncm_code),
+                ]
+
+                if (search && !haystacks.some((value) => value.toLowerCase().includes(search))) {
+                    return null
+                }
+
+                const topMatch = matchingLinks[0] || null
+                const secondaryParts = [
+                    segment,
+                    topMatch
+                        ? topMatch.match_type === 'exact'
+                            ? `Vinculo exato com ${topMatch.ncm_code}`
+                            : `Abrange NCMs iniciados por ${topMatch.ncm_code}`
+                        : sortedLinks.length > 0
+                          ? `${sortedLinks.length} vinculo(s) NCM`
+                          : 'Sem vinculos NCM',
+                ].filter((value): value is string => Boolean(value && value.trim()))
+
+                return {
+                    id: String(row.id),
+                    versionId: version.id,
+                    versionLabel: version.versionLabel,
+                    code: String(row.code || ''),
+                    description: normalizeRequiredText(row.description),
+                    secondaryText: secondaryParts.join(' | '),
+                    metadata: {
+                        exact_link_count: sortedLinks.filter((link) => link.match_type === 'exact').length,
+                        prefix_link_count: sortedLinks.filter((link) => link.match_type === 'prefix').length,
+                        top_match_type: topMatch?.match_type || null,
+                        top_match_prefix_length: topMatch?.prefix_length || null,
+                    },
+                } satisfies FiscalSearchOption
+            })
+
+        const data = mappedItems
+            .filter((item): item is FiscalSearchOption => item !== null)
+            .sort((left, right) => {
+                const leftMatchType = String(left.metadata?.top_match_type || '')
+                const rightMatchType = String(right.metadata?.top_match_type || '')
+                const leftPrefixLength = Number(left.metadata?.top_match_prefix_length || 0)
+                const rightPrefixLength = Number(right.metadata?.top_match_prefix_length || 0)
+
+                if (ncmCode) {
+                    if (leftMatchType !== rightMatchType) {
+                        return leftMatchType === 'exact' ? -1 : 1
+                    }
+                    if (leftPrefixLength !== rightPrefixLength) {
+                        return rightPrefixLength - leftPrefixLength
+                    }
+                }
+
+                return left.code.localeCompare(right.code)
+            })
+            .slice(0, limit)
+
+        return { success: true, data }
     } catch (error: unknown) {
         return {
             success: false,
