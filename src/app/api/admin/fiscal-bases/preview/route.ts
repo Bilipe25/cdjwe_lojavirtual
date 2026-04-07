@@ -14,6 +14,7 @@ import {
     type BuildFiscalImportPreviewInput,
     type FiscalImportPreviewSummary,
 } from '@/lib/fiscal/import-utils'
+import { validateFiscalPreviewAgainstReferenceBases } from '@/lib/fiscal/cross-validation'
 
 export const runtime = 'nodejs'
 
@@ -126,44 +127,7 @@ async function validatePreviewAgainstCurrentBases(
     tableType: FiscalBaseType,
     preview: FiscalImportPreviewSummary
 ) {
-    if (tableType !== 'tipi' && tableType !== 'cest') return preview
-
-    const activeNcmCodes = await loadActiveNcmCodes()
-    if (!activeNcmCodes) {
-        preview.items.forEach((item) => {
-            if (item.validationStatus === 'valid') {
-                item.validationWarnings.push('Base NCM ativa nao encontrada. Validacao cruzada de NCM nao executada.')
-            }
-        })
-        preview.warningRows = preview.items.filter((item) => item.validationWarnings.length > 0).length
-        return preview
-    }
-
-    preview.items.forEach((item) => {
-        if (item.validationStatus !== 'valid') return
-
-        if (tableType === 'tipi') {
-            const ncmCode = String(item.normalizedPayload.ncm_code || '')
-            if (ncmCode && !activeNcmCodes.has(ncmCode)) {
-                item.validationErrors.push(`NCM ${ncmCode} nao encontrado na base NCM ativa.`)
-                item.validationStatus = 'invalid'
-            }
-        }
-
-        if (tableType === 'cest') {
-            const ncmCodes = sanitizeJsonArray(item.normalizedPayload.ncm_codes)
-            const missing = ncmCodes.filter((code) => !activeNcmCodes.has(code))
-            if (missing.length > 0) {
-                item.validationErrors.push(`NCM(s) nao encontrados na base NCM ativa: ${missing.join(', ')}.`)
-                item.validationStatus = 'invalid'
-            }
-        }
-    })
-
-    preview.validRows = preview.items.filter((item) => item.validationStatus === 'valid').length
-    preview.invalidRows = preview.items.filter((item) => item.validationStatus === 'invalid').length
-    preview.warningRows = preview.items.filter((item) => item.validationWarnings.length > 0).length
-    return preview
+    return validateFiscalPreviewAgainstReferenceBases(tableType, preview)
 }
 
 export async function POST(request: Request) {
@@ -246,8 +210,11 @@ export async function POST(request: Request) {
         }))
 
         if (itemsPayload.length > 0) {
-            const { error: itemsError } = await adminSupabase.from('fiscal_import_batch_items').insert(itemsPayload)
-            if (itemsError) throw itemsError
+            for (let index = 0; index < itemsPayload.length; index += 500) {
+                const chunk = itemsPayload.slice(index, index + 500)
+                const { error: itemsError } = await adminSupabase.from('fiscal_import_batch_items').insert(chunk)
+                if (itemsError) throw itemsError
+            }
         }
 
         revalidatePath('/admin/fiscal-bases')
@@ -271,4 +238,7 @@ export async function POST(request: Request) {
         )
     }
 }
+
+
+
 

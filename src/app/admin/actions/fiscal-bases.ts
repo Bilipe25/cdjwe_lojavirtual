@@ -19,6 +19,7 @@ import {
     type BuildFiscalImportPreviewInput,
     type FiscalImportPreviewSummary,
 } from '@/lib/fiscal/import-utils'
+import { validateFiscalPreviewAgainstReferenceBases } from '@/lib/fiscal/cross-validation'
 
 export interface FiscalReferenceVersionItem {
     id: string
@@ -408,7 +409,14 @@ async function insertFiscalEntriesForVersion(params: {
                 ex_tipi: sanitizeText(item.normalizedPayload.ex_tipi as string | null),
                 description: String(item.normalizedPayload.description || ''),
                 ipi_rate: Number(item.normalizedPayload.ipi_rate || 0),
-                metadata_jsonb: {},
+                metadata_jsonb: {
+                    row_type:
+                        String(item.normalizedPayload.row_type || '').trim() === 'structural'
+                            ? 'structural'
+                            : 'final',
+                    source_ncm_code: sanitizeText(item.normalizedPayload.source_ncm_code as string | null),
+                    ipi_rate_label: sanitizeText(item.normalizedPayload.ipi_rate_label as string | null),
+                },
                 future_tax_payload: {},
             }))
             if (rows.length === 0) return
@@ -498,44 +506,7 @@ async function validatePreviewAgainstCurrentBases(
     tableType: FiscalBaseType,
     preview: FiscalImportPreviewSummary
 ) {
-    if (tableType !== 'tipi' && tableType !== 'cest') return preview
-
-    const activeNcmCodes = await loadActiveNcmCodes()
-    if (!activeNcmCodes) {
-        preview.items.forEach((item) => {
-            if (item.validationStatus === 'valid') {
-                item.validationWarnings.push('Base NCM ativa nÃ£o encontrada. ValidaÃ§Ã£o cruzada de NCM nÃ£o executada.')
-            }
-        })
-        preview.warningRows = preview.items.filter((item) => item.validationWarnings.length > 0).length
-        return preview
-    }
-
-    preview.items.forEach((item) => {
-        if (item.validationStatus !== 'valid') return
-
-        if (tableType === 'tipi') {
-            const ncmCode = String(item.normalizedPayload.ncm_code || '')
-            if (ncmCode && !activeNcmCodes.has(ncmCode)) {
-                item.validationErrors.push(`NCM ${ncmCode} nÃ£o encontrado na base NCM ativa.`)
-                item.validationStatus = 'invalid'
-            }
-        }
-
-        if (tableType === 'cest') {
-            const ncmCodes = sanitizeJsonArray(item.normalizedPayload.ncm_codes)
-            const missing = ncmCodes.filter((code) => !activeNcmCodes.has(code))
-            if (missing.length > 0) {
-                item.validationErrors.push(`NCM(s) nÃ£o encontrados na base NCM ativa: ${missing.join(', ')}.`)
-                item.validationStatus = 'invalid'
-            }
-        }
-    })
-
-    preview.validRows = preview.items.filter((item) => item.validationStatus === 'valid').length
-    preview.invalidRows = preview.items.filter((item) => item.validationStatus === 'invalid').length
-    preview.warningRows = preview.items.filter((item) => item.validationWarnings.length > 0).length
-    return preview
+    return validateFiscalPreviewAgainstReferenceBases(tableType, preview)
 }
 
 export async function getFiscalBaseDashboardAction(): Promise<{
@@ -816,37 +787,42 @@ export async function listFiscalBaseEntriesAction(params: {
             }
             const { data, error } = await query
             if (error) throw error
+            const rows = (data || []) as Array<Record<string, unknown>>
+            const mappedRows = rows.map((row) => {
+                const metadata = sanitizeJsonObject(row.metadata_jsonb)
+                const code = String(row.ncm_code || '')
+                const rowType =
+                    String(metadata.row_type || '').trim() === 'structural' || !/^\d{8}$/.test(code)
+                        ? 'structural'
+                        : 'final'
+
+                return {
+                    id: String(row.id),
+                    versionId: String(row.version_id),
+                    versionLabel: version.versionLabel,
+                    code,
+                    rowType,
+                    metadata,
+                    description: normalizeRequiredText(row.description),
+                    exTipi: (row.ex_tipi as string | null) || null,
+                    ipiRate: Number(row.ipi_rate || 0),
+                    sourceCode: normalizeMojibakeText((metadata.source_ncm_code as string | null) || null),
+                } satisfies FiscalBaseEntryRecord
+            })
+
             return {
                 success: true,
                 data: {
                     version,
-                    items: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
-                        id: String(row.id),
-                        versionId: String(row.version_id),
-                        versionLabel: version.versionLabel,
-                        code: String(row.ncm_code || ''),
-                        rowType: 'final',
-                        description: normalizeRequiredText(row.description),
-                        exTipi: (row.ex_tipi as string | null) || null,
-                        ipiRate: Number(row.ipi_rate || 0),
-                    })),
+                    items: mappedRows,
                     baseState,
-                    entries: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
-                        id: String(row.id),
-                        versionId: String(row.version_id),
-                        versionLabel: version.versionLabel,
-                        code: String(row.ncm_code || ''),
-                        rowType: 'final',
-                        description: normalizeRequiredText(row.description),
-                        exTipi: (row.ex_tipi as string | null) || null,
-                        ipiRate: Number(row.ipi_rate || 0),
-                    })),
-                    totalCount: (data || []).length,
+                    entries: mappedRows,
+                    totalCount: rows.length,
                     page: 1,
                     pageSize,
-                    totalPages: (data || []).length > 0 ? 1 : 0,
-                    structuralRowCount: 0,
-                    finalRowCount: (data || []).length,
+                    totalPages: rows.length > 0 ? 1 : 0,
+                    structuralRowCount: mappedRows.filter((row) => row.rowType === 'structural').length,
+                    finalRowCount: mappedRows.filter((row) => row.rowType === 'final').length,
                     includeStructuralRows: false,
                     sortBy: 'code',
                     sortOrder: 'asc',
@@ -1002,7 +978,7 @@ export async function createFiscalImportPreviewAction(params: {
                       textContent: sanitizeText(params.textContent) || '',
                   }
 
-        const preview = await validatePreviewAgainstCurrentBases(
+        const preview = await validateFiscalPreviewAgainstReferenceBases(
             params.tableType,
             buildFiscalImportPreview(params.tableType, importInput)
         )

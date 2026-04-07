@@ -39,11 +39,16 @@ export function FiscalImportPreview({ preview }: FiscalImportPreviewProps) {
             <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
                 Revise erros e avisos antes de confirmar. O lote so cria uma nova versao quando voce concluir a
                 importacao no passo final.
+                {preview.referenceValidation ? (
+                    <p className="mt-2 text-xs text-slate-600">
+                        {preview.referenceValidation.message}
+                    </p>
+                ) : null}
                 {preview.structuralRows > 0 ? (
                     <p className="mt-2 text-xs text-slate-600">
-                        {preview.structuralRows} linha(s) estruturais da tabela oficial foram reconhecidas e serao
-                        importadas apenas para consulta da hierarquia NCM. O uso fiscal final continua restrito aos
-                        codigos com 8 digitos.
+                        {preview.structuralRows} linha(s) estruturais da tabela oficial foram reconhecidas e serão
+                        importadas para consulta e navegação hierárquica da base selecionada. O uso fiscal final
+                        continua restrito aos códigos finais aplicáveis em perfis tributários.
                     </p>
                 ) : null}
             </div>

@@ -379,9 +379,36 @@ function normalizeDecimal(value: string) {
         trimmed.includes(',') && trimmed.includes('.')
             ? trimmed.replace(/\./g, '').replace(',', '.')
             : trimmed.replace(',', '.')
-    if (!sanitized) return null
-    const numeric = Number(sanitized)
+    const normalized = sanitized.replace(/%/g, '').trim()
+    if (!normalized) return null
+    const numeric = Number(normalized)
     return Number.isFinite(numeric) ? numeric : null
+}
+
+function normalizeTipiRate(value: string) {
+    const trimmed = (value || '').trim()
+    if (!trimmed) {
+        return {
+            ipiRate: null as number | null,
+            rateLabel: null as string | null,
+            isNonTaxed: false,
+        }
+    }
+
+    const normalizedLabel = trimmed.toUpperCase().replace(/\s+/g, '')
+    if (normalizedLabel === 'NT') {
+        return {
+            ipiRate: 0,
+            rateLabel: 'NT',
+            isNonTaxed: true,
+        }
+    }
+
+    return {
+        ipiRate: normalizeDecimal(trimmed),
+        rateLabel: null as string | null,
+        isNonTaxed: false,
+    }
 }
 
 function normalizeDate(value: string) {
@@ -456,6 +483,7 @@ function buildNcmPreviewItem(row: FiscalCsvRow): FiscalImportPreviewItem {
             legal_number: legalNumber || null,
             legal_year: legalYear || null,
             source_code: sourceCode || null,
+            row_type: isStructural ? 'structural' : 'final',
         },
         validationErrors,
         validationWarnings,
@@ -472,15 +500,22 @@ function isStructuralNcmRow(row: FiscalCsvRow) {
 }
 
 function buildTipiPreviewItem(row: FiscalCsvRow): FiscalImportPreviewItem {
-    const ncmCode = normalizeDocumentCode(row.raw.ncm_code || '', 8)
+    const sourceNcmCode = (row.raw.ncm_code || '').trim()
+    const ncmCode = normalizeOfficialNcmCode(sourceNcmCode)
     const exTipi = (row.raw.ex_tipi || '').trim()
     const description = (row.raw.description || '').trim()
-    const ipiRate = normalizeDecimal(row.raw.ipi_rate || '')
+    const { ipiRate, rateLabel, isNonTaxed } = normalizeTipiRate(row.raw.ipi_rate || '')
+    const isStructural = ncmCode.length >= 2 && ncmCode.length < 8
     const validationErrors: string[] = []
 
-    if (!/^\d{8}$/.test(ncmCode)) validationErrors.push('NCM vinculado deve ter 8 digitos.')
+    if (!/^\d{8}$/.test(ncmCode) && !isStructural) {
+        validationErrors.push('Codigo TIPI/NCM deve ter entre 2 e 8 digitos numericos.')
+    }
     if (!description) validationErrors.push('Descricao TIPI e obrigatoria.')
-    if (ipiRate === null || ipiRate < 0) {
+    if (!isStructural && ipiRate === null) {
+        validationErrors.push('Aliquota IPI deve ser numerica e maior ou igual a zero.')
+    }
+    if (ipiRate !== null && ipiRate < 0) {
         validationErrors.push('Aliquota IPI deve ser numerica e maior ou igual a zero.')
     }
 
@@ -492,7 +527,10 @@ function buildTipiPreviewItem(row: FiscalCsvRow): FiscalImportPreviewItem {
             ncm_code: ncmCode,
             ex_tipi: exTipi || null,
             description,
-            ipi_rate: ipiRate,
+            ipi_rate: ipiRate ?? 0,
+            row_type: isStructural ? 'structural' : 'final',
+            source_ncm_code: sourceNcmCode || null,
+            ipi_rate_label: isNonTaxed ? rateLabel : null,
         },
         validationErrors,
         validationWarnings: [],
@@ -589,8 +627,6 @@ export function buildFiscalImportPreview(
     }
 
     const readRows = parsed.rows.length
-    const structuralRows =
-        tableType === 'ncm' ? parsed.rows.filter((row) => isStructuralNcmRow(row)).length : 0
     const candidateRows = parsed.rows
 
     const items = candidateRows.map((row) => {
@@ -614,6 +650,8 @@ export function buildFiscalImportPreview(
                 }
         }
     })
+
+    const structuralRows = items.filter((item) => item.normalizedPayload.row_type === 'structural').length
 
     const duplicates = new Map<string, number[]>()
     items.forEach((item) => {
