@@ -86,6 +86,7 @@ export const FISCAL_CATALOG_TYPES = [
     'pis_cst',
     'cofins_cst',
     'ipi_cst',
+    'icms_cst',
     'taxpayer_indicator',
     'person_type',
     'item_type',
@@ -101,6 +102,7 @@ export const FISCAL_CATALOG_LABELS: Record<FiscalCatalogType, string> = {
     pis_cst: 'PIS CST',
     cofins_cst: 'COFINS CST',
     ipi_cst: 'IPI CST',
+    icms_cst: 'ICMS CST',
     taxpayer_indicator: 'Indicador de Contribuinte',
     person_type: 'Tipo de Pessoa',
     item_type: 'Tipo de Item',
@@ -118,3 +120,4 @@ export function isFiscalImportSourceType(value: string): value is FiscalImportSo
 export function isFiscalCatalogType(value: string): value is FiscalCatalogType {
     return (FISCAL_CATALOG_TYPES as readonly string[]).includes(value)
 }
+

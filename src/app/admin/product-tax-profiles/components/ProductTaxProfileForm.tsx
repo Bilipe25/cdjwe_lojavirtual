@@ -29,6 +29,14 @@ import {
     type FiscalReferenceVersionItem,
     type FiscalSearchOption,
 } from '@/app/admin/actions/fiscal-bases'
+import {
+    listIcmsBaseOptionsAction,
+    type IcmsBaseOption,
+} from '@/app/admin/actions/icms-bases'
+import {
+    listIbscbsBaseOptionsAction,
+    type IbscbsBaseOption,
+} from '@/app/admin/actions/ibscbs-bases'
 import { productTaxProfileSchema, type ProductTaxProfileFormData } from '../schema'
 import { TaxProfileNcmSelector } from './TaxProfileNcmSelector'
 import { TaxProfileCestSelector } from './TaxProfileCestSelector'
@@ -82,6 +90,9 @@ const defaultValues: ProductTaxProfileFormData = {
     defaultOutputCfopVersionId: undefined,
     defaultInputCfopReferenceId: undefined,
     defaultInputCfopVersionId: undefined,
+    icmsBaseId: undefined,
+    ibscbsBaseId: undefined,
+    ibscbsVersionId: undefined,
     fiscalReferenceSnapshot: undefined,
 }
 
@@ -241,6 +252,8 @@ export function ProductTaxProfileForm({
     const [selectedOutputCfop, setSelectedOutputCfop] = useState<FiscalSearchOption | null>(null)
     const [selectedInputCfop, setSelectedInputCfop] = useState<FiscalSearchOption | null>(null)
     const [ncmSuggestions, setNcmSuggestions] = useState<FiscalNcmSuggestions | null>(null)
+    const [icmsBaseOptions, setIcmsBaseOptions] = useState<IcmsBaseOption[]>([])
+    const [ibscbsBaseOptions, setIbscbsBaseOptions] = useState<IbscbsBaseOption[]>([])
 
     const hasSt = watch('hasSubstitutionTax')
     const requiresCest = watch('requiresCest')
@@ -248,6 +261,9 @@ export function ProductTaxProfileForm({
     const isActive = watch('isActive')
     const requiresTaxConfiguration = watch('requiresTaxConfiguration')
     const currentTipiReferenceId = watch('tipiReferenceId')
+    const currentIcmsBaseId = watch('icmsBaseId')
+    const currentIbscbsVersionId = watch('ibscbsVersionId')
+    const currentProfileId = initialData?.id
 
     useEffect(() => {
         const loadCatalogsAndVersions = async () => {
@@ -263,7 +279,7 @@ export function ProductTaxProfileForm({
                 'fiscal_type',
             ] as const
 
-            const [catalogResults, versionResults] = await Promise.all([
+            const [catalogResults, versionResults, icmsBaseResult, ibscbsBaseResult] = await Promise.all([
                 Promise.all(catalogKeys.map((key) => listFiscalCatalogItemsAction(key))),
                 Promise.all([
                     listFiscalReferenceVersionsAction('ncm'),
@@ -271,6 +287,14 @@ export function ProductTaxProfileForm({
                     listFiscalReferenceVersionsAction('cest'),
                     listFiscalReferenceVersionsAction('cfop'),
                 ]),
+                listIcmsBaseOptionsAction({
+                    includeInactive: false,
+                    includeCurrentId: typeof initialData?.icmsBaseId === 'string' ? initialData.icmsBaseId : null,
+                }),
+                listIbscbsBaseOptionsAction({
+                    includeCurrentVersionId:
+                        typeof initialData?.ibscbsVersionId === 'string' ? initialData.ibscbsVersionId : null,
+                }),
             ])
 
             const mappedCatalogs = catalogResults.reduce<Record<string, FiscalCatalogItemOption[]>>(
@@ -292,11 +316,13 @@ export function ProductTaxProfileForm({
                 cfop:
                     cfopVersions.success && cfopVersions.data ? cfopVersions.data.find((item) => item.isActive) || null : null,
             })
+            setIcmsBaseOptions(icmsBaseResult.success && icmsBaseResult.data ? icmsBaseResult.data : [])
+            setIbscbsBaseOptions(ibscbsBaseResult.success && ibscbsBaseResult.data ? ibscbsBaseResult.data : [])
             setCatalogsLoading(false)
         }
 
         void loadCatalogsAndVersions()
-    }, [])
+    }, [currentProfileId, initialData?.ibscbsVersionId, initialData?.icmsBaseId])
 
     useEffect(() => {
         const snapshot = initialData?.fiscalReferenceSnapshot as Record<string, unknown> | undefined
@@ -351,6 +377,21 @@ export function ProductTaxProfileForm({
         void loadSuggestions()
     }, [getValues, selectedNcm, setValue])
 
+    const selectedIcmsBase = useMemo(
+        () => icmsBaseOptions.find((item) => item.id === currentIcmsBaseId) || null,
+        [currentIcmsBaseId, icmsBaseOptions]
+    )
+    const selectedIcmsBaseIsInheritedInactive = Boolean(currentProfileId && selectedIcmsBase && !selectedIcmsBase.isActive)
+    const selectedIbscbsBase = useMemo(
+        () => ibscbsBaseOptions.find((item) => item.versionId === currentIbscbsVersionId) || null,
+        [currentIbscbsVersionId, ibscbsBaseOptions]
+    )
+    const selectedIbscbsBaseIsInheritedInactive = Boolean(
+        currentProfileId &&
+            selectedIbscbsBase &&
+            (!selectedIbscbsBase.isBaseActive || !selectedIbscbsBase.isVersionActive)
+    )
+
     const referenceSummary = useMemo(() => {
         const parts = [
             selectedNcm ? `NCM ${selectedNcm.code}` : null,
@@ -358,11 +399,13 @@ export function ProductTaxProfileForm({
             selectedCest ? `CEST ${selectedCest.code}` : null,
             selectedOutputCfop ? `CFOP saida ${selectedOutputCfop.code}` : null,
             selectedInputCfop ? `CFOP entrada ${selectedInputCfop.code}` : null,
+            selectedIcmsBase ? `ICMS ${selectedIcmsBase.code}` : null,
+            selectedIbscbsBase ? `IBS/CBS ${selectedIbscbsBase.code} ${selectedIbscbsBase.versionLabel}` : null,
         ].filter((value): value is string => Boolean(value))
 
         if (parts.length === 0) return 'Perfil ainda sem referencias estruturadas da base fiscal.'
         return parts.join(' | ')
-    }, [selectedCest, selectedInputCfop, selectedNcm, selectedOutputCfop, selectedTipi])
+    }, [selectedCest, selectedIcmsBase, selectedIbscbsBase, selectedInputCfop, selectedNcm, selectedOutputCfop, selectedTipi])
 
     const hasReferenceMismatch = useMemo(() => {
         return (
@@ -504,6 +547,135 @@ export function ProductTaxProfileForm({
                         }}
                     />
                     {errors.cest ? <p className="-mt-2 text-xs text-red-500">{errors.cest.message}</p> : null}
+
+                    <div className="space-y-1.5 md:col-span-2">
+                        <Label>Base de ICMS</Label>
+                        <Select
+                            value={currentIcmsBaseId || '__none__'}
+                            onValueChange={(value) =>
+                                setValue('icmsBaseId', !value || value === '__none__' ? undefined : value, { shouldDirty: true })
+                            }
+                        >
+                            <SelectTrigger className="w-full">
+                                <SelectValue placeholder={catalogsLoading ? 'Carregando bases...' : 'Selecione a base de ICMS'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__none__">Sem base de ICMS vinculada</SelectItem>
+                                {icmsBaseOptions.map((option) => (
+                                    <SelectItem
+                                        key={option.id}
+                                        value={option.id}
+                                        disabled={!option.isActive && currentIcmsBaseId !== option.id}
+                                    >
+                                        {option.code} - {option.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                            Vincule uma base ativa para herdar regra nacional, excecoes por UF, interestadual e estrutura futura de ST neste perfil.
+                        </p>
+                        {selectedIcmsBase ? (
+                            <div className="flex flex-wrap gap-2 text-xs">
+                                <Badge variant="outline" className="border-cyan-300 bg-cyan-50 text-cyan-700">
+                                    {selectedIcmsBase.code}
+                                </Badge>
+                                <Badge
+                                    variant="outline"
+                                    className={
+                                        selectedIcmsBase.isActive
+                                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                            : 'border-amber-300 bg-amber-50 text-amber-700'
+                                    }
+                                >
+                                    {selectedIcmsBase.isActive ? 'Base de ICMS ativa' : 'Base de ICMS inativa'}
+                                </Badge>
+                                <Badge variant="outline" className="bg-white text-slate-700">
+                                    Versao {selectedIcmsBase.version}
+                                </Badge>
+                            </div>
+                        ) : null}
+                        {selectedIcmsBaseIsInheritedInactive ? (
+                            <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                Esta base de ICMS esta inativa e permaneceu vinculada apenas por heranca historica deste perfil.
+                                Para novos ajustes, prefira migrar para uma base ativa.
+                            </div>
+                        ) : null}
+                        {errors.icmsBaseId ? <p className="text-xs text-red-500">{errors.icmsBaseId.message}</p> : null}
+                    </div>
+
+                    <div className="space-y-1.5 md:col-span-2">
+                        <Label>Base de IBS/CBS</Label>
+                        <Select
+                            value={currentIbscbsVersionId || '__none__'}
+                            onValueChange={(value) => {
+                                if (!value || value === '__none__') {
+                                    setValue('ibscbsBaseId', undefined, { shouldDirty: true })
+                                    setValue('ibscbsVersionId', undefined, { shouldDirty: true })
+                                    return
+                                }
+
+                                const selectedOption = ibscbsBaseOptions.find((option) => option.versionId === value) || null
+                                setValue('ibscbsBaseId', selectedOption?.baseId || undefined, { shouldDirty: true })
+                                setValue('ibscbsVersionId', selectedOption?.versionId || undefined, { shouldDirty: true })
+                            }}
+                        >
+                            <SelectTrigger className="w-full">
+                                <SelectValue placeholder={catalogsLoading ? 'Carregando bases...' : 'Selecione a base de IBS/CBS'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__none__">Sem base de IBS/CBS vinculada</SelectItem>
+                                {ibscbsBaseOptions.map((option) => (
+                                    <SelectItem
+                                        key={option.versionId}
+                                        value={option.versionId}
+                                        disabled={
+                                            (!option.isBaseActive || !option.isVersionActive) &&
+                                            currentIbscbsVersionId !== option.versionId
+                                        }
+                                    >
+                                        {option.code} - {option.name} | {option.versionLabel}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                            Vincule uma base versionada de IBS/CBS para preparar o perfil para reforma tributaria, vigencia fiscal e futura previa tributaria do pedido.
+                        </p>
+                        {selectedIbscbsBase ? (
+                            <div className="flex flex-wrap gap-2 text-xs">
+                                <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-700">
+                                    {selectedIbscbsBase.code}
+                                </Badge>
+                                <Badge variant="outline" className="bg-white text-slate-700">
+                                    {selectedIbscbsBase.versionLabel}
+                                </Badge>
+                                <Badge
+                                    variant="outline"
+                                    className={
+                                        selectedIbscbsBase.isBaseActive && selectedIbscbsBase.isVersionActive
+                                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                            : 'border-amber-300 bg-amber-50 text-amber-700'
+                                    }
+                                >
+                                    {selectedIbscbsBase.isBaseActive && selectedIbscbsBase.isVersionActive
+                                        ? 'Versao ativa de IBS/CBS'
+                                        : 'Referencia IBS/CBS historica'}
+                                </Badge>
+                                {selectedIbscbsBase.validFrom || selectedIbscbsBase.validTo ? (
+                                    <Badge variant="outline" className="bg-white text-slate-700">
+                                        Vigencia {selectedIbscbsBase.validFrom || 'sem inicio'} ate {selectedIbscbsBase.validTo || 'sem fim'}
+                                    </Badge>
+                                ) : null}
+                            </div>
+                        ) : null}
+                        {selectedIbscbsBaseIsInheritedInactive ? (
+                            <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                Esta referencia de IBS/CBS permaneceu vinculada apenas por heranca historica do perfil. Para novos ajustes, prefira uma versao ativa.
+                            </div>
+                        ) : null}
+                        {errors.ibscbsVersionId ? <p className="text-xs text-red-500">{errors.ibscbsVersionId.message}</p> : null}
+                    </div>
 
                     <div className="space-y-1.5 md:col-span-2">
                         <Label>Descricao Fiscal Padrao</Label>
@@ -862,6 +1034,9 @@ export function ProductTaxProfileForm({
             <input type="hidden" {...register('defaultOutputCfopVersionId')} />
             <input type="hidden" {...register('defaultInputCfopReferenceId')} />
             <input type="hidden" {...register('defaultInputCfopVersionId')} />
+            <input type="hidden" {...register('icmsBaseId')} />
+            <input type="hidden" {...register('ibscbsBaseId')} />
+            <input type="hidden" {...register('ibscbsVersionId')} />
 
             <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>

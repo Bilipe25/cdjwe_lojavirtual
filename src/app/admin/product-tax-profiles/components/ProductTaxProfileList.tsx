@@ -28,7 +28,7 @@ function translateOutdatedType(type: string) {
         case 'cest':
             return 'CEST'
         case 'cfop_saida':
-            return 'CFOP saída'
+            return 'CFOP saida'
         case 'cfop_entrada':
             return 'CFOP entrada'
         default:
@@ -98,6 +98,33 @@ export function ProductTaxProfileList({
                                 <Badge variant="outline" className="bg-white">
                                     CFOP: {profile.default_output_cfop || 'N/D'}
                                 </Badge>
+                                <Badge variant="outline" className="bg-white">
+                                    ICMS: {profile.icms_base_code || 'N/D'}
+                                </Badge>
+                                <Badge variant="outline" className="bg-white">
+                                    IBS/CBS: {profile.ibscbs_base_code || 'N/D'}
+                                </Badge>
+                                {profile.icms_base_id && profile.icms_base_is_active === false ? (
+                                    <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                                        Base de ICMS inativa herdada
+                                    </Badge>
+                                ) : null}
+                                {profile.ibscbs_version_label ? (
+                                    <Badge variant="outline" className="bg-white text-slate-700">
+                                        IBS/CBS {profile.ibscbs_version_label}
+                                    </Badge>
+                                ) : null}
+                                {profile.ibscbs_base_id &&
+                                (profile.ibscbs_version_is_active === false || !profile.ibscbs_version_label) ? (
+                                    <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                                        IBS/CBS historico
+                                    </Badge>
+                                ) : null}
+                                {profile.ibscbs_valid_from || profile.ibscbs_valid_to ? (
+                                    <Badge variant="outline" className="bg-white text-slate-700">
+                                        Vigencia IBS/CBS: {profile.ibscbs_valid_from || 'sem inicio'} ate {profile.ibscbs_valid_to || 'sem fim'}
+                                    </Badge>
+                                ) : null}
                                 <Badge variant="outline" className="bg-white">
                                     Produtos: {profile.products_count}
                                 </Badge>

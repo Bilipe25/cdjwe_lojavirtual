@@ -41,7 +41,8 @@ export interface FiscalReferenceVersionItem {
 }
 
 export interface FiscalBaseDashboardCard {
-    tableType: FiscalBaseType
+    tableType: FiscalBaseType | 'icms' | 'ibscbs'
+    kind?: 'reference' | 'config'
     label: string
     description: string | null
     isEnabled: boolean
@@ -53,6 +54,14 @@ export interface FiscalBaseDashboardCard {
     isStale: boolean
     staleByDays: number | null
     hasAnyVersion: boolean
+    openHref?: string
+    openLabel?: string
+    primaryActionHref?: string
+    primaryActionLabel?: string
+    metricPanels?: Array<{
+        label: string
+        value: string
+    }>
 }
 
 export interface FiscalBaseEntryRecord {
@@ -1625,7 +1634,7 @@ export async function listFiscalImportBatchesAction(params?: {
         })
         const importerById = new Map<string, string>()
         ;((importerRows || []) as Array<Record<string, unknown>>).forEach((row) => {
-            importerById.set(String(row.id), String(row.full_name || row.email || 'UsuÃ¡rio removido'))
+            importerById.set(String(row.id), String(row.full_name || row.email || 'Usuario removido'))
         })
 
         return {

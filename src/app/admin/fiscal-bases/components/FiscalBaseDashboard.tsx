@@ -1,9 +1,9 @@
 import Link from 'next/link'
-import { ArrowRight, AlertTriangle, Database, Upload } from 'lucide-react'
+import { ArrowRight, AlertTriangle, Database, Plus, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FiscalVersionBadge } from './FiscalVersionBadge'
 import type { FiscalBaseDashboardCard } from '@/app/admin/actions/fiscal-bases'
-import { FISCAL_BASE_LABELS } from '@/lib/fiscal/constants'
+import { FISCAL_BASE_LABELS, isFiscalBaseType } from '@/lib/fiscal/constants'
 
 interface FiscalBaseDashboardProps {
     cards: FiscalBaseDashboardCard[]
@@ -42,14 +42,22 @@ export function FiscalBaseDashboard({ cards }: FiscalBaseDashboardProps) {
                                     </div>
                                     <div>
                                         <h3 className="text-lg font-semibold text-navy">
-                                            {card.label || FISCAL_BASE_LABELS[card.tableType]}
+                                            {card.label || (isFiscalBaseType(card.tableType) ? FISCAL_BASE_LABELS[card.tableType] : 'Base fiscal')}
                                         </h3>
-                                        <p className="text-sm text-muted-foreground">{card.description || 'Base fiscal versionada.'}</p>
+                                        <p className="text-sm text-muted-foreground">
+                                            {card.description || 'Base fiscal versionada.'}
+                                        </p>
                                     </div>
                                 </div>
 
                                 <div className="flex flex-wrap gap-2">
-                                    <FiscalVersionBadge version={card.activeVersion} stale={card.isStale} />
+                                    {card.kind === 'config' ? (
+                                        <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                                            Configuracao interna
+                                        </span>
+                                    ) : (
+                                        <FiscalVersionBadge version={card.activeVersion} stale={card.isStale} />
+                                    )}
                                     {card.isStale && (
                                         <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-700">
                                             <AlertTriangle className="h-3.5 w-3.5" />
@@ -61,35 +69,48 @@ export function FiscalBaseDashboard({ cards }: FiscalBaseDashboardProps) {
 
                             <div className="flex flex-wrap gap-2">
                                 <Button asChild variant="outline" size="sm">
-                                    <Link href={`/admin/fiscal-bases/${card.tableType}`}>
-                                        Abrir base
+                                    <Link href={card.openHref || `/admin/fiscal-bases/${card.tableType}`}>
+                                        {card.openLabel || 'Abrir base'}
                                         <ArrowRight className="ml-1.5 h-4 w-4" />
                                     </Link>
                                 </Button>
                                 <Button asChild size="sm" className="gradient-navy border-0 text-white">
-                                    <Link href={`/admin/fiscal-bases/imports/new?type=${card.tableType}`}>
-                                        <Upload className="mr-1.5 h-4 w-4" />
-                                        Importar
+                                    <Link href={card.primaryActionHref || `/admin/fiscal-bases/imports/new?type=${card.tableType}`}>
+                                        {card.kind === 'config' ? (
+                                            <Plus className="mr-1.5 h-4 w-4" />
+                                        ) : (
+                                            <Upload className="mr-1.5 h-4 w-4" />
+                                        )}
+                                        {card.primaryActionLabel || 'Importar'}
                                     </Link>
                                 </Button>
                             </div>
                         </div>
 
                         <div className="mt-4 grid gap-3 md:grid-cols-3">
-                            <div className="rounded-xl border bg-slate-50/70 px-3 py-2">
-                                <p className="text-xs text-muted-foreground">{'\u00DAltima importa\u00E7\u00E3o'}</p>
-                                <p className="mt-1 text-sm font-medium text-navy">
-                                    {card.lastImportAt ? new Date(card.lastImportAt).toLocaleDateString('pt-BR') : 'N\u00E3o importada'}
-                                </p>
-                            </div>
-                            <div className="rounded-xl border bg-slate-50/70 px-3 py-2">
-                                <p className="text-xs text-muted-foreground">{'Linhas na vers\u00E3o ativa'}</p>
-                                <p className="mt-1 text-sm font-medium text-navy">{card.rowCount.toLocaleString('pt-BR')}</p>
-                            </div>
-                            <div className="rounded-xl border bg-slate-50/70 px-3 py-2">
-                                <p className="text-xs text-muted-foreground">Janela sugerida</p>
-                                <p className="mt-1 text-sm font-medium text-navy">{card.recommendedRefreshDays} dias</p>
-                            </div>
+                            {(card.metricPanels || [
+                                {
+                                    label: card.kind === 'config' ? 'Ultima atualizacao' : '\u00DAltima importa\u00E7\u00E3o',
+                                    value: card.lastImportAt
+                                        ? new Date(card.lastImportAt).toLocaleDateString('pt-BR')
+                                        : card.kind === 'config'
+                                          ? 'Nao configurada'
+                                          : 'N\u00E3o importada',
+                                },
+                                {
+                                    label: card.kind === 'config' ? 'Bases / registros' : 'Linhas na vers\u00E3o ativa',
+                                    value: card.rowCount.toLocaleString('pt-BR'),
+                                },
+                                {
+                                    label: card.kind === 'config' ? 'Governanca' : 'Janela sugerida',
+                                    value: card.kind === 'config' ? 'Nao importavel' : `${card.recommendedRefreshDays} dias`,
+                                },
+                            ]).map((panel) => (
+                                <div key={`${card.tableType}-${panel.label}`} className="rounded-xl border bg-slate-50/70 px-3 py-2">
+                                    <p className="text-xs text-muted-foreground">{panel.label}</p>
+                                    <p className="mt-1 text-sm font-medium text-navy">{panel.value}</p>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 ))}

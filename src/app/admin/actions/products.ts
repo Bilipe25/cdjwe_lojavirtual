@@ -106,6 +106,9 @@ export interface ProductTaxProfileInput {
     defaultOutputCfopVersionId?: string | null
     defaultInputCfopReferenceId?: string | null
     defaultInputCfopVersionId?: string | null
+    icmsBaseId?: string | null
+    ibscbsBaseId?: string | null
+    ibscbsVersionId?: string | null
     fiscalReferenceSnapshot?: Record<string, unknown> | null
     rules?: ProductTaxProfileRuleInput[]
 }
@@ -124,6 +127,18 @@ export interface ProductTaxProfileListItem {
     reference_mode?: 'manual' | 'base-backed' | 'mixed'
     has_outdated_references?: boolean
     outdated_reference_types?: string[]
+    icms_base_id?: string | null
+    icms_base_code?: string | null
+    icms_base_name?: string | null
+    icms_base_is_active?: boolean | null
+    ibscbs_base_id?: string | null
+    ibscbs_base_code?: string | null
+    ibscbs_base_name?: string | null
+    ibscbs_version_id?: string | null
+    ibscbs_version_label?: string | null
+    ibscbs_version_is_active?: boolean | null
+    ibscbs_valid_from?: string | null
+    ibscbs_valid_to?: string | null
 }
 
 export interface ProductTaxProfileUsageItem {
@@ -346,6 +361,52 @@ async function buildFiscalReferenceSnapshot(
                 code: data.code,
                 description: data.description,
                 operation_direction: data.operation_direction,
+            }
+        }
+    }
+
+    if (input.icmsBaseId && isValidUuid(input.icmsBaseId)) {
+        const { data } = await adminSupabase
+            .from('fiscal_icms_bases')
+            .select('id, code, name, version, is_active')
+            .eq('id', input.icmsBaseId)
+            .single()
+
+        if (data) {
+            snapshot.icms_base = {
+                base_id: data.id,
+                code: data.code,
+                name: data.name,
+                version: data.version,
+                is_active: data.is_active,
+            }
+        }
+    }
+
+    if (input.ibscbsBaseId && input.ibscbsVersionId && isValidUuid(input.ibscbsBaseId) && isValidUuid(input.ibscbsVersionId)) {
+        const { data } = await adminSupabase
+            .from('fiscal_ibscbs_base_versions')
+            .select('id, ibscbs_base_id, version_label, valid_from, valid_to, status, fiscal_ibscbs_bases!inner(id, code, name, is_active)')
+            .eq('id', input.ibscbsVersionId)
+            .eq('ibscbs_base_id', input.ibscbsBaseId)
+            .single()
+
+        if (data) {
+            const base = Array.isArray(data.fiscal_ibscbs_bases)
+                ? data.fiscal_ibscbs_bases[0]
+                : data.fiscal_ibscbs_bases
+
+            snapshot.ibscbs_base = {
+                base_id: data.ibscbs_base_id,
+                version_id: data.id,
+                code: base?.code || null,
+                name: base?.name || null,
+                version_label: data.version_label,
+                valid_from: data.valid_from,
+                valid_to: data.valid_to,
+                status: data.status,
+                base_is_active: base?.is_active ?? null,
+                version_is_active: data.status === 'active',
             }
         }
     }
@@ -1163,7 +1224,7 @@ export async function listProductTaxProfilesAction(params?: {
             adminSupabase
                 .from('product_tax_profiles')
                 .select(
-                    'id, ncm_reference_id, ncm_version_id, tipi_reference_id, tipi_version_id, cest_reference_id, cest_version_id, default_output_cfop_reference_id, default_output_cfop_version_id, default_input_cfop_reference_id, default_input_cfop_version_id'
+                    'id, ncm_reference_id, ncm_version_id, tipi_reference_id, tipi_version_id, cest_reference_id, cest_version_id, default_output_cfop_reference_id, default_output_cfop_version_id, default_input_cfop_reference_id, default_input_cfop_version_id, icms_base_id, ibscbs_base_id, ibscbs_version_id'
                 ),
             adminSupabase
                 .from('fiscal_reference_versions')
@@ -1190,8 +1251,108 @@ export async function listProductTaxProfilesAction(params?: {
             return acc
         }, {})
 
+        const icmsBaseIds = Array.from(
+            new Set(
+                ((referenceRows || []) as Array<Record<string, unknown>>)
+                    .map((row) => (typeof row.icms_base_id === 'string' ? row.icms_base_id : null))
+                    .filter((value): value is string => Boolean(value))
+            )
+        )
+
+        const ibscbsBaseIds = Array.from(
+            new Set(
+                ((referenceRows || []) as Array<Record<string, unknown>>)
+                    .map((row) => (typeof row.ibscbs_base_id === 'string' ? row.ibscbs_base_id : null))
+                    .filter((value): value is string => Boolean(value))
+            )
+        )
+
+        const ibscbsVersionIds = Array.from(
+            new Set(
+                ((referenceRows || []) as Array<Record<string, unknown>>)
+                    .map((row) => (typeof row.ibscbs_version_id === 'string' ? row.ibscbs_version_id : null))
+                    .filter((value): value is string => Boolean(value))
+            )
+        )
+
+        let icmsBasesById: Record<string, { code: string | null; name: string | null; isActive: boolean }> = {}
+        if (icmsBaseIds.length > 0) {
+            const { data: icmsBaseRows, error: icmsBaseError } = await adminSupabase
+                .from('fiscal_icms_bases')
+                .select('id, code, name, is_active')
+                .in('id', icmsBaseIds)
+
+            if (icmsBaseError) throw icmsBaseError
+
+            icmsBasesById = (icmsBaseRows || []).reduce<
+                Record<string, { code: string | null; name: string | null; isActive: boolean }>
+            >(
+                (acc, row) => {
+                    acc[String(row.id)] = {
+                        code: typeof row.code === 'string' ? row.code : null,
+                        name: typeof row.name === 'string' ? row.name : null,
+                        isActive: row.is_active !== false,
+                    }
+                    return acc
+                },
+                {}
+            )
+        }
+
+        let ibscbsBasesById: Record<string, { code: string | null; name: string | null; isActive: boolean }> = {}
+        if (ibscbsBaseIds.length > 0) {
+            const { data: ibscbsBaseRows, error: ibscbsBaseError } = await adminSupabase
+                .from('fiscal_ibscbs_bases')
+                .select('id, code, name, is_active')
+                .in('id', ibscbsBaseIds)
+
+            if (ibscbsBaseError) throw ibscbsBaseError
+
+            ibscbsBasesById = (ibscbsBaseRows || []).reduce<
+                Record<string, { code: string | null; name: string | null; isActive: boolean }>
+            >((acc, row) => {
+                acc[String(row.id)] = {
+                    code: typeof row.code === 'string' ? row.code : null,
+                    name: typeof row.name === 'string' ? row.name : null,
+                    isActive: row.is_active !== false,
+                }
+                return acc
+            }, {})
+        }
+
+        let ibscbsVersionsById: Record<
+            string,
+            { versionLabel: string | null; status: string | null; validFrom: string | null; validTo: string | null }
+        > = {}
+        if (ibscbsVersionIds.length > 0) {
+            const { data: ibscbsVersionRows, error: ibscbsVersionError } = await adminSupabase
+                .from('fiscal_ibscbs_base_versions')
+                .select('id, version_label, status, valid_from, valid_to')
+                .in('id', ibscbsVersionIds)
+
+            if (ibscbsVersionError) throw ibscbsVersionError
+
+            ibscbsVersionsById = (ibscbsVersionRows || []).reduce<
+                Record<
+                    string,
+                    { versionLabel: string | null; status: string | null; validFrom: string | null; validTo: string | null }
+                >
+            >((acc, row) => {
+                acc[String(row.id)] = {
+                    versionLabel: typeof row.version_label === 'string' ? row.version_label : null,
+                    status: typeof row.status === 'string' ? row.status : null,
+                    validFrom: typeof row.valid_from === 'string' ? row.valid_from : null,
+                    validTo: typeof row.valid_to === 'string' ? row.valid_to : null,
+                }
+                return acc
+            }, {})
+        }
+
         const mapped = ((data || []) as ProductTaxProfileListItem[]).map((item) => {
             const refs = referenceByProfileId[item.id] || {}
+            const icmsBase = refs.icms_base_id ? icmsBasesById[String(refs.icms_base_id)] : null
+            const ibscbsBase = refs.ibscbs_base_id ? ibscbsBasesById[String(refs.ibscbs_base_id)] : null
+            const ibscbsVersion = refs.ibscbs_version_id ? ibscbsVersionsById[String(refs.ibscbs_version_id)] : null
 
             const outdatedReferenceTypes = [
                 refs.ncm_reference_id && (!refs.ncm_version_id || (activeVersionByType.ncm && refs.ncm_version_id !== activeVersionByType.ncm)) ? 'ncm' : null,
@@ -1217,6 +1378,18 @@ export async function listProductTaxProfilesAction(params?: {
                 }) as ProductTaxProfileListItem['reference_mode'],
                 has_outdated_references: outdatedReferenceTypes.length > 0,
                 outdated_reference_types: outdatedReferenceTypes,
+                icms_base_id: typeof refs.icms_base_id === 'string' ? refs.icms_base_id : null,
+                icms_base_code: icmsBase?.code || null,
+                icms_base_name: icmsBase?.name || null,
+                icms_base_is_active: typeof icmsBase?.isActive === 'boolean' ? icmsBase.isActive : null,
+                ibscbs_base_id: typeof refs.ibscbs_base_id === 'string' ? refs.ibscbs_base_id : null,
+                ibscbs_base_code: ibscbsBase?.code || null,
+                ibscbs_base_name: ibscbsBase?.name || null,
+                ibscbs_version_id: typeof refs.ibscbs_version_id === 'string' ? refs.ibscbs_version_id : null,
+                ibscbs_version_label: ibscbsVersion?.versionLabel || null,
+                ibscbs_version_is_active: ibscbsVersion?.status === 'active',
+                ibscbs_valid_from: ibscbsVersion?.validFrom || null,
+                ibscbs_valid_to: ibscbsVersion?.validTo || null,
             }
         })
 
@@ -1337,6 +1510,9 @@ export async function getProductTaxProfileDetailAction(
                     defaultOutputCfopVersionId: profile.default_output_cfop_version_id,
                     defaultInputCfopReferenceId: profile.default_input_cfop_reference_id,
                     defaultInputCfopVersionId: profile.default_input_cfop_version_id,
+                    icmsBaseId: profile.icms_base_id,
+                    ibscbsBaseId: profile.ibscbs_base_id,
+                    ibscbsVersionId: profile.ibscbs_version_id,
                     fiscalReferenceSnapshot: profile.fiscal_reference_snapshot_jsonb,
                     version: profile.version,
                     createdAt: profile.created_at,
@@ -1382,20 +1558,45 @@ export async function upsertProductTaxProfileAction(
         const adminSupabase = createServiceRoleClient()
         const fiscalReferenceSnapshot = await buildFiscalReferenceSnapshot(adminSupabase, input)
         if (input.ncmReferenceId && !fiscalReferenceSnapshot.ncm) {
-            throw new Error('A referência de NCM informada não foi encontrada na base fiscal.')
+            throw new Error('A referencia de NCM informada nao foi encontrada na base fiscal.')
         }
         if (input.tipiReferenceId && !fiscalReferenceSnapshot.tipi) {
-            throw new Error('A referência de TIPI informada não foi encontrada na base fiscal.')
+            throw new Error('A referencia de TIPI informada nao foi encontrada na base fiscal.')
         }
         if (input.cestReferenceId && !fiscalReferenceSnapshot.cest) {
-            throw new Error('A referência de CEST informada não foi encontrada na base fiscal.')
+            throw new Error('A referencia de CEST informada nao foi encontrada na base fiscal.')
         }
         if (input.defaultOutputCfopReferenceId && !fiscalReferenceSnapshot.default_output_cfop) {
-            throw new Error('A referência de CFOP de saída informada não foi encontrada na base fiscal.')
+            throw new Error('A referencia de CFOP de saida informada nao foi encontrada na base fiscal.')
         }
         if (input.defaultInputCfopReferenceId && !fiscalReferenceSnapshot.default_input_cfop) {
-            throw new Error('A referência de CFOP de entrada informada não foi encontrada na base fiscal.')
+            throw new Error('A referencia de CFOP de entrada informada nao foi encontrada na base fiscal.')
         }
+        if (input.icmsBaseId && !fiscalReferenceSnapshot.icms_base) {
+            throw new Error('A base de ICMS informada nao foi encontrada.')
+        }
+        if ((input.ibscbsBaseId || input.ibscbsVersionId) && !fiscalReferenceSnapshot.ibscbs_base) {
+            throw new Error('A base de IBS/CBS informada nao foi encontrada ou nao possui versao valida.')
+        }
+
+        let currentPersistedIcmsBaseId: string | null = null
+        let currentPersistedIbscbsBaseId: string | null = null
+        let currentPersistedIbscbsVersionId: string | null = null
+        if (input.id) {
+            const { data: currentProfile, error: currentProfileError } = await adminSupabase
+                .from('product_tax_profiles')
+                .select('icms_base_id, ibscbs_base_id, ibscbs_version_id')
+                .eq('id', input.id)
+                .single()
+
+            if (currentProfileError) throw currentProfileError
+            currentPersistedIcmsBaseId = typeof currentProfile?.icms_base_id === 'string' ? currentProfile.icms_base_id : null
+            currentPersistedIbscbsBaseId =
+                typeof currentProfile?.ibscbs_base_id === 'string' ? currentProfile.ibscbs_base_id : null
+            currentPersistedIbscbsVersionId =
+                typeof currentProfile?.ibscbs_version_id === 'string' ? currentProfile.ibscbs_version_id : null
+        }
+
         const ncmFromReference = (fiscalReferenceSnapshot.ncm as { code?: string } | undefined)?.code || null
         const ncmVersionFromReference = (fiscalReferenceSnapshot.ncm as { version_id?: string } | undefined)?.version_id || null
         const cestFromReference = (fiscalReferenceSnapshot.cest as { code?: string } | undefined)?.code || null
@@ -1412,6 +1613,52 @@ export async function upsertProductTaxProfileAction(
             (fiscalReferenceSnapshot.tipi as { version_id?: string } | undefined)?.version_id || null
         const defaultFiscalDescriptionFromReference =
             (fiscalReferenceSnapshot.ncm as { description?: string } | undefined)?.description || null
+        const icmsBaseFromReference = fiscalReferenceSnapshot.icms_base as
+            | { base_id?: string; is_active?: boolean; code?: string }
+            | undefined
+        const ibscbsBaseFromReference = fiscalReferenceSnapshot.ibscbs_base as
+            | {
+                  base_id?: string
+                  version_id?: string
+                  base_is_active?: boolean
+                  version_is_active?: boolean
+                  code?: string
+                  version_label?: string
+              }
+            | undefined
+
+        if (
+            input.icmsBaseId &&
+            icmsBaseFromReference &&
+            icmsBaseFromReference.is_active === false &&
+            currentPersistedIcmsBaseId !== input.icmsBaseId
+        ) {
+            throw new Error(
+                `A base de ICMS ${icmsBaseFromReference.code || input.icmsBaseId} esta inativa e nao pode ser usada em novos vinculos. Se este perfil ja herdava essa base, mantenha o vinculo atual ou migre para uma base ativa.`
+            )
+        }
+
+        const icmsBaseIdFromReference = icmsBaseFromReference?.base_id || null
+        const ibscbsBaseIdFromReference = ibscbsBaseFromReference?.base_id || null
+        const ibscbsVersionIdFromReference = ibscbsBaseFromReference?.version_id || null
+
+        if (
+            input.ibscbsBaseId &&
+            input.ibscbsVersionId &&
+            ibscbsBaseFromReference &&
+            (
+                ibscbsBaseFromReference.base_is_active === false ||
+                ibscbsBaseFromReference.version_is_active === false
+            ) &&
+            (
+                currentPersistedIbscbsBaseId !== input.ibscbsBaseId ||
+                currentPersistedIbscbsVersionId !== input.ibscbsVersionId
+            )
+        ) {
+            throw new Error(
+                `A referencia de IBS/CBS ${ibscbsBaseFromReference.code || input.ibscbsBaseId}${ibscbsBaseFromReference.version_label ? ` / ${ibscbsBaseFromReference.version_label}` : ''} nao esta ativa para novos vinculos. Revise a base selecionada e escolha uma versao ativa.`
+            )
+        }
 
         const { data, error } = await adminSupabase.rpc('admin_upsert_product_tax_profile', {
             p_tax_profile_id: input.id ?? null,
@@ -1457,6 +1704,9 @@ export async function upsertProductTaxProfileAction(
             p_default_output_cfop_version_id: defaultOutputCfopVersionFromReference,
             p_default_input_cfop_reference_id: input.defaultInputCfopReferenceId ?? null,
             p_default_input_cfop_version_id: defaultInputCfopVersionFromReference,
+            p_icms_base_id: icmsBaseIdFromReference,
+            p_ibscbs_base_id: ibscbsBaseIdFromReference,
+            p_ibscbs_version_id: ibscbsVersionIdFromReference,
             p_fiscal_reference_snapshot_jsonb: {
                 ...sanitizeJsonPayload(input.fiscalReferenceSnapshot),
                 ...fiscalReferenceSnapshot,
@@ -1494,6 +1744,60 @@ export async function duplicateProductTaxProfileAction(
         if (!isValidUuid(taxProfileId)) throw new Error('Perfil tributario invalido.')
 
         const adminSupabase = createServiceRoleClient()
+        const { data: sourceProfile, error: sourceProfileError } = await adminSupabase
+            .from('product_tax_profiles')
+            .select('icms_base_id, ibscbs_base_id, ibscbs_version_id')
+            .eq('id', taxProfileId)
+            .single()
+
+        if (sourceProfileError) throw sourceProfileError
+
+        const sourceIcmsBaseId =
+            typeof sourceProfile?.icms_base_id === 'string' ? sourceProfile.icms_base_id : null
+        const sourceIbscbsBaseId =
+            typeof sourceProfile?.ibscbs_base_id === 'string' ? sourceProfile.ibscbs_base_id : null
+        const sourceIbscbsVersionId =
+            typeof sourceProfile?.ibscbs_version_id === 'string' ? sourceProfile.ibscbs_version_id : null
+        if (sourceIcmsBaseId) {
+            const { data: sourceIcmsBase, error: sourceIcmsBaseError } = await adminSupabase
+                .from('fiscal_icms_bases')
+                .select('code, is_active')
+                .eq('id', sourceIcmsBaseId)
+                .single()
+
+            if (sourceIcmsBaseError) throw sourceIcmsBaseError
+            if (sourceIcmsBase?.is_active === false) {
+                throw new Error(
+                    `O perfil atual usa a base de ICMS ${sourceIcmsBase.code || sourceIcmsBaseId}, que esta inativa. Antes de duplicar, revise o vinculo para uma base ativa.`
+                )
+            }
+        }
+
+        if (sourceIbscbsBaseId && sourceIbscbsVersionId) {
+            const [{ data: sourceIbscbsBase, error: sourceIbscbsBaseError }, { data: sourceIbscbsVersion, error: sourceIbscbsVersionError }] =
+                await Promise.all([
+                    adminSupabase
+                        .from('fiscal_ibscbs_bases')
+                        .select('code, is_active')
+                        .eq('id', sourceIbscbsBaseId)
+                        .single(),
+                    adminSupabase
+                        .from('fiscal_ibscbs_base_versions')
+                        .select('version_label, status')
+                        .eq('id', sourceIbscbsVersionId)
+                        .single(),
+                ])
+
+            if (sourceIbscbsBaseError) throw sourceIbscbsBaseError
+            if (sourceIbscbsVersionError) throw sourceIbscbsVersionError
+
+            if (sourceIbscbsBase?.is_active === false || sourceIbscbsVersion?.status !== 'active') {
+                throw new Error(
+                    `O perfil atual usa a referencia IBS/CBS ${sourceIbscbsBase?.code || sourceIbscbsBaseId}${sourceIbscbsVersion?.version_label ? ` / ${sourceIbscbsVersion.version_label}` : ''}, que nao esta ativa para novos vinculos. Antes de duplicar, revise a referencia para uma versao ativa.`
+                )
+            }
+        }
+
         const { data, error } = await adminSupabase.rpc('admin_duplicate_product_tax_profile', {
             p_tax_profile_id: taxProfileId,
             p_new_name: sanitizeFiscalCode(options?.newName),

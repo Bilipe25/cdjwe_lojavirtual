@@ -71,6 +71,9 @@ export const productTaxProfileSchema = z
         defaultOutputCfopVersionId: z.string().uuid().optional(),
         defaultInputCfopReferenceId: z.string().uuid().optional(),
         defaultInputCfopVersionId: z.string().uuid().optional(),
+        icmsBaseId: z.string().uuid().optional(),
+        ibscbsBaseId: z.string().uuid().optional(),
+        ibscbsVersionId: z.string().uuid().optional(),
         fiscalReferenceSnapshot: z.record(z.string(), z.unknown()).optional(),
     })
     .superRefine((value, ctx) => {
@@ -110,6 +113,16 @@ export const productTaxProfileSchema = z
                 })
             }
         })
+
+        const hasIbscbsBase = Boolean(value.ibscbsBaseId)
+        const hasIbscbsVersion = Boolean(value.ibscbsVersionId)
+        if (hasIbscbsBase !== hasIbscbsVersion) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['ibscbsVersionId'],
+                message: 'Base e versao de IBS/CBS precisam permanecer sincronizadas.',
+            })
+        }
 
         if (value.requiresCest && !hasCestReference && cestDigits.length !== 7) {
             ctx.addIssue({

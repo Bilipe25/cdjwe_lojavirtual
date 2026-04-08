@@ -88,6 +88,9 @@ export function ProductTaxProfileEditor({ mode, taxProfileId }: ProductTaxProfil
             defaultOutputCfopVersionId: data.defaultOutputCfopVersionId,
             defaultInputCfopReferenceId: data.defaultInputCfopReferenceId,
             defaultInputCfopVersionId: data.defaultInputCfopVersionId,
+            icmsBaseId: data.icmsBaseId,
+            ibscbsBaseId: data.ibscbsBaseId,
+            ibscbsVersionId: data.ibscbsVersionId,
             fiscalReferenceSnapshot: data.fiscalReferenceSnapshot,
         })
 

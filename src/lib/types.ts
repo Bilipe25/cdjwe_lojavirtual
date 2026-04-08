@@ -200,6 +200,9 @@ export interface ProductTaxProfile {
   default_output_cfop_version_id?: string | null
   default_input_cfop_reference_id?: string | null
   default_input_cfop_version_id?: string | null
+  icms_base_id?: string | null
+  ibscbs_base_id?: string | null
+  ibscbs_version_id?: string | null
   fiscal_reference_snapshot_jsonb?: Record<string, unknown> | null
   version: number
   created_at: string
