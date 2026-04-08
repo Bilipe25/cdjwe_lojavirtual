@@ -176,6 +176,70 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
+/* ==================== CATALOG NOTICE EDITOR ==================== */
+.catalog-notice-editor .catalog-notice-prosemirror {
+  min-height: 14rem;
+  padding: 1rem 1rem 1.1rem;
+  outline: none;
+  color: var(--foreground);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror > * + * {
+  margin-top: 0.75rem;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror h3,
+.catalog-notice-editor .catalog-notice-prosemirror h4 {
+  font-family: 'Outfit', system-ui, sans-serif;
+  color: var(--foreground);
+  letter-spacing: -0.02em;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror h3 {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror h4 {
+  font-size: 0.96rem;
+  font-weight: 600;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror ul,
+.catalog-notice-editor .catalog-notice-prosemirror ol {
+  margin-left: 1.35rem;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror ul {
+  list-style: disc;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror ol {
+  list-style: decimal;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror li + li {
+  margin-top: 0.35rem;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror a {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.catalog-notice-editor .catalog-notice-prosemirror .is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--muted-foreground);
+  pointer-events: none;
+  height: 0;
+}
+
 /* ==================== ANIMATIONS ==================== */
 @keyframes fade-in {
   from {

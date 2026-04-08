@@ -342,6 +342,7 @@ function CatalogContentInner() {
                 
                 <NoticeCard 
                     notice={settings?.catalog_notice} 
+                    noticeHtml={settings?.catalog_notice_html}
                     type={settings?.catalog_notice_type} 
                     className="max-w-md w-full hidden md:block" 
                 />

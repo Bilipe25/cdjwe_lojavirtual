@@ -285,6 +285,7 @@ export default function DashboardPage() {
             {/* Catalog Notice - Mobile only visibility handled by caller preference or layout */}
             <NoticeCard 
                 notice={settings?.catalog_notice} 
+                noticeHtml={settings?.catalog_notice_html}
                 type={settings?.catalog_notice_type}
                 className="mt-8" 
             />

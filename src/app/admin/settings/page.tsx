@@ -31,7 +31,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { toast } from 'sonner'
+import { plainTextToCatalogNoticeHtml } from '@/lib/catalog-notice'
 import { loadSettingsAction, saveSettingsAction, uploadLogoAction, uploadAboutImageAction } from './actions'
+import { CatalogNoticeEditor } from './components/CatalogNoticeEditor'
 import type { SystemSettings } from '@/lib/types'
 
 // ====== Input Masks ======
@@ -63,6 +65,8 @@ function maskCEP(value: string): string {
 
 // ====== Form State Type ======
 
+type CatalogNoticeType = 'info' | 'promotion' | 'attention' | 'message'
+
 interface FormState {
     systemName: string
     cnpj: string
@@ -83,8 +87,8 @@ interface FormState {
     aboutTitle: string
     aboutText: string
     aboutImageUrl: string
-    catalogNotice: string
-    catalogNoticeType: 'info' | 'promotion' | 'attention' | 'message'
+    catalogNoticeHtml: string
+    catalogNoticeType: CatalogNoticeType
 }
 
 const initialForm: FormState = {
@@ -107,7 +111,7 @@ const initialForm: FormState = {
     aboutTitle: '',
     aboutText: '',
     aboutImageUrl: '',
-    catalogNotice: '',
+    catalogNoticeHtml: '',
     catalogNoticeType: 'info',
 }
 
@@ -161,8 +165,8 @@ export default function AdminSettingsPage() {
                     aboutTitle: result.data.about_title || '',
                     aboutText: result.data.about_text || '',
                     aboutImageUrl: result.data.about_image_url || '',
-                    catalogNotice: result.data.catalog_notice || '',
-                    catalogNoticeType: (result.data.catalog_notice_type as any) || 'info',
+                    catalogNoticeHtml: result.data.catalog_notice_html || plainTextToCatalogNoticeHtml(result.data.catalog_notice),
+                    catalogNoticeType: (result.data.catalog_notice_type as CatalogNoticeType | null) || 'info',
                 }
                 setForm(loaded)
                 setSavedForm(loaded)
@@ -206,7 +210,7 @@ export default function AdminSettingsPage() {
             about_title: form.aboutTitle || null,
             about_text: form.aboutText || null,
             about_image_url: form.aboutImageUrl || null,
-            catalog_notice: form.catalogNotice || null,
+            catalog_notice_html: form.catalogNoticeHtml || null,
             catalog_notice_type: form.catalogNoticeType,
         })
 
@@ -618,12 +622,12 @@ export default function AdminSettingsPage() {
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="space-y-2">
-                                    <Label>Texto do Aviso</Label>
-                                    <Textarea
-                                        value={form.catalogNotice}
-                                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateField('catalogNotice', e.target.value)}
+                                    <Label>Conteúdo do Aviso</Label>
+                                    <CatalogNoticeEditor
+                                        value={form.catalogNoticeHtml}
+                                        noticeType={form.catalogNoticeType}
+                                        onChange={(value) => updateField('catalogNoticeHtml', value)}
                                         placeholder="Ex: Aproveite nossas condições especiais de parcelamento este mês!"
-                                        className="bg-white/60 min-h-[120px] resize-y"
                                     />
                                     <p className="text-xs text-muted-foreground">
                                         Este aviso será exibido no topo do catálogo de produtos e no dashboard do cliente. 
@@ -646,7 +650,7 @@ export default function AdminSettingsPage() {
                                                 <button
                                                     key={t.id}
                                                     type="button"
-                                                    onClick={() => updateField('catalogNoticeType', t.id as any)}
+                                                    onClick={() => updateField('catalogNoticeType', t.id as CatalogNoticeType)}
                                                     className={cn(
                                                         "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all gap-2",
                                                         isSelected 

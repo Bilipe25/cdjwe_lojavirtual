@@ -2,13 +2,15 @@
 
 import { createClient } from '@/lib/supabase/server'
 import type { PostgrestError } from '@supabase/supabase-js'
+import { CATALOG_NOTICE_MAX_CHARACTERS, plainTextToCatalogNoticeHtml } from '@/lib/catalog-notice'
+import { sanitizeCatalogNoticeContent } from '@/lib/catalog-notice-sanitizer'
 import type { SystemSettings } from '@/lib/types'
 
 function mapSettingsDbError(error: PostgrestError | null): string {
     if (!error) return 'Erro inesperado ao salvar configuracoes.'
 
     if (error.code === '42703') {
-        return 'Banco desatualizado para Configuracoes. Aplique a migration 012_system_settings_extended_fields.sql.'
+        return 'Banco desatualizado para Configuracoes. Aplique as migrations 012_system_settings_extended_fields.sql e 013_catalog_notice_html.sql.'
     }
 
     if (error.code === '23514' && error.message.toLowerCase().includes('catalog_notice_type')) {
@@ -83,6 +85,7 @@ interface SaveSettingsInput {
     about_text?: string | null
     about_image_url?: string | null
     catalog_notice?: string | null
+    catalog_notice_html?: string | null
     catalog_notice_type?: 'info' | 'promotion' | 'attention' | 'message' | null
 }
 
@@ -101,6 +104,13 @@ export async function saveSettingsAction(input: SaveSettingsInput): Promise<{ er
 
     if (input.default_delivery_days < 1) {
         return { error: 'Prazo de entrega deve ser no minimo 1 dia.' }
+    }
+
+    const noticeSource = input.catalog_notice_html ?? plainTextToCatalogNoticeHtml(input.catalog_notice)
+    const sanitizedNotice = sanitizeCatalogNoticeContent(noticeSource)
+
+    if (sanitizedNotice.characterCount > CATALOG_NOTICE_MAX_CHARACTERS) {
+        return { error: `O aviso do catalogo pode ter no maximo ${CATALOG_NOTICE_MAX_CHARACTERS} caracteres.` }
     }
 
     const supabase = await createClient()
@@ -125,7 +135,8 @@ export async function saveSettingsAction(input: SaveSettingsInput): Promise<{ er
         about_title: input.about_title || null,
         about_text: input.about_text || null,
         about_image_url: input.about_image_url || null,
-        catalog_notice: input.catalog_notice || null,
+        catalog_notice: sanitizedNotice.plainText,
+        catalog_notice_html: sanitizedNotice.html,
         catalog_notice_type: input.catalog_notice_type || 'info',
     }
 

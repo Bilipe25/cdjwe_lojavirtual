@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 
 interface NoticeCardProps {
     notice: string | null | undefined
+    noticeHtml?: string | null
     type?: 'info' | 'promotion' | 'attention' | 'message' | null
     className?: string
 }
@@ -47,8 +48,27 @@ const VARIANTS = {
     },
 }
 
-export function NoticeCard({ notice, type = 'info', className }: NoticeCardProps) {
-    if (!notice || notice.trim() === '') return null
+const RICH_NOTICE_CONTENT_CLASSNAME = cn(
+    'text-sm leading-relaxed text-navy/85',
+    '[&_p]:m-0 [&_p+*]:mt-3',
+    '[&_h3]:m-0 [&_h3]:font-heading [&_h3]:text-base [&_h3]:font-semibold [&_h3]:tracking-tight [&_h3]:text-navy',
+    '[&_h3+*]:mt-3',
+    '[&_h4]:m-0 [&_h4]:font-heading [&_h4]:text-[0.95rem] [&_h4]:font-semibold [&_h4]:tracking-tight [&_h4]:text-navy',
+    '[&_h4+*]:mt-2.5',
+    '[&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc',
+    '[&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal',
+    '[&_li]:pl-1 [&_li+li]:mt-1.5',
+    '[&_a]:font-semibold [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-4 [&_a:hover]:text-primary/80',
+    '[&_strong]:font-semibold',
+    '[&_em]:italic',
+    '[&_u]:underline',
+)
+
+export function NoticeCard({ notice, noticeHtml, type = 'info', className }: NoticeCardProps) {
+    const hasRichNotice = Boolean(noticeHtml && noticeHtml.trim() !== '')
+    const hasLegacyNotice = Boolean(notice && notice.trim() !== '')
+
+    if (!hasRichNotice && !hasLegacyNotice) return null
 
     const variant = VARIANTS[type as keyof typeof VARIANTS] || VARIANTS.info
     const IconComp = variant.icon
@@ -73,10 +93,17 @@ export function NoticeCard({ notice, type = 'info', className }: NoticeCardProps
                             <IconComp className={cn("h-4 w-4", variant.iconColor)} />
                         </div>
                     </div>
-                    <div className="space-y-1">
-                        <p className="text-sm text-navy/80 leading-relaxed font-medium">
-                            {notice}
-                        </p>
+                    <div className="min-w-0 flex-1">
+                        {hasRichNotice ? (
+                            <div
+                                className={RICH_NOTICE_CONTENT_CLASSNAME}
+                                dangerouslySetInnerHTML={{ __html: noticeHtml ?? '' }}
+                            />
+                        ) : (
+                            <p className="whitespace-pre-line text-sm leading-relaxed font-medium text-navy/80">
+                                {notice}
+                            </p>
+                        )}
                     </div>
                 </CardContent>
             </Card>
