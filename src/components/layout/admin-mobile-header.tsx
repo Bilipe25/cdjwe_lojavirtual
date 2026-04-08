@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -50,14 +50,24 @@ const topNavItems = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 ]
 
-const cadastrosNavItems = [
+const productCadastrosNavItems = [
+    { href: '/admin/products', label: 'Lista de produtos', icon: Package },
     { href: '/admin/categories', label: 'Categorias', icon: Layers },
-    { href: '/admin/products', label: 'Produtos', icon: Package },
-    { href: '/admin/product-tax-profiles', label: 'Perfis Tributarios', icon: ShieldCheck },
-    { href: '/admin/fiscal-bases', label: 'Bases Fiscais', icon: Database },
     { href: '/admin/fabrics', label: 'Tecidos & Cores', icon: Palette },
+]
+
+const cadastrosNavItems = [
     { href: '/admin/price-tables', label: 'Tabelas de Preço', icon: Tag },
     { href: '/admin/payment-conditions', label: 'Meios de Pagamento', icon: CreditCard },
+]
+
+const settingsNavItems = [
+    { href: '/admin/settings', label: 'Configurações Gerais', icon: Settings },
+]
+
+const fiscalSettingsNavItems = [
+    { href: '/admin/product-tax-profiles', label: 'Perfis Tributários', icon: ShieldCheck },
+    { href: '/admin/fiscal-bases', label: 'Bases Fiscais', icon: Database },
 ]
 
 const marketingNavItems = [
@@ -77,11 +87,11 @@ const financeiroNavItems = [
 const logisticaNavItems = [
     { href: '/admin/logistica/pedidos', label: 'Pedidos p/ Rota', icon: PackageCheck },
     { href: '/admin/logistica/rotas', label: 'Central de Rotas', icon: Route },
-    { href: '/admin/logistica/historico', label: 'Historico', icon: History },
-    { href: '/admin/logistica/veiculos', label: 'Veiculos', icon: Truck },
+    { href: '/admin/logistica/historico', label: 'Histórico', icon: History },
+    { href: '/admin/logistica/veiculos', label: 'Veículos', icon: Truck },
     { href: '/admin/logistica/motoristas', label: 'Motoristas', icon: UserCircle },
     { href: '/admin/logistica/centros', label: 'Centros', icon: Warehouse },
-    { href: '/admin/logistica/regioes', label: 'Regioes', icon: MapPin },
+    { href: '/admin/logistica/regioes', label: 'Regiões', icon: MapPin },
     { href: '/admin/logistica/custos', label: 'Custos', icon: DollarSign },
 ]
 
@@ -89,7 +99,6 @@ const bottomNavItems = [
     { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
     { href: '/admin/customers', label: 'Clientes', icon: Users },
     { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
-    { href: '/admin/settings', label: 'Configurações', icon: Settings },
 ]
 
 export function AdminMobileHeader() {
@@ -98,18 +107,27 @@ export function AdminMobileHeader() {
     const [open, setOpen] = useState(false)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
     const [cadastrosOpen, setCadastrosOpen] = useState(false)
+    const [productCadastrosOpen, setProductCadastrosOpen] = useState(false)
     const [marketingOpen, setMarketingOpen] = useState(false)
     const [financeiroOpen, setFinanceiroOpen] = useState(false)
     const [logisticaOpen, setLogisticaOpen] = useState(false)
+    const [settingsOpen, setSettingsOpen] = useState(false)
+    const [fiscalSettingsOpen, setFiscalSettingsOpen] = useState(false)
 
     const isCadastroActive = cadastrosNavItems.some(item => pathname.startsWith(item.href))
+    const isProductCadastroActive = productCadastrosNavItems.some(item => pathname.startsWith(item.href))
     const isMarketingActive = marketingNavItems.some(item => pathname.startsWith(item.href))
-    const effectiveCadastrosOpen = cadastrosOpen || isCadastroActive
+    const effectiveCadastrosOpen = cadastrosOpen || isCadastroActive || isProductCadastroActive
+    const effectiveProductCadastrosOpen = productCadastrosOpen || isProductCadastroActive
     const effectiveMarketingOpen = marketingOpen || isMarketingActive
     const isFinanceiroActive = financeiroNavItems.some(item => pathname.startsWith(item.href))
     const effectiveFinanceiroOpen = financeiroOpen || isFinanceiroActive
     const isLogisticaActive = logisticaNavItems.some(item => pathname.startsWith(item.href))
     const effectiveLogisticaOpen = logisticaOpen || isLogisticaActive
+    const isFiscalSettingsActive = fiscalSettingsNavItems.some(item => pathname.startsWith(item.href))
+    const isSettingsActive = settingsNavItems.some(item => pathname.startsWith(item.href)) || isFiscalSettingsActive
+    const effectiveSettingsOpen = settingsOpen || isSettingsActive
+    const effectiveFiscalSettingsOpen = fiscalSettingsOpen || isFiscalSettingsActive
 
     useEffect(() => {
         const loadSettings = async () => {
@@ -137,7 +155,7 @@ export function AdminMobileHeader() {
     }
 
     // Find active page title
-    const activeItem = [...topNavItems, ...cadastrosNavItems, ...marketingNavItems, ...financeiroNavItems, ...logisticaNavItems, ...bottomNavItems].find(item => pathname.startsWith(item.href))
+    const activeItem = [...topNavItems, ...productCadastrosNavItems, ...cadastrosNavItems, ...marketingNavItems, ...financeiroNavItems, ...logisticaNavItems, ...settingsNavItems, ...fiscalSettingsNavItems, ...bottomNavItems].find(item => pathname.startsWith(item.href))
 
     return (
         <header className="md:hidden sticky top-0 z-50 glass border-b px-4 h-14 flex items-center justify-between">
@@ -218,6 +236,50 @@ export function AdminMobileHeader() {
                                 )}>
                                     <div className="overflow-hidden">
                                         <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
+                                            <div className="space-y-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setProductCadastrosOpen(!productCadastrosOpen)}
+                                                    className={cn(
+                                                        'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                        isProductCadastroActive && !productCadastrosOpen && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                    )}
+                                                >
+                                                    <Package className="h-4 w-4 shrink-0" />
+                                                    <span className="flex-1 text-left truncate">Produtos</span>
+                                                    <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", effectiveProductCadastrosOpen && "rotate-180")} />
+                                                </Button>
+                                                <div className={cn(
+                                                    "grid transition-all duration-200 ease-in-out",
+                                                    effectiveProductCadastrosOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                                                )}>
+                                                    <div className="overflow-hidden">
+                                                        <div className="pl-5 py-1 space-y-1 relative before:absolute before:left-1 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border/80">
+                                                            {productCadastrosNavItems.map((item) => {
+                                                                const isActive = pathname.startsWith(item.href)
+                                                                return (
+                                                                    <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className="block relative">
+                                                                        {isActive && (
+                                                                            <div className="absolute -left-[15px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                                        )}
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className={cn(
+                                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                                            )}
+                                                                        >
+                                                                            <span className="truncate">{item.label}</span>
+                                                                        </Button>
+                                                                    </Link>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                             {cadastrosNavItems.map((item) => {
                                                 const isActive = pathname.startsWith(item.href)
                                                 return (
@@ -401,6 +463,95 @@ export function AdminMobileHeader() {
                             </div>
                         </nav>
 
+                            {/* Configurações Group */}
+                            <div className="pt-1">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setSettingsOpen(!settingsOpen)}
+                                    className={cn(
+                                        'w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                        isSettingsActive && !settingsOpen && 'text-sidebar-foreground font-medium'
+                                    )}
+                                >
+                                    <Settings className="h-5 w-5 shrink-0" />
+                                    <span className="flex-1 text-left truncate">Configurações</span>
+                                    <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', effectiveSettingsOpen && 'rotate-180')} />
+                                </Button>
+                                <div className={cn(
+                                    'grid transition-all duration-200 ease-in-out',
+                                    effectiveSettingsOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                )}>
+                                    <div className="overflow-hidden">
+                                        <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
+                                            {settingsNavItems.map((item) => {
+                                                const isActive = pathname.startsWith(item.href)
+                                                return (
+                                                    <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className="block relative">
+                                                        {isActive && (
+                                                            <div className="absolute -left-[17px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                        )}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className={cn(
+                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                            )}
+                                                        >
+                                                            <span className="truncate">{item.label}</span>
+                                                        </Button>
+                                                    </Link>
+                                                )
+                                            })}
+                                            <div className="space-y-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setFiscalSettingsOpen(!fiscalSettingsOpen)}
+                                                    className={cn(
+                                                        'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                        isFiscalSettingsActive && !fiscalSettingsOpen && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                    )}
+                                                >
+                                                    <Database className="h-4 w-4 shrink-0" />
+                                                    <span className="flex-1 text-left truncate">Fiscais</span>
+                                                    <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', effectiveFiscalSettingsOpen && 'rotate-180')} />
+                                                </Button>
+                                                <div className={cn(
+                                                    'grid transition-all duration-200 ease-in-out',
+                                                    effectiveFiscalSettingsOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                                )}>
+                                                    <div className="overflow-hidden">
+                                                        <div className="pl-5 py-1 space-y-1 relative before:absolute before:left-1 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border/80">
+                                                            {fiscalSettingsNavItems.map((item) => {
+                                                                const isActive = pathname.startsWith(item.href)
+                                                                return (
+                                                                    <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className="block relative">
+                                                                        {isActive && (
+                                                                            <div className="absolute -left-[15px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                                        )}
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className={cn(
+                                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                                            )}
+                                                                        >
+                                                                            <span className="truncate">{item.label}</span>
+                                                                        </Button>
+                                                                    </Link>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                         {/* Bottom Actions */}
                         <div className="border-t border-sidebar-border p-2 space-y-1 shrink-0">
                             <Button
@@ -457,4 +608,10 @@ export function AdminMobileHeader() {
         </header>
     )
 }
+
+
+
+
+
+
 

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -57,14 +57,24 @@ const topNavItems = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 ]
 
-const cadastrosNavItems = [
+const productCadastrosNavItems = [
+    { href: '/admin/products', label: 'Lista de produtos', icon: Package },
     { href: '/admin/categories', label: 'Categorias', icon: Layers },
-    { href: '/admin/products', label: 'Produtos', icon: Package },
-    { href: '/admin/product-tax-profiles', label: 'Perfis Tributarios', icon: ShieldCheck },
-    { href: '/admin/fiscal-bases', label: 'Bases Fiscais', icon: Database },
     { href: '/admin/fabrics', label: 'Tecidos & Cores', icon: Palette },
+]
+
+const cadastrosNavItems = [
     { href: '/admin/price-tables', label: 'Tabelas de Preço', icon: Tag },
     { href: '/admin/payment-conditions', label: 'Meios de Pagamento', icon: CreditCard },
+]
+
+const settingsNavItems = [
+    { href: '/admin/settings', label: 'Configurações Gerais', icon: Settings },
+]
+
+const fiscalSettingsNavItems = [
+    { href: '/admin/product-tax-profiles', label: 'Perfis Tributários', icon: ShieldCheck },
+    { href: '/admin/fiscal-bases', label: 'Bases Fiscais', icon: Database },
 ]
 
 const marketingNavItems = [
@@ -96,7 +106,6 @@ const bottomNavItems = [
     { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
     { href: '/admin/customers', label: 'Clientes', icon: Users },
     { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
-    { href: '/admin/settings', label: 'Configurações', icon: Settings },
 ]
 
 export function AdminSidebar() {
@@ -104,19 +113,28 @@ export function AdminSidebar() {
     const router = useRouter()
     const [collapsed, setCollapsed] = useState(false)
     const [cadastrosOpen, setCadastrosOpen] = useState(false)
+    const [productCadastrosOpen, setProductCadastrosOpen] = useState(false)
     const [marketingOpen, setMarketingOpen] = useState(false)
     const [financeiroOpen, setFinanceiroOpen] = useState(false)
     const [logisticaOpen, setLogisticaOpen] = useState(false)
+    const [settingsOpen, setSettingsOpen] = useState(false)
+    const [fiscalSettingsOpen, setFiscalSettingsOpen] = useState(false)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
 
     const isCadastroActive = cadastrosNavItems.some(item => pathname.startsWith(item.href))
+    const isProductCadastroActive = productCadastrosNavItems.some(item => pathname.startsWith(item.href))
     const isMarketingActive = marketingNavItems.some(item => pathname.startsWith(item.href))
     const isFinanceiroActive = financeiroNavItems.some(item => pathname.startsWith(item.href))
     const isLogisticaActive = logisticaNavItems.some(item => pathname.startsWith(item.href))
-    const effectiveCadastrosOpen = !collapsed && (cadastrosOpen || isCadastroActive)
+    const isFiscalSettingsActive = fiscalSettingsNavItems.some(item => pathname.startsWith(item.href))
+    const isSettingsActive = settingsNavItems.some(item => pathname.startsWith(item.href)) || isFiscalSettingsActive
+    const effectiveCadastrosOpen = !collapsed && (cadastrosOpen || isCadastroActive || isProductCadastroActive)
+    const effectiveProductCadastrosOpen = !collapsed && (productCadastrosOpen || isProductCadastroActive)
     const effectiveMarketingOpen = !collapsed && (marketingOpen || isMarketingActive)
     const effectiveFinanceiroOpen = !collapsed && (financeiroOpen || isFinanceiroActive)
     const effectiveLogisticaOpen = !collapsed && (logisticaOpen || isLogisticaActive)
+    const effectiveSettingsOpen = !collapsed && (settingsOpen || isSettingsActive)
+    const effectiveFiscalSettingsOpen = !collapsed && (fiscalSettingsOpen || isFiscalSettingsActive)
 
     useEffect(() => {
         const loadSettings = async () => {
@@ -244,6 +262,23 @@ export function AdminSidebar() {
                                     <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                         Cadastros
                                     </div>
+                                    <div className="px-2 pt-2 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                        Produtos
+                                    </div>
+                                    {productCadastrosNavItems.map((item) => {
+                                        const isActive = pathname.startsWith(item.href)
+                                        return (
+                                            <DropdownMenuItem key={item.href} render={(
+                                                <Link href={item.href} className={cn(
+                                                    "cursor-pointer flex items-center gap-2",
+                                                    isActive && "bg-accent text-accent-foreground font-medium"
+                                                )}>
+                                                    <item.icon className="h-4 w-4 shrink-0" />
+                                                    {item.label}
+                                                </Link>
+                                            )} />
+                                        )
+                                    })}
                                     {cadastrosNavItems.map((item) => {
                                         const isActive = pathname.startsWith(item.href)
                                         return (
@@ -280,6 +315,50 @@ export function AdminSidebar() {
                                 )}>
                                     <div className="overflow-hidden">
                                         <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
+                                            <div className="space-y-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setProductCadastrosOpen(!productCadastrosOpen)}
+                                                    className={cn(
+                                                        'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                        isProductCadastroActive && !productCadastrosOpen && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                    )}
+                                                >
+                                                    <Package className="h-4 w-4 shrink-0" />
+                                                    <span className="flex-1 text-left truncate">Produtos</span>
+                                                    <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', effectiveProductCadastrosOpen && 'rotate-180')} />
+                                                </Button>
+                                                <div className={cn(
+                                                    'grid transition-all duration-200 ease-in-out',
+                                                    effectiveProductCadastrosOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                                )}>
+                                                    <div className="overflow-hidden">
+                                                        <div className="pl-5 py-1 space-y-1 relative before:absolute before:left-1 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border/80">
+                                                            {productCadastrosNavItems.map((item) => {
+                                                                const isActive = pathname.startsWith(item.href)
+                                                                return (
+                                                                    <Link key={item.href} href={item.href} className="block relative">
+                                                                        {isActive && (
+                                                                            <div className="absolute -left-[15px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                                        )}
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className={cn(
+                                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                                            )}
+                                                                        >
+                                                                            <span className="truncate">{item.label}</span>
+                                                                        </Button>
+                                                                    </Link>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                             {cadastrosNavItems.map((item) => {
                                                 const isActive = pathname.startsWith(item.href)
                                                 return (
@@ -610,6 +689,157 @@ export function AdminSidebar() {
                     </div>
                 </nav>
 
+                    {/* Configurações Group */}
+                    <div className="pt-1">
+                        {collapsed ? (
+                            <DropdownMenu>
+                                <Tooltip>
+                                    <TooltipTrigger render={(
+                                        <DropdownMenuTrigger render={(
+                                            <Button
+                                                variant="ghost"
+                                                className={cn(
+                                                    'w-full justify-center px-2 gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                                    isSettingsActive && 'bg-sidebar-accent text-sidebar-primary font-medium'
+                                                )}
+                                            >
+                                                <Settings className="h-5 w-5 shrink-0" />
+                                            </Button>
+                                        )} />
+                                    )} />
+                                    <TooltipContent side="right">
+                                        <p>Configurações</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                                <DropdownMenuContent side="right" sideOffset={16} align="start" className="w-56">
+                                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                        Configurações
+                                    </div>
+                                    {settingsNavItems.map((item) => {
+                                        const isActive = pathname.startsWith(item.href)
+                                        return (
+                                            <DropdownMenuItem key={item.href} render={(
+                                                <Link href={item.href} className={cn(
+                                                    'cursor-pointer flex items-center gap-2',
+                                                    isActive && 'bg-accent text-accent-foreground font-medium'
+                                                )}>
+                                                    <item.icon className="h-4 w-4 shrink-0" />
+                                                    {item.label}
+                                                </Link>
+                                            )} />
+                                        )
+                                    })}
+                                    <div className="px-2 pt-2 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                        Fiscais
+                                    </div>
+                                    {fiscalSettingsNavItems.map((item) => {
+                                        const isActive = pathname.startsWith(item.href)
+                                        return (
+                                            <DropdownMenuItem key={item.href} render={(
+                                                <Link href={item.href} className={cn(
+                                                    'cursor-pointer flex items-center gap-2',
+                                                    isActive && 'bg-accent text-accent-foreground font-medium'
+                                                )}>
+                                                    <item.icon className="h-4 w-4 shrink-0" />
+                                                    {item.label}
+                                                </Link>
+                                            )} />
+                                        )
+                                    })}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        ) : (
+                            <div className="space-y-1">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setSettingsOpen(!settingsOpen)}
+                                    className={cn(
+                                        'w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                        isSettingsActive && !settingsOpen && 'text-sidebar-foreground font-medium'
+                                    )}
+                                >
+                                    <Settings className="h-5 w-5 shrink-0" />
+                                    <span className="flex-1 text-left truncate">Configurações</span>
+                                    <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', effectiveSettingsOpen && 'rotate-180')} />
+                                </Button>
+                                <div className={cn(
+                                    'grid transition-all duration-200 ease-in-out',
+                                    effectiveSettingsOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                )}>
+                                    <div className="overflow-hidden">
+                                        <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
+                                            {settingsNavItems.map((item) => {
+                                                const isActive = pathname.startsWith(item.href)
+                                                return (
+                                                    <Link key={item.href} href={item.href} className="block relative">
+                                                        {isActive && (
+                                                            <div className="absolute -left-[17px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                        )}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className={cn(
+                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                            )}
+                                                        >
+                                                            <span className="truncate">{item.label}</span>
+                                                        </Button>
+                                                    </Link>
+                                                )
+                                            })}
+                                            <div className="space-y-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setFiscalSettingsOpen(!fiscalSettingsOpen)}
+                                                    className={cn(
+                                                        'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                        isFiscalSettingsActive && !fiscalSettingsOpen && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                    )}
+                                                >
+                                                    <Database className="h-4 w-4 shrink-0" />
+                                                    <span className="flex-1 text-left truncate">Fiscais</span>
+                                                    <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', effectiveFiscalSettingsOpen && 'rotate-180')} />
+                                                </Button>
+                                                <div className={cn(
+                                                    'grid transition-all duration-200 ease-in-out',
+                                                    effectiveFiscalSettingsOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                                )}>
+                                                    <div className="overflow-hidden">
+                                                        <div className="pl-5 py-1 space-y-1 relative before:absolute before:left-1 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border/80">
+                                                            {fiscalSettingsNavItems.map((item) => {
+                                                                const isActive = pathname.startsWith(item.href)
+                                                                return (
+                                                                    <Link key={item.href} href={item.href} className="block relative">
+                                                                        {isActive && (
+                                                                            <div className="absolute -left-[15px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                                        )}
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className={cn(
+                                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                                            )}
+                                                                        >
+                                                                            <span className="truncate">{item.label}</span>
+                                                                        </Button>
+                                                                    </Link>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+
                 {/* Bottom Actions */}
                 <div className="border-t border-sidebar-border p-2 space-y-1">
                     {collapsed ? (
@@ -702,3 +932,7 @@ export function AdminSidebar() {
         </TooltipProvider>
     )
 }
+
+
+
+
