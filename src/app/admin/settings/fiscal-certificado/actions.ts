@@ -1,11 +1,14 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import type { CompanyCertificateConfig } from '@/lib/types'
 import {
+  decryptCertificatePassword,
   encryptCertificatePassword,
   fingerprintFile,
 } from '@/lib/fiscal/certificate-security'
+import { parseA1CertificateFromBuffer } from '@/lib/fiscal/certificate-parser'
 
 function normalizeCertificateStatus(input: {
   certificate_storage_path?: string | null
@@ -24,6 +27,28 @@ function normalizeCertificateStatus(input: {
   return input.is_active ? 'active' : 'pending'
 }
 
+function sanitizeCertificateRecord(record: Record<string, unknown> | null): CompanyCertificateConfig | null {
+  if (!record) return null
+
+  return {
+    ...(record as unknown as CompanyCertificateConfig),
+    has_stored_password: Boolean(record.certificate_password_encrypted),
+    certificate_password_encrypted: undefined,
+  }
+}
+
+async function downloadStoredCertificateFile(storagePath: string): Promise<Buffer> {
+  const serviceRole = createServiceRoleClient()
+  const { data, error } = await serviceRole.storage.from('certificates').download(storagePath)
+
+  if (error || !data) {
+    throw new Error('Nao foi possivel baixar o arquivo do certificado no armazenamento seguro.')
+  }
+
+  const arrayBuffer = await data.arrayBuffer()
+  return Buffer.from(arrayBuffer)
+}
+
 export async function loadCertificateAction(): Promise<{ data: CompanyCertificateConfig | null; error: string | null }> {
   const supabase = await createClient()
   const { data, error } = await supabase
@@ -37,14 +62,8 @@ export async function loadCertificateAction(): Promise<{ data: CompanyCertificat
     return { data: null, error: `Erro ao carregar certificado digital: ${error.message}` }
   }
 
-  if (!data) return { data: null, error: null }
-
   return {
-    data: {
-      ...(data as CompanyCertificateConfig),
-      has_stored_password: Boolean((data as Record<string, unknown>).certificate_password_encrypted),
-      certificate_password_encrypted: undefined,
-    },
+    data: sanitizeCertificateRecord((data as Record<string, unknown> | null) || null),
     error: null,
   }
 }
@@ -64,75 +83,116 @@ interface SaveCertificateInput {
   alert_days_before_expiry: number
 }
 
-export async function saveCertificateAction(input: SaveCertificateInput): Promise<{ error: string | null }> {
+export async function saveCertificateAction(
+  input: SaveCertificateInput
+): Promise<{ data: CompanyCertificateConfig | null; error: string | null }> {
   if (input.alert_days_before_expiry < 1 || input.alert_days_before_expiry > 365) {
-    return { error: 'Os dias de alerta devem ficar entre 1 e 365.' }
-  }
-
-  if (input.valid_from && Number.isNaN(new Date(input.valid_from).getTime())) {
-    return { error: 'Data inicial de validade inválida.' }
-  }
-
-  if (input.valid_to && Number.isNaN(new Date(input.valid_to).getTime())) {
-    return { error: 'Data final de validade inválida.' }
-  }
-
-  if (input.valid_from && input.valid_to && new Date(input.valid_to) < new Date(input.valid_from)) {
-    return { error: 'A validade final do certificado deve ser posterior à validade inicial.' }
+    return { data: null, error: 'Os dias de alerta devem ficar entre 1 e 365.' }
   }
 
   const supabase = await createClient()
   const existing = input.id
-    ? await supabase
-        .from('company_certificate_config')
-        .select('*')
-        .eq('id', input.id)
-        .maybeSingle()
+    ? await supabase.from('company_certificate_config').select('*').eq('id', input.id).maybeSingle()
     : { data: null, error: null }
 
   if (existing.error) {
-    return { error: `Erro ao carregar o certificado atual: ${existing.error.message}` }
+    return { data: null, error: `Erro ao carregar o certificado atual: ${existing.error.message}` }
   }
 
-  const current = existing.data as Record<string, unknown> | null
+  const current = (existing.data as Record<string, unknown> | null) || null
+  const normalizedPath = input.certificate_storage_path || null
+  const rawPassword = input.certificate_password?.trim() || null
+  const decryptedStoredPassword =
+    !rawPassword && typeof current?.certificate_password_encrypted === 'string'
+      ? decryptCertificatePassword(current.certificate_password_encrypted)
+      : null
+  const operationalPassword = rawPassword || decryptedStoredPassword
   const encryptedPassword =
-    input.certificate_password && input.certificate_password.trim()
-      ? encryptCertificatePassword(input.certificate_password.trim())
+    rawPassword
+      ? encryptCertificatePassword(rawPassword)
       : (current?.certificate_password_encrypted as string | null) || null
 
-  const normalizedPath = input.certificate_storage_path || null
+  if (normalizedPath && !encryptedPassword) {
+    return { data: null, error: 'Informe a senha do certificado para concluir o cadastro operacional.' }
+  }
+
+  let parsedMetadata:
+    | {
+        certificateName: string | null
+        serial: string
+        issuer: string
+        subject: string | null
+        validFrom: string
+        validTo: string
+        thumbprint: string | null
+      }
+    | null = null
+
+  if (normalizedPath) {
+    if (!operationalPassword) {
+      return { data: null, error: 'A validacao do certificado A1 exige a senha operacional.' }
+    }
+
+    try {
+      const fileBuffer = await downloadStoredCertificateFile(normalizedPath)
+      const parsed = await parseA1CertificateFromBuffer(
+        fileBuffer,
+        operationalPassword,
+        input.uploaded_file_name || (current?.uploaded_file_name as string | null) || 'certificado.pfx'
+      )
+
+      parsedMetadata = {
+        certificateName:
+          input.certificate_name?.trim() ||
+          parsed.subjectCommonName ||
+          (current?.certificate_name as string | null) ||
+          null,
+        serial: parsed.serialNumber,
+        issuer: parsed.issuer,
+        subject: parsed.subject || null,
+        validFrom: parsed.validFrom,
+        validTo: parsed.validTo,
+        thumbprint: parsed.thumbprint || null,
+      }
+    } catch (error) {
+      return {
+        data: null,
+        error: error instanceof Error ? error.message : 'Falha ao validar o certificado A1.',
+      }
+    }
+  }
+
   const normalizedStatus = normalizeCertificateStatus({
     certificate_storage_path: normalizedPath,
-    valid_to: input.valid_to || null,
+    valid_to: parsedMetadata?.validTo || input.valid_to || null,
     is_active: input.is_active,
   })
 
-  if (normalizedPath && !encryptedPassword) {
-    return { error: 'Informe a senha do certificado para concluir o cadastro operacional.' }
-  }
-
   if (input.is_active) {
     if (!normalizedPath) {
-      return { error: 'Envie o arquivo .pfx ou .p12 antes de ativar o certificado.' }
+      return { data: null, error: 'Envie o arquivo .pfx ou .p12 antes de ativar o certificado.' }
     }
     if (!encryptedPassword) {
-      return { error: 'A ativação do certificado exige uma senha operacional armazenada.' }
+      return { data: null, error: 'A ativacao do certificado exige uma senha operacional armazenada.' }
     }
-    if (!input.certificate_serial || !input.certificate_issuer || !input.valid_from || !input.valid_to) {
-      return { error: 'Preencha serial, emissor e validade antes de ativar o certificado.' }
+    if (!parsedMetadata) {
+      return { data: null, error: 'Valide o certificado A1 com a senha operacional antes de ativar.' }
     }
     if (normalizedStatus === 'expired') {
-      return { error: 'Não é possível ativar um certificado expirado.' }
+      return { data: null, error: 'Nao e possivel ativar um certificado expirado.' }
     }
   }
 
   const data = {
-    certificate_name: input.certificate_name || null,
+    certificate_name: parsedMetadata?.certificateName || input.certificate_name || null,
     certificate_status: normalizedStatus,
-    valid_from: input.valid_from || null,
-    valid_to: input.valid_to || null,
-    certificate_serial: input.certificate_serial || null,
-    certificate_issuer: input.certificate_issuer || null,
+    valid_from: parsedMetadata?.validFrom || input.valid_from || null,
+    valid_to: parsedMetadata?.validTo || input.valid_to || null,
+    certificate_serial: parsedMetadata?.serial || input.certificate_serial || null,
+    certificate_issuer: parsedMetadata?.issuer || input.certificate_issuer || null,
+    certificate_subject: parsedMetadata?.subject || null,
+    certificate_thumbprint: parsedMetadata?.thumbprint || null,
+    metadata_source: parsedMetadata ? 'parsed_a1' : 'manual',
     certificate_storage_path: normalizedPath,
     uploaded_file_name: input.uploaded_file_name || null,
     certificate_fingerprint_sha256:
@@ -143,24 +203,45 @@ export async function saveCertificateAction(input: SaveCertificateInput): Promis
     is_active: input.is_active && normalizedStatus === 'active',
     alert_days_before_expiry: input.alert_days_before_expiry,
     validation_notes: normalizedPath
-      ? 'Arquivo e senha operacional registrados. Confira os metadados do certificado antes de habilitar emissão em produção.'
+      ? parsedMetadata
+        ? 'Metadados do certificado A1 extraidos automaticamente a partir do arquivo e da senha operacional.'
+        : 'Arquivo operacional registrado, mas ainda sem validacao automatica concluida.'
       : 'Nenhum certificado operacional enviado.',
-    last_validated_at: normalizedPath ? new Date().toISOString() : null,
+    last_validated_at: normalizedPath && parsedMetadata ? new Date().toISOString() : null,
   }
 
   if (input.id) {
     const { error } = await supabase.from('company_certificate_config').update(data).eq('id', input.id)
     if (error) {
-      return { error: `Erro ao salvar certificado digital: ${error.message}` }
+      return { data: null, error: `Erro ao salvar certificado digital: ${error.message}` }
     }
   } else {
     const { error } = await supabase.from('company_certificate_config').insert(data)
     if (error) {
-      return { error: `Erro ao criar certificado digital: ${error.message}` }
+      return { data: null, error: `Erro ao criar certificado digital: ${error.message}` }
     }
   }
 
-  return { error: null }
+  const saved = input.id
+    ? await supabase.from('company_certificate_config').select('*').eq('id', input.id).maybeSingle()
+    : await supabase
+        .from('company_certificate_config')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+  if (saved.error) {
+    return {
+      data: null,
+      error: `Certificado salvo, mas houve falha ao recarregar os dados: ${saved.error.message}`,
+    }
+  }
+
+  return {
+    data: sanitizeCertificateRecord((saved.data as Record<string, unknown> | null) || null),
+    error: null,
+  }
 }
 
 export async function uploadCertificateAction(
@@ -177,11 +258,11 @@ export async function uploadCertificateAction(
   const allowedExtensions = ['.pfx', '.p12']
   const ext = '.' + (file.name.split('.').pop()?.toLowerCase() || '')
   if (!allowedExtensions.includes(ext)) {
-    return { path: null, error: 'Formato inválido. Use um arquivo .pfx ou .p12.' }
+    return { path: null, error: 'Formato invalido. Use um arquivo .pfx ou .p12.' }
   }
 
   if (file.size > 10 * 1024 * 1024) {
-    return { path: null, error: 'Arquivo muito grande. O limite é de 10MB.' }
+    return { path: null, error: 'Arquivo muito grande. O limite e de 10MB.' }
   }
 
   const supabase = await createClient()

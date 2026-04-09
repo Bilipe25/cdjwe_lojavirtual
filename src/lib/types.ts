@@ -830,6 +830,9 @@ export interface CompanyCertificateConfig {
   valid_to: string | null
   certificate_serial: string | null
   certificate_issuer: string | null
+  certificate_subject?: string | null
+  certificate_thumbprint?: string | null
+  metadata_source?: 'manual' | 'parsed_a1' | null
   certificate_storage_path: string | null
   uploaded_file_name?: string | null
   certificate_fingerprint_sha256?: string | null

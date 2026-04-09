@@ -93,6 +93,11 @@ function hasCertificateMetadata(cert: Record<string, unknown> | null): boolean {
   )
 }
 
+function hasParsedCertificateMetadata(cert: Record<string, unknown> | null): boolean {
+  if (!cert) return false
+  return cert.metadata_source === 'parsed_a1' && Boolean(cert.last_validated_at)
+}
+
 function hasStoredPassword(cert: Record<string, unknown> | null): boolean {
   if (!cert) return false
   return Boolean(cert.certificate_password_encrypted)
@@ -121,6 +126,7 @@ export async function evaluateCompanyFiscalReadiness(): Promise<FiscalReadinessS
     Boolean(cert?.certificate_storage_path) &&
     hasStoredPassword(cert) &&
     hasCertificateMetadata(cert) &&
+    hasParsedCertificateMetadata(cert) &&
     !certExpired
 
   const items: FiscalReadinessItem[] = [
@@ -233,10 +239,18 @@ export async function evaluateCompanyFiscalReadiness(): Promise<FiscalReadinessS
     },
     {
       key: 'certificate_metadata',
-      label: 'Metadados do certificado conferidos',
-      status: hasCertificateMetadata(cert) ? 'ok' : 'missing',
+      label: 'Metadados do certificado extraidos e validados',
+      status:
+        hasCertificateMetadata(cert) && hasParsedCertificateMetadata(cert)
+          ? 'ok'
+          : hasCertificateMetadata(cert)
+            ? 'warning'
+            : 'missing',
       href: '/admin/settings/fiscal-certificado',
-      detail: 'Serial, emissor e validade precisam estar preenchidos e coerentes com o certificado ativo.',
+      detail:
+        hasCertificateMetadata(cert) && !hasParsedCertificateMetadata(cert)
+          ? 'O certificado ainda precisa passar pela extracao automatica do arquivo A1 com a senha operacional.'
+          : 'Serial, emissor e validade precisam ser extraidos automaticamente do certificado ativo.',
       blocking: true,
     },
     {

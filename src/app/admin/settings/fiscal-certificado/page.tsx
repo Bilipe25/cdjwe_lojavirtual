@@ -76,6 +76,24 @@ function normalizeDateInput(value: string) {
   return value.split('T')[0]
 }
 
+function buildFormState(record: CompanyCertificateConfig | null): FormState {
+  if (!record) return initialForm
+
+  return {
+    certificateName: record.certificate_name || '',
+    certificateStatus: record.certificate_status || 'pending',
+    validFrom: record.valid_from || '',
+    validTo: record.valid_to || '',
+    certificateSerial: record.certificate_serial || '',
+    certificateIssuer: record.certificate_issuer || '',
+    certificateStoragePath: record.certificate_storage_path || '',
+    uploadedFileName: record.uploaded_file_name || '',
+    certificateFingerprintSha256: record.certificate_fingerprint_sha256 || '',
+    isActive: record.is_active || false,
+    alertDaysBeforeExpiry: record.alert_days_before_expiry?.toString() || '30',
+  }
+}
+
 export default function FiscalCertificadoPage() {
   const [cert, setCert] = useState<CompanyCertificateConfig | null>(null)
   const [loading, setLoading] = useState(true)
@@ -99,24 +117,18 @@ export default function FiscalCertificadoPage() {
     const load = async () => {
       setLoading(true)
       const result = await loadCertificateAction()
+
+      if (result.error) {
+        toast.error(result.error)
+      }
+
       if (result.data) {
         setCert(result.data)
-        const loaded: FormState = {
-          certificateName: result.data.certificate_name || '',
-          certificateStatus: result.data.certificate_status || 'pending',
-          validFrom: result.data.valid_from || '',
-          validTo: result.data.valid_to || '',
-          certificateSerial: result.data.certificate_serial || '',
-          certificateIssuer: result.data.certificate_issuer || '',
-          certificateStoragePath: result.data.certificate_storage_path || '',
-          uploadedFileName: result.data.uploaded_file_name || '',
-          certificateFingerprintSha256: result.data.certificate_fingerprint_sha256 || '',
-          isActive: result.data.is_active || false,
-          alertDaysBeforeExpiry: result.data.alert_days_before_expiry?.toString() || '30',
-        }
+        const loaded = buildFormState(result.data)
         setForm(loaded)
         setSavedForm(loaded)
       }
+
       setLoading(false)
     }
 
@@ -138,10 +150,12 @@ export default function FiscalCertificadoPage() {
       updateField('certificateStoragePath', result.path)
       updateField('uploadedFileName', result.fileName || file.name)
       updateField('certificateFingerprintSha256', result.fingerprintSha256 || '')
+
       if (!form.certificateName.trim()) {
         updateField('certificateName', file.name.replace(/\.(pfx|p12)$/i, ''))
       }
-      toast.success('Arquivo do certificado enviado com sucesso.')
+
+      toast.success('Arquivo do certificado enviado com sucesso. Salve para validar o A1 com a senha.')
     }
 
     setUploading(false)
@@ -150,6 +164,7 @@ export default function FiscalCertificadoPage() {
 
   const handleSave = async () => {
     setSaving(true)
+
     const result = await saveCertificateAction({
       id: cert?.id,
       certificate_name: form.certificateName || null,
@@ -165,32 +180,23 @@ export default function FiscalCertificadoPage() {
       alert_days_before_expiry: parseInt(form.alertDaysBeforeExpiry, 10) || 30,
     })
 
-        if (result.error) {
-            toast.error(result.error)
-        } else {
-            toast.success('Certificado digital salvo com sucesso.')
-            setSavedForm({ ...form })
-            setCertPassword('')
-            setCert((prev) => ({
-                ...(prev || {}),
-                certificate_name: form.certificateName || null,
-                certificate_status: form.isActive ? 'active' : 'pending',
-                valid_from: form.validFrom || null,
-                valid_to: form.validTo || null,
-                certificate_serial: form.certificateSerial || null,
-                certificate_issuer: form.certificateIssuer || null,
-                certificate_storage_path: form.certificateStoragePath || null,
-                uploaded_file_name: form.uploadedFileName || null,
-                certificate_fingerprint_sha256: form.certificateFingerprintSha256 || null,
-                is_active: form.isActive,
-                alert_days_before_expiry: parseInt(form.alertDaysBeforeExpiry, 10) || 30,
-                has_stored_password: Boolean(certPassword || prev?.has_stored_password),
-                validation_notes: form.certificateStoragePath
-                    ? 'Arquivo e senha operacional registrados. Confira os metadados antes de habilitar emissão em produção.'
-                    : 'Nenhum certificado operacional enviado.',
-                last_validated_at: form.certificateStoragePath ? new Date().toISOString() : null,
-            }) as CompanyCertificateConfig)
-        }
+    if (result.error) {
+      toast.error(result.error)
+    } else {
+      const nextCert = result.data || cert
+      const nextForm = buildFormState(nextCert)
+
+      toast.success(
+        nextCert?.metadata_source === 'parsed_a1'
+          ? 'Certificado validado e salvo com metadados extraidos automaticamente.'
+          : 'Certificado digital salvo com sucesso.'
+      )
+
+      setCert(nextCert)
+      setForm(nextForm)
+      setSavedForm(nextForm)
+      setCertPassword('')
+    }
 
     setSaving(false)
   }
@@ -202,6 +208,7 @@ export default function FiscalCertificadoPage() {
     expiryDays > 0 &&
     expiryDays <= parseInt(form.alertDaysBeforeExpiry || '30', 10)
   const hasStoredPassword = Boolean(cert?.has_stored_password || certPassword.trim())
+  const parsedSource = cert?.metadata_source === 'parsed_a1'
 
   if (loading) {
     return (
@@ -215,14 +222,18 @@ export default function FiscalCertificadoPage() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div className="hidden md:block">
           <h1 className="text-3xl font-bold font-heading text-gradient-navy">Certificado Digital</h1>
           <p className="text-muted-foreground mt-1">
-            Upload, senha operacional, validade e ativação do certificado A1 usado na emissão fiscal.
+            Upload do A1, senha operacional, validacao automatica e ativacao segura do certificado usado na emissao.
           </p>
         </div>
-        <Button className="gradient-navy border-0 text-white gap-2" onClick={handleSave} disabled={saving || !hasChanges}>
+        <Button
+          className="gradient-navy border-0 text-white gap-2"
+          onClick={handleSave}
+          disabled={saving || !hasChanges}
+        >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Salvar
         </Button>
@@ -233,7 +244,11 @@ export default function FiscalCertificadoPage() {
       <Card className="glass-card border-0">
         <CardContent className="p-6 space-y-4">
           <div className="flex items-start gap-4">
-            <div className={`h-14 w-14 rounded-2xl flex items-center justify-center ${form.isActive && !isExpired ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+            <div
+              className={`h-14 w-14 rounded-2xl flex items-center justify-center ${
+                form.isActive && !isExpired ? 'bg-emerald-100' : 'bg-amber-100'
+              }`}
+            >
               {form.isActive && !isExpired ? (
                 <ShieldCheck className="h-7 w-7 text-emerald-600" />
               ) : isExpired ? (
@@ -244,34 +259,51 @@ export default function FiscalCertificadoPage() {
             </div>
             <div className="flex-1">
               <div className="text-xl font-semibold font-heading">
-                {form.isActive && !isExpired ? 'Certificado ativo' : form.certificateStoragePath ? 'Certificado cadastrado' : 'Nenhum certificado cadastrado'}
+                {form.isActive && !isExpired
+                  ? 'Certificado ativo'
+                  : form.certificateStoragePath
+                    ? 'Certificado cadastrado'
+                    : 'Nenhum certificado cadastrado'}
               </div>
               <div className="text-sm text-muted-foreground mt-1">
                 {form.certificateName || 'Cadastre o certificado A1 da empresa para habilitar assinatura fiscal.'}
               </div>
               <div className="text-sm text-muted-foreground mt-2">
-                Validade: {formatDateBR(form.validFrom)} até {formatDateBR(form.validTo)}
+                Validade: {formatDateBR(form.validFrom)} ate {formatDateBR(form.validTo)}
               </div>
             </div>
           </div>
 
-          <div className="rounded-xl border bg-amber-50/60 p-4 text-sm text-amber-800 flex items-start gap-3">
-            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div
+            className={`rounded-xl border p-4 text-sm flex items-start gap-3 ${
+              parsedSource ? 'bg-emerald-50/60 text-emerald-800' : 'bg-amber-50/60 text-amber-800'
+            }`}
+          >
+            {parsedSource ? (
+              <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            )}
             <span>
-              Esta fase já protege upload, senha operacional criptografada e vencimento. A leitura criptográfica automática do .pfx/.p12
-              ainda entra na próxima etapa, então serial, emissor e validade precisam ser conferidos pelo administrador.
+              {parsedSource
+                ? 'Os metadados operacionais deste certificado foram extraidos automaticamente do arquivo A1 com a senha operacional.'
+                : 'Envie o arquivo e informe a senha operacional para que o sistema extraia automaticamente serial, emissor e validade do certificado A1.'}
             </span>
           </div>
 
           {isExpiringSoon ? (
             <div className="rounded-xl border bg-amber-50 p-4 text-sm text-amber-700">
-              O certificado expira em <strong>{expiryDays} dias</strong>. Planeje a renovação antes de habilitar emissão em produção.
+              O certificado expira em <strong>{expiryDays} dias</strong>. Planeje a renovacao antes de habilitar emissao em producao.
             </div>
           ) : null}
         </CardContent>
       </Card>
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]"
+      >
         <Card className="glass-card border-0">
           <CardHeader>
             <CardTitle className="text-lg font-heading flex items-center gap-2">
@@ -282,7 +314,9 @@ export default function FiscalCertificadoPage() {
           <CardContent className="space-y-5">
             <div
               className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-colors ${
-                form.certificateStoragePath ? 'border-emerald-300 bg-emerald-50/50' : 'border-muted/40 hover:border-muted/60'
+                form.certificateStoragePath
+                  ? 'border-emerald-300 bg-emerald-50/50'
+                  : 'border-muted/40 hover:border-muted/60'
               }`}
               onClick={() => fileInputRef.current?.click()}
               role="button"
@@ -303,7 +337,7 @@ export default function FiscalCertificadoPage() {
                 <div className="flex flex-col items-center gap-2">
                   <Upload className="h-8 w-8 text-muted-foreground/50" />
                   <span className="text-sm text-muted-foreground">Clique para enviar o arquivo .pfx / .p12</span>
-                  <span className="text-xs text-muted-foreground">Máximo de 10MB</span>
+                  <span className="text-xs text-muted-foreground">Maximo de 10MB</span>
                 </div>
               )}
               <input ref={fileInputRef} type="file" accept=".pfx,.p12" onChange={handleUpload} className="hidden" />
@@ -312,14 +346,18 @@ export default function FiscalCertificadoPage() {
             <div className="space-y-2">
               <Label className="flex items-center gap-1">
                 Senha operacional do certificado
-                <FiscalHelpText text="A senha é armazenada com criptografia para o uso operacional do certificado. Informe novamente apenas quando quiser substituir a senha já registrada." />
+                <FiscalHelpText text="A senha e armazenada com criptografia e usada para validar o A1 no backend. Informe novamente apenas quando quiser substituir a senha ja registrada." />
               </Label>
               <div className="relative">
                 <Input
                   type={showPassword ? 'text' : 'password'}
                   value={certPassword}
                   onChange={(e) => setCertPassword(e.target.value)}
-                  placeholder={hasStoredPassword ? 'Senha já registrada. Digite apenas para trocar.' : 'Digite a senha do certificado'}
+                  placeholder={
+                    hasStoredPassword
+                      ? 'Senha ja registrada. Digite apenas para trocar.'
+                      : 'Digite a senha do certificado'
+                  }
                   className="bg-white/60 pr-10"
                 />
                 <button
@@ -332,7 +370,9 @@ export default function FiscalCertificadoPage() {
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <LockKeyhole className="h-3.5 w-3.5" />
-                {hasStoredPassword ? 'Já existe uma senha operacional registrada.' : 'Ainda não há senha operacional armazenada.'}
+                {hasStoredPassword
+                  ? 'Ja existe uma senha operacional registrada.'
+                  : 'Ainda nao ha senha operacional armazenada.'}
               </div>
             </div>
 
@@ -340,7 +380,7 @@ export default function FiscalCertificadoPage() {
               <div>
                 <div className="text-sm font-medium">Certificado ativo</div>
                 <div className="text-xs text-muted-foreground">
-                  Ative apenas quando arquivo, senha operacional e metadados estiverem conferidos.
+                  Ative apenas depois da validacao automatica do arquivo A1 com a senha operacional.
                 </div>
               </div>
               <input
@@ -357,40 +397,37 @@ export default function FiscalCertificadoPage() {
           <CardHeader>
             <CardTitle className="text-lg font-heading flex items-center gap-2">
               <FileBadge className="h-5 w-5 text-bronze" />
-              Metadados conferidos
+              Metadados extraidos
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Nome de referência</Label>
-              <Input value={form.certificateName} onChange={(e) => updateField('certificateName', e.target.value)} className="bg-white/60" />
+              <Label>
+                Nome de referencia
+                <FiscalHelpText text="Pode ser ajustado para facilitar a identificacao interna. Os demais metadados abaixo sao extraidos automaticamente do A1." />
+              </Label>
+              <Input
+                value={form.certificateName}
+                onChange={(e) => updateField('certificateName', e.target.value)}
+                className="bg-white/60"
+              />
             </div>
             <div className="space-y-2">
-              <Label>Número serial</Label>
-              <Input value={form.certificateSerial} onChange={(e) => updateField('certificateSerial', e.target.value)} className="bg-white/60" />
+              <Label>Numero serial</Label>
+              <Input value={form.certificateSerial} readOnly className="bg-muted/30" />
             </div>
             <div className="space-y-2">
               <Label>Autoridade certificadora</Label>
-              <Input value={form.certificateIssuer} onChange={(e) => updateField('certificateIssuer', e.target.value)} className="bg-white/60" />
+              <Input value={form.certificateIssuer} readOnly className="bg-muted/30" />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Válido de</Label>
-                <Input
-                  type="date"
-                  value={normalizeDateInput(form.validFrom)}
-                  onChange={(e) => updateField('validFrom', e.target.value ? new Date(e.target.value).toISOString() : '')}
-                  className="bg-white/60"
-                />
+                <Label>Valido de</Label>
+                <Input type="date" value={normalizeDateInput(form.validFrom)} readOnly className="bg-muted/30" />
               </div>
               <div className="space-y-2">
-                <Label>Válido até</Label>
-                <Input
-                  type="date"
-                  value={normalizeDateInput(form.validTo)}
-                  onChange={(e) => updateField('validTo', e.target.value ? new Date(e.target.value).toISOString() : '')}
-                  className="bg-white/60"
-                />
+                <Label>Valido ate</Label>
+                <Input type="date" value={normalizeDateInput(form.validTo)} readOnly className="bg-muted/30" />
               </div>
             </div>
             <div className="space-y-2">
@@ -414,17 +451,22 @@ export default function FiscalCertificadoPage() {
               </div>
               <div className="flex items-start gap-2">
                 <Fingerprint className="h-4 w-4 text-bronze mt-0.5" />
-                <span className="break-all">{form.certificateFingerprintSha256 || 'Fingerprint ainda não disponível.'}</span>
+                <span className="break-all">{form.certificateFingerprintSha256 || 'Fingerprint ainda nao disponivel.'}</span>
               </div>
-              <div>Última validação operacional: {formatDateBR(cert?.last_validated_at)}</div>
-              <div>{cert?.validation_notes || 'Nenhuma observação operacional registrada ainda.'}</div>
+              <div>Fonte dos metadados: {parsedSource ? 'Arquivo A1 validado' : 'Ainda nao validado automaticamente'}</div>
+              <div>Ultima validacao operacional: {formatDateBR(cert?.last_validated_at)}</div>
+              <div>{cert?.validation_notes || 'Nenhuma observacao operacional registrada ainda.'}</div>
             </div>
           </CardContent>
         </Card>
       </motion.div>
 
       <div className="sm:hidden sticky bottom-4 z-10">
-        <Button className="w-full h-12 gradient-navy border-0 text-white text-base gap-2 shadow-lg" onClick={handleSave} disabled={saving || !hasChanges}>
+        <Button
+          className="w-full h-12 gradient-navy border-0 text-white text-base gap-2 shadow-lg"
+          onClick={handleSave}
+          disabled={saving || !hasChanges}
+        >
           {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
           Salvar certificado digital
         </Button>
@@ -432,4 +474,3 @@ export default function FiscalCertificadoPage() {
     </div>
   )
 }
-
