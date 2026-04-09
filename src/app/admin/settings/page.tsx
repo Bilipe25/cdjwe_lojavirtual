@@ -34,6 +34,7 @@ import { toast } from 'sonner'
 import { plainTextToCatalogNoticeHtml } from '@/lib/catalog-notice'
 import { loadSettingsAction, saveSettingsAction, uploadLogoAction, uploadAboutImageAction } from './actions'
 import { CatalogNoticeEditor } from './components/CatalogNoticeEditor'
+import { FiscalReadinessCard } from './components/FiscalReadinessCard'
 import type { SystemSettings } from '@/lib/types'
 
 // ====== Input Masks ======
@@ -69,6 +70,8 @@ type CatalogNoticeType = 'info' | 'promotion' | 'attention' | 'message'
 
 interface FormState {
     systemName: string
+    razaoSocial: string
+    nomeFantasia: string
     cnpj: string
     address: string
     city: string
@@ -93,6 +96,8 @@ interface FormState {
 
 const initialForm: FormState = {
     systemName: '',
+    razaoSocial: '',
+    nomeFantasia: '',
     cnpj: '',
     address: '',
     city: '',
@@ -147,6 +152,8 @@ export default function AdminSettingsPage() {
                 setSettings(result.data)
                 const loaded: FormState = {
                     systemName: result.data.system_name || '',
+                    razaoSocial: result.data.razao_social || '',
+                    nomeFantasia: result.data.nome_fantasia || '',
                     cnpj: result.data.cnpj || '',
                     address: result.data.address || '',
                     city: result.data.city || '',
@@ -194,6 +201,8 @@ export default function AdminSettingsPage() {
             system_name: form.systemName,
             logo_url: form.logoUrl || null,
             cnpj: form.cnpj || null,
+            razao_social: form.razaoSocial || null,
+            nome_fantasia: form.nomeFantasia || null,
             address: form.address || null,
             city: form.city || null,
             state: form.state || null,
@@ -431,6 +440,24 @@ export default function AdminSettingsPage() {
                                         />
                                     </div>
                                     <div className="space-y-2">
+                                        <Label>Razão Social</Label>
+                                        <Input
+                                            value={form.razaoSocial}
+                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('razaoSocial', e.target.value)}
+                                            placeholder="Razão Social da Empresa LTDA"
+                                            className="bg-white/60"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Nome Fantasia</Label>
+                                        <Input
+                                            value={form.nomeFantasia}
+                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('nomeFantasia', e.target.value)}
+                                            placeholder="Nome comercial"
+                                            className="bg-white/60"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
                                         <Label>CNPJ</Label>
                                         <Input
                                             value={form.cnpj}
@@ -531,6 +558,9 @@ export default function AdminSettingsPage() {
                                 </div>
                             </CardContent>
                         </Card>
+
+                        {/* Fiscal Readiness */}
+                        <FiscalReadinessCard />
                     </motion.div>
                 </TabsContent>
 

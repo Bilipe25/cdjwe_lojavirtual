@@ -68,6 +68,8 @@ interface SaveSettingsInput {
     system_name: string
     logo_url?: string | null
     cnpj?: string | null
+    razao_social?: string | null
+    nome_fantasia?: string | null
     address?: string | null
     city?: string | null
     state?: string | null
@@ -119,6 +121,8 @@ export async function saveSettingsAction(input: SaveSettingsInput): Promise<{ er
         system_name: input.system_name.trim(),
         logo_url: input.logo_url || null,
         cnpj: input.cnpj || null,
+        razao_social: input.razao_social || null,
+        nome_fantasia: input.nome_fantasia || null,
         address: input.address || null,
         city: input.city || null,
         state: input.state || null,

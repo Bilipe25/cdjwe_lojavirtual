@@ -752,6 +752,8 @@ export interface SystemSettings {
   system_name: string
   logo_url: string | null
   cnpj: string | null
+  razao_social: string | null
+  nome_fantasia: string | null
   address: string | null
   city: string | null
   state: string | null
@@ -771,6 +773,66 @@ export interface SystemSettings {
   catalog_notice: string | null
   catalog_notice_html: string | null
   catalog_notice_type: 'info' | 'promotion' | 'attention' | 'message' | null
+  created_at: string
+  updated_at: string
+}
+
+// ==================== COMPANY FISCAL (Emitente) ====================
+
+export type RegimeTributario = 'simples_nacional' | 'simples_excesso' | 'lucro_presumido' | 'lucro_real'
+export type CRT = '1' | '2' | '3'
+export type CertificateStatus = 'active' | 'expired' | 'revoked' | 'pending'
+export type AmbienteFiscal = 'homologacao' | 'producao'
+
+export interface CompanyFiscalProfile {
+  id: string
+  razao_social: string
+  nome_fantasia: string | null
+  cnpj: string
+  inscricao_estadual: string | null
+  inscricao_municipal: string | null
+  regime_tributario: RegimeTributario | null
+  crt: CRT | null
+  cnae_principal: string | null
+  indicador_contribuinte: TaxpayerIndicator
+  fiscal_email: string | null
+  fiscal_phone: string | null
+  fiscal_address: string | null
+  fiscal_number: string | null
+  fiscal_complement: string | null
+  fiscal_neighborhood: string | null
+  fiscal_city: string | null
+  fiscal_state: string | null
+  fiscal_zip_code: string | null
+  fiscal_municipality_code_ibge: string | null
+  fiscal_country_code: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CompanyFiscalEnvironment {
+  id: string
+  ambiente: AmbienteFiscal
+  serie_padrao_nfe: string
+  proximo_numero_nfe: number
+  tipo_emissao: string
+  emissao_ativa: boolean
+  parametros_jsonb: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CompanyCertificateConfig {
+  id: string
+  certificate_name: string | null
+  certificate_status: CertificateStatus
+  valid_from: string | null
+  valid_to: string | null
+  certificate_serial: string | null
+  certificate_issuer: string | null
+  certificate_storage_path: string | null
+  is_active: boolean
+  alert_days_before_expiry: number
   created_at: string
   updated_at: string
 }

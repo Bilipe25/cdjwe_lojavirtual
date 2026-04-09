@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -36,6 +36,9 @@ import {
     TicketPercent,
     ShieldCheck,
     Database,
+    Building2,
+    Gauge,
+    FileKey2,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -73,6 +76,9 @@ const settingsNavItems = [
 ]
 
 const fiscalSettingsNavItems = [
+    { href: '/admin/settings/fiscal-emitente', label: 'Dados do Emitente', icon: Building2 },
+    { href: '/admin/settings/fiscal-ambiente', label: 'Configuração Fiscal', icon: Gauge },
+    { href: '/admin/settings/fiscal-certificado', label: 'Segurança Fiscal', icon: FileKey2 },
     { href: '/admin/product-tax-profiles', label: 'Perfis Tributários', icon: ShieldCheck },
     { href: '/admin/fiscal-bases', label: 'Bases Fiscais', icon: Database },
 ]
