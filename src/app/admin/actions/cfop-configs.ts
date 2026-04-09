@@ -14,6 +14,15 @@ import {
     type CfopOperationGroup,
     type CfopOperationScope,
 } from '@/lib/fiscal/cfop'
+import {
+    buildCfopResolvedSuggestion,
+    buildCfopSuggestedDefaultsSummary,
+    isCfopDefaultSource,
+    normalizeCfopMasterDefault,
+    type CfopDefaultSource,
+    type CfopMasterDefault,
+    type CfopResolvedSuggestion,
+} from '@/lib/fiscal/cfop-autofill'
 import type { FiscalSearchOption } from '@/app/admin/actions/fiscal-bases'
 
 export interface CfopConfigIcmsInput {
@@ -82,6 +91,7 @@ export interface CfopConfigDetail {
     configId?: string | null
     versionId: string
     versionLabel: string
+    isManualEntry: boolean
     code: string
     description: string
     operationDirection: 'outbound' | 'inbound' | 'both'
@@ -102,6 +112,11 @@ export interface CfopConfigDetail {
     isLegacy: boolean
     isActive: boolean
     configurationStatus: CfopConfigurationStatus
+    defaultSource?: CfopDefaultSource | null
+    defaultSeedCode?: string | null
+    defaultAppliedAt?: string | null
+    manualOverrides?: Record<string, unknown> | null
+    suggestedDefaultsSummary?: Record<string, unknown> | null
     icmsConfig: CfopConfigIcmsInput
     ibscbsConfig: CfopConfigIbscbsInput
     piscofinsConfig: CfopConfigPiscofinsInput
@@ -116,6 +131,11 @@ export interface CfopConfigFormData
     > {
     generalDescription: string
     defaultNote?: string
+}
+
+export interface ResolveCfopDefaultsInput {
+    cfopCode?: string | null
+    description?: string | null
 }
 
 export interface CfopConfigListResult {
@@ -443,7 +463,7 @@ export async function getCfopConfigDetailAction(entryId: string): Promise<{ succ
 
         const { data: entry, error: entryError } = await adminSupabase
             .from('fiscal_cfop_entries')
-            .select('id, version_id, code, description, operation_direction, fiscal_reference_versions!inner(version_label)')
+            .select('id, version_id, code, description, operation_direction, fiscal_reference_versions!inner(version_label, source_type)')
             .eq('id', entryId)
             .single()
         if (entryError || !entry) throw entryError || new Error('CFOP nao encontrado.')
@@ -453,6 +473,11 @@ export async function getCfopConfigDetailAction(entryId: string): Promise<{ succ
             .select('*')
             .eq('cfop_entry_id', entryId)
             .maybeSingle()
+
+        const configMetadata = sanitizeJsonObject(config?.metadata_jsonb)
+        const defaultSource = isCfopDefaultSource(sanitizeText(configMetadata.default_source as string | null))
+            ? (sanitizeText(configMetadata.default_source as string | null) as CfopDefaultSource)
+            : null
 
         const configId = sanitizeText(config?.id as string | null)
         const usageMap = await buildUsageMap(configId ? [configId] : [])
@@ -514,6 +539,11 @@ export async function getCfopConfigDetailAction(entryId: string): Promise<{ succ
                         ? entry.fiscal_reference_versions[0]?.version_label || ''
                         : (entry.fiscal_reference_versions as { version_label?: string } | null)?.version_label || ''
                 ),
+                isManualEntry: String(
+                    Array.isArray(entry.fiscal_reference_versions)
+                        ? entry.fiscal_reference_versions[0]?.source_type || ''
+                        : (entry.fiscal_reference_versions as { source_type?: string } | null)?.source_type || ''
+                ) === 'manual',
                 code: String(entry.code || ''),
                 description: String(entry.description || ''),
                 operationDirection: String(entry.operation_direction || 'both') as 'outbound' | 'inbound' | 'both',
@@ -538,6 +568,11 @@ export async function getCfopConfigDetailAction(entryId: string): Promise<{ succ
                 isLegacy: config?.is_legacy === true,
                 isActive: config?.is_active !== false,
                 configurationStatus: config ? normalizeStatus(String(config.configuration_status || 'pending')) : 'pending',
+                defaultSource,
+                defaultSeedCode: sanitizeText(configMetadata.default_seed_code as string | null),
+                defaultAppliedAt: sanitizeText(configMetadata.default_applied_at as string | null),
+                manualOverrides: sanitizeJsonObject(configMetadata.manual_overrides),
+                suggestedDefaultsSummary: sanitizeJsonObject(configMetadata.suggested_defaults_summary),
                 icmsConfig: {
                     calculateIcms: icmsConfig?.calculate_icms !== false,
                     simpleNationalNonTaxed: icmsConfig?.simple_national_non_taxed === true,
@@ -575,17 +610,138 @@ export async function getCfopConfigDetailAction(entryId: string): Promise<{ succ
     }
 }
 
-export async function upsertCfopConfigAction(input: CfopConfigFormData): Promise<{ success: boolean; data?: { configId: string; created: boolean; configurationStatus: CfopConfigurationStatus }; error?: string }> {
+async function fetchCfopMasterDefaults(): Promise<CfopMasterDefault[]> {
+    const adminSupabase = createServiceRoleClient()
+    try {
+        const { data, error } = await adminSupabase
+            .from('fiscal_cfop_master_defaults')
+            .select('*')
+            .eq('is_active', true)
+            .order('cfop_code', { ascending: true })
+
+        if (error) throw error
+
+        return ((data || []) as Array<Record<string, unknown>>)
+            .map((row) => normalizeCfopMasterDefault(row))
+            .filter((row): row is CfopMasterDefault => row !== null)
+    } catch {
+        return []
+    }
+}
+
+async function fetchCfopMasterDefaultByCode(cfopCode?: string | null) {
+    const digits = String(cfopCode || '').replace(/\D/g, '').slice(0, 4)
+    if (!/^\d{4}$/.test(digits)) return null
+
+    const adminSupabase = createServiceRoleClient()
+    try {
+        const { data, error } = await adminSupabase
+            .from('fiscal_cfop_master_defaults')
+            .select('*')
+            .eq('cfop_code', digits)
+            .eq('is_active', true)
+            .maybeSingle()
+
+        if (error || !data) return null
+        return normalizeCfopMasterDefault(data as Record<string, unknown>)
+    } catch {
+        return null
+    }
+}
+
+export async function getCfopManualDraftAction(): Promise<{ success: boolean; data?: CfopConfigDetail; error?: string }> {
     try {
         await ensureAdminAccess()
         const adminSupabase = createServiceRoleClient()
 
-        const { data, error } = await adminSupabase.rpc('admin_upsert_fiscal_cfop_config', {
+        const { data: manualVersion } = await adminSupabase
+            .from('fiscal_reference_versions')
+            .select('id, version_label')
+            .eq('table_type', 'cfop')
+            .eq('source_type', 'manual')
+            .order('imported_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+        return {
+            success: true,
+            data: {
+                entryId: '',
+                configId: null,
+                versionId: String(manualVersion?.id || ''),
+                versionLabel: String(manualVersion?.version_label || 'CFOP manual'),
+                isManualEntry: true,
+                code: '',
+                description: '',
+                operationDirection: 'both',
+                operationGroup: 'other',
+                generalDescription: '',
+                defaultNote: null,
+                operationScope: 'all',
+                appliesToOwnManufacture: false,
+                appliesToResale: false,
+                appliesOutsideEstablishment: false,
+                appliesConsumerFinal: false,
+                appliesTaxpayer: false,
+                supportsSt: false,
+                impactsIcms: true,
+                impactsIbscbs: false,
+                sumOperationTotalInvoice: true,
+                isRecommended: false,
+                isLegacy: false,
+                isActive: true,
+                configurationStatus: 'pending',
+                defaultSource: null,
+                defaultSeedCode: null,
+                defaultAppliedAt: null,
+                manualOverrides: {},
+                suggestedDefaultsSummary: {},
+                icmsConfig: {
+                    calculateIcms: true,
+                    simpleNationalNonTaxed: false,
+                    omitIcmsForIndividual: false,
+                    highlightStOnInvoice: false,
+                    stCollectedPreviously: false,
+                    metadata: {},
+                    futureTaxPayload: {},
+                },
+                ibscbsConfig: {
+                    cstCatalogVersionId: null,
+                    cstCode: null,
+                    classificationVersionId: null,
+                    classificationCode: null,
+                    regularCstCode: null,
+                    regularClassificationCode: null,
+                    presumedCreditCatalogVersionId: null,
+                    presumedCreditCode: null,
+                    presumedCreditRate: null,
+                    metadata: {},
+                    futureTaxPayload: {},
+                },
+                piscofinsConfig: {
+                    pisCstCode: null,
+                    cofinsCstCode: null,
+                    metadata: {},
+                    futureTaxPayload: {},
+                },
+                usage: buildEmptyUsage(),
+                prefilledFrom: null,
+            },
+        }
+    } catch (error: unknown) {
+        return { success: false, error: getErrorMessage(error, 'Erro ao preparar o rascunho manual de CFOP.') }
+    }
+}
+
+export async function upsertCfopConfigAction(input: CfopConfigFormData): Promise<{ success: boolean; data?: { configId: string; entryId: string; versionId: string; created: boolean; configurationStatus: CfopConfigurationStatus }; error?: string }> {
+    try {
+        await ensureAdminAccess()
+        const adminSupabase = createServiceRoleClient()
+
+        const sharedPayload = {
             p_cfop_config_id: input.configId || null,
-            p_cfop_entry_id: input.entryId,
-            p_cfop_version_id: input.versionId,
             p_operation_group: input.operationGroup,
-            p_general_description: input.generalDescription || null,
+            p_general_description: sanitizeText(input.generalDescription) || sanitizeText(input.description),
             p_default_note: input.defaultNote || null,
             p_operation_scope: input.operationScope,
             p_applies_to_own_manufacture: input.appliesToOwnManufacture,
@@ -622,15 +778,46 @@ export async function upsertCfopConfigAction(input: CfopConfigFormData): Promise
                 metadata_jsonb: input.ibscbsConfig.metadata || {},
                 future_tax_payload: input.ibscbsConfig.futureTaxPayload || {},
             },
-            p_piscofins_config: {
-                pis_cst_code: input.piscofinsConfig.pisCstCode || null,
-                cofins_cst_code: input.piscofinsConfig.cofinsCstCode || null,
-                metadata_jsonb: input.piscofinsConfig.metadata || {},
-                future_tax_payload: input.piscofinsConfig.futureTaxPayload || {},
-            },
-            p_metadata_jsonb: {},
-            p_future_tax_payload: {},
-        })
+              p_piscofins_config: {
+                  pis_cst_code: input.piscofinsConfig.pisCstCode || null,
+                  cofins_cst_code: input.piscofinsConfig.cofinsCstCode || null,
+                  metadata_jsonb: input.piscofinsConfig.metadata || {},
+                  future_tax_payload: input.piscofinsConfig.futureTaxPayload || {},
+              },
+              p_metadata_jsonb: {
+                  default_source: input.defaultSource || null,
+                  default_seed_code: input.defaultSeedCode || null,
+                  default_applied_at: input.defaultAppliedAt || null,
+                  manual_overrides: sanitizeJsonObject(input.manualOverrides),
+                  suggested_defaults_summary:
+                      Object.keys(sanitizeJsonObject(input.suggestedDefaultsSummary)).length > 0
+                          ? sanitizeJsonObject(input.suggestedDefaultsSummary)
+                          : buildCfopSuggestedDefaultsSummary(
+                                buildCfopResolvedSuggestion({
+                                    cfopCode: input.code,
+                                    description: input.description,
+                                })
+                            ),
+              },
+              p_future_tax_payload: {},
+          }
+
+        const rpcName = input.isManualEntry ? 'admin_upsert_fiscal_cfop_manual_config' : 'admin_upsert_fiscal_cfop_config'
+        const rpcPayload = input.isManualEntry
+            ? {
+                  ...sharedPayload,
+                  p_cfop_entry_id: isValidUuid(input.entryId) ? input.entryId : null,
+                  p_code: input.code,
+                  p_description: input.description,
+                  p_operation_direction: input.operationDirection,
+              }
+            : {
+                  ...sharedPayload,
+                  p_cfop_entry_id: input.entryId,
+                  p_cfop_version_id: input.versionId,
+              }
+
+        const { data, error } = await adminSupabase.rpc(rpcName, rpcPayload)
 
         if (error) throw error
         const row = Array.isArray(data) ? data[0] : data
@@ -645,12 +832,78 @@ export async function upsertCfopConfigAction(input: CfopConfigFormData): Promise
             success: true,
             data: {
                 configId: String(row.cfop_config_id),
+                entryId: String(row.cfop_entry_id || input.entryId || ''),
+                versionId: String(row.cfop_version_id || input.versionId || ''),
                 created: row.created === true,
                 configurationStatus: normalizeStatus(String(row.configuration_status || 'pending')),
             },
         }
     } catch (error: unknown) {
         return { success: false, error: getErrorMessage(error, 'Erro ao salvar configuracao de CFOP.') }
+    }
+}
+
+export async function listCfopMasterDefaultsAction(params?: {
+    query?: string | null
+    limit?: number
+}): Promise<{ success: boolean; data?: CfopMasterDefault[]; error?: string }> {
+    try {
+        await ensureAdminAccess()
+        const search = sanitizeText(params?.query)?.toLowerCase() || ''
+        const limit = Math.max(1, Math.min(50, params?.limit || 20))
+        const items = await fetchCfopMasterDefaults()
+        const filtered = items
+            .filter((item) => {
+                if (!search) return true
+                const haystack = [
+                    item.cfopCode,
+                    item.defaultDescription,
+                    item.primaryContext,
+                    item.defaultGeneralDescription || '',
+                    item.internalNotes || '',
+                ]
+                    .join(' ')
+                    .toLowerCase()
+                return haystack.includes(search)
+            })
+            .slice(0, limit)
+
+        return { success: true, data: filtered }
+    } catch (error: unknown) {
+        return { success: false, error: getErrorMessage(error, 'Erro ao listar defaults mestres de CFOP.') }
+    }
+}
+
+export async function getCfopMasterDefaultAction(
+    cfopCode: string
+): Promise<{ success: boolean; data?: CfopMasterDefault | null; error?: string }> {
+    try {
+        await ensureAdminAccess()
+        return { success: true, data: await fetchCfopMasterDefaultByCode(cfopCode) }
+    } catch (error: unknown) {
+        return { success: false, error: getErrorMessage(error, 'Erro ao carregar default mestre de CFOP.') }
+    }
+}
+
+export async function resolveCfopDefaultsAction(
+    input: ResolveCfopDefaultsInput
+): Promise<{ success: boolean; data?: CfopResolvedSuggestion | null; error?: string }> {
+    try {
+        await ensureAdminAccess()
+        const digits = String(input.cfopCode || '').replace(/\D/g, '').slice(0, 4)
+        if (!/^\d{4}$/.test(digits)) return { success: true, data: null }
+
+        const masterDefault = await fetchCfopMasterDefaultByCode(digits)
+        return {
+            success: true,
+            data: buildCfopResolvedSuggestion({
+                cfopCode: digits,
+                description: input.description,
+                masterDefault,
+            }),
+        }
+    } catch (error: unknown) {
+        return { success: false, error: getErrorMessage(error, 'Erro ao resolver sugestao de CFOP.') }
     }
 }
 
@@ -664,25 +917,60 @@ export async function searchCfopConfigOptionsAction(params?: {
 }): Promise<{ success: boolean; data?: CfopConfigSearchOption[]; error?: string }> {
     try {
         await ensureAdminAccess()
-        const version = await resolveCfopVersion(null)
-        if (!version) return { success: true, data: [] }
+        const adminSupabase = createServiceRoleClient()
+        const { data: versionRows, error: versionError } = await adminSupabase
+            .from('fiscal_reference_versions')
+            .select('id, version_label, source_type, is_active')
+            .eq('table_type', 'cfop')
+            .or('is_active.eq.true,source_type.eq.manual')
+            .order('imported_at', { ascending: false })
 
-        const listResult = await listCfopConfigsAction({
-            versionId: version.id,
-            search: params?.query,
-            direction: 'all',
-            scope: params?.operationScope || 'all',
-            stMode: params?.supportsSt === true ? 'with_st' : 'all',
-            status: 'all',
-            usageMode: 'all',
-        })
-        if (!listResult.success || !listResult.data) {
-            throw new Error(listResult.error || 'Falha ao buscar configuracoes de CFOP.')
-        }
+        if (versionError) throw versionError
+        const candidateVersions = (versionRows || []) as Array<Record<string, unknown>>
+        if (candidateVersions.length === 0) return { success: true, data: [] }
 
-        const filtered = listResult.data.items
+        const versionLabelById = new Map<string, string>(
+            candidateVersions.map((row) => [String(row.id), String(row.version_label || '')])
+        )
+        const versionIds = candidateVersions.map((row) => String(row.id))
+
+        const [{ data: entries, error: entriesError }, { data: configs, error: configsError }] = await Promise.all([
+            adminSupabase
+                .from('fiscal_cfop_entries')
+                .select('id, version_id, code, description, operation_direction')
+                .in('version_id', versionIds)
+                .order('code', { ascending: true }),
+            adminSupabase
+                .from('fiscal_cfop_configs')
+                .select('*')
+                .in('cfop_version_id', versionIds),
+        ])
+
+        if (entriesError) throw entriesError
+        if (configsError) throw configsError
+
+        const configMap = new Map<string, Record<string, unknown>>(
+            ((configs || []) as Array<Record<string, unknown>>).map((row) => [String(row.cfop_entry_id), row])
+        )
+        const usageMap = await buildUsageMap(
+            ((configs || []) as Array<Record<string, unknown>>).map((row) => String(row.id))
+        )
+        const search = sanitizeText(params?.query)?.toLowerCase() || ''
+
+        const filtered = ((entries || []) as Array<Record<string, unknown>>)
+            .map((entry) => {
+                const config = configMap.get(String(entry.id)) || null
+                const usage = config ? usageMap.get(String(config.id)) || buildEmptyUsage() : buildEmptyUsage()
+                return mapCfopListItem(entry, config, usage)
+            })
             .filter((item) => item.configId && item.configurationStatus !== 'pending' && item.isActive)
             .filter((item) => {
+                if (search) {
+                    const haystack = [item.code, item.description, item.generalDescription || '', item.operationGroup || '']
+                        .join(' ')
+                        .toLowerCase()
+                    if (!haystack.includes(search)) return false
+                }
                 if (params?.operationDirection === 'outbound' && !['outbound', 'both'].includes(item.operationDirection)) {
                     return false
                 }
@@ -699,13 +987,14 @@ export async function searchCfopConfigOptionsAction(params?: {
                 configId: item.configId!,
                 referenceId: item.entryId,
                 versionId: item.versionId,
-                versionLabel: listResult.data?.versionLabel || '',
+                versionLabel: versionLabelById.get(item.versionId) || '',
                 code: item.code,
                 description: item.description,
                 secondaryText: [
                     item.operationDirection === 'inbound' ? 'Entrada' : item.operationDirection === 'outbound' ? 'Saida' : 'Entrada e saida',
                     getCfopOperationScopeLabel(item.operationScope),
                     item.operationGroup ? getCfopOperationGroupLabel(item.operationGroup) : null,
+                    versionLabelById.get(item.versionId)?.toLowerCase().includes('manual') ? 'Manual' : null,
                     item.supportsSt ? 'ST' : null,
                 ]
                     .filter(Boolean)

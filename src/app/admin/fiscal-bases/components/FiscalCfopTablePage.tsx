@@ -115,6 +115,11 @@ export function FiscalCfopTablePage({ initialResult, initialVersions }: FiscalCf
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                    <Button asChild>
+                        <Link href="/admin/fiscal-bases/cfop/novo">
+                            Novo CFOP manual
+                        </Link>
+                    </Button>
                     <Button variant="outline" onClick={() => void refresh()}>
                         <RefreshCw className="mr-1.5 h-4 w-4" />
                         Atualizar

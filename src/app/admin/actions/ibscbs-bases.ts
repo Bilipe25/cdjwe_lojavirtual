@@ -373,7 +373,7 @@ export async function listIbscbsPresumedCreditCatalogAction(params?: {
         const { data, error } = await adminSupabase
             .from('fiscal_ibscbs_presumed_credit_items')
             .select('*')
-            .eq('version_id', catalogVersionId)
+            .eq('catalog_version_id', catalogVersionId)
             .eq('is_active', true)
             .order('sort_order', { ascending: true })
             .order('code', { ascending: true })
@@ -384,7 +384,7 @@ export async function listIbscbsPresumedCreditCatalogAction(params?: {
             success: true,
             data: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
                 id: String(row.id),
-                versionId: String(row.version_id || ''),
+                versionId: String(row.catalog_version_id || ''),
                 code: String(row.code || ''),
                 label: String(row.label || ''),
                 description: sanitizeText(row.description as string | null),

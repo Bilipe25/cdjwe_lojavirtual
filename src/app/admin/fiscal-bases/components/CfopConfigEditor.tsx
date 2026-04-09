@@ -1,8 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useForm, type Resolver } from 'react-hook-form'
+import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -16,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FiscalAutocompleteField } from './FiscalAutocompleteField'
 import {
     getCfopConfigDetailAction,
+    resolveCfopDefaultsAction,
     upsertCfopConfigAction,
     type CfopConfigDetail,
     type CfopConfigFormData,
@@ -30,6 +32,12 @@ import {
     type IbscbsPresumedCreditCatalogItem,
 } from '@/app/admin/actions/ibscbs-bases'
 import { listFiscalCatalogItemsAction, type FiscalCatalogItemOption, type FiscalSearchOption } from '@/app/admin/actions/fiscal-bases'
+import {
+    buildCfopSuggestedDefaultsSummary,
+    diffCfopSuggestionOverrides,
+    type CfopResolvedSuggestion,
+    type CfopSuggestionPatch,
+} from '@/lib/fiscal/cfop-autofill'
 import {
     CFOP_OPERATION_GROUP_OPTIONS,
     CFOP_OPERATION_SCOPE_OPTIONS,
@@ -84,11 +92,34 @@ function getConfigurationStatusBadgeClass(status?: string | null) {
     return 'border-rose-200 bg-rose-50 text-rose-700'
 }
 
+function collectCfopFormIssues(errors: FieldErrors<CfopConfigFormValues>) {
+    const issues: string[] = []
+
+    if (errors.code?.message) issues.push(String(errors.code.message))
+    if (errors.description?.message) issues.push(String(errors.description.message))
+    if (errors.operationDirection?.message) issues.push(String(errors.operationDirection.message))
+    if (errors.operationGroup?.message) issues.push(String(errors.operationGroup.message))
+    if (errors.operationScope?.message) issues.push(String(errors.operationScope.message))
+    if (errors.generalDescription?.message) issues.push(String(errors.generalDescription.message))
+    if (errors.ibscbsConfig?.cstCatalogVersionId?.message) {
+        issues.push(String(errors.ibscbsConfig.cstCatalogVersionId.message))
+    }
+    if (errors.ibscbsConfig?.classificationCode?.message) {
+        issues.push(String(errors.ibscbsConfig.classificationCode.message))
+    }
+    if (errors.ibscbsConfig?.regularClassificationCode?.message) {
+        issues.push(String(errors.ibscbsConfig.regularClassificationCode.message))
+    }
+
+    return [...new Set(issues)]
+}
+
 function normalizeDetailToForm(detail: CfopConfigDetail): CfopConfigFormValues {
     return {
         entryId: detail.entryId,
         configId: detail.configId || undefined,
         versionId: detail.versionId,
+        isManualEntry: detail.isManualEntry,
         code: detail.code,
         description: detail.description,
         operationDirection: detail.operationDirection,
@@ -108,6 +139,11 @@ function normalizeDetailToForm(detail: CfopConfigDetail): CfopConfigFormValues {
         isRecommended: detail.isRecommended,
         isLegacy: detail.isLegacy,
         isActive: detail.isActive,
+        defaultSource: detail.defaultSource || undefined,
+        defaultSeedCode: detail.defaultSeedCode || undefined,
+        defaultAppliedAt: detail.defaultAppliedAt || undefined,
+        manualOverrides: detail.manualOverrides || {},
+        suggestedDefaultsSummary: detail.suggestedDefaultsSummary || {},
         icmsConfig: {
             calculateIcms: detail.icmsConfig.calculateIcms,
             simpleNationalNonTaxed: detail.icmsConfig.simpleNationalNonTaxed,
@@ -134,6 +170,7 @@ function normalizeDetailToForm(detail: CfopConfigDetail): CfopConfigFormValues {
 }
 
 export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorProps) {
+    const router = useRouter()
     const [detail, setDetail] = useState(initialDetail)
     const [saving, setSaving] = useState(false)
     const [loadingCatalogs, setLoadingCatalogs] = useState(true)
@@ -150,16 +187,28 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
     const [regularClassificationLoading, setRegularClassificationLoading] = useState(false)
     const [selectedClassification, setSelectedClassification] = useState<FiscalSearchOption | null>(null)
     const [selectedRegularClassification, setSelectedRegularClassification] = useState<FiscalSearchOption | null>(null)
+    const [defaultSuggestion, setDefaultSuggestion] = useState<CfopResolvedSuggestion | null>(null)
+    const [defaultSuggestionLoading, setDefaultSuggestionLoading] = useState(false)
+    const [defaultSuggestionError, setDefaultSuggestionError] = useState<string | null>(null)
+    const [lastAutoFilledCode, setLastAutoFilledCode] = useState<string | null>(null)
+    const [activeCatalogVersionIds, setActiveCatalogVersionIds] = useState<{
+        cstCatalogVersionId?: string
+        classificationVersionId?: string
+        presumedCreditCatalogVersionId?: string
+    }>({})
 
     const form = useForm<CfopConfigFormValues>({
         resolver: zodResolver(cfopConfigFormSchema) as Resolver<CfopConfigFormValues>,
         defaultValues: normalizeDetailToForm(initialDetail),
     })
 
-    const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = form
+    const { register, handleSubmit, reset, setValue, watch, getValues, formState: { errors } } = form
+    const isManualEntry = watch('isManualEntry')
+    const watchedCode = watch('code')
     const impactsIbscbs = watch('impactsIbscbs')
     const ibscbsCstCode = watch('ibscbsConfig.cstCode')
     const ibscbsCatalogVersionId = watch('ibscbsConfig.classificationVersionId')
+    const watchedValues = watch()
 
     useEffect(() => {
         reset(normalizeDetailToForm(detail))
@@ -218,6 +267,11 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
 
                 setIbscbsCatalogReady(Boolean(activeCst && activeClassification))
                 setPresumedCreditCatalogReady(Boolean(activePresumedCredit))
+                setActiveCatalogVersionIds({
+                    cstCatalogVersionId: activeCst?.id,
+                    classificationVersionId: activeClassification?.id,
+                    presumedCreditCatalogVersionId: activePresumedCredit?.id,
+                })
 
                 if (!detail.ibscbsConfig.cstCatalogVersionId && activeCst) {
                     setValue('ibscbsConfig.cstCatalogVersionId', activeCst.id, { shouldDirty: false })
@@ -233,11 +287,13 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
             } else {
                 setIbscbsCatalogReady(false)
                 setPresumedCreditCatalogReady(false)
+                setActiveCatalogVersionIds({})
                 setCatalogLoadError(catalogVersions.error || 'Nao foi possivel carregar os catalogos ativos de IBS/CBS.')
             }
         } catch (error) {
             setIbscbsCatalogReady(false)
             setPresumedCreditCatalogReady(false)
+            setActiveCatalogVersionIds({})
             setCatalogLoadError(error instanceof Error ? error.message : 'Nao foi possivel carregar os catalogos fiscais.')
         } finally {
             setLoadingCatalogs(false)
@@ -300,6 +356,34 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
         setter(false)
     }
 
+    const ensureActiveIbscbsCatalogIds = useCallback(
+        (markDirty: boolean) => {
+            if (activeCatalogVersionIds.cstCatalogVersionId) {
+                setValue('ibscbsConfig.cstCatalogVersionId', activeCatalogVersionIds.cstCatalogVersionId, {
+                    shouldDirty: markDirty,
+                })
+            }
+            if (activeCatalogVersionIds.classificationVersionId) {
+                setValue('ibscbsConfig.classificationVersionId', activeCatalogVersionIds.classificationVersionId, {
+                    shouldDirty: markDirty,
+                })
+            }
+            if (activeCatalogVersionIds.presumedCreditCatalogVersionId) {
+                setValue(
+                    'ibscbsConfig.presumedCreditCatalogVersionId',
+                    activeCatalogVersionIds.presumedCreditCatalogVersionId,
+                    { shouldDirty: markDirty }
+                )
+            }
+        },
+        [
+            activeCatalogVersionIds.classificationVersionId,
+            activeCatalogVersionIds.cstCatalogVersionId,
+            activeCatalogVersionIds.presumedCreditCatalogVersionId,
+            setValue,
+        ]
+    )
+
     useEffect(() => {
         if (!ibscbsCatalogReady) return
 
@@ -347,12 +431,204 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
         return parts.join(' | ')
     }, [detail.usage])
 
+    const applySuggestionToForm = useCallback(
+        (suggestion: CfopResolvedSuggestion, markDirty: boolean) => {
+            const patch: CfopSuggestionPatch = suggestion.patch
+            const setField = (field: Parameters<typeof setValue>[0], value: unknown) => {
+                setValue(field, value as never, { shouldDirty: markDirty })
+            }
+
+            if (isManualEntry && (!getValues('description') || markDirty)) {
+                setField('description', (patch.description || watchedCode) as CfopConfigFormValues['description'])
+            }
+
+            setField('operationDirection', patch.operationDirection as CfopConfigFormValues['operationDirection'])
+            setField('operationGroup', patch.operationGroup as CfopConfigFormValues['operationGroup'])
+            setField('operationScope', patch.operationScope as CfopConfigFormValues['operationScope'])
+            setField('generalDescription', patch.generalDescription)
+            setField('defaultNote', patch.defaultNote || undefined)
+            setField('appliesToOwnManufacture', patch.appliesToOwnManufacture)
+            setField('appliesToResale', patch.appliesToResale)
+            setField('appliesOutsideEstablishment', patch.appliesOutsideEstablishment)
+            setField('appliesConsumerFinal', patch.appliesConsumerFinal)
+            setField('appliesTaxpayer', patch.appliesTaxpayer)
+            setField('supportsSt', patch.supportsSt)
+            setField('impactsIcms', patch.impactsIcms)
+            setField('sumOperationTotalInvoice', patch.sumOperationTotalInvoice)
+            setField('isRecommended', patch.isRecommended)
+            setField('icmsConfig.calculateIcms', patch.icmsConfig.calculateIcms)
+            setField('icmsConfig.simpleNationalNonTaxed', patch.icmsConfig.simpleNationalNonTaxed)
+            setField('icmsConfig.omitIcmsForIndividual', patch.icmsConfig.omitIcmsForIndividual)
+            setField('icmsConfig.highlightStOnInvoice', patch.icmsConfig.highlightStOnInvoice)
+            setField('icmsConfig.stCollectedPreviously', patch.icmsConfig.stCollectedPreviously)
+            setField('piscofinsConfig.pisCstCode', patch.piscofinsConfig.pisCstCode || undefined)
+            setField('piscofinsConfig.cofinsCstCode', patch.piscofinsConfig.cofinsCstCode || undefined)
+
+            const canApplyIbscbs = ibscbsCatalogReady && Boolean(activeCatalogVersionIds.cstCatalogVersionId && activeCatalogVersionIds.classificationVersionId)
+            setField('impactsIbscbs', canApplyIbscbs ? patch.impactsIbscbs : false)
+
+            if (canApplyIbscbs) {
+                setField('ibscbsConfig.cstCatalogVersionId', activeCatalogVersionIds.cstCatalogVersionId)
+                setField('ibscbsConfig.classificationVersionId', activeCatalogVersionIds.classificationVersionId)
+                setField(
+                    'ibscbsConfig.presumedCreditCatalogVersionId',
+                    activeCatalogVersionIds.presumedCreditCatalogVersionId
+                )
+                setField('ibscbsConfig.cstCode', patch.ibscbsConfig.cstCode || undefined)
+                setField('ibscbsConfig.classificationCode', patch.ibscbsConfig.classificationCode || undefined)
+                setField('ibscbsConfig.regularCstCode', patch.ibscbsConfig.regularCstCode || undefined)
+                setField(
+                    'ibscbsConfig.regularClassificationCode',
+                    patch.ibscbsConfig.regularClassificationCode || undefined
+                )
+                setField('ibscbsConfig.presumedCreditCode', patch.ibscbsConfig.presumedCreditCode || undefined)
+                setField('ibscbsConfig.presumedCreditRate', patch.ibscbsConfig.presumedCreditRate ?? undefined)
+                setSelectedClassification(
+                    patch.ibscbsConfig.classificationCode
+                        ? {
+                              id: patch.ibscbsConfig.classificationCode,
+                              versionId: activeCatalogVersionIds.classificationVersionId || '',
+                              versionLabel: '',
+                              code: patch.ibscbsConfig.classificationCode,
+                              description: 'Carregando classificacao...',
+                          }
+                        : null
+                )
+                setSelectedRegularClassification(
+                    patch.ibscbsConfig.regularClassificationCode
+                        ? {
+                              id: patch.ibscbsConfig.regularClassificationCode,
+                              versionId: activeCatalogVersionIds.classificationVersionId || '',
+                              versionLabel: '',
+                              code: patch.ibscbsConfig.regularClassificationCode,
+                              description: 'Carregando classificacao...',
+                          }
+                        : null
+                )
+            } else {
+                setSelectedClassification(null)
+                setSelectedRegularClassification(null)
+            }
+
+            setField('defaultSource', suggestion.source)
+            setField('defaultSeedCode', suggestion.defaultSeedCode || suggestion.cfopCode)
+            setField('defaultAppliedAt', new Date().toISOString())
+            setField('manualOverrides', {})
+            setField('suggestedDefaultsSummary', buildCfopSuggestedDefaultsSummary(suggestion))
+        },
+        [
+            activeCatalogVersionIds.classificationVersionId,
+            activeCatalogVersionIds.cstCatalogVersionId,
+            activeCatalogVersionIds.presumedCreditCatalogVersionId,
+            getValues,
+            ibscbsCatalogReady,
+            isManualEntry,
+            setValue,
+            watchedCode,
+        ]
+    )
+
+    const isSafeInitialAutoFill = useCallback(() => {
+        const values = getValues()
+        return (
+            !values.configId &&
+            !values.defaultSource &&
+            values.operationGroup === 'other' &&
+            values.operationScope === 'all' &&
+            !values.generalDescription.trim() &&
+            !(values.defaultNote || '').trim() &&
+            !values.appliesToOwnManufacture &&
+            !values.appliesToResale &&
+            !values.appliesOutsideEstablishment &&
+            !values.appliesConsumerFinal &&
+            !values.appliesTaxpayer &&
+            !values.supportsSt &&
+            values.impactsIcms === true &&
+            values.impactsIbscbs === false &&
+            values.sumOperationTotalInvoice === true &&
+            !values.isRecommended &&
+            !values.icmsConfig.simpleNationalNonTaxed &&
+            !values.icmsConfig.omitIcmsForIndividual &&
+            !values.icmsConfig.highlightStOnInvoice &&
+            !values.icmsConfig.stCollectedPreviously &&
+            !values.ibscbsConfig.cstCode &&
+            !values.ibscbsConfig.classificationCode &&
+            !values.piscofinsConfig.pisCstCode &&
+            !values.piscofinsConfig.cofinsCstCode
+        )
+    }, [getValues])
+
+    useEffect(() => {
+        const digits = String(watchedCode || '').replace(/\D/g, '').slice(0, 4)
+        if (!/^\d{4}$/.test(digits)) {
+            setDefaultSuggestion(null)
+            setDefaultSuggestionError(null)
+            return
+        }
+
+        let cancelled = false
+        setDefaultSuggestionLoading(true)
+        setDefaultSuggestionError(null)
+
+        void resolveCfopDefaultsAction({
+            cfopCode: digits,
+            description: watchedValues.description,
+        }).then((result) => {
+            if (cancelled) return
+            if (!result.success) {
+                setDefaultSuggestion(null)
+                setDefaultSuggestionError(result.error || 'Nao foi possivel carregar a configuracao sugerida.')
+                setDefaultSuggestionLoading(false)
+                return
+            }
+
+            setDefaultSuggestion(result.data || null)
+            setDefaultSuggestionLoading(false)
+
+            if (
+                result.data &&
+                lastAutoFilledCode !== digits &&
+                isSafeInitialAutoFill()
+            ) {
+                applySuggestionToForm(result.data, false)
+                setLastAutoFilledCode(digits)
+            }
+        })
+
+        return () => {
+            cancelled = true
+        }
+    }, [applySuggestionToForm, isSafeInitialAutoFill, lastAutoFilledCode, watchedCode, watchedValues.description])
+
+    const manualOverridePaths = useMemo(() => {
+        const computed = diffCfopSuggestionOverrides(watchedValues, defaultSuggestion)
+        if (computed.length > 0) return computed
+        const existingPaths = detail.manualOverrides?.paths
+        return Array.isArray(existingPaths) ? existingPaths.map((item) => String(item)) : []
+    }, [defaultSuggestion, detail.manualOverrides, watchedValues])
+
+    const validationIssues = useMemo(() => collectCfopFormIssues(errors), [errors])
+
+    const sourceLabel = useMemo(() => {
+        const currentSource = watchedValues.defaultSource
+        if (currentSource === 'master_seed') return 'Preenchido por base mestra'
+        if (currentSource === 'code_inference') return 'Inferido pelo codigo'
+        if (currentSource === 'manual') return 'Ajustado manualmente'
+        return null
+    }, [watchedValues.defaultSource])
+
     const onSubmit = async (values: CfopConfigFormValues) => {
         setSaving(true)
         const payload = {
             ...values,
             operationGroup: values.operationGroup as CfopConfigFormData['operationGroup'],
             operationScope: values.operationScope as CfopConfigFormData['operationScope'],
+            generalDescription: (values.generalDescription || '').trim() || values.description.trim(),
+            manualOverrides: { paths: manualOverridePaths },
+            suggestedDefaultsSummary:
+                Object.keys(values.suggestedDefaultsSummary || {}).length > 0
+                    ? values.suggestedDefaultsSummary
+                    : buildCfopSuggestedDefaultsSummary(defaultSuggestion),
         } satisfies CfopConfigFormData
         const result = await upsertCfopConfigAction(payload)
         if (!result.success || !result.data) {
@@ -361,7 +637,15 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
             return
         }
 
-        const refreshed = await getCfopConfigDetailAction(entryId)
+        if (!entryId && result.data.entryId) {
+            toast.success('CFOP manual criado com sucesso.')
+            router.replace(`/admin/fiscal-bases/cfop/${result.data.entryId}/editar`)
+            router.refresh()
+            setSaving(false)
+            return
+        }
+
+        const refreshed = await getCfopConfigDetailAction(result.data.entryId || entryId)
         if (refreshed.success && refreshed.data) {
             setDetail(refreshed.data)
             toast.success(result.data.created ? 'Configuracao de CFOP criada.' : 'Configuracao de CFOP atualizada.')
@@ -369,6 +653,10 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
             toast.success('Configuracao de CFOP salva.')
         }
         setSaving(false)
+    }
+
+    const handleInvalidSubmit = () => {
+        toast.error(validationIssues[0] || 'Revise os campos obrigatorios antes de salvar o CFOP.')
     }
 
     return (
@@ -381,35 +669,93 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                             Voltar para a base de CFOP
                         </Link>
                     </Button>
-                    <h1 className="text-3xl font-bold font-heading text-gradient-navy">Configuracao de CFOP</h1>
+                    <h1 className="text-3xl font-bold font-heading text-gradient-navy">
+                        {isManualEntry ? 'Novo CFOP manual' : 'Configuracao de CFOP'}
+                    </h1>
                     <p className="mt-1 text-muted-foreground">
-                        Vincule contexto operacional, flags fiscais e catalogos estruturados ao CFOP oficial sem perder rastreabilidade por versao.
+                        {isManualEntry
+                            ? 'Cadastre um CFOP manual com a mesma governanca fiscal do editor oficial, mantendo elegibilidade, integracao e rastreabilidade.'
+                            : 'Vincule contexto operacional, flags fiscais e catalogos estruturados ao CFOP oficial sem perder rastreabilidade por versao.'}
                     </p>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
-                    <Badge variant="outline" className="bg-white">{detail.code}</Badge>
+                    <Badge variant="outline" className="bg-white">{watchedCode || 'Novo CFOP'}</Badge>
                     <Badge variant="outline" className="bg-white">{detail.versionLabel}</Badge>
+                    {isManualEntry ? (
+                        <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">Manual</Badge>
+                    ) : null}
+                    {sourceLabel ? (
+                        <Badge variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">
+                            {sourceLabel}
+                        </Badge>
+                    ) : null}
+                    {manualOverridePaths.length > 0 ? (
+                        <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                            Ajustado manualmente
+                        </Badge>
+                    ) : null}
                     <Badge variant="outline" className={getConfigurationStatusBadgeClass(detail.configurationStatus)}>
                         {getCfopConfigurationStatusLabel(detail.configurationStatus)}
                     </Badge>
                 </div>
             </div>
 
-            <form onSubmit={handleSubmit((values) => void onSubmit(values))} className="space-y-5">
+            <form onSubmit={handleSubmit((values) => void onSubmit(values), handleInvalidSubmit)} className="space-y-5">
+                {validationIssues.length > 0 ? (
+                    <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm">
+                        <p className="text-sm font-semibold text-amber-950">Ainda faltam ajustes antes de salvar</p>
+                        <ul className="mt-2 list-disc pl-5 text-sm text-amber-900">
+                            {validationIssues.map((issue) => (
+                                <li key={issue}>{issue}</li>
+                            ))}
+                        </ul>
+                    </section>
+                ) : null}
                 <section className="rounded-2xl border bg-white p-5 shadow-sm space-y-4">
                     <h3 className="text-sm font-semibold text-navy">1. Configuracoes do CFOP</h3>
                     <div className="grid gap-3 md:grid-cols-3">
                         <div className="space-y-1.5">
                             <Label>Codigo</Label>
-                            <Input value={detail.code} disabled />
+                            <Input
+                                value={watch('code')}
+                                disabled={!isManualEntry}
+                                onChange={(event) => setValue('code', event.target.value, { shouldDirty: true })}
+                                placeholder={isManualEntry ? 'Ex.: 5102' : undefined}
+                            />
+                            {errors.code ? <p className="text-xs text-red-500">{errors.code.message}</p> : null}
                         </div>
                         <div className="space-y-1.5 md:col-span-2">
                             <Label>Descricao oficial</Label>
-                            <Input value={detail.description} disabled />
+                            <Input
+                                value={watch('description')}
+                                disabled={!isManualEntry}
+                                onChange={(event) => setValue('description', event.target.value, { shouldDirty: true })}
+                                placeholder={isManualEntry ? 'Descreva o CFOP manual com clareza operacional' : undefined}
+                            />
+                            {errors.description ? <p className="text-xs text-red-500">{errors.description.message}</p> : null}
                         </div>
                         <div className="space-y-1.5">
                             <Label>Direcao oficial</Label>
-                            <Input value={getDirectionLabel(detail.operationDirection)} disabled />
+                            {isManualEntry ? (
+                                <Select
+                                    value={watch('operationDirection')}
+                                    onValueChange={(value) =>
+                                        setValue('operationDirection', value as CfopConfigFormValues['operationDirection'], {
+                                            shouldDirty: true,
+                                        })
+                                    }
+                                >
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="outbound">Saida</SelectItem>
+                                        <SelectItem value="inbound">Entrada</SelectItem>
+                                        <SelectItem value="both">Entrada e saida</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            ) : (
+                                <Input value={getDirectionLabel(detail.operationDirection)} disabled />
+                            )}
+                            {errors.operationDirection ? <p className="text-xs text-red-500">{errors.operationDirection.message}</p> : null}
                         </div>
                         <div className="space-y-1.5">
                             <Label>Grupo operacional</Label>
@@ -452,6 +798,97 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                         <Textarea rows={2} {...register('defaultNote')} />
                     </div>
                 </section>
+
+                {(defaultSuggestion || defaultSuggestionLoading || defaultSuggestionError) ? (
+                    <section className="rounded-2xl border bg-white p-5 shadow-sm space-y-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div className="space-y-1">
+                                <h3 className="text-sm font-semibold text-navy">Configuracao sugerida</h3>
+                                <p className="text-sm text-muted-foreground">
+                                    O editor reconhece direcao, escopo e defaults mestres para reduzir retrabalho, sem esconder o que foi sugerido.
+                                </p>
+                            </div>
+                            {defaultSuggestion ? (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => applySuggestionToForm(defaultSuggestion, true)}
+                                >
+                                    Reaplicar defaults
+                                </Button>
+                            ) : null}
+                        </div>
+
+                        {defaultSuggestionLoading ? (
+                            <div className="flex items-center gap-2 rounded-xl border border-dashed px-4 py-3 text-sm text-slate-600">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Carregando configuracao sugerida para este CFOP...
+                            </div>
+                        ) : null}
+
+                        {defaultSuggestionError ? (
+                            <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                {defaultSuggestionError}
+                            </div>
+                        ) : null}
+
+                        {defaultSuggestion ? (
+                            <div className="space-y-3">
+                                <div className="flex flex-wrap gap-2">
+                                    <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                                        {defaultSuggestion.source === 'master_seed' ? 'Base mestra' : 'Inferido pelo codigo'}
+                                    </Badge>
+                                    {defaultSuggestion.summaryBadges.map((badge) => (
+                                        <Badge key={badge} variant="outline" className="bg-white">
+                                            {badge}
+                                        </Badge>
+                                    ))}
+                                </div>
+
+                                <div className="grid gap-3 md:grid-cols-3">
+                                    <div className="rounded-xl border bg-slate-50/70 p-3">
+                                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Grupo sugerido</p>
+                                        <p className="mt-1 text-sm font-medium text-slate-900">{defaultSuggestion.operationGroupLabel}</p>
+                                    </div>
+                                    <div className="rounded-xl border bg-slate-50/70 p-3">
+                                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Contexto principal</p>
+                                        <p className="mt-1 text-sm font-medium text-slate-900">{defaultSuggestion.primaryContext}</p>
+                                    </div>
+                                    <div className="rounded-xl border bg-slate-50/70 p-3">
+                                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Origem da sugestao</p>
+                                        <p className="mt-1 text-sm font-medium text-slate-900">
+                                            {defaultSuggestion.source === 'master_seed' ? 'Base mestra de CFOP' : 'Inferencia estrutural pelo codigo'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {defaultSuggestion.internalNotes ? (
+                                    <div className="rounded-xl border border-dashed px-4 py-3 text-sm text-slate-700">
+                                        {defaultSuggestion.internalNotes}
+                                    </div>
+                                ) : null}
+
+                                {defaultSuggestion.reviewAlerts.length > 0 ? (
+                                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        <p className="font-medium">Revisao manual recomendada</p>
+                                        <ul className="mt-2 list-disc pl-5">
+                                            {defaultSuggestion.reviewAlerts.map((alert) => (
+                                                <li key={alert}>{alert}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : null}
+
+                                {manualOverridePaths.length > 0 ? (
+                                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        Este CFOP ja recebeu ajustes manuais em {manualOverridePaths.length} campo(s) apos a sugestao inicial.
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
+                    </section>
+                ) : null}
 
                 <section className="rounded-2xl border bg-white p-5 shadow-sm space-y-4">
                     <h3 className="text-sm font-semibold text-navy">2. Propriedades e Elegibilidade</h3>
@@ -508,7 +945,10 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                         </div>
                         <Switch
                             checked={impactsIbscbs}
-                            onCheckedChange={(value) => setValue('impactsIbscbs', value, { shouldDirty: true })}
+                            onCheckedChange={(value) => {
+                                setValue('impactsIbscbs', value, { shouldDirty: true })
+                                if (value) ensureActiveIbscbsCatalogIds(false)
+                            }}
                         />
                     </div>
                     {catalogLoadError ? (
@@ -544,10 +984,14 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                                 value={watch('ibscbsConfig.cstCode') || '__none__'}
                                 disabled={!ibscbsCatalogReady}
                                 onValueChange={(value) =>
-                                    setValue('ibscbsConfig.cstCode', value && value !== '__none__' ? value : undefined, {
-                                        shouldDirty: true,
-                                    })
-                                }
+                                    {
+                                        if (value && value !== '__none__') {
+                                            ensureActiveIbscbsCatalogIds(false)
+                                        }
+                                        setValue('ibscbsConfig.cstCode', value && value !== '__none__' ? value : undefined, {
+                                            shouldDirty: true,
+                                        })
+                                    }}
                             >
                                 <SelectTrigger><SelectValue placeholder={loadingCatalogs ? 'Carregando...' : 'Selecione o CST'} /></SelectTrigger>
                                 <SelectContent>
@@ -568,6 +1012,7 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                             onSearch={(query) => void handleClassificationSearch(query, false)}
                             onSelect={(option) => {
                                 setSelectedClassification(option)
+                                ensureActiveIbscbsCatalogIds(false)
                                 setValue('ibscbsConfig.classificationCode', option.code, { shouldDirty: true })
                             }}
                             onClear={() => {
@@ -582,10 +1027,14 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                                 value={watch('ibscbsConfig.regularCstCode') || '__none__'}
                                 disabled={!ibscbsCatalogReady}
                                 onValueChange={(value) =>
-                                    setValue('ibscbsConfig.regularCstCode', value && value !== '__none__' ? value : undefined, {
-                                        shouldDirty: true,
-                                    })
-                                }
+                                    {
+                                        if (value && value !== '__none__') {
+                                            ensureActiveIbscbsCatalogIds(false)
+                                        }
+                                        setValue('ibscbsConfig.regularCstCode', value && value !== '__none__' ? value : undefined, {
+                                            shouldDirty: true,
+                                        })
+                                    }}
                             >
                                 <SelectTrigger><SelectValue placeholder="Selecione o CST regular" /></SelectTrigger>
                                 <SelectContent>
@@ -606,6 +1055,7 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                             onSearch={(query) => void handleClassificationSearch(query, true)}
                             onSelect={(option) => {
                                 setSelectedRegularClassification(option)
+                                ensureActiveIbscbsCatalogIds(false)
                                 setValue('ibscbsConfig.regularClassificationCode', option.code, { shouldDirty: true })
                             }}
                             onClear={() => {
@@ -636,7 +1086,7 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                         </div>
 
                         <div className="space-y-1.5">
-                            <Label>Alíquota de credito presumido</Label>
+                            <Label>Aliquota de credito presumido</Label>
                             <Input type="number" step="0.01" {...register('ibscbsConfig.presumedCreditRate')} />
                         </div>
                     </div>
@@ -645,7 +1095,9 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                             O catalogo de credito presumido ainda nao esta ativo. O restante da configuracao de IBS/CBS continua disponivel.
                         </p>
                     ) : null}
+                    {errors.ibscbsConfig?.cstCatalogVersionId ? <p className="text-xs text-red-500">{errors.ibscbsConfig.cstCatalogVersionId.message}</p> : null}
                     {errors.ibscbsConfig?.classificationCode ? <p className="text-xs text-red-500">{errors.ibscbsConfig.classificationCode.message}</p> : null}
+                    {errors.ibscbsConfig?.regularClassificationCode ? <p className="text-xs text-red-500">{errors.ibscbsConfig.regularClassificationCode.message}</p> : null}
                 </section>
 
                 <section className="rounded-2xl border bg-white p-5 shadow-sm space-y-4">
@@ -711,7 +1163,13 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                         </div>
                         <div className="flex items-center justify-between rounded-xl border p-3">
                             <Label>Impacta IBS/CBS</Label>
-                            <Switch checked={watch('impactsIbscbs')} onCheckedChange={(value) => setValue('impactsIbscbs', value, { shouldDirty: true })} />
+                            <Switch
+                                checked={watch('impactsIbscbs')}
+                                onCheckedChange={(value) => {
+                                    setValue('impactsIbscbs', value, { shouldDirty: true })
+                                    if (value) ensureActiveIbscbsCatalogIds(false)
+                                }}
+                            />
                         </div>
                     </div>
                 </section>
@@ -736,6 +1194,7 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
         </div>
     )
 }
+
 
 
 

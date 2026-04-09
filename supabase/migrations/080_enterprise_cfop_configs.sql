@@ -750,7 +750,7 @@ BEGIN
 
         PERFORM 1
           FROM public.fiscal_ibscbs_cst_catalog_items item
-         WHERE item.version_id = v_cst_catalog_version_id
+         WHERE item.catalog_version_id = v_cst_catalog_version_id
            AND item.code = v_cst_code
            AND item.is_active = true;
         IF NOT FOUND THEN
@@ -760,7 +760,7 @@ BEGIN
         IF v_regular_cst_code IS NOT NULL THEN
             PERFORM 1
               FROM public.fiscal_ibscbs_cst_catalog_items item
-             WHERE item.version_id = v_cst_catalog_version_id
+             WHERE item.catalog_version_id = v_cst_catalog_version_id
                AND item.code = v_regular_cst_code
                AND item.is_active = true;
             IF NOT FOUND THEN
@@ -770,7 +770,7 @@ BEGIN
 
         PERFORM 1
           FROM public.fiscal_ibscbs_classification_items item
-         WHERE item.version_id = v_classification_version_id
+         WHERE item.catalog_version_id = v_classification_version_id
            AND item.code = v_classification_code
            AND item.is_active = true;
         IF NOT FOUND THEN
@@ -780,7 +780,7 @@ BEGIN
         IF v_regular_classification_code IS NOT NULL THEN
             PERFORM 1
               FROM public.fiscal_ibscbs_classification_items item
-             WHERE item.version_id = v_classification_version_id
+             WHERE item.catalog_version_id = v_classification_version_id
                AND item.code = v_regular_classification_code
                AND item.is_active = true;
             IF NOT FOUND THEN
@@ -796,7 +796,7 @@ BEGIN
 
         PERFORM 1
           FROM public.fiscal_ibscbs_presumed_credit_items item
-         WHERE item.version_id = v_presumed_credit_version_id
+         WHERE item.catalog_version_id = v_presumed_credit_version_id
            AND item.code = v_presumed_credit_code
            AND item.is_active = true;
         IF NOT FOUND THEN
@@ -970,7 +970,7 @@ BEGIN
         v_actor,
         v_actor
     )
-    ON CONFLICT (cfop_config_id) DO UPDATE
+    ON CONFLICT ON CONSTRAINT fiscal_cfop_icms_configs_cfop_config_unique DO UPDATE
         SET calculate_icms = EXCLUDED.calculate_icms,
             simple_national_non_taxed = EXCLUDED.simple_national_non_taxed,
             omit_icms_for_individual = EXCLUDED.omit_icms_for_individual,
@@ -1014,7 +1014,7 @@ BEGIN
             v_actor,
             v_actor
         )
-        ON CONFLICT (cfop_config_id) DO UPDATE
+        ON CONFLICT ON CONSTRAINT fiscal_cfop_ibscbs_configs_cfop_config_unique DO UPDATE
             SET cst_catalog_version_id = EXCLUDED.cst_catalog_version_id,
                 cst_code = EXCLUDED.cst_code,
                 classification_version_id = EXCLUDED.classification_version_id,
@@ -1029,7 +1029,7 @@ BEGIN
                 updated_by = v_actor,
                 updated_at = NOW();
     ELSE
-        DELETE FROM public.fiscal_cfop_ibscbs_configs WHERE cfop_config_id = v_config_id;
+        DELETE FROM public.fiscal_cfop_ibscbs_configs config WHERE config.cfop_config_id = v_config_id;
     END IF;
 
     IF p_piscofins_config <> '{}'::JSONB THEN
@@ -1051,7 +1051,7 @@ BEGIN
             v_actor,
             v_actor
         )
-        ON CONFLICT (cfop_config_id) DO UPDATE
+        ON CONFLICT ON CONSTRAINT fiscal_cfop_piscofins_configs_cfop_config_unique DO UPDATE
             SET pis_cst_code = EXCLUDED.pis_cst_code,
                 cofins_cst_code = EXCLUDED.cofins_cst_code,
                 metadata_jsonb = EXCLUDED.metadata_jsonb,
@@ -1059,7 +1059,7 @@ BEGIN
                 updated_by = v_actor,
                 updated_at = NOW();
     ELSE
-        DELETE FROM public.fiscal_cfop_piscofins_configs WHERE cfop_config_id = v_config_id;
+        DELETE FROM public.fiscal_cfop_piscofins_configs config WHERE config.cfop_config_id = v_config_id;
     END IF;
 
     RETURN QUERY SELECT v_config_id, v_created, v_status;
