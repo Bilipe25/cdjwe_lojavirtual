@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
@@ -11,7 +11,6 @@ import {
     Mail,
     Landmark,
     FileText,
-    Receipt,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,10 +28,7 @@ import {
 import { toast } from 'sonner'
 import { loadFiscalProfileAction, saveFiscalProfileAction } from './actions'
 import { FiscalHelpText } from '../components/FiscalHelpText'
-import { EmitterTaxesTab } from './components/EmitterTaxesTab'
 import type { CompanyFiscalProfile } from '@/lib/types'
-
-// ====== Masks ======
 
 function maskCNPJ(value: string): string {
     return value
@@ -66,8 +62,6 @@ function maskCNAE(value: string): string {
         .replace(/(-\d)(\d{2})/, '$1/$2')
         .slice(0, 9)
 }
-
-// ====== Form State ======
 
 interface FormState {
     razaoSocial: string
@@ -117,7 +111,7 @@ const initialForm: FormState = {
 
 const REGIME_OPTIONS = [
     { value: 'simples_nacional', label: 'Simples Nacional' },
-    { value: 'simples_excesso', label: 'Simples Nacional — Excesso de Sublimite' },
+    { value: 'simples_excesso', label: 'Simples Nacional - Excesso de Sublimite' },
     { value: 'lucro_presumido', label: 'Lucro Presumido' },
     { value: 'lucro_real', label: 'Lucro Real' },
 ]
@@ -131,11 +125,9 @@ const CRT_MAP: Record<string, string> = {
 
 const CONTRIBUINTE_OPTIONS = [
     { value: 'contributor', label: 'Contribuinte ICMS' },
-    { value: 'non_contributor', label: 'Não Contribuinte' },
+    { value: 'non_contributor', label: 'Não contribuinte' },
     { value: 'exempt', label: 'Isento' },
 ]
-
-type EmitentTab = 'cadastro' | 'impostos'
 
 export default function FiscalEmitentePage() {
     const [profile, setProfile] = useState<CompanyFiscalProfile | null>(null)
@@ -143,22 +135,8 @@ export default function FiscalEmitentePage() {
     const [saving, setSaving] = useState(false)
     const [form, setForm] = useState<FormState>(initialForm)
     const [savedForm, setSavedForm] = useState<FormState>(initialForm)
-    const [activeTab, setActiveTab] = useState<EmitentTab>('cadastro')
 
     const hasChanges = JSON.stringify(form) !== JSON.stringify(savedForm)
-
-    // Listen for tab switch events from child components
-    useEffect(() => {
-        const handler = (e: Event) => {
-            const detail = (e as CustomEvent<string>).detail
-            if (detail === 'cadastro' || detail === 'impostos') {
-                setActiveTab(detail)
-                window.scrollTo({ top: 0, behavior: 'smooth' })
-            }
-        }
-        window.addEventListener('switch-emitente-tab', handler)
-        return () => window.removeEventListener('switch-emitente-tab', handler)
-    }, [])
 
     const updateField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
         setForm(prev => ({ ...prev, [key]: value }))
@@ -207,7 +185,7 @@ export default function FiscalEmitentePage() {
 
     const handleSave = async () => {
         if (!form.razaoSocial.trim()) {
-            toast.error('Razão Social é obrigatória.')
+            toast.error('Razão social é obrigatória.')
             return
         }
         const cnpjDigits = form.cnpj.replace(/\D/g, '')
@@ -216,7 +194,7 @@ export default function FiscalEmitentePage() {
             return
         }
         if (form.indicadorContribuinte === 'contributor' && !form.inscricaoEstadual.trim()) {
-            toast.error('Inscrição Estadual é obrigatória para contribuinte ICMS.')
+            toast.error('Inscrição estadual é obrigatória para contribuinte de ICMS.')
             return
         }
 
@@ -248,7 +226,7 @@ export default function FiscalEmitentePage() {
         if (result.error) {
             toast.error(result.error)
         } else {
-            toast.success('Dados fiscais do emitente salvos com sucesso!')
+            toast.success('Dados do emitente salvos com sucesso!')
             setSavedForm({ ...form })
         }
         setSaving(false)
@@ -267,71 +245,33 @@ export default function FiscalEmitentePage() {
 
     return (
         <div className="space-y-6 max-w-4xl">
-            {/* Header */}
             <div className="flex items-center justify-between">
                 <div className="hidden md:block">
                     <h1 className="text-3xl font-bold font-heading text-gradient-navy">
-                        Dados Fiscais do Emitente
+                        Dados do Emitente
                     </h1>
                     <p className="text-muted-foreground mt-1">
-                        Dados da empresa emissora para NF-e e documentos fiscais
+                        Cadastro fiscal e identificadores essenciais da empresa emissora.
                     </p>
                 </div>
-                {activeTab === 'cadastro' && (
-                    <div className="flex items-center gap-3">
-                        {hasChanges && (
-                            <span className="text-xs text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full font-medium animate-pulse">
-                                Alterações não salvas
-                            </span>
-                        )}
-                        <Button
-                            className="gradient-navy border-0 text-white gap-2"
-                            onClick={handleSave}
-                            disabled={saving || !hasChanges}
-                        >
-                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                            Salvar
-                        </Button>
-                    </div>
-                )}
+                <div className="flex items-center gap-3">
+                    {hasChanges && (
+                        <span className="text-xs text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full font-medium animate-pulse">
+                            Alterações não salvas
+                        </span>
+                    )}
+                    <Button
+                        className="gradient-navy border-0 text-white gap-2"
+                        onClick={handleSave}
+                        disabled={saving || !hasChanges}
+                    >
+                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        Salvar
+                    </Button>
+                </div>
             </div>
 
-            {/* Tab Strip */}
-            <div className="flex gap-1 p-1 rounded-xl bg-muted/30 border">
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('cadastro')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex-1 justify-center ${
-                        activeTab === 'cadastro'
-                            ? 'bg-white shadow-sm text-foreground'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-white/50'
-                    }`}
-                >
-                    <Building2 className="h-4 w-4" />
-                    Dados Cadastrais
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('impostos')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex-1 justify-center ${
-                        activeTab === 'impostos'
-                            ? 'bg-white shadow-sm text-foreground'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-white/50'
-                    }`}
-                >
-                    <Receipt className="h-4 w-4" />
-                    Impostos
-                </button>
-            </div>
-
-            {/* Tab: Impostos */}
-            {activeTab === 'impostos' && <EmitterTaxesTab />}
-
-            {/* Tab: Dados Cadastrais */}
-            {activeTab === 'cadastro' && (
-            <>
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                {/* Identificação Fiscal */}
                 <Card className="glass-card border-0">
                     <CardHeader>
                         <CardTitle className="text-lg font-heading flex items-center gap-2">
@@ -348,7 +288,7 @@ export default function FiscalEmitentePage() {
                                 <Input
                                     value={form.razaoSocial}
                                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('razaoSocial', e.target.value)}
-                                    placeholder="Razão Social completa conforme contrato social"
+                                    placeholder="Razão social completa conforme contrato social"
                                     className="bg-white/60"
                                 />
                             </div>
@@ -384,7 +324,7 @@ export default function FiscalEmitentePage() {
                                 <Input
                                     value={form.inscricaoEstadual}
                                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('inscricaoEstadual', e.target.value)}
-                                    placeholder={form.indicadorContribuinte === 'exempt' ? 'ISENTO' : 'Ex: 123.456.789.012'}
+                                    placeholder={form.indicadorContribuinte === 'exempt' ? 'ISENTO' : 'Ex.: 123.456.789.012'}
                                     className="bg-white/60"
                                 />
                             </div>
@@ -404,7 +344,6 @@ export default function FiscalEmitentePage() {
                     </CardContent>
                 </Card>
 
-                {/* Regime Tributário */}
                 <Card className="glass-card border-0">
                     <CardHeader>
                         <CardTitle className="text-lg font-heading flex items-center gap-2">
@@ -417,26 +356,26 @@ export default function FiscalEmitentePage() {
                             <div className="space-y-2">
                                 <Label className="flex items-center gap-1">
                                     Regime Tributário
-                                    <FiscalHelpText text="Define como os impostos da empresa são calculados. Impacta diretamente os CSTs e alíquotas na emissão da NF-e." />
+                                    <FiscalHelpText text="Define como os impostos da empresa são calculados. Impacta diretamente CSTs, CRT e comportamento fiscal da emissão." />
                                 </Label>
                                 <Select value={form.regimeTributario} onValueChange={handleRegimeChange}>
                                     <SelectTrigger className="bg-white/60">
                                         <SelectValue placeholder="Selecione..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {REGIME_OPTIONS.map(o => (
-                                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                        {REGIME_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                             </div>
                             <div className="space-y-2">
                                 <Label className="flex items-center gap-1">
-                                    CRT — Código de Regime Tributário
-                                    <FiscalHelpText text="Derivado automaticamente do Regime Tributário. 1 = Simples Nacional, 2 = Excesso de sublimite, 3 = Regime Normal." />
+                                    CRT - Código de Regime Tributário
+                                    <FiscalHelpText text="Derivado automaticamente do regime tributário. 1 = Simples Nacional, 2 = Excesso de sublimite, 3 = Regime normal." />
                                 </Label>
                                 <Input
-                                    value={form.crt ? `${form.crt} — ${form.crt === '1' ? 'Simples Nacional' : form.crt === '2' ? 'Excesso Sublimite' : 'Regime Normal'}` : ''}
+                                    value={form.crt ? `${form.crt} - ${form.crt === '1' ? 'Simples Nacional' : form.crt === '2' ? 'Excesso de sublimite' : 'Regime normal'}` : ''}
                                     disabled
                                     className="bg-muted/30"
                                 />
@@ -444,7 +383,7 @@ export default function FiscalEmitentePage() {
                             <div className="space-y-2">
                                 <Label className="flex items-center gap-1">
                                     CNAE Principal
-                                    <FiscalHelpText text="Classificação Nacional de Atividades Econômicas. Identifica a atividade principal da empresa no formato XXXX-X/XX." />
+                                    <FiscalHelpText text="Classificação Nacional de Atividades Econômicas no formato XXXX-X/XX." />
                                 </Label>
                                 <Input
                                     value={form.cnaePrincipal}
@@ -457,15 +396,15 @@ export default function FiscalEmitentePage() {
                             <div className="space-y-2">
                                 <Label className="flex items-center gap-1">
                                     Indicador de Contribuinte
-                                    <FiscalHelpText text="Define se a empresa é contribuinte do ICMS. Impacta o CFOP e a tributação das operações." />
+                                    <FiscalHelpText text="Define se a empresa é contribuinte do ICMS. Impacta validações e uso da inscrição estadual." />
                                 </Label>
                                 <Select value={form.indicadorContribuinte} onValueChange={(v) => updateField('indicadorContribuinte', v || 'contributor')}>
                                     <SelectTrigger className="bg-white/60">
                                         <SelectValue placeholder="Selecione..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {CONTRIBUINTE_OPTIONS.map(o => (
-                                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                        {CONTRIBUINTE_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -474,7 +413,6 @@ export default function FiscalEmitentePage() {
                     </CardContent>
                 </Card>
 
-                {/* Contato Fiscal */}
                 <Card className="glass-card border-0">
                     <CardHeader>
                         <CardTitle className="text-lg font-heading flex items-center gap-2">
@@ -514,7 +452,6 @@ export default function FiscalEmitentePage() {
                     </CardContent>
                 </Card>
 
-                {/* Endereço Fiscal */}
                 <Card className="glass-card border-0">
                     <CardHeader>
                         <CardTitle className="text-lg font-heading flex items-center gap-2">
@@ -548,7 +485,7 @@ export default function FiscalEmitentePage() {
                                     <Input
                                         value={form.fiscalComplement}
                                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField('fiscalComplement', e.target.value)}
-                                        placeholder="Sala, Andar, Bloco..."
+                                        placeholder="Sala, andar, bloco..."
                                         className="bg-white/60"
                                     />
                                 </div>
@@ -595,7 +532,7 @@ export default function FiscalEmitentePage() {
                                 <div className="space-y-2">
                                     <Label className="flex items-center gap-1">
                                         Cód. IBGE
-                                        <FiscalHelpText text="Código do município no IBGE (7 dígitos). Utilizado na emissão de NF-e para identificar o município." />
+                                        <FiscalHelpText text="Código do município no IBGE (7 dígitos), usado na emissão de NF-e." />
                                     </Label>
                                     <Input
                                         value={form.fiscalMunicipalityCodeIbge}
@@ -620,7 +557,6 @@ export default function FiscalEmitentePage() {
                 </Card>
             </motion.div>
 
-            {/* Mobile Save */}
             <div className="sm:hidden sticky bottom-4 z-10">
                 <Button
                     className="w-full h-12 gradient-navy border-0 text-white text-base gap-2 shadow-lg"
@@ -628,11 +564,9 @@ export default function FiscalEmitentePage() {
                     disabled={saving || !hasChanges}
                 >
                     {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
-                    Salvar Dados Fiscais
+                    Salvar Dados do Emitente
                 </Button>
             </div>
-            </>
-            )}
         </div>
     )
 }

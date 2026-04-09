@@ -38,6 +38,7 @@ import {
     Building2,
     Gauge,
     FileKey2,
+    Radio,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -70,8 +71,9 @@ const settingsNavItems = [
 
 const fiscalSettingsNavItems = [
     { href: '/admin/settings/fiscal-emitente', label: 'Dados do Emitente', icon: Building2 },
-    { href: '/admin/settings/fiscal-ambiente', label: 'Configura√ß√£o Fiscal', icon: Gauge },
-    { href: '/admin/settings/fiscal-certificado', label: 'Seguran√ßa Fiscal', icon: FileKey2 },
+    { href: '/admin/settings/fiscal-configuracoes', label: 'ConfiguraÁıes Fiscais', icon: Gauge },
+    { href: '/admin/settings/fiscal-ambiente', label: 'Ambiente de Emiss„o', icon: Radio },
+    { href: '/admin/settings/fiscal-certificado', label: 'Certificado Digital', icon: FileKey2 },
     { href: '/admin/product-tax-profiles', label: 'Perfis Tribut√°rios', icon: ShieldCheck },
     { href: '/admin/fiscal-bases', label: 'Bases Fiscais', icon: Database },
 ]
@@ -614,6 +616,7 @@ export function AdminMobileHeader() {
         </header>
     )
 }
+
 
 
 

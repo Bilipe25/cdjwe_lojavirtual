@@ -166,7 +166,7 @@ export function EmitterFederalTaxesSection() {
                 <div className="flex items-center justify-between">
                     <CardTitle className="text-lg font-heading flex items-center gap-2">
                         <Landmark className="h-5 w-5 text-bronze" />
-                        Impostos Federais
+                        Preferências Fiscais do Emitente
                     </CardTitle>
                     {hasChanges && (
                         <Button
@@ -181,7 +181,7 @@ export function EmitterFederalTaxesSection() {
                     )}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">
-                    Preencha os campos a seguir para configurar os impostos da empresa emitente.
+                    Revise as preferências fiscais corporativas do emitente e os parâmetros que impactam a governança tributária da empresa.
                 </p>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -201,11 +201,6 @@ export function EmitterFederalTaxesSection() {
                     <Link
                         href="/admin/settings/fiscal-emitente"
                         className="text-xs text-bronze hover:text-bronze/80 flex items-center gap-1"
-                        onClick={(e) => {
-                            e.preventDefault()
-                            // Scroll to top / switch tab in parent
-                            window.dispatchEvent(new CustomEvent('switch-emitente-tab', { detail: 'cadastro' }))
-                        }}
                     >
                         Alterar
                         <ArrowRight className="h-3 w-3" />

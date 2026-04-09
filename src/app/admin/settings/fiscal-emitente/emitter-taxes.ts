@@ -2,15 +2,13 @@
 
 import { createClient } from '@/lib/supabase/server'
 import type {
-    EmitterFederalTaxConfig,
-    EmitterIcmsStateLink,
     EmitterIbscbsStateLink,
+    EmitterIcmsStateLink,
+    EmitterTaxPreferencesConfig,
 } from '@/lib/types'
 
-// ====== FEDERAL TAX CONFIG ======
-
 export async function loadEmitterFederalTaxConfig(): Promise<{
-    data: EmitterFederalTaxConfig | null
+    data: EmitterTaxPreferencesConfig | null
     error: string | null
 }> {
     const supabase = await createClient()
@@ -22,9 +20,10 @@ export async function loadEmitterFederalTaxConfig(): Promise<{
         .maybeSingle()
 
     if (error) {
-        return { data: null, error: `Erro ao carregar configuração federal: ${error.message}` }
+        return { data: null, error: `Erro ao carregar preferências fiscais do emitente: ${error.message}` }
     }
-    return { data: data as EmitterFederalTaxConfig | null, error: null }
+
+    return { data: data as EmitterTaxPreferencesConfig | null, error: null }
 }
 
 interface SaveFederalTaxInput {
@@ -41,13 +40,28 @@ export async function saveEmitterFederalTaxConfig(
     input: SaveFederalTaxInput
 ): Promise<{ error: string | null }> {
     if (input.aliquota_pis !== null && (input.aliquota_pis < 0 || input.aliquota_pis > 100)) {
-        return { error: 'Alíquota PIS deve estar entre 0 e 100.' }
+        return { error: 'Alíquota de PIS deve estar entre 0 e 100.' }
     }
     if (input.aliquota_cofins !== null && (input.aliquota_cofins < 0 || input.aliquota_cofins > 100)) {
-        return { error: 'Alíquota COFINS deve estar entre 0 e 100.' }
+        return { error: 'Alíquota de COFINS deve estar entre 0 e 100.' }
     }
 
     const supabase = await createClient()
+    const { data: fiscalProfile } = await supabase
+        .from('company_fiscal_profile')
+        .select('regime_tributario')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+    if (
+        input.ultrapassou_sublimite &&
+        fiscalProfile?.regime_tributario &&
+        !['simples_nacional', 'simples_excesso'].includes(fiscalProfile.regime_tributario as string)
+    ) {
+        return { error: 'O flag de sublimite só pode ser usado para emitentes enquadrados no Simples Nacional.' }
+    }
+
     const payload = {
         aliquota_pis: input.aliquota_pis ?? 0,
         aliquota_cofins: input.aliquota_cofins ?? 0,
@@ -58,22 +72,15 @@ export async function saveEmitterFederalTaxConfig(
     }
 
     if (input.id) {
-        const { error } = await supabase
-            .from('emitter_federal_tax_config')
-            .update(payload)
-            .eq('id', input.id)
-        if (error) return { error: `Erro ao salvar: ${error.message}` }
+        const { error } = await supabase.from('emitter_federal_tax_config').update(payload).eq('id', input.id)
+        if (error) return { error: `Erro ao salvar preferências fiscais: ${error.message}` }
     } else {
-        const { error } = await supabase
-            .from('emitter_federal_tax_config')
-            .insert(payload)
-        if (error) return { error: `Erro ao criar: ${error.message}` }
+        const { error } = await supabase.from('emitter_federal_tax_config').insert(payload)
+        if (error) return { error: `Erro ao criar preferências fiscais: ${error.message}` }
     }
 
     return { error: null }
 }
-
-// ====== ICMS STATE LINKS ======
 
 export async function loadEmitterIcmsLinks(): Promise<{
     data: EmitterIcmsStateLink[]
@@ -88,42 +95,36 @@ export async function loadEmitterIcmsLinks(): Promise<{
         .order('target_uf', { ascending: true, nullsFirst: true })
 
     if (error) {
-        return { data: [], error: `Erro ao carregar vínculos ICMS: ${error.message}` }
+        return { data: [], error: `Erro ao carregar vínculos de ICMS: ${error.message}` }
     }
 
     if (!links || links.length === 0) {
         return { data: [], error: null }
     }
 
-    // Fetch base info for each link
-    const baseIds = [...new Set((links as EmitterIcmsStateLink[]).map((l) => l.icms_base_id))]
-    const { data: bases } = await supabase
-        .from('fiscal_icms_bases')
-        .select('id, name, code')
-        .in('id', baseIds)
+    const baseIds = [...new Set((links as EmitterIcmsStateLink[]).map((link) => link.icms_base_id))]
 
-    // Fetch national CST for each base
-    const { data: rules } = await supabase
-        .from('fiscal_icms_rules')
-        .select('icms_base_id, cst_code')
-        .in('icms_base_id', baseIds)
-        .is('target_uf', null)
+    const [{ data: bases }, { data: rules }] = await Promise.all([
+        supabase.from('fiscal_icms_bases').select('id, name, code').in('id', baseIds),
+        supabase
+            .from('fiscal_icms_rules')
+            .select('icms_base_id, cst_code')
+            .in('icms_base_id', baseIds)
+            .is('target_uf', null),
+    ])
 
-    const basesMap = new Map((bases || []).map((b: Record<string, unknown>) => [b.id as string, b]))
-    const rulesMap = new Map((rules || []).map((r: Record<string, unknown>) => [r.icms_base_id as string, r]))
+    const baseMap = new Map((bases || []).map((row: Record<string, unknown>) => [row.id as string, row]))
+    const ruleMap = new Map((rules || []).map((row: Record<string, unknown>) => [row.icms_base_id as string, row]))
 
-    const enriched: EmitterIcmsStateLink[] = (links as EmitterIcmsStateLink[]).map((link) => {
-        const base = basesMap.get(link.icms_base_id)
-        const rule = rulesMap.get(link.icms_base_id)
-        return {
+    return {
+        data: (links as EmitterIcmsStateLink[]).map((link) => ({
             ...link,
-            icms_base_name: (base?.name as string) || '',
-            icms_base_code: (base?.code as string) || '',
-            icms_national_cst: (rule?.cst_code as string) || '',
-        }
-    })
-
-    return { data: enriched, error: null }
+            icms_base_name: (baseMap.get(link.icms_base_id)?.name as string) || '',
+            icms_base_code: (baseMap.get(link.icms_base_id)?.code as string) || '',
+            icms_national_cst: (ruleMap.get(link.icms_base_id)?.cst_code as string) || '',
+        })),
+        error: null,
+    }
 }
 
 interface SaveIcmsLinkInput {
@@ -132,9 +133,7 @@ interface SaveIcmsLinkInput {
     icms_base_id: string
 }
 
-export async function saveEmitterIcmsLink(
-    input: SaveIcmsLinkInput
-): Promise<{ error: string | null }> {
+export async function saveEmitterIcmsLink(input: SaveIcmsLinkInput): Promise<{ error: string | null }> {
     if (input.target_uf && !/^[A-Z]{2}$/.test(input.target_uf)) {
         return { error: 'UF inválida.' }
     }
@@ -143,6 +142,21 @@ export async function saveEmitterIcmsLink(
     }
 
     const supabase = await createClient()
+    const { data: base, error: baseError } = await supabase
+        .from('fiscal_icms_bases')
+        .select('id, is_active')
+        .eq('id', input.icms_base_id)
+        .maybeSingle()
+
+    if (baseError) {
+        return { error: `Erro ao validar a base de ICMS: ${baseError.message}` }
+    }
+    if (!base) {
+        return { error: 'A base de ICMS selecionada não foi encontrada.' }
+    }
+    if (!base.is_active) {
+        return { error: 'A base de ICMS selecionada está inativa para novos vínculos.' }
+    }
 
     if (input.id) {
         const { error } = await supabase
@@ -152,7 +166,7 @@ export async function saveEmitterIcmsLink(
                 icms_base_id: input.icms_base_id,
             })
             .eq('id', input.id)
-        if (error) return { error: `Erro ao atualizar vínculo: ${error.message}` }
+        if (error) return { error: `Erro ao atualizar vínculo de ICMS: ${error.message}` }
     } else {
         const { error } = await supabase
             .from('emitter_icms_state_links')
@@ -163,9 +177,9 @@ export async function saveEmitterIcmsLink(
             })
         if (error) {
             if (error.message?.includes('uq_emitter_icms_state_links_uf')) {
-                return { error: 'Já existe um vínculo ICMS para esta UF.' }
+                return { error: 'Já existe um vínculo de ICMS para esta UF.' }
             }
-            return { error: `Erro ao criar vínculo: ${error.message}` }
+            return { error: `Erro ao criar vínculo de ICMS: ${error.message}` }
         }
     }
 
@@ -174,15 +188,10 @@ export async function saveEmitterIcmsLink(
 
 export async function deleteEmitterIcmsLink(id: string): Promise<{ error: string | null }> {
     const supabase = await createClient()
-    const { error } = await supabase
-        .from('emitter_icms_state_links')
-        .delete()
-        .eq('id', id)
-    if (error) return { error: `Erro ao remover vínculo: ${error.message}` }
+    const { error } = await supabase.from('emitter_icms_state_links').delete().eq('id', id)
+    if (error) return { error: `Erro ao remover vínculo de ICMS: ${error.message}` }
     return { error: null }
 }
-
-// ====== IBS/CBS STATE LINKS ======
 
 export async function loadEmitterIbscbsLinks(): Promise<{
     data: EmitterIbscbsStateLink[]
@@ -197,77 +206,115 @@ export async function loadEmitterIbscbsLinks(): Promise<{
         .order('target_uf', { ascending: true, nullsFirst: true })
 
     if (error) {
-        return { data: [], error: `Erro ao carregar vínculos IBS/CBS: ${error.message}` }
+        return { data: [], error: `Erro ao carregar vínculos de IBS/CBS: ${error.message}` }
     }
 
     if (!links || links.length === 0) {
         return { data: [], error: null }
     }
 
-    const baseIds = [...new Set((links as EmitterIbscbsStateLink[]).map((l) => l.ibscbs_base_id))]
-    const { data: bases } = await supabase
-        .from('fiscal_ibscbs_bases')
-        .select('id, name, code')
-        .in('id', baseIds)
+    const baseIds = [...new Set((links as EmitterIbscbsStateLink[]).map((link) => link.ibscbs_base_id))]
+    const versionIds = [
+        ...new Set(
+            (links as EmitterIbscbsStateLink[])
+                .map((link) => link.ibscbs_version_id)
+                .filter((value): value is string => Boolean(value))
+        ),
+    ]
 
-    // Fetch active version + national rule for each base
-    const { data: versions } = await supabase
-        .from('fiscal_ibscbs_base_versions')
-        .select('id, ibscbs_base_id')
-        .in('ibscbs_base_id', baseIds)
-        .eq('status', 'active')
+    const [{ data: bases }, { data: versions }, { data: rules }] = await Promise.all([
+        supabase.from('fiscal_ibscbs_bases').select('id, name, code').in('id', baseIds),
+        versionIds.length
+            ? supabase
+                  .from('fiscal_ibscbs_base_versions')
+                  .select('id, ibscbs_base_id, version_label, valid_from, valid_to')
+                  .in('id', versionIds)
+            : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
+        versionIds.length
+            ? supabase
+                  .from('fiscal_ibscbs_rules')
+                  .select('ibscbs_version_id, cst_code, classification_code')
+                  .in('ibscbs_version_id', versionIds)
+                  .is('target_uf', null)
+            : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
+    ])
 
-    const versionIds = (versions || []).map((v: Record<string, unknown>) => v.id as string)
-    const { data: ibsRules } = versionIds.length
-        ? await supabase
-              .from('fiscal_ibscbs_rules')
-              .select('ibscbs_version_id, cst_code, classification_code')
-              .in('ibscbs_version_id', versionIds)
-              .is('target_uf', null)
-        : { data: [] }
+    const baseMap = new Map((bases || []).map((row: Record<string, unknown>) => [row.id as string, row]))
+    const versionMap = new Map((versions || []).map((row: Record<string, unknown>) => [row.id as string, row]))
+    const ruleMap = new Map((rules || []).map((row: Record<string, unknown>) => [row.ibscbs_version_id as string, row]))
 
-    const basesMap = new Map((bases || []).map((b: Record<string, unknown>) => [b.id as string, b]))
-    const versionsMap = new Map(
-        (versions || []).map((v: Record<string, unknown>) => [v.ibscbs_base_id as string, v])
-    )
-    const ibsRulesMap = new Map(
-        (ibsRules || []).map((r: Record<string, unknown>) => [r.ibscbs_version_id as string, r])
-    )
+    return {
+        data: (links as EmitterIbscbsStateLink[]).map((link) => {
+            const base = baseMap.get(link.ibscbs_base_id)
+            const version = link.ibscbs_version_id ? versionMap.get(link.ibscbs_version_id) : null
+            const rule = link.ibscbs_version_id ? ruleMap.get(link.ibscbs_version_id) : null
 
-    const enriched: EmitterIbscbsStateLink[] = (links as EmitterIbscbsStateLink[]).map((link) => {
-        const base = basesMap.get(link.ibscbs_base_id)
-        const version = versionsMap.get(link.ibscbs_base_id)
-        const rule = version ? ibsRulesMap.get(version.id as string) : null
-        return {
-            ...link,
-            ibscbs_base_name: (base?.name as string) || '',
-            ibscbs_base_code: (base?.code as string) || '',
-            ibscbs_national_cst: (rule?.cst_code as string) || '',
-            ibscbs_classification_code: (rule?.classification_code as string) || '',
-        }
-    })
-
-    return { data: enriched, error: null }
+            return {
+                ...link,
+                ibscbs_base_name: (base?.name as string) || '',
+                ibscbs_base_code: (base?.code as string) || '',
+                ibscbs_national_cst: (rule?.cst_code as string) || '',
+                ibscbs_classification_code: (rule?.classification_code as string) || '',
+                ibscbs_version_label: (version?.version_label as string) || '',
+                ibscbs_valid_from: (version?.valid_from as string | null) || null,
+                ibscbs_valid_to: (version?.valid_to as string | null) || null,
+            }
+        }),
+        error: null,
+    }
 }
 
 interface SaveIbscbsLinkInput {
     id?: string
     target_uf: string | null
     ibscbs_base_id: string
-    ibscbs_version_id?: string | null
+    ibscbs_version_id: string | null
 }
 
-export async function saveEmitterIbscbsLink(
-    input: SaveIbscbsLinkInput
-): Promise<{ error: string | null }> {
+export async function saveEmitterIbscbsLink(input: SaveIbscbsLinkInput): Promise<{ error: string | null }> {
     if (input.target_uf && !/^[A-Z]{2}$/.test(input.target_uf)) {
         return { error: 'UF inválida.' }
     }
     if (!input.ibscbs_base_id) {
-        return { error: 'Selecione uma base IBS/CBS.' }
+        return { error: 'Selecione uma base de IBS/CBS.' }
+    }
+    if (!input.ibscbs_version_id) {
+        return { error: 'Selecione uma versão ativa da base de IBS/CBS.' }
     }
 
     const supabase = await createClient()
+
+    const { data: base, error: baseError } = await supabase
+        .from('fiscal_ibscbs_bases')
+        .select('id, is_active')
+        .eq('id', input.ibscbs_base_id)
+        .maybeSingle()
+
+    if (baseError) {
+        return { error: `Erro ao validar a base de IBS/CBS: ${baseError.message}` }
+    }
+    if (!base) {
+        return { error: 'A base de IBS/CBS selecionada não foi encontrada.' }
+    }
+    if (!base.is_active) {
+        return { error: 'A base de IBS/CBS selecionada está inativa para novos vínculos.' }
+    }
+
+    const { data: version, error: versionError } = await supabase
+        .from('fiscal_ibscbs_base_versions')
+        .select('id, ibscbs_base_id, status')
+        .eq('id', input.ibscbs_version_id)
+        .maybeSingle()
+
+    if (versionError) {
+        return { error: `Erro ao validar a versão de IBS/CBS: ${versionError.message}` }
+    }
+    if (!version || version.ibscbs_base_id !== input.ibscbs_base_id) {
+        return { error: 'A versão selecionada não pertence à base de IBS/CBS informada.' }
+    }
+    if (version.status !== 'active') {
+        return { error: 'Somente versões ativas de IBS/CBS podem ser vinculadas ao emitente.' }
+    }
 
     if (input.id) {
         const { error } = await supabase
@@ -275,24 +322,24 @@ export async function saveEmitterIbscbsLink(
             .update({
                 target_uf: input.target_uf || null,
                 ibscbs_base_id: input.ibscbs_base_id,
-                ibscbs_version_id: input.ibscbs_version_id || null,
+                ibscbs_version_id: input.ibscbs_version_id,
             })
             .eq('id', input.id)
-        if (error) return { error: `Erro ao atualizar vínculo: ${error.message}` }
+        if (error) return { error: `Erro ao atualizar vínculo de IBS/CBS: ${error.message}` }
     } else {
         const { error } = await supabase
             .from('emitter_ibscbs_state_links')
             .insert({
                 target_uf: input.target_uf || null,
                 ibscbs_base_id: input.ibscbs_base_id,
-                ibscbs_version_id: input.ibscbs_version_id || null,
+                ibscbs_version_id: input.ibscbs_version_id,
                 is_active: true,
             })
         if (error) {
             if (error.message?.includes('uq_emitter_ibscbs_state_links_uf')) {
-                return { error: 'Já existe um vínculo IBS/CBS para esta UF.' }
+                return { error: 'Já existe um vínculo de IBS/CBS para esta UF.' }
             }
-            return { error: `Erro ao criar vínculo: ${error.message}` }
+            return { error: `Erro ao criar vínculo de IBS/CBS: ${error.message}` }
         }
     }
 
@@ -301,15 +348,10 @@ export async function saveEmitterIbscbsLink(
 
 export async function deleteEmitterIbscbsLink(id: string): Promise<{ error: string | null }> {
     const supabase = await createClient()
-    const { error } = await supabase
-        .from('emitter_ibscbs_state_links')
-        .delete()
-        .eq('id', id)
-    if (error) return { error: `Erro ao remover vínculo: ${error.message}` }
+    const { error } = await supabase.from('emitter_ibscbs_state_links').delete().eq('id', id)
+    if (error) return { error: `Erro ao remover vínculo de IBS/CBS: ${error.message}` }
     return { error: null }
 }
-
-// ====== OPTIONS LOADERS (for dialogs) ======
 
 export interface IcmsBaseOption {
     id: string
@@ -330,6 +372,7 @@ export async function loadIcmsBaseOptions(): Promise<{
         .order('name', { ascending: true })
 
     if (error) return { data: [], error: error.message }
+
     return {
         data: (data || []).map((row: Record<string, unknown>) => ({
             id: row.id as string,
@@ -346,6 +389,10 @@ export interface IbscbsBaseOption {
     name: string
     code: string
     isActive: boolean
+    activeVersionId: string | null
+    activeVersionLabel: string | null
+    activeValidFrom: string | null
+    activeValidTo: string | null
 }
 
 export async function loadIbscbsBaseOptions(): Promise<{
@@ -360,13 +407,38 @@ export async function loadIbscbsBaseOptions(): Promise<{
         .order('name', { ascending: true })
 
     if (error) return { data: [], error: error.message }
+
+    const baseIds = (data || []).map((row: Record<string, unknown>) => row.id as string)
+    const { data: versions, error: versionError } = baseIds.length
+        ? await supabase
+              .from('fiscal_ibscbs_base_versions')
+              .select('id, ibscbs_base_id, version_label, valid_from, valid_to')
+              .in('ibscbs_base_id', baseIds)
+              .eq('status', 'active')
+        : { data: [], error: null }
+
+    if (versionError) return { data: [], error: versionError.message }
+
+    const versionMap = new Map(
+        (versions || []).map((row: Record<string, unknown>) => [row.ibscbs_base_id as string, row])
+    )
+
     return {
-        data: (data || []).map((row: Record<string, unknown>) => ({
-            id: row.id as string,
-            name: row.name as string,
-            code: row.code as string,
-            isActive: row.is_active as boolean,
-        })),
+        data: (data || [])
+            .map((row: Record<string, unknown>) => {
+                const version = versionMap.get(row.id as string)
+                return {
+                    id: row.id as string,
+                    name: row.name as string,
+                    code: row.code as string,
+                    isActive: row.is_active as boolean,
+                    activeVersionId: (version?.id as string) || null,
+                    activeVersionLabel: (version?.version_label as string) || null,
+                    activeValidFrom: (version?.valid_from as string | null) || null,
+                    activeValidTo: (version?.valid_to as string | null) || null,
+                }
+            })
+            .filter((row) => Boolean(row.activeVersionId)),
         error: null,
     }
 }

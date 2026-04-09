@@ -2,69 +2,83 @@
 
 import { createClient } from '@/lib/supabase/server'
 import type { CompanyFiscalEnvironment } from '@/lib/types'
+import { evaluateCompanyFiscalReadiness } from '@/lib/fiscal/company-readiness'
 
 export async function loadFiscalEnvironmentAction(): Promise<{ data: CompanyFiscalEnvironment | null; error: string | null }> {
-    const supabase = await createClient()
-    const { data, error } = await supabase
-        .from('company_fiscal_environment')
-        .select('*')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle()
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('company_fiscal_environment')
+    .select('*')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
 
-    if (error) {
-        return { data: null, error: `Erro ao carregar ambiente fiscal: ${error.message}` }
-    }
+  if (error) {
+    return { data: null, error: `Erro ao carregar ambiente de emissão: ${error.message}` }
+  }
 
-    return { data: data as CompanyFiscalEnvironment | null, error: null }
+  return { data: data as CompanyFiscalEnvironment | null, error: null }
 }
 
 interface SaveFiscalEnvironmentInput {
-    id?: string
-    ambiente: string
-    serie_padrao_nfe: string
-    proximo_numero_nfe: number
-    tipo_emissao: string
-    emissao_ativa: boolean
+  id?: string
+  ambiente: string
+  serie_padrao_nfe: string
+  proximo_numero_nfe: number
+  tipo_emissao: string
+  emissao_ativa: boolean
 }
 
 export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentInput): Promise<{ error: string | null }> {
-    if (!input.ambiente || !['homologacao', 'producao'].includes(input.ambiente)) {
-        return { error: 'Ambiente deve ser "homologacao" ou "producao".' }
+  if (!input.ambiente || !['homologacao', 'producao'].includes(input.ambiente)) {
+    return { error: 'Ambiente deve ser "homologação" ou "produção".' }
+  }
+
+  if (!/^\d{1,3}$/.test(input.serie_padrao_nfe)) {
+    return { error: 'Série deve ter entre 1 e 3 dígitos numéricos.' }
+  }
+
+  if (input.proximo_numero_nfe < 1) {
+    return { error: 'Próximo número deve ser no mínimo 1.' }
+  }
+
+  if (input.emissao_ativa || input.ambiente === 'producao') {
+    const readiness = await evaluateCompanyFiscalReadiness()
+    const blockers = readiness.items
+      .filter((item) => item.blocking && item.status !== 'ok')
+      .map((item) => item.label)
+
+    if (blockers.length > 0) {
+      const head = blockers.slice(0, 3).join(', ')
+      const suffix = blockers.length > 3 ? ' e outros pontos críticos.' : '.'
+      return {
+        error: `A emissão não pode ser habilitada enquanto houver bloqueios na prontidão fiscal: ${head}${suffix}`,
+      }
     }
+  }
 
-    if (!/^\d{1,3}$/.test(input.serie_padrao_nfe)) {
-        return { error: 'Série deve ter entre 1 e 3 dígitos numéricos.' }
+  const supabase = await createClient()
+
+  const data = {
+    ambiente: input.ambiente,
+    serie_padrao_nfe: input.serie_padrao_nfe,
+    proximo_numero_nfe: input.proximo_numero_nfe,
+    tipo_emissao: input.tipo_emissao || 'normal',
+    emissao_ativa: input.emissao_ativa,
+    parametros_jsonb: {},
+  }
+
+  if (input.id) {
+    const { error } = await supabase.from('company_fiscal_environment').update(data).eq('id', input.id)
+    if (error) {
+      return { error: `Erro ao salvar ambiente de emissão: ${error.message}` }
     }
-
-    if (input.proximo_numero_nfe < 1) {
-        return { error: 'Próximo número deve ser no mínimo 1.' }
+  } else {
+    const { error } = await supabase.from('company_fiscal_environment').insert(data)
+    if (error) {
+      return { error: `Erro ao criar ambiente de emissão: ${error.message}` }
     }
+  }
 
-    const supabase = await createClient()
-
-    const data = {
-        ambiente: input.ambiente,
-        serie_padrao_nfe: input.serie_padrao_nfe,
-        proximo_numero_nfe: input.proximo_numero_nfe,
-        tipo_emissao: input.tipo_emissao || 'normal',
-        emissao_ativa: input.emissao_ativa,
-        parametros_jsonb: {},
-    }
-
-    if (input.id) {
-        const { error } = await supabase.from('company_fiscal_environment').update(data).eq('id', input.id)
-        if (error) {
-            console.error('Update fiscal environment error:', error)
-            return { error: `Erro ao salvar ambiente fiscal: ${error.message}` }
-        }
-    } else {
-        const { error } = await supabase.from('company_fiscal_environment').insert(data)
-        if (error) {
-            console.error('Insert fiscal environment error:', error)
-            return { error: `Erro ao criar ambiente fiscal: ${error.message}` }
-        }
-    }
-
-    return { error: null }
+  return { error: null }
 }

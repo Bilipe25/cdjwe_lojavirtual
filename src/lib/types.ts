@@ -831,6 +831,12 @@ export interface CompanyCertificateConfig {
   certificate_serial: string | null
   certificate_issuer: string | null
   certificate_storage_path: string | null
+  uploaded_file_name?: string | null
+  certificate_fingerprint_sha256?: string | null
+  certificate_password_encrypted?: string | null
+  has_stored_password?: boolean
+  validation_notes?: string | null
+  last_validated_at?: string | null
   is_active: boolean
   alert_days_before_expiry: number
   created_at: string
@@ -841,7 +847,7 @@ export interface CompanyCertificateConfig {
 
 export type ArtigoScMva = 'nenhum' | 'artigo_8' | 'artigo_9' | 'artigo_10'
 
-export interface EmitterFederalTaxConfig {
+export interface EmitterTaxPreferencesConfig {
   id: string
   aliquota_pis: number | null
   aliquota_cofins: number | null
@@ -852,6 +858,8 @@ export interface EmitterFederalTaxConfig {
   created_at: string
   updated_at: string
 }
+
+export type EmitterFederalTaxConfig = EmitterTaxPreferencesConfig
 
 export interface EmitterIcmsStateLink {
   id: string
@@ -879,6 +887,9 @@ export interface EmitterIbscbsStateLink {
   ibscbs_base_code?: string
   ibscbs_national_cst?: string
   ibscbs_classification_code?: string
+  ibscbs_version_label?: string
+  ibscbs_valid_from?: string | null
+  ibscbs_valid_to?: string | null
 }
 
 // ==================== CART (Client-side) ====================

@@ -3,6 +3,28 @@
 import { createClient } from '@/lib/supabase/server'
 import type { CompanyFiscalProfile } from '@/lib/types'
 
+function digitsOnly(value: string | null | undefined): string {
+    return (value || '').replace(/\D/g, '')
+}
+
+function isValidCnpj(value: string | null | undefined): boolean {
+    const cnpj = digitsOnly(value)
+    if (!cnpj || cnpj.length !== 14) return false
+    if (/^(\d)\1{13}$/.test(cnpj)) return false
+
+    const calcDigit = (base: string, factors: number[]) => {
+        const total = base.split('').reduce((sum, digit, index) => sum + Number(digit) * factors[index], 0)
+        const remainder = total % 11
+        return remainder < 2 ? 0 : 11 - remainder
+    }
+
+    const base12 = cnpj.slice(0, 12)
+    const digit1 = calcDigit(base12, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+    const digit2 = calcDigit(`${base12}${digit1}`, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+
+    return cnpj === `${base12}${digit1}${digit2}`
+}
+
 export async function loadFiscalProfileAction(): Promise<{ data: CompanyFiscalProfile | null; error: string | null }> {
     const supabase = await createClient()
     const { data, error } = await supabase
@@ -13,7 +35,7 @@ export async function loadFiscalProfileAction(): Promise<{ data: CompanyFiscalPr
         .maybeSingle()
 
     if (error) {
-        return { data: null, error: `Erro ao carregar perfil fiscal: ${error.message}` }
+        return { data: null, error: `Erro ao carregar dados do emitente: ${error.message}` }
     }
 
     return { data: data as CompanyFiscalProfile | null, error: null }
@@ -45,12 +67,16 @@ interface SaveFiscalProfileInput {
 
 export async function saveFiscalProfileAction(input: SaveFiscalProfileInput): Promise<{ error: string | null }> {
     if (!input.razao_social || input.razao_social.trim().length < 3) {
-        return { error: 'Razão Social é obrigatória (mínimo 3 caracteres).' }
+        return { error: 'Razão social é obrigatória e deve ter pelo menos 3 caracteres.' }
     }
 
-    const cnpjDigits = (input.cnpj || '').replace(/\D/g, '')
-    if (cnpjDigits.length !== 14) {
-        return { error: 'CNPJ deve ter 14 dígitos.' }
+    const cnpjDigits = digitsOnly(input.cnpj)
+    if (!isValidCnpj(cnpjDigits)) {
+        return { error: 'Informe um CNPJ válido para o emitente.' }
+    }
+
+    if (input.indicador_contribuinte === 'contributor' && !input.inscricao_estadual?.trim()) {
+        return { error: 'Inscrição estadual é obrigatória para emitente contribuinte do ICMS.' }
     }
 
     if (input.fiscal_state && !/^[A-Z]{2}$/.test(input.fiscal_state)) {
@@ -61,8 +87,40 @@ export async function saveFiscalProfileAction(input: SaveFiscalProfileInput): Pr
         return { error: 'Código IBGE do município deve ter 7 dígitos.' }
     }
 
+    const zipDigits = digitsOnly(input.fiscal_zip_code)
+    if (zipDigits && zipDigits.length !== 8) {
+        return { error: 'CEP fiscal inválido. Use 8 dígitos.' }
+    }
+
+    if (input.cnae_principal && !/^\d{4}-\d\/\d{2}$/.test(input.cnae_principal)) {
+        return { error: 'CNAE principal inválido. Use o formato 0000-0/00.' }
+    }
+
+    if (input.inscricao_estadual && input.indicador_contribuinte !== 'exempt') {
+        const ieNormalized = input.inscricao_estadual.replace(/[^A-Za-z0-9]/g, '')
+        if (ieNormalized.length < 2) {
+            return { error: 'Inscrição estadual inválida.' }
+        }
+    }
+
+    if (input.inscricao_estadual && input.indicador_contribuinte === 'exempt' && input.inscricao_estadual.toUpperCase() !== 'ISENTO') {
+        return { error: 'Quando o emitente for isento, use IE como ISENTO ou deixe o campo em branco.' }
+    }
+
     if (input.fiscal_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.fiscal_email)) {
         return { error: 'Email fiscal inválido.' }
+    }
+
+    if (
+        input.regime_tributario &&
+        !(
+            (input.regime_tributario === 'simples_nacional' && input.crt === '1') ||
+            (input.regime_tributario === 'simples_excesso' && input.crt === '2') ||
+            ((input.regime_tributario === 'lucro_presumido' || input.regime_tributario === 'lucro_real') &&
+                input.crt === '3')
+        )
+    ) {
+        return { error: 'Regime tributário e CRT do emitente estão incoerentes.' }
     }
 
     const supabase = await createClient()
@@ -93,18 +151,15 @@ export async function saveFiscalProfileAction(input: SaveFiscalProfileInput): Pr
     if (input.id) {
         const { error } = await supabase.from('company_fiscal_profile').update(data).eq('id', input.id)
         if (error) {
-            console.error('Update fiscal profile error:', error)
-            return { error: `Erro ao salvar perfil fiscal: ${error.message}` }
+            return { error: `Erro ao salvar dados do emitente: ${error.message}` }
         }
     } else {
         const { error } = await supabase.from('company_fiscal_profile').insert(data)
         if (error) {
-            console.error('Insert fiscal profile error:', error)
-            return { error: `Erro ao criar perfil fiscal: ${error.message}` }
+            return { error: `Erro ao criar dados do emitente: ${error.message}` }
         }
     }
 
-    // Sync razao_social / nome_fantasia to system_settings
     const { data: settings } = await supabase
         .from('system_settings')
         .select('id')
@@ -113,11 +168,14 @@ export async function saveFiscalProfileAction(input: SaveFiscalProfileInput): Pr
         .maybeSingle()
 
     if (settings?.id) {
-        await supabase.from('system_settings').update({
-            razao_social: input.razao_social.trim(),
-            nome_fantasia: input.nome_fantasia || null,
-            cnpj: cnpjDigits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'),
-        }).eq('id', settings.id)
+        await supabase
+            .from('system_settings')
+            .update({
+                razao_social: input.razao_social.trim(),
+                nome_fantasia: input.nome_fantasia || null,
+                cnpj: cnpjDigits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'),
+            })
+            .eq('id', settings.id)
     }
 
     return { error: null }
