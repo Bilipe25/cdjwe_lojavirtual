@@ -118,7 +118,7 @@ BEGIN
     END IF;
 
     IF p_icms_base_id IS NULL THEN
-        INSERT INTO public.fiscal_icms_bases (
+        INSERT INTO public.fiscal_icms_bases AS base (
             name, code, description, is_active, metadata_jsonb, future_tax_payload, created_by, updated_by
         )
         VALUES (
@@ -131,7 +131,7 @@ BEGIN
             v_actor,
             v_actor
         )
-        RETURNING id, version INTO v_base_id, v_version;
+        RETURNING base.id, base.version INTO v_base_id, v_version;
 
         v_created := true;
     ELSE
@@ -152,22 +152,22 @@ BEGIN
         END IF;
     END IF;
 
-    SELECT id
+    SELECT rule.id
       INTO v_existing_national_rule_id
-      FROM public.fiscal_icms_rules
-     WHERE icms_base_id = v_base_id
-       AND target_uf IS NULL
-     ORDER BY created_at ASC
+      FROM public.fiscal_icms_rules rule
+     WHERE rule.icms_base_id = v_base_id
+       AND rule.target_uf IS NULL
+     ORDER BY rule.created_at ASC
      LIMIT 1;
 
     IF v_existing_national_rule_id IS NULL
        AND NULLIF(TRIM(COALESCE(p_national_rule ->> 'id', '')), '') IS NOT NULL THEN
         BEGIN
-            SELECT id
+            SELECT rule.id
               INTO v_existing_national_rule_id
-              FROM public.fiscal_icms_rules
-             WHERE id = (p_national_rule ->> 'id')::UUID
-               AND icms_base_id = v_base_id
+              FROM public.fiscal_icms_rules rule
+             WHERE rule.id = (p_national_rule ->> 'id')::UUID
+               AND rule.icms_base_id = v_base_id
              LIMIT 1;
         EXCEPTION WHEN invalid_text_representation THEN
             v_existing_national_rule_id := NULL;
@@ -235,7 +235,7 @@ BEGIN
         v_state_rule_id := NULL;
         IF NULLIF(TRIM(COALESCE(v_state_item ->> 'id', '')), '') IS NOT NULL THEN
             BEGIN
-                UPDATE public.fiscal_icms_rules
+                UPDATE public.fiscal_icms_rules rule
                    SET target_uf = v_state_uf,
                        cst_code = TRIM(COALESCE(v_state_item ->> 'cst_code', '')),
                        icms_rate = COALESCE(NULLIF(v_state_item ->> 'icms_rate', '')::NUMERIC, 0),
@@ -251,25 +251,25 @@ BEGIN
                        future_tax_payload = COALESCE(v_state_item -> 'future_tax_payload', '{}'::JSONB),
                        updated_by = v_actor,
                        updated_at = NOW()
-                 WHERE id = (v_state_item ->> 'id')::UUID
-                   AND icms_base_id = v_base_id
-                 RETURNING id INTO v_state_rule_id;
+                 WHERE rule.id = (v_state_item ->> 'id')::UUID
+                   AND rule.icms_base_id = v_base_id
+                 RETURNING rule.id INTO v_state_rule_id;
             EXCEPTION WHEN invalid_text_representation THEN
                 v_state_rule_id := NULL;
             END;
         END IF;
 
         IF v_state_rule_id IS NULL THEN
-            SELECT id
+            SELECT rule.id
               INTO v_state_rule_id
-              FROM public.fiscal_icms_rules
-             WHERE icms_base_id = v_base_id
-               AND target_uf = v_state_uf
-             ORDER BY created_at ASC
+              FROM public.fiscal_icms_rules rule
+             WHERE rule.icms_base_id = v_base_id
+               AND rule.target_uf = v_state_uf
+             ORDER BY rule.created_at ASC
              LIMIT 1;
 
             IF v_state_rule_id IS NOT NULL THEN
-                UPDATE public.fiscal_icms_rules
+                UPDATE public.fiscal_icms_rules rule
                    SET cst_code = TRIM(COALESCE(v_state_item ->> 'cst_code', '')),
                        icms_rate = COALESCE(NULLIF(v_state_item ->> 'icms_rate', '')::NUMERIC, 0),
                        fcp_rate = COALESCE(NULLIF(v_state_item ->> 'fcp_rate', '')::NUMERIC, 0),
@@ -284,7 +284,7 @@ BEGIN
                        future_tax_payload = COALESCE(v_state_item -> 'future_tax_payload', '{}'::JSONB),
                        updated_by = v_actor,
                        updated_at = NOW()
-                 WHERE id = v_state_rule_id;
+                 WHERE rule.id = v_state_rule_id;
             ELSE
                 INSERT INTO public.fiscal_icms_rules (
                     icms_base_id, target_uf, cst_code, icms_rate, fcp_rate,
@@ -317,10 +317,10 @@ BEGIN
         v_keep_state_rule_ids := array_append(v_keep_state_rule_ids, v_state_rule_id);
     END LOOP;
 
-    DELETE FROM public.fiscal_icms_rules
-     WHERE icms_base_id = v_base_id
-       AND target_uf IS NOT NULL
-       AND NOT (id = ANY(v_keep_state_rule_ids));
+    DELETE FROM public.fiscal_icms_rules rule
+     WHERE rule.icms_base_id = v_base_id
+       AND rule.target_uf IS NOT NULL
+       AND NOT (rule.id = ANY(v_keep_state_rule_ids));
 
     IF COALESCE(jsonb_object_length(p_interstate_rule), 0) > 0 THEN
         v_interstate_target_uf := NULLIF(UPPER(TRIM(COALESCE(p_interstate_rule ->> 'target_uf', ''))), '');
@@ -328,7 +328,7 @@ BEGIN
 
         IF NULLIF(TRIM(COALESCE(p_interstate_rule ->> 'id', '')), '') IS NOT NULL THEN
             BEGIN
-                UPDATE public.fiscal_icms_interstate_rules
+                UPDATE public.fiscal_icms_interstate_rules rule
                    SET target_uf = v_interstate_target_uf,
                        icms_rate = COALESCE(NULLIF(p_interstate_rule ->> 'icms_rate', '')::NUMERIC, 0),
                        fcp_rate = COALESCE(NULLIF(p_interstate_rule ->> 'fcp_rate', '')::NUMERIC, 0),
@@ -338,30 +338,30 @@ BEGIN
                        future_tax_payload = COALESCE(p_interstate_rule -> 'future_tax_payload', '{}'::JSONB),
                        updated_by = v_actor,
                        updated_at = NOW()
-                 WHERE id = (p_interstate_rule ->> 'id')::UUID
-                   AND icms_base_id = v_base_id
-                 RETURNING id INTO v_interstate_rule_id;
+                 WHERE rule.id = (p_interstate_rule ->> 'id')::UUID
+                   AND rule.icms_base_id = v_base_id
+                 RETURNING rule.id INTO v_interstate_rule_id;
             EXCEPTION WHEN invalid_text_representation THEN
                 v_interstate_rule_id := NULL;
             END;
         END IF;
 
         IF v_interstate_rule_id IS NULL THEN
-            SELECT id
+            SELECT rule.id
               INTO v_interstate_rule_id
-              FROM public.fiscal_icms_interstate_rules
-             WHERE icms_base_id = v_base_id
-               AND target_uf IS NOT DISTINCT FROM v_interstate_target_uf
-             ORDER BY created_at ASC
+              FROM public.fiscal_icms_interstate_rules rule
+             WHERE rule.icms_base_id = v_base_id
+               AND rule.target_uf IS NOT DISTINCT FROM v_interstate_target_uf
+             ORDER BY rule.created_at ASC
              LIMIT 1;
         END IF;
 
         IF v_interstate_rule_id IS NULL THEN
-            SELECT id
+            SELECT rule.id
               INTO v_interstate_rule_id
-              FROM public.fiscal_icms_interstate_rules
-             WHERE icms_base_id = v_base_id
-             ORDER BY created_at ASC
+              FROM public.fiscal_icms_interstate_rules rule
+             WHERE rule.icms_base_id = v_base_id
+             ORDER BY rule.created_at ASC
              LIMIT 1;
         END IF;
 
@@ -385,12 +385,12 @@ BEGIN
             RETURNING id INTO v_interstate_rule_id;
         END IF;
 
-        DELETE FROM public.fiscal_icms_interstate_rules
-         WHERE icms_base_id = v_base_id
-           AND id <> v_interstate_rule_id;
+        DELETE FROM public.fiscal_icms_interstate_rules rule
+         WHERE rule.icms_base_id = v_base_id
+           AND rule.id <> v_interstate_rule_id;
     ELSE
-        DELETE FROM public.fiscal_icms_interstate_rules
-         WHERE icms_base_id = v_base_id;
+        DELETE FROM public.fiscal_icms_interstate_rules rule
+         WHERE rule.icms_base_id = v_base_id;
     END IF;
 
     IF COALESCE(jsonb_object_length(p_st_rule), 0) > 0 THEN
@@ -399,7 +399,7 @@ BEGIN
 
         IF NULLIF(TRIM(COALESCE(p_st_rule ->> 'id', '')), '') IS NOT NULL THEN
             BEGIN
-                UPDATE public.fiscal_icms_st_rules
+                UPDATE public.fiscal_icms_st_rules rule
                    SET target_uf = v_st_target_uf,
                        st_enabled = COALESCE((p_st_rule ->> 'st_enabled')::BOOLEAN, false),
                        st_base_calc_type = NULLIF(TRIM(COALESCE(p_st_rule ->> 'st_base_calc_type', '')), ''),
@@ -415,30 +415,30 @@ BEGIN
                        future_tax_payload = COALESCE(p_st_rule -> 'future_tax_payload', '{}'::JSONB),
                        updated_by = v_actor,
                        updated_at = NOW()
-                 WHERE id = (p_st_rule ->> 'id')::UUID
-                   AND icms_base_id = v_base_id
-                 RETURNING id INTO v_st_rule_id;
+                 WHERE rule.id = (p_st_rule ->> 'id')::UUID
+                   AND rule.icms_base_id = v_base_id
+                 RETURNING rule.id INTO v_st_rule_id;
             EXCEPTION WHEN invalid_text_representation THEN
                 v_st_rule_id := NULL;
             END;
         END IF;
 
         IF v_st_rule_id IS NULL THEN
-            SELECT id
+            SELECT rule.id
               INTO v_st_rule_id
-              FROM public.fiscal_icms_st_rules
-             WHERE icms_base_id = v_base_id
-               AND target_uf IS NOT DISTINCT FROM v_st_target_uf
-             ORDER BY created_at ASC
+              FROM public.fiscal_icms_st_rules rule
+             WHERE rule.icms_base_id = v_base_id
+               AND rule.target_uf IS NOT DISTINCT FROM v_st_target_uf
+             ORDER BY rule.created_at ASC
              LIMIT 1;
         END IF;
 
         IF v_st_rule_id IS NULL THEN
-            SELECT id
+            SELECT rule.id
               INTO v_st_rule_id
-              FROM public.fiscal_icms_st_rules
-             WHERE icms_base_id = v_base_id
-             ORDER BY created_at ASC
+              FROM public.fiscal_icms_st_rules rule
+             WHERE rule.icms_base_id = v_base_id
+             ORDER BY rule.created_at ASC
              LIMIT 1;
         END IF;
 
@@ -469,12 +469,12 @@ BEGIN
             RETURNING id INTO v_st_rule_id;
         END IF;
 
-        DELETE FROM public.fiscal_icms_st_rules
-         WHERE icms_base_id = v_base_id
-           AND id <> v_st_rule_id;
+        DELETE FROM public.fiscal_icms_st_rules rule
+         WHERE rule.icms_base_id = v_base_id
+           AND rule.id <> v_st_rule_id;
     ELSE
-        DELETE FROM public.fiscal_icms_st_rules
-         WHERE icms_base_id = v_base_id;
+        DELETE FROM public.fiscal_icms_st_rules rule
+         WHERE rule.icms_base_id = v_base_id;
     END IF;
 
     RETURN QUERY SELECT v_base_id, v_created, v_version;

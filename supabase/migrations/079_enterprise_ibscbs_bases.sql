@@ -419,7 +419,7 @@ BEGIN
     END IF;
 
     IF p_ibscbs_base_id IS NULL THEN
-        INSERT INTO public.fiscal_ibscbs_bases (
+        INSERT INTO public.fiscal_ibscbs_bases AS base (
             name,
             code,
             description,
@@ -439,7 +439,7 @@ BEGIN
             v_actor,
             v_actor
         )
-        RETURNING id INTO v_base_id;
+        RETURNING base.id INTO v_base_id;
 
         v_created_base := true;
     ELSE
@@ -488,12 +488,12 @@ BEGIN
     END IF;
 
     IF p_ibscbs_version_id IS NULL THEN
-        SELECT id
+        SELECT version_row.id
           INTO v_version_id
-          FROM public.fiscal_ibscbs_base_versions
-         WHERE ibscbs_base_id = v_base_id
-           AND status = 'draft'
-         ORDER BY version_number DESC
+          FROM public.fiscal_ibscbs_base_versions version_row
+         WHERE version_row.ibscbs_base_id = v_base_id
+           AND version_row.status = 'draft'
+         ORDER BY version_row.version_number DESC
          LIMIT 1;
     ELSE
         v_version_id := p_ibscbs_version_id;
@@ -502,10 +502,10 @@ BEGIN
     IF v_version_id IS NULL THEN
         SELECT COALESCE(MAX(version_number), 0) + 1
           INTO v_version_number
-          FROM public.fiscal_ibscbs_base_versions
-         WHERE ibscbs_base_id = v_base_id;
+          FROM public.fiscal_ibscbs_base_versions version_row
+         WHERE version_row.ibscbs_base_id = v_base_id;
 
-        INSERT INTO public.fiscal_ibscbs_base_versions (
+        INSERT INTO public.fiscal_ibscbs_base_versions AS version_row (
             ibscbs_base_id,
             version_number,
             version_label,
@@ -533,7 +533,7 @@ BEGIN
             v_actor,
             v_actor
         )
-        RETURNING id, version_number INTO v_version_id, v_version_number;
+        RETURNING version_row.id, version_row.version_number INTO v_version_id, v_version_number;
 
         v_created_version := true;
     ELSE
@@ -637,8 +637,8 @@ BEGIN
         END IF;
     END LOOP;
 
-    DELETE FROM public.fiscal_ibscbs_rules
-     WHERE ibscbs_version_id = v_version_id;
+    DELETE FROM public.fiscal_ibscbs_rules rule
+     WHERE rule.ibscbs_version_id = v_version_id;
 
     INSERT INTO public.fiscal_ibscbs_rules (
         ibscbs_version_id,

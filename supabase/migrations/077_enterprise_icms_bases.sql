@@ -552,7 +552,7 @@ BEGIN
     END IF;
 
     IF p_icms_base_id IS NULL THEN
-        INSERT INTO public.fiscal_icms_bases (
+        INSERT INTO public.fiscal_icms_bases AS base (
             name, code, description, is_active, metadata_jsonb, future_tax_payload, created_by, updated_by
         )
         VALUES (
@@ -565,7 +565,7 @@ BEGIN
             v_actor,
             v_actor
         )
-        RETURNING id, version INTO v_base_id, v_version;
+        RETURNING base.id, base.version INTO v_base_id, v_version;
 
         v_created := true;
     ELSE
