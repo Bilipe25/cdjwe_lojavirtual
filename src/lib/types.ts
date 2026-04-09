@@ -837,6 +837,50 @@ export interface CompanyCertificateConfig {
   updated_at: string
 }
 
+// ==================== EMITTER TAX CONFIGURATION ====================
+
+export type ArtigoScMva = 'nenhum' | 'artigo_8' | 'artigo_9' | 'artigo_10'
+
+export interface EmitterFederalTaxConfig {
+  id: string
+  aliquota_pis: number | null
+  aliquota_cofins: number | null
+  artigo_sc_mva: ArtigoScMva | null
+  exibir_total_tributos: boolean
+  credito_presumido_icms: boolean
+  ultrapassou_sublimite: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface EmitterIcmsStateLink {
+  id: string
+  target_uf: string | null
+  icms_base_id: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  // JOIN fields
+  icms_base_name?: string
+  icms_base_code?: string
+  icms_national_cst?: string
+}
+
+export interface EmitterIbscbsStateLink {
+  id: string
+  target_uf: string | null
+  ibscbs_base_id: string
+  ibscbs_version_id: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  // JOIN fields
+  ibscbs_base_name?: string
+  ibscbs_base_code?: string
+  ibscbs_national_cst?: string
+  ibscbs_classification_code?: string
+}
+
 // ==================== CART (Client-side) ====================
 
 export interface CartItem {

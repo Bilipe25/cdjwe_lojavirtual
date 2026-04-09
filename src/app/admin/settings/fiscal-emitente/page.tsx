@@ -11,6 +11,7 @@ import {
     Mail,
     Landmark,
     FileText,
+    Receipt,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -28,6 +29,7 @@ import {
 import { toast } from 'sonner'
 import { loadFiscalProfileAction, saveFiscalProfileAction } from './actions'
 import { FiscalHelpText } from '../components/FiscalHelpText'
+import { EmitterTaxesTab } from './components/EmitterTaxesTab'
 import type { CompanyFiscalProfile } from '@/lib/types'
 
 // ====== Masks ======
@@ -133,14 +135,30 @@ const CONTRIBUINTE_OPTIONS = [
     { value: 'exempt', label: 'Isento' },
 ]
 
+type EmitentTab = 'cadastro' | 'impostos'
+
 export default function FiscalEmitentePage() {
     const [profile, setProfile] = useState<CompanyFiscalProfile | null>(null)
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [form, setForm] = useState<FormState>(initialForm)
     const [savedForm, setSavedForm] = useState<FormState>(initialForm)
+    const [activeTab, setActiveTab] = useState<EmitentTab>('cadastro')
 
     const hasChanges = JSON.stringify(form) !== JSON.stringify(savedForm)
+
+    // Listen for tab switch events from child components
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent<string>).detail
+            if (detail === 'cadastro' || detail === 'impostos') {
+                setActiveTab(detail)
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+            }
+        }
+        window.addEventListener('switch-emitente-tab', handler)
+        return () => window.removeEventListener('switch-emitente-tab', handler)
+    }, [])
 
     const updateField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
         setForm(prev => ({ ...prev, [key]: value }))
@@ -259,23 +277,59 @@ export default function FiscalEmitentePage() {
                         Dados da empresa emissora para NF-e e documentos fiscais
                     </p>
                 </div>
-                <div className="flex items-center gap-3">
-                    {hasChanges && (
-                        <span className="text-xs text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full font-medium animate-pulse">
-                            Alterações não salvas
-                        </span>
-                    )}
-                    <Button
-                        className="gradient-navy border-0 text-white gap-2"
-                        onClick={handleSave}
-                        disabled={saving || !hasChanges}
-                    >
-                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        Salvar
-                    </Button>
-                </div>
+                {activeTab === 'cadastro' && (
+                    <div className="flex items-center gap-3">
+                        {hasChanges && (
+                            <span className="text-xs text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full font-medium animate-pulse">
+                                Alterações não salvas
+                            </span>
+                        )}
+                        <Button
+                            className="gradient-navy border-0 text-white gap-2"
+                            onClick={handleSave}
+                            disabled={saving || !hasChanges}
+                        >
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                            Salvar
+                        </Button>
+                    </div>
+                )}
             </div>
 
+            {/* Tab Strip */}
+            <div className="flex gap-1 p-1 rounded-xl bg-muted/30 border">
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('cadastro')}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex-1 justify-center ${
+                        activeTab === 'cadastro'
+                            ? 'bg-white shadow-sm text-foreground'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-white/50'
+                    }`}
+                >
+                    <Building2 className="h-4 w-4" />
+                    Dados Cadastrais
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('impostos')}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex-1 justify-center ${
+                        activeTab === 'impostos'
+                            ? 'bg-white shadow-sm text-foreground'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-white/50'
+                    }`}
+                >
+                    <Receipt className="h-4 w-4" />
+                    Impostos
+                </button>
+            </div>
+
+            {/* Tab: Impostos */}
+            {activeTab === 'impostos' && <EmitterTaxesTab />}
+
+            {/* Tab: Dados Cadastrais */}
+            {activeTab === 'cadastro' && (
+            <>
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                 {/* Identificação Fiscal */}
                 <Card className="glass-card border-0">
@@ -577,6 +631,8 @@ export default function FiscalEmitentePage() {
                     Salvar Dados Fiscais
                 </Button>
             </div>
+            </>
+            )}
         </div>
     )
 }
