@@ -88,10 +88,14 @@ export function ProductTaxProfileEditor({ mode, taxProfileId }: ProductTaxProfil
             defaultOutputCfopVersionId: data.defaultOutputCfopVersionId,
             defaultInputCfopReferenceId: data.defaultInputCfopReferenceId,
             defaultInputCfopVersionId: data.defaultInputCfopVersionId,
+            defaultOutputCfopConfigId: data.defaultOutputCfopConfigId,
+            defaultInputCfopConfigId: data.defaultInputCfopConfigId,
             icmsBaseId: data.icmsBaseId,
             ibscbsBaseId: data.ibscbsBaseId,
             ibscbsVersionId: data.ibscbsVersionId,
             fiscalReferenceSnapshot: data.fiscalReferenceSnapshot,
+            rules: data.rules,
+            cfopRules: data.rules,
         })
 
         if (!result.success || !result.data) {

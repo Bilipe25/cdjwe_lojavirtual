@@ -3,8 +3,10 @@ import {
     listFiscalBaseEntriesAction,
     listFiscalReferenceVersionsAction,
 } from '@/app/admin/actions/fiscal-bases'
+import { listCfopConfigsAction } from '@/app/admin/actions/cfop-configs'
 import { FiscalBaseTablePage } from '../components/FiscalBaseTablePage'
 import { FiscalCestTablePage } from '../components/FiscalCestTablePage'
+import { FiscalCfopTablePage } from '../components/FiscalCfopTablePage'
 import { FiscalNcmTablePage } from '../components/FiscalNcmTablePage'
 import { FiscalTipiTablePage } from '../components/FiscalTipiTablePage'
 import { isFiscalBaseType } from '@/lib/fiscal/constants'
@@ -16,6 +18,28 @@ interface FiscalBaseDetailPageProps {
 export default async function FiscalBaseDetailPage({ params }: FiscalBaseDetailPageProps) {
     const { type } = await params
     if (!isFiscalBaseType(type)) notFound()
+
+    if (type === 'cfop') {
+        const [cfopResult, versionsResult] = await Promise.all([
+            listCfopConfigsAction(),
+            listFiscalReferenceVersionsAction('cfop'),
+        ])
+
+        if (!cfopResult.success || !cfopResult.data || !versionsResult.success || !versionsResult.data) {
+            return (
+                <div className="rounded-2xl border bg-white p-8 text-center text-sm text-muted-foreground">
+                    {cfopResult.error || versionsResult.error || 'Não foi possível carregar a base fiscal.'}
+                </div>
+            )
+        }
+
+        return (
+            <FiscalCfopTablePage
+                initialResult={cfopResult.data}
+                initialVersions={versionsResult.data}
+            />
+        )
+    }
 
     const [entriesResult, versionsResult] = await Promise.all([
         listFiscalBaseEntriesAction({

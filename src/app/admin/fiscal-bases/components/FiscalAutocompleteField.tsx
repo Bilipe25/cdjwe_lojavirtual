@@ -16,19 +16,19 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import type { FiscalSearchOption } from '@/app/admin/actions/fiscal-bases'
 import { cn } from '@/lib/utils'
 
-interface FiscalAutocompleteFieldProps {
+interface FiscalAutocompleteFieldProps<TOption extends FiscalSearchOption = FiscalSearchOption> {
     label: string
     placeholder: string
-    value: FiscalSearchOption | null
-    options: FiscalSearchOption[]
+    value: TOption | null
+    options: TOption[]
     loading?: boolean
     emptyText?: string
     onSearch: (query: string) => void
-    onSelect: (option: FiscalSearchOption) => void
+    onSelect: (option: TOption) => void
     onClear?: () => void
 }
 
-export function FiscalAutocompleteField({
+export function FiscalAutocompleteField<TOption extends FiscalSearchOption = FiscalSearchOption>({
     label,
     placeholder,
     value,
@@ -38,7 +38,7 @@ export function FiscalAutocompleteField({
     onSearch,
     onSelect,
     onClear,
-}: FiscalAutocompleteFieldProps) {
+}: FiscalAutocompleteFieldProps<TOption>) {
     const [open, setOpen] = useState(false)
     const [query, setQuery] = useState('')
 

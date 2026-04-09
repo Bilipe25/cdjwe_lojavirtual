@@ -116,6 +116,28 @@ export interface IbscbsClassificationCatalogItem {
     isActive: boolean
 }
 
+export interface IbscbsPresumedCreditCatalogVersionItem {
+    id: string
+    versionLabel: string
+    validFrom: string | null
+    validTo: string | null
+    isActive: boolean
+    sourceType: string
+    importBatchLabel: string | null
+}
+
+export interface IbscbsPresumedCreditCatalogItem {
+    id: string
+    versionId: string
+    code: string
+    label: string
+    description: string | null
+    validFrom: string | null
+    validTo: string | null
+    sortOrder: number
+    isActive: boolean
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
     if (error instanceof Error && error.message) return error.message
     if (typeof error === 'object' && error && 'message' in error) {
@@ -171,20 +193,30 @@ function mapRuleRow(row: Record<string, unknown>): IbscbsRuleInput {
 
 export async function listIbscbsCatalogVersionsAction(): Promise<{
     success: boolean
-    data?: { cstVersions: IbscbsCatalogVersionItem[]; classificationVersions: IbscbsCatalogVersionItem[] }
+    data?: {
+        cstVersions: IbscbsCatalogVersionItem[]
+        classificationVersions: IbscbsCatalogVersionItem[]
+        presumedCreditVersions: IbscbsPresumedCreditCatalogVersionItem[]
+    }
     error?: string
 }> {
     try {
         await ensureAdminAccess()
         const adminSupabase = createServiceRoleClient()
-        const [{ data: cstRows, error: cstError }, { data: classificationRows, error: classificationError }] =
+        const [
+            { data: cstRows, error: cstError },
+            { data: classificationRows, error: classificationError },
+            { data: presumedCreditRows, error: presumedCreditError },
+        ] =
             await Promise.all([
                 adminSupabase.from('fiscal_ibscbs_cst_catalog_versions').select('*').order('valid_from', { ascending: false, nullsFirst: false }),
                 adminSupabase.from('fiscal_ibscbs_classification_versions').select('*').order('valid_from', { ascending: false, nullsFirst: false }),
+                adminSupabase.from('fiscal_ibscbs_presumed_credit_versions').select('*').order('valid_from', { ascending: false, nullsFirst: false }),
             ])
 
         if (cstError) throw cstError
         if (classificationError) throw classificationError
+        if (presumedCreditError) throw presumedCreditError
 
         const mapVersion = (row: Record<string, unknown>): IbscbsCatalogVersionItem => ({
             id: String(row.id),
@@ -201,6 +233,7 @@ export async function listIbscbsCatalogVersionsAction(): Promise<{
             data: {
                 cstVersions: ((cstRows || []) as Array<Record<string, unknown>>).map(mapVersion),
                 classificationVersions: ((classificationRows || []) as Array<Record<string, unknown>>).map(mapVersion),
+                presumedCreditVersions: ((presumedCreditRows || []) as Array<Record<string, unknown>>).map(mapVersion),
             },
         }
     } catch (error: unknown) {
@@ -312,6 +345,57 @@ export async function searchIbscbsClassificationAction(params?: {
         }
     } catch (error: unknown) {
         return { success: false, error: getErrorMessage(error, 'Erro ao buscar classificacoes IBS/CBS.') }
+    }
+}
+
+export async function listIbscbsPresumedCreditCatalogAction(params?: {
+    catalogVersionId?: string | null
+}): Promise<{ success: boolean; data?: IbscbsPresumedCreditCatalogItem[]; error?: string }> {
+    try {
+        await ensureAdminAccess()
+        const adminSupabase = createServiceRoleClient()
+        let catalogVersionId = sanitizeText(params?.catalogVersionId)
+
+        if (!catalogVersionId) {
+            const { data: activeVersion, error } = await adminSupabase
+                .from('fiscal_ibscbs_presumed_credit_versions')
+                .select('id')
+                .eq('is_active', true)
+                .order('valid_from', { ascending: false, nullsFirst: false })
+                .limit(1)
+                .maybeSingle()
+
+            if (error) throw error
+            if (!activeVersion) return { success: true, data: [] }
+            catalogVersionId = String(activeVersion.id)
+        }
+
+        const { data, error } = await adminSupabase
+            .from('fiscal_ibscbs_presumed_credit_items')
+            .select('*')
+            .eq('version_id', catalogVersionId)
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true })
+            .order('code', { ascending: true })
+
+        if (error) throw error
+
+        return {
+            success: true,
+            data: ((data || []) as Array<Record<string, unknown>>).map((row) => ({
+                id: String(row.id),
+                versionId: String(row.version_id || ''),
+                code: String(row.code || ''),
+                label: String(row.label || ''),
+                description: sanitizeText(row.description as string | null),
+                validFrom: typeof row.valid_from === 'string' ? row.valid_from : null,
+                validTo: typeof row.valid_to === 'string' ? row.valid_to : null,
+                sortOrder: Number(row.sort_order || 0),
+                isActive: row.is_active !== false,
+            })),
+        }
+    } catch (error: unknown) {
+        return { success: false, error: getErrorMessage(error, 'Erro ao listar catalogo de credito presumido IBS/CBS.') }
     }
 }
 

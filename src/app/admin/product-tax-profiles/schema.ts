@@ -8,6 +8,80 @@ const optionalTrimmedString = z
         return trimmed.length > 0 ? trimmed : undefined
     })
 
+const optionalUuid = z
+    .string()
+    .optional()
+    .transform((value) => {
+        const trimmed = (value || '').trim()
+        return trimmed.length > 0 ? trimmed : undefined
+    })
+    .refine((value) => value === undefined || z.string().uuid().safeParse(value).success, 'Identificador invalido')
+
+const productTaxProfileRuleSchema = z
+    .object({
+        id: optionalUuid,
+        ruleName: z.string().min(2, 'Nome da regra obrigatorio'),
+        operationDirection: z.enum(['outbound', 'inbound']),
+        originUf: optionalTrimmedString,
+        destinationUf: optionalTrimmedString,
+        customerTypeId: optionalUuid,
+        personType: z.enum(['individual', 'legal_entity']).optional().nullable(),
+        taxpayerIndicator: z.enum(['contributor', 'non_contributor', 'exempt']).optional().nullable(),
+        cfopOverride: optionalTrimmedString,
+        cfopConfigId: optionalUuid,
+        cfopReferenceId: optionalUuid,
+        cfopVersionId: optionalUuid,
+        priority: z.number().int().min(0, 'Prioridade invalida').default(0),
+        isActive: z.boolean().default(true),
+        effectiveFrom: optionalTrimmedString,
+        effectiveTo: optionalTrimmedString,
+        rulePayload: z.record(z.string(), z.unknown()).optional(),
+        futureTaxPayload: z.record(z.string(), z.unknown()).optional(),
+        cfopConfigSnapshot: z
+            .object({
+                config_id: optionalUuid,
+                reference_id: optionalUuid,
+                version_id: optionalUuid,
+                code: optionalTrimmedString,
+                description: optionalTrimmedString,
+                operation_direction: z.enum(['outbound', 'inbound', 'both']).optional(),
+                operation_group: optionalTrimmedString,
+                operation_scope: optionalTrimmedString,
+                configuration_status: optionalTrimmedString,
+                supports_st: z.boolean().optional(),
+                impacts_icms: z.boolean().optional(),
+                impacts_ibscbs: z.boolean().optional(),
+                is_active: z.boolean().optional(),
+            })
+            .nullable()
+            .optional(),
+    })
+    .superRefine((value, ctx) => {
+        if (value.originUf && !/^[A-Z]{2}$/i.test(value.originUf)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['originUf'],
+                message: 'UF de origem invalida.',
+            })
+        }
+
+        if (value.destinationUf && !/^[A-Z]{2}$/i.test(value.destinationUf)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['destinationUf'],
+                message: 'UF de destino invalida.',
+            })
+        }
+
+        if (value.effectiveFrom && value.effectiveTo && value.effectiveTo < value.effectiveFrom) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['effectiveTo'],
+                message: 'A vigencia final deve ser igual ou posterior a vigencia inicial.',
+            })
+        }
+    })
+
 export const productTaxProfileSchema = z
     .object({
         id: z.string().uuid().optional(),
@@ -71,10 +145,13 @@ export const productTaxProfileSchema = z
         defaultOutputCfopVersionId: z.string().uuid().optional(),
         defaultInputCfopReferenceId: z.string().uuid().optional(),
         defaultInputCfopVersionId: z.string().uuid().optional(),
+        defaultOutputCfopConfigId: z.string().uuid().optional(),
+        defaultInputCfopConfigId: z.string().uuid().optional(),
         icmsBaseId: z.string().uuid().optional(),
         ibscbsBaseId: z.string().uuid().optional(),
         ibscbsVersionId: z.string().uuid().optional(),
         fiscalReferenceSnapshot: z.record(z.string(), z.unknown()).optional(),
+        rules: z.array(productTaxProfileRuleSchema).default([]),
     })
     .superRefine((value, ctx) => {
         const ncmDigits = (value.ncm || '').replace(/\D/g, '')

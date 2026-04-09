@@ -200,6 +200,8 @@ export interface ProductTaxProfile {
   default_output_cfop_version_id?: string | null
   default_input_cfop_reference_id?: string | null
   default_input_cfop_version_id?: string | null
+  default_output_cfop_config_id?: string | null
+  default_input_cfop_config_id?: string | null
   icms_base_id?: string | null
   ibscbs_base_id?: string | null
   ibscbs_version_id?: string | null
@@ -220,6 +222,9 @@ export interface ProductTaxProfileRule {
   person_type: PersonType | null
   taxpayer_indicator: TaxpayerIndicator | null
   cfop_override: string | null
+  cfop_config_id?: string | null
+  cfop_reference_id?: string | null
+  cfop_version_id?: string | null
   priority: number
   is_active: boolean
   effective_from: string | null

@@ -56,6 +56,9 @@ export interface ProductTaxProfileRuleInput {
     personType?: 'individual' | 'legal_entity' | null
     taxpayerIndicator?: 'contributor' | 'non_contributor' | 'exempt' | null
     cfopOverride?: string | null
+    cfopConfigId?: string | null
+    cfopReferenceId?: string | null
+    cfopVersionId?: string | null
     priority?: number
     isActive?: boolean
     effectiveFrom?: string | null
@@ -106,11 +109,14 @@ export interface ProductTaxProfileInput {
     defaultOutputCfopVersionId?: string | null
     defaultInputCfopReferenceId?: string | null
     defaultInputCfopVersionId?: string | null
+    defaultOutputCfopConfigId?: string | null
+    defaultInputCfopConfigId?: string | null
     icmsBaseId?: string | null
     ibscbsBaseId?: string | null
     ibscbsVersionId?: string | null
     fiscalReferenceSnapshot?: Record<string, unknown> | null
     rules?: ProductTaxProfileRuleInput[]
+    cfopRules?: ProductTaxProfileRuleInput[]
 }
 
 export interface ProductTaxProfileListItem {
@@ -268,6 +274,77 @@ function sanitizeJsonPayload(input?: Record<string, unknown> | null) {
     return input
 }
 
+interface CfopConfigReference {
+    config_id: string
+    reference_id: string
+    version_id: string | null
+    code: string | null
+    description: string | null
+    operation_direction: 'outbound' | 'inbound' | 'both'
+    operation_group: string | null
+    operation_scope: string | null
+    configuration_status: string | null
+    supports_st: boolean
+    impacts_icms: boolean
+    impacts_ibscbs: boolean
+    is_active: boolean
+}
+
+function normalizeCfopConfigReference(row: Record<string, unknown>): CfopConfigReference {
+    const entry = Array.isArray(row.fiscal_cfop_entries) ? row.fiscal_cfop_entries[0] : row.fiscal_cfop_entries
+    const entryRecord = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {}
+
+    return {
+        config_id: String(row.id),
+        reference_id: String(entryRecord.id || row.cfop_entry_id || ''),
+        version_id:
+            typeof row.cfop_version_id === 'string'
+                ? row.cfop_version_id
+                : typeof entryRecord.version_id === 'string'
+                  ? String(entryRecord.version_id)
+                  : null,
+        code: typeof entryRecord.code === 'string' ? entryRecord.code : null,
+        description: typeof entryRecord.description === 'string' ? entryRecord.description : null,
+        operation_direction:
+            entryRecord.operation_direction === 'outbound' ||
+            entryRecord.operation_direction === 'inbound' ||
+            entryRecord.operation_direction === 'both'
+                ? (entryRecord.operation_direction as 'outbound' | 'inbound' | 'both')
+                : 'both',
+        operation_group: typeof row.operation_group === 'string' ? row.operation_group : null,
+        operation_scope: typeof row.operation_scope === 'string' ? row.operation_scope : null,
+        configuration_status: typeof row.configuration_status === 'string' ? row.configuration_status : null,
+        supports_st: row.supports_st === true,
+        impacts_icms: row.impacts_icms !== false,
+        impacts_ibscbs: row.impacts_ibscbs === true,
+        is_active: row.is_active !== false,
+    }
+}
+
+async function loadCfopConfigReferences(
+    adminSupabase: ReturnType<typeof createServiceRoleClient>,
+    configIds: Array<string | null | undefined>
+) {
+    const validIds = Array.from(new Set(configIds.filter((value): value is string => Boolean(value && isValidUuid(value)))))
+    if (validIds.length === 0) return new Map<string, CfopConfigReference>()
+
+    const { data, error } = await adminSupabase
+        .from('fiscal_cfop_configs')
+        .select(
+            'id, cfop_entry_id, cfop_version_id, operation_group, operation_scope, configuration_status, supports_st, impacts_icms, impacts_ibscbs, is_active, fiscal_cfop_entries!inner(id, version_id, code, description, operation_direction)'
+        )
+        .in('id', validIds)
+
+    if (error) throw error
+
+    return new Map(
+        ((data || []) as Array<Record<string, unknown>>).map((row) => {
+            const normalized = normalizeCfopConfigReference(row)
+            return [normalized.config_id, normalized] as const
+        })
+    )
+}
+
 async function buildFiscalReferenceSnapshot(
     adminSupabase: ReturnType<typeof createServiceRoleClient>,
     input: ProductTaxProfileInput
@@ -329,7 +406,40 @@ async function buildFiscalReferenceSnapshot(
         }
     }
 
-    if (input.defaultOutputCfopReferenceId && isValidUuid(input.defaultOutputCfopReferenceId)) {
+    if (input.defaultOutputCfopConfigId && isValidUuid(input.defaultOutputCfopConfigId)) {
+        const { data } = await adminSupabase
+            .from('fiscal_cfop_configs')
+            .select('id, cfop_entry_id, cfop_version_id, operation_group, operation_scope, configuration_status, supports_st, impacts_icms, impacts_ibscbs, is_active, fiscal_cfop_entries!inner(id, version_id, code, description, operation_direction)')
+            .eq('id', input.defaultOutputCfopConfigId)
+            .single()
+
+        if (data) {
+            const entry = Array.isArray(data.fiscal_cfop_entries) ? data.fiscal_cfop_entries[0] : data.fiscal_cfop_entries
+            snapshot.default_output_cfop_config = {
+                config_id: data.id,
+                reference_id: entry?.id || data.cfop_entry_id,
+                version_id: data.cfop_version_id || entry?.version_id || null,
+                code: entry?.code || null,
+                description: entry?.description || null,
+                operation_direction: entry?.operation_direction || null,
+                operation_group: data.operation_group,
+                operation_scope: data.operation_scope,
+                configuration_status: data.configuration_status,
+                supports_st: data.supports_st,
+                impacts_icms: data.impacts_icms,
+                impacts_ibscbs: data.impacts_ibscbs,
+                is_active: data.is_active,
+            }
+
+            snapshot.default_output_cfop = {
+                reference_id: entry?.id || data.cfop_entry_id,
+                version_id: entry?.version_id || data.cfop_version_id || null,
+                code: entry?.code || null,
+                description: entry?.description || null,
+                operation_direction: entry?.operation_direction || null,
+            }
+        }
+    } else if (input.defaultOutputCfopReferenceId && isValidUuid(input.defaultOutputCfopReferenceId)) {
         const { data } = await adminSupabase
             .from('fiscal_cfop_entries')
             .select('id, version_id, code, description, operation_direction')
@@ -347,7 +457,40 @@ async function buildFiscalReferenceSnapshot(
         }
     }
 
-    if (input.defaultInputCfopReferenceId && isValidUuid(input.defaultInputCfopReferenceId)) {
+    if (input.defaultInputCfopConfigId && isValidUuid(input.defaultInputCfopConfigId)) {
+        const { data } = await adminSupabase
+            .from('fiscal_cfop_configs')
+            .select('id, cfop_entry_id, cfop_version_id, operation_group, operation_scope, configuration_status, supports_st, impacts_icms, impacts_ibscbs, is_active, fiscal_cfop_entries!inner(id, version_id, code, description, operation_direction)')
+            .eq('id', input.defaultInputCfopConfigId)
+            .single()
+
+        if (data) {
+            const entry = Array.isArray(data.fiscal_cfop_entries) ? data.fiscal_cfop_entries[0] : data.fiscal_cfop_entries
+            snapshot.default_input_cfop_config = {
+                config_id: data.id,
+                reference_id: entry?.id || data.cfop_entry_id,
+                version_id: data.cfop_version_id || entry?.version_id || null,
+                code: entry?.code || null,
+                description: entry?.description || null,
+                operation_direction: entry?.operation_direction || null,
+                operation_group: data.operation_group,
+                operation_scope: data.operation_scope,
+                configuration_status: data.configuration_status,
+                supports_st: data.supports_st,
+                impacts_icms: data.impacts_icms,
+                impacts_ibscbs: data.impacts_ibscbs,
+                is_active: data.is_active,
+            }
+
+            snapshot.default_input_cfop = {
+                reference_id: entry?.id || data.cfop_entry_id,
+                version_id: entry?.version_id || data.cfop_version_id || null,
+                code: entry?.code || null,
+                description: entry?.description || null,
+                operation_direction: entry?.operation_direction || null,
+            }
+        }
+    } else if (input.defaultInputCfopReferenceId && isValidUuid(input.defaultInputCfopReferenceId)) {
         const { data } = await adminSupabase
             .from('fiscal_cfop_entries')
             .select('id, version_id, code, description, operation_direction')
@@ -1465,6 +1608,13 @@ export async function getProductTaxProfileDetailAction(
         if (profileError || !profile) throw profileError || new Error('Perfil tributario nao encontrado.')
         if (rulesError) throw rulesError
 
+        const ruleCfopConfigMap = await loadCfopConfigReferences(
+            adminSupabase,
+            ((rules || []) as Array<Record<string, unknown>>).map((rule) =>
+                typeof rule.cfop_config_id === 'string' ? rule.cfop_config_id : null
+            )
+        )
+
         return {
             success: true,
             data: {
@@ -1510,10 +1660,37 @@ export async function getProductTaxProfileDetailAction(
                     defaultOutputCfopVersionId: profile.default_output_cfop_version_id,
                     defaultInputCfopReferenceId: profile.default_input_cfop_reference_id,
                     defaultInputCfopVersionId: profile.default_input_cfop_version_id,
+                    defaultOutputCfopConfigId: profile.default_output_cfop_config_id,
+                    defaultInputCfopConfigId: profile.default_input_cfop_config_id,
                     icmsBaseId: profile.icms_base_id,
                     ibscbsBaseId: profile.ibscbs_base_id,
                     ibscbsVersionId: profile.ibscbs_version_id,
                     fiscalReferenceSnapshot: profile.fiscal_reference_snapshot_jsonb,
+                    rules: ((rules || []) as Array<Record<string, unknown>>).map((rule) => ({
+                        id: String(rule.id),
+                        ruleName: String(rule.rule_name || ''),
+                        operationDirection: (rule.operation_direction as 'outbound' | 'inbound') || 'outbound',
+                        originUf: (rule.origin_uf as string | null) || null,
+                        destinationUf: (rule.destination_uf as string | null) || null,
+                        customerTypeId: (rule.customer_type_id as string | null) || null,
+                        personType: (rule.person_type as 'individual' | 'legal_entity' | null) || null,
+                        taxpayerIndicator:
+                            (rule.taxpayer_indicator as 'contributor' | 'non_contributor' | 'exempt' | null) || null,
+                        cfopOverride: (rule.cfop_override as string | null) || null,
+                        cfopConfigId: (rule.cfop_config_id as string | null) || null,
+                        cfopReferenceId: (rule.cfop_reference_id as string | null) || null,
+                        cfopVersionId: (rule.cfop_version_id as string | null) || null,
+                        priority: Number(rule.priority || 0),
+                        isActive: rule.is_active !== false,
+                        effectiveFrom: (rule.effective_from as string | null) || null,
+                        effectiveTo: (rule.effective_to as string | null) || null,
+                        rulePayload: (rule.rule_payload_jsonb as Record<string, unknown> | null) || null,
+                        futureTaxPayload: (rule.future_tax_payload as Record<string, unknown> | null) || null,
+                        cfopConfigSnapshot:
+                            typeof rule.cfop_config_id === 'string'
+                                ? (ruleCfopConfigMap.get(rule.cfop_config_id) ?? null)
+                                : null,
+                    })),
                     version: profile.version,
                     createdAt: profile.created_at,
                     updatedAt: profile.updated_at,
@@ -1529,12 +1706,19 @@ export async function getProductTaxProfileDetailAction(
                     taxpayerIndicator:
                         (rule.taxpayer_indicator as 'contributor' | 'non_contributor' | 'exempt' | null) || null,
                     cfopOverride: (rule.cfop_override as string | null) || null,
+                    cfopConfigId: (rule.cfop_config_id as string | null) || null,
+                    cfopReferenceId: (rule.cfop_reference_id as string | null) || null,
+                    cfopVersionId: (rule.cfop_version_id as string | null) || null,
                     priority: Number(rule.priority || 0),
                     isActive: rule.is_active !== false,
                     effectiveFrom: (rule.effective_from as string | null) || null,
                     effectiveTo: (rule.effective_to as string | null) || null,
                     rulePayload: (rule.rule_payload_jsonb as Record<string, unknown> | null) || null,
                     futureTaxPayload: (rule.future_tax_payload as Record<string, unknown> | null) || null,
+                    cfopConfigSnapshot:
+                        typeof rule.cfop_config_id === 'string'
+                            ? (ruleCfopConfigMap.get(rule.cfop_config_id) ?? null)
+                            : null,
                 })),
             },
         }
@@ -1572,6 +1756,12 @@ export async function upsertProductTaxProfileAction(
         if (input.defaultInputCfopReferenceId && !fiscalReferenceSnapshot.default_input_cfop) {
             throw new Error('A referencia de CFOP de entrada informada nao foi encontrada na base fiscal.')
         }
+        if (input.defaultOutputCfopConfigId && !fiscalReferenceSnapshot.default_output_cfop_config) {
+            throw new Error('A configuracao de CFOP de saida informada nao foi encontrada.')
+        }
+        if (input.defaultInputCfopConfigId && !fiscalReferenceSnapshot.default_input_cfop_config) {
+            throw new Error('A configuracao de CFOP de entrada informada nao foi encontrada.')
+        }
         if (input.icmsBaseId && !fiscalReferenceSnapshot.icms_base) {
             throw new Error('A base de ICMS informada nao foi encontrada.')
         }
@@ -1582,19 +1772,46 @@ export async function upsertProductTaxProfileAction(
         let currentPersistedIcmsBaseId: string | null = null
         let currentPersistedIbscbsBaseId: string | null = null
         let currentPersistedIbscbsVersionId: string | null = null
+        let currentPersistedOutputCfopConfigId: string | null = null
+        let currentPersistedInputCfopConfigId: string | null = null
+        let currentPersistedRuleCfopConfigIds = new Map<string, string | null>()
         if (input.id) {
-            const { data: currentProfile, error: currentProfileError } = await adminSupabase
-                .from('product_tax_profiles')
-                .select('icms_base_id, ibscbs_base_id, ibscbs_version_id')
-                .eq('id', input.id)
-                .single()
+            const [{ data: currentProfile, error: currentProfileError }, { data: currentRules, error: currentRulesError }] =
+                await Promise.all([
+                    adminSupabase
+                        .from('product_tax_profiles')
+                        .select('icms_base_id, ibscbs_base_id, ibscbs_version_id, default_output_cfop_config_id, default_input_cfop_config_id')
+                        .eq('id', input.id)
+                        .single(),
+                    adminSupabase
+                        .from('product_tax_profile_rules')
+                        .select('id, cfop_config_id')
+                        .eq('tax_profile_id', input.id),
+                ])
 
             if (currentProfileError) throw currentProfileError
+            if (currentRulesError) throw currentRulesError
             currentPersistedIcmsBaseId = typeof currentProfile?.icms_base_id === 'string' ? currentProfile.icms_base_id : null
             currentPersistedIbscbsBaseId =
                 typeof currentProfile?.ibscbs_base_id === 'string' ? currentProfile.ibscbs_base_id : null
             currentPersistedIbscbsVersionId =
                 typeof currentProfile?.ibscbs_version_id === 'string' ? currentProfile.ibscbs_version_id : null
+            currentPersistedOutputCfopConfigId =
+                typeof currentProfile?.default_output_cfop_config_id === 'string'
+                    ? currentProfile.default_output_cfop_config_id
+                    : null
+            currentPersistedInputCfopConfigId =
+                typeof currentProfile?.default_input_cfop_config_id === 'string'
+                    ? currentProfile.default_input_cfop_config_id
+                    : null
+            currentPersistedRuleCfopConfigIds = new Map(
+                ((currentRules || []) as Array<Record<string, unknown>>)
+                    .filter((rule) => typeof rule.id === 'string')
+                    .map((rule) => [
+                        String(rule.id),
+                        typeof rule.cfop_config_id === 'string' ? rule.cfop_config_id : null,
+                    ])
+            )
         }
 
         const ncmFromReference = (fiscalReferenceSnapshot.ncm as { code?: string } | undefined)?.code || null
@@ -1605,10 +1822,32 @@ export async function upsertProductTaxProfileAction(
             (fiscalReferenceSnapshot.default_output_cfop as { code?: string } | undefined)?.code || null
         const defaultOutputCfopVersionFromReference =
             (fiscalReferenceSnapshot.default_output_cfop as { version_id?: string } | undefined)?.version_id || null
+        const defaultOutputCfopConfigFromReference = fiscalReferenceSnapshot.default_output_cfop_config as
+            | {
+                  config_id?: string
+                  reference_id?: string
+                  version_id?: string
+                  code?: string
+                  operation_direction?: string
+                  configuration_status?: string
+                  is_active?: boolean
+              }
+            | undefined
         const defaultInputCfopFromReference =
             (fiscalReferenceSnapshot.default_input_cfop as { code?: string } | undefined)?.code || null
         const defaultInputCfopVersionFromReference =
             (fiscalReferenceSnapshot.default_input_cfop as { version_id?: string } | undefined)?.version_id || null
+        const defaultInputCfopConfigFromReference = fiscalReferenceSnapshot.default_input_cfop_config as
+            | {
+                  config_id?: string
+                  reference_id?: string
+                  version_id?: string
+                  code?: string
+                  operation_direction?: string
+                  configuration_status?: string
+                  is_active?: boolean
+              }
+            | undefined
         const tipiVersionFromReference =
             (fiscalReferenceSnapshot.tipi as { version_id?: string } | undefined)?.version_id || null
         const defaultFiscalDescriptionFromReference =
@@ -1628,6 +1867,48 @@ export async function upsertProductTaxProfileAction(
             | undefined
 
         if (
+            input.defaultOutputCfopConfigId &&
+            defaultOutputCfopConfigFromReference &&
+            defaultOutputCfopConfigFromReference.is_active === false &&
+            currentPersistedOutputCfopConfigId !== input.defaultOutputCfopConfigId
+        ) {
+            throw new Error(
+                `A configuracao de CFOP de saida ${defaultOutputCfopConfigFromReference.code || input.defaultOutputCfopConfigId} esta inativa e nao pode ser usada em novos vinculos.`
+            )
+        }
+
+        if (
+            input.defaultOutputCfopConfigId &&
+            defaultOutputCfopConfigFromReference &&
+            !['outbound', 'both'].includes(defaultOutputCfopConfigFromReference.operation_direction || '')
+        ) {
+            throw new Error(
+                `A configuracao de CFOP ${defaultOutputCfopConfigFromReference.code || input.defaultOutputCfopConfigId} nao pode ser usada como padrao de saida.`
+            )
+        }
+
+        if (
+            input.defaultInputCfopConfigId &&
+            defaultInputCfopConfigFromReference &&
+            defaultInputCfopConfigFromReference.is_active === false &&
+            currentPersistedInputCfopConfigId !== input.defaultInputCfopConfigId
+        ) {
+            throw new Error(
+                `A configuracao de CFOP de entrada ${defaultInputCfopConfigFromReference.code || input.defaultInputCfopConfigId} esta inativa e nao pode ser usada em novos vinculos.`
+            )
+        }
+
+        if (
+            input.defaultInputCfopConfigId &&
+            defaultInputCfopConfigFromReference &&
+            !['inbound', 'both'].includes(defaultInputCfopConfigFromReference.operation_direction || '')
+        ) {
+            throw new Error(
+                `A configuracao de CFOP ${defaultInputCfopConfigFromReference.code || input.defaultInputCfopConfigId} nao pode ser usada como padrao de entrada.`
+            )
+        }
+
+        if (
             input.icmsBaseId &&
             icmsBaseFromReference &&
             icmsBaseFromReference.is_active === false &&
@@ -1641,6 +1922,8 @@ export async function upsertProductTaxProfileAction(
         const icmsBaseIdFromReference = icmsBaseFromReference?.base_id || null
         const ibscbsBaseIdFromReference = ibscbsBaseFromReference?.base_id || null
         const ibscbsVersionIdFromReference = ibscbsBaseFromReference?.version_id || null
+        const defaultOutputCfopConfigIdFromReference = defaultOutputCfopConfigFromReference?.config_id || null
+        const defaultInputCfopConfigIdFromReference = defaultInputCfopConfigFromReference?.config_id || null
 
         if (
             input.ibscbsBaseId &&
@@ -1659,6 +1942,69 @@ export async function upsertProductTaxProfileAction(
                 `A referencia de IBS/CBS ${ibscbsBaseFromReference.code || input.ibscbsBaseId}${ibscbsBaseFromReference.version_label ? ` / ${ibscbsBaseFromReference.version_label}` : ''} nao esta ativa para novos vinculos. Revise a base selecionada e escolha uma versao ativa.`
             )
         }
+
+        const submittedRules = input.cfopRules || input.rules || []
+        const contextualCfopConfigMap = await loadCfopConfigReferences(
+            adminSupabase,
+            submittedRules.map((rule) => rule.cfopConfigId)
+        )
+
+        const normalizedRules = submittedRules.map((rule) => {
+            const cfopConfig =
+                rule.cfopConfigId && isValidUuid(rule.cfopConfigId) ? contextualCfopConfigMap.get(rule.cfopConfigId) : null
+            const persistedConfigId = rule.id ? currentPersistedRuleCfopConfigIds.get(rule.id) || null : null
+
+            if (rule.cfopConfigId && !cfopConfig) {
+                throw new Error(`A configuracao de CFOP vinculada a regra "${rule.ruleName}" nao foi encontrada.`)
+            }
+
+            if (cfopConfig && cfopConfig.is_active === false && persistedConfigId !== cfopConfig.config_id) {
+                throw new Error(
+                    `A configuracao de CFOP ${cfopConfig.code || cfopConfig.config_id} esta inativa e nao pode ser usada na regra "${rule.ruleName}".`
+                )
+            }
+
+            if (
+                cfopConfig &&
+                rule.operationDirection === 'outbound' &&
+                !['outbound', 'both'].includes(cfopConfig.operation_direction)
+            ) {
+                throw new Error(
+                    `A configuracao de CFOP ${cfopConfig.code || cfopConfig.config_id} nao e compativel com a regra de saida "${rule.ruleName}".`
+                )
+            }
+
+            if (
+                cfopConfig &&
+                rule.operationDirection === 'inbound' &&
+                !['inbound', 'both'].includes(cfopConfig.operation_direction)
+            ) {
+                throw new Error(
+                    `A configuracao de CFOP ${cfopConfig.code || cfopConfig.config_id} nao e compativel com a regra de entrada "${rule.ruleName}".`
+                )
+            }
+
+            return {
+                id: rule.id || null,
+                rule_name: rule.ruleName.trim(),
+                operation_direction: rule.operationDirection,
+                origin_uf: sanitizeFiscalCode(rule.originUf)?.toUpperCase() || null,
+                destination_uf: sanitizeFiscalCode(rule.destinationUf)?.toUpperCase() || null,
+                customer_type_id: rule.customerTypeId || null,
+                person_type: rule.personType || null,
+                taxpayer_indicator: rule.taxpayerIndicator || null,
+                cfop_override: sanitizeFiscalCode(cfopConfig?.code || rule.cfopOverride),
+                cfop_config_id: cfopConfig?.config_id || null,
+                cfop_reference_id: cfopConfig?.reference_id || null,
+                cfop_version_id: cfopConfig?.version_id || null,
+                priority: rule.priority ?? 0,
+                is_active: rule.isActive !== false,
+                effective_from: rule.effectiveFrom || null,
+                effective_to: rule.effectiveTo || null,
+                rule_payload: sanitizeJsonPayload(rule.rulePayload),
+                future_tax_payload: sanitizeJsonPayload(rule.futureTaxPayload),
+            }
+        })
 
         const { data, error } = await adminSupabase.rpc('admin_upsert_product_tax_profile', {
             p_tax_profile_id: input.id ?? null,
@@ -1700,17 +2046,24 @@ export async function upsertProductTaxProfileAction(
             p_tipi_version_id: tipiVersionFromReference,
             p_cest_reference_id: input.cestReferenceId ?? null,
             p_cest_version_id: cestVersionFromReference,
-            p_default_output_cfop_reference_id: input.defaultOutputCfopReferenceId ?? null,
-            p_default_output_cfop_version_id: defaultOutputCfopVersionFromReference,
-            p_default_input_cfop_reference_id: input.defaultInputCfopReferenceId ?? null,
-            p_default_input_cfop_version_id: defaultInputCfopVersionFromReference,
+            p_default_output_cfop_reference_id:
+                defaultOutputCfopConfigFromReference?.reference_id || input.defaultOutputCfopReferenceId || null,
+            p_default_output_cfop_version_id:
+                defaultOutputCfopConfigFromReference?.version_id || defaultOutputCfopVersionFromReference,
+            p_default_input_cfop_reference_id:
+                defaultInputCfopConfigFromReference?.reference_id || input.defaultInputCfopReferenceId || null,
+            p_default_input_cfop_version_id:
+                defaultInputCfopConfigFromReference?.version_id || defaultInputCfopVersionFromReference,
             p_icms_base_id: icmsBaseIdFromReference,
             p_ibscbs_base_id: ibscbsBaseIdFromReference,
             p_ibscbs_version_id: ibscbsVersionIdFromReference,
+            p_default_output_cfop_config_id: defaultOutputCfopConfigIdFromReference,
+            p_default_input_cfop_config_id: defaultInputCfopConfigIdFromReference,
             p_fiscal_reference_snapshot_jsonb: {
                 ...sanitizeJsonPayload(input.fiscalReferenceSnapshot),
                 ...fiscalReferenceSnapshot,
             },
+            p_rules: normalizedRules,
         })
 
         if (error) throw error
@@ -1744,13 +2097,22 @@ export async function duplicateProductTaxProfileAction(
         if (!isValidUuid(taxProfileId)) throw new Error('Perfil tributario invalido.')
 
         const adminSupabase = createServiceRoleClient()
-        const { data: sourceProfile, error: sourceProfileError } = await adminSupabase
-            .from('product_tax_profiles')
-            .select('icms_base_id, ibscbs_base_id, ibscbs_version_id')
-            .eq('id', taxProfileId)
-            .single()
+        const [{ data: sourceProfile, error: sourceProfileError }, { data: sourceRules, error: sourceRulesError }] =
+            await Promise.all([
+                adminSupabase
+                    .from('product_tax_profiles')
+                    .select('icms_base_id, ibscbs_base_id, ibscbs_version_id, default_output_cfop_config_id, default_input_cfop_config_id')
+                    .eq('id', taxProfileId)
+                    .single(),
+                adminSupabase
+                    .from('product_tax_profile_rules')
+                    .select('cfop_config_id')
+                    .eq('tax_profile_id', taxProfileId)
+                    .not('cfop_config_id', 'is', null),
+            ])
 
         if (sourceProfileError) throw sourceProfileError
+        if (sourceRulesError) throw sourceRulesError
 
         const sourceIcmsBaseId =
             typeof sourceProfile?.icms_base_id === 'string' ? sourceProfile.icms_base_id : null
@@ -1758,6 +2120,14 @@ export async function duplicateProductTaxProfileAction(
             typeof sourceProfile?.ibscbs_base_id === 'string' ? sourceProfile.ibscbs_base_id : null
         const sourceIbscbsVersionId =
             typeof sourceProfile?.ibscbs_version_id === 'string' ? sourceProfile.ibscbs_version_id : null
+        const sourceOutputCfopConfigId =
+            typeof sourceProfile?.default_output_cfop_config_id === 'string'
+                ? sourceProfile.default_output_cfop_config_id
+                : null
+        const sourceInputCfopConfigId =
+            typeof sourceProfile?.default_input_cfop_config_id === 'string'
+                ? sourceProfile.default_input_cfop_config_id
+                : null
         if (sourceIcmsBaseId) {
             const { data: sourceIcmsBase, error: sourceIcmsBaseError } = await adminSupabase
                 .from('fiscal_icms_bases')
@@ -1794,6 +2164,36 @@ export async function duplicateProductTaxProfileAction(
             if (sourceIbscbsBase?.is_active === false || sourceIbscbsVersion?.status !== 'active') {
                 throw new Error(
                     `O perfil atual usa a referencia IBS/CBS ${sourceIbscbsBase?.code || sourceIbscbsBaseId}${sourceIbscbsVersion?.version_label ? ` / ${sourceIbscbsVersion.version_label}` : ''}, que nao esta ativa para novos vinculos. Antes de duplicar, revise a referencia para uma versao ativa.`
+                )
+            }
+        }
+
+        const cfopConfigIds = Array.from(
+            new Set(
+                [
+                    sourceOutputCfopConfigId,
+                    sourceInputCfopConfigId,
+                    ...((sourceRules || []) as Array<Record<string, unknown>>).map((rule) =>
+                        typeof rule.cfop_config_id === 'string' ? rule.cfop_config_id : null
+                    ),
+                ].filter((value): value is string => Boolean(value))
+            )
+        )
+        if (cfopConfigIds.length > 0) {
+            const { data: cfopConfigs, error: cfopConfigsError } = await adminSupabase
+                .from('fiscal_cfop_configs')
+                .select('id, is_active, fiscal_cfop_entries!inner(code)')
+                .in('id', cfopConfigIds)
+
+            if (cfopConfigsError) throw cfopConfigsError
+
+            const inactiveConfig = ((cfopConfigs || []) as Array<Record<string, unknown>>).find((row) => row.is_active === false)
+            if (inactiveConfig) {
+                const entry = Array.isArray(inactiveConfig.fiscal_cfop_entries)
+                    ? inactiveConfig.fiscal_cfop_entries[0]
+                    : inactiveConfig.fiscal_cfop_entries
+                throw new Error(
+                    `O perfil atual usa a configuracao de CFOP ${entry?.code || inactiveConfig.id}, que esta inativa. Antes de duplicar, revise o vinculo para uma configuracao ativa.`
                 )
             }
         }
