@@ -10,7 +10,7 @@ import {
   validateOrderForEmission,
   persistOrderFiscalSnapshot,
 } from '@/lib/fiscal/motor'
-import { emitNFe } from '@/lib/fiscal/transport'
+import { emitNFe, cancelNFe, sendCartaCorrecao, getSefazEndpoint, sendSoapRequest, generateDanfePdf } from '@/lib/fiscal/transport'
 import type { FiscalDocumentPayload, ValidationResult } from '@/lib/fiscal/motor'
 
 // ─── Calculate (dry-run) ─────────────────────────
@@ -91,6 +91,116 @@ export async function emitNFeAction(orderId: string, modelo: '55' | '65' = '55')
     success: emitResult.success,
     data: emitResult.success ? emitResult : null,
     error: emitResult.success ? null : { code: 'EMISSION_FAILED', message: emitResult.error || 'Falha na emissão.' },
+  }
+}
+
+// ─── Cancel NF-e ────────────────────────────────
+
+export async function cancelNFeAction(fiscalDocumentId: string, justificativa: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { success: false, error: { code: 'AUTH', message: 'Usuário não autenticado.' } }
+  }
+
+  const result = await cancelNFe(fiscalDocumentId, justificativa, user.id)
+
+  return {
+    success: result.success,
+    data: result.success ? result : null,
+    error: result.success ? null : { code: 'CANCEL_FAILED', message: result.error || 'Falha no cancelamento.' },
+  }
+}
+
+// ─── Carta de Correção ──────────────────────────
+
+export async function sendCartaCorrecaoAction(fiscalDocumentId: string, correcao: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { success: false, error: { code: 'AUTH', message: 'Usuário não autenticado.' } }
+  }
+
+  const result = await sendCartaCorrecao(fiscalDocumentId, correcao, user.id)
+
+  return {
+    success: result.success,
+    data: result.success ? result : null,
+    error: result.success ? null : { code: 'CORRECTION_FAILED', message: result.error || 'Falha na carta de correção.' },
+  }
+}
+
+// ─── Check SEFAZ Status ─────────────────────────
+
+export async function checkSefazStatusAction() {
+  try {
+    const serviceRole = createServiceRoleClient()
+
+    const { data: profile } = await serviceRole
+      .from('company_fiscal_profile')
+      .select('fiscal_state')
+      .limit(1)
+      .maybeSingle()
+
+    const { data: envConfig } = await serviceRole
+      .from('company_fiscal_environment')
+      .select('ambiente')
+      .limit(1)
+      .maybeSingle()
+
+    const uf = profile?.fiscal_state?.toUpperCase() || 'SP'
+    const ambiente = envConfig?.ambiente === 'producao' ? 'producao' as const : 'homologacao' as const
+    const tpAmb = ambiente === 'producao' ? 1 : 2
+
+    const statusXml = [
+      '<consStatServ xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">',
+      `<tpAmb>${tpAmb}</tpAmb>`,
+      '<cUF>35</cUF>',
+      '<xServ>STATUS</xServ>',
+      '</consStatServ>',
+    ].join('')
+
+    const endpoint = getSefazEndpoint(uf, ambiente, 'NfeStatusServico')
+    const response = await sendSoapRequest(endpoint, statusXml, 'NFeStatusServico4')
+
+    return {
+      success: true,
+      data: {
+        statusCode: response.statusCode,
+        parsed: response.parsed,
+        ambiente,
+        uf,
+      },
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: { code: 'STATUS_CHECK_FAILED', message: err instanceof Error ? err.message : String(err) },
+    }
+  }
+}
+
+// ─── Generate DANFE ─────────────────────────────
+
+export async function generateDanfeAction(fiscalDocumentId: string) {
+  try {
+    const result = await generateDanfePdf(fiscalDocumentId)
+
+    if (!result.success) {
+      return { success: false, error: { code: 'DANFE_FAILED', message: result.error || 'Falha na geração do DANFE.' } }
+    }
+
+    return {
+      success: true,
+      data: { storagePath: result.storagePath },
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: { code: 'DANFE_ERROR', message: err instanceof Error ? err.message : String(err) },
+    }
   }
 }
 

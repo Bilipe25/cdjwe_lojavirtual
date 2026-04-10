@@ -1,31 +1,38 @@
 // ============================================================
 // Fiscal Transport — NF-e Emission Service
-// Pure JS transport: fast-xml-parser + node-forge + https
-// Vercel-compatible (no native deps)
+// Complete flow: XML generation → signing → SEFAZ submission
+// Pure JS transport (Vercel-compatible)
 // ============================================================
 
 import 'server-only'
 
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
-import { mapFiscalPayloadToNFeXml, buildNFeAuthorizationEnvelope, buildSoapEnvelope } from './map-fiscal-to-nfe.service'
+import {
+  mapFiscalPayloadToNFeXml,
+  buildNFeAuthorizationEnvelope,
+} from './map-fiscal-to-nfe.service'
+import { loadCertificate, signNFeXml } from './sign-xml.service'
+import {
+  getSefazEndpoint,
+  sendSoapRequest,
+  parseSefazAutorizacaoResponse,
+} from './sefaz-client.service'
 import type { FiscalDocumentPayload } from '../motor/types'
-import type { EmissionResult, FiscalDocument } from './types'
+import type { EmissionResult } from './types'
+
+const NF_NAMESPACE = 'http://www.portalfiscal.inf.br/nfe'
 
 /**
- * Emits an NF-e for the given order using the Motor Fiscal payload.
+ * Emits an NF-e for the given order:
  *
- * Flow:
- * 1. Get next NF-e number from company_fiscal_environment
- * 2. Map FiscalDocumentPayload → XML
- * 3. Create fiscal_documents record (status: pending)
- * 4. Log event
- * 5. Store XML in Supabase Storage
- * 6. Update document status
- *
- * NOTE: Actual SEFAZ submission requires certificate-based mTLS
- * which is handled when the certificate infrastructure is fully
- * configured. This implementation prepares the full XML and
- * persists it. SEFAZ submission is a separate step.
+ * 1. Get next NF-e number
+ * 2. Map FiscalDocumentPayload → XML (infNFe)
+ * 3. Sign XML with A1 certificate (RSA-SHA1)
+ * 4. Wrap in enviNFe envelope
+ * 5. Submit to SEFAZ via SOAP/mTLS
+ * 6. Parse SEFAZ response
+ * 7. Persist result to fiscal_documents + fiscal_events_log
+ * 8. Store XMLs in Supabase Storage
  */
 export async function emitNFe(
   orderId: string,
@@ -49,7 +56,7 @@ export async function emitNFe(
     }
 
     const serie = modelo === '55'
-      ? envConfig.serie_nfe
+      ? envConfig.serie_nfe || envConfig.serie_padrao_nfe
       : envConfig.serie_nfce
     const nextNumber = modelo === '55'
       ? envConfig.proximo_numero_nfe
@@ -59,23 +66,38 @@ export async function emitNFe(
       return createErrorResult('SEQUENCE_ERROR', `Serie/numero ${modelo === '55' ? 'NF-e' : 'NFC-e'} nao configurado.`)
     }
 
-    // 2. Map to XML
+    // 2. Map to XML (unsigned infNFe)
     const { xml: infNFeXml, chaveAcesso, infNFeId } = mapFiscalPayloadToNFeXml(
       payload, nextNumber, serie, modelo
     )
 
-    // Wrap in NFe + enviNFe envelope (unsigned for now)
-    const nfeXml = `<NFe xmlns="${'http://www.portalfiscal.inf.br/nfe'}">${infNFeXml}</NFe>`
-    const envelopeXml = buildNFeAuthorizationEnvelope(nfeXml)
+    // Wrap in <NFe> element
+    const nfeXmlUnsigned = `<NFe xmlns="${NF_NAMESPACE}">${infNFeXml}</NFe>`
 
-    // 3. Create fiscal_documents record
+    // 3. Sign XML with A1 certificate
+    let signedNFeXml: string
+    let certLoaded = false
+    try {
+      const certData = await loadCertificate()
+      signedNFeXml = signNFeXml(nfeXmlUnsigned, infNFeId, certData)
+      certLoaded = true
+    } catch (certErr) {
+      // If certificate not available, store unsigned XML
+      console.warn('[fiscal:emit] Certificate not available, storing unsigned XML:', certErr)
+      signedNFeXml = nfeXmlUnsigned
+    }
+
+    // 4. Build enviNFe envelope
+    const envelopeXml = buildNFeAuthorizationEnvelope(signedNFeXml)
+
+    // 5. Create fiscal_documents record (status: processing)
     const ambiente = payload.context.environment.ambiente as 'homologacao' | 'producao'
     const { data: fiscalDoc, error: docError } = await supabase
       .from('fiscal_documents')
       .insert({
         order_id: orderId,
         document_model: modelo,
-        document_status: 'pending',
+        document_status: certLoaded ? 'processing' : 'pending',
         chave_acesso: chaveAcesso,
         numero_nf: nextNumber,
         serie,
@@ -106,41 +128,97 @@ export async function emitNFe(
       return createErrorResult('DOC_INSERT_FAILED', `Erro ao criar documento fiscal: ${docError?.message}`)
     }
 
-    // 4. Store XML in Supabase Storage
-    const xmlPath = `${orderId}/${fiscalDoc.id}/envio.xml`
-    const { error: storageError } = await supabase.storage
+    // 6. Store envio XML in Supabase Storage
+    const xmlEnvioPath = `${orderId}/${fiscalDoc.id}/envio.xml`
+    await supabase.storage
       .from('fiscal-xml')
-      .upload(xmlPath, envelopeXml, {
-        contentType: 'application/xml',
-        upsert: true,
-      })
+      .upload(xmlEnvioPath, envelopeXml, { contentType: 'application/xml', upsert: true })
 
-    if (storageError) {
-      console.error('[fiscal:emit] Storage error:', storageError)
-    }
-
-    // Update document with XML path
     await supabase
       .from('fiscal_documents')
-      .update({ xml_envio_path: xmlPath })
+      .update({ xml_envio_path: xmlEnvioPath })
       .eq('id', fiscalDoc.id)
 
-    // 5. Increment next number
+    // 7. Submit to SEFAZ (only if certificate was loaded)
+    let sefazResult: ReturnType<typeof parseSefazAutorizacaoResponse> | null = null
+
+    if (certLoaded) {
+      try {
+        const emitterUf = payload.context.emitter.uf
+        const endpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeAutorizacao')
+        const soapResponse = await sendSoapRequest(endpoint, envelopeXml, 'NFeAutorizacao4')
+
+        // Store retorno XML
+        const xmlRetornoPath = `${orderId}/${fiscalDoc.id}/retorno.xml`
+        await supabase.storage
+          .from('fiscal-xml')
+          .upload(xmlRetornoPath, soapResponse.body, { contentType: 'application/xml', upsert: true })
+
+        await supabase
+          .from('fiscal_documents')
+          .update({ xml_retorno_path: xmlRetornoPath })
+          .eq('id', fiscalDoc.id)
+
+        sefazResult = parseSefazAutorizacaoResponse(soapResponse.parsed)
+
+        // Status 100 = Autorizado uso da NF-e
+        const isAuthorized = sefazResult.cStat === 100
+
+        // Update fiscal_documents with SEFAZ result
+        await supabase
+          .from('fiscal_documents')
+          .update({
+            document_status: isAuthorized ? 'authorized' : 'denied',
+            protocolo_autorizacao: sefazResult.nProt,
+            data_autorizacao: sefazResult.dhRecbto,
+            codigo_status: sefazResult.cStat,
+            motivo_status: sefazResult.xMotivo,
+            digest_value: sefazResult.digVal,
+          })
+          .eq('id', fiscalDoc.id)
+      } catch (soapErr) {
+        const soapError = soapErr instanceof Error ? soapErr.message : String(soapErr)
+        console.error('[fiscal:emit] SEFAZ SOAP error:', soapError)
+
+        await supabase
+          .from('fiscal_documents')
+          .update({
+            document_status: 'error',
+            motivo_status: `SOAP Error: ${soapError}`,
+          })
+          .eq('id', fiscalDoc.id)
+
+        sefazResult = {
+          cStat: 0,
+          xMotivo: soapError,
+          nProt: null,
+          dhRecbto: null,
+          chNFe: null,
+          digVal: null,
+        }
+      }
+    }
+
+    // 8. Increment next number
     const numberField = modelo === '55' ? 'proximo_numero_nfe' : 'proximo_numero_nfce'
     await supabase
       .from('company_fiscal_environment')
       .update({ [numberField]: nextNumber + 1 })
       .eq('id', envConfig.id)
 
-    // 6. Log event
+    // 9. Log event
     const duration = Date.now() - startTime
+    const eventStatus = sefazResult
+      ? (sefazResult.cStat === 100 ? 'success' : 'failure')
+      : 'warning'
+
     await supabase
       .from('fiscal_events_log')
       .insert({
         fiscal_document_id: fiscalDoc.id,
         order_id: orderId,
         event_type: 'authorization',
-        event_status: 'success',
+        event_status: eventStatus,
         request_summary_jsonb: {
           chave_acesso: chaveAcesso,
           numero_nf: nextNumber,
@@ -148,37 +226,38 @@ export async function emitNFe(
           modelo,
           ambiente,
           motor_version: payload.motor_version,
+          cert_loaded: certLoaded,
         },
-        response_summary_jsonb: {
-          note: 'XML gerado e armazenado. Submissao SOAP pendente de configuracao mTLS.',
+        response_summary_jsonb: sefazResult || {
+          note: 'Certificado nao disponivel. XML gerado e armazenado sem assinatura.',
         },
-        sefaz_status_code: null,
-        sefaz_message: 'XML preparado para submissao',
+        sefaz_status_code: sefazResult?.cStat || null,
+        sefaz_message: sefazResult?.xMotivo || 'XML pendente de submissao',
         duration_ms: duration,
         executed_by: userId,
       })
 
-    // 7. Update order with document reference
+    // 10. Update order
     await supabase
       .from('orders')
       .update({
         fiscal_ready: true,
         fiscal_snapshot: {
-          ...((payload.context as unknown as Record<string, unknown>)?.fiscal_snapshot || {}),
           last_document_id: fiscalDoc.id,
           last_chave_acesso: chaveAcesso,
           last_emitted_at: new Date().toISOString(),
+          last_status: sefazResult ? (sefazResult.cStat === 100 ? 'authorized' : 'denied') : 'pending',
         },
       })
       .eq('id', orderId)
 
     return {
-      success: true,
+      success: sefazResult ? sefazResult.cStat === 100 : true,
       chaveAcesso,
-      protocolo: null, // Will be filled after SEFAZ submission
-      dataAutorizacao: null,
-      codigoStatus: null,
-      motivoStatus: 'XML gerado e armazenado com sucesso. Pendente submissao SEFAZ.',
+      protocolo: sefazResult?.nProt || null,
+      dataAutorizacao: sefazResult?.dhRecbto || null,
+      codigoStatus: sefazResult?.cStat || null,
+      motivoStatus: sefazResult?.xMotivo || 'XML gerado. ' + (certLoaded ? 'Submetido ao SEFAZ.' : 'Pendente assinatura e submissao.'),
       xmlProcessado: null,
     }
   } catch (err) {
