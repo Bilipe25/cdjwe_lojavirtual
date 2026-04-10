@@ -1,5 +1,3 @@
-'use server'
-
 import 'server-only'
 
 import crypto from 'node:crypto'
@@ -11,7 +9,7 @@ function getCertificateSecret(): string {
     ''
 
   if (!configured.trim()) {
-    throw new Error('Segredo de certificado não configurado. Defina FISCAL_CERTIFICATE_SECRET no ambiente.')
+    throw new Error('Segredo de certificado nao configurado. Defina FISCAL_CERTIFICATE_SECRET no ambiente.')
   }
 
   return configured
@@ -38,11 +36,7 @@ export function encryptCertificatePassword(password: string): string {
 export function decryptCertificatePassword(payload: string): string {
   const parsed = JSON.parse(payload) as { iv: string; tag: string; content: string }
   const key = deriveKey(getCertificateSecret())
-  const decipher = crypto.createDecipheriv(
-    'aes-256-gcm',
-    key,
-    Buffer.from(parsed.iv, 'base64')
-  )
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(parsed.iv, 'base64'))
   decipher.setAuthTag(Buffer.from(parsed.tag, 'base64'))
 
   const decrypted = Buffer.concat([

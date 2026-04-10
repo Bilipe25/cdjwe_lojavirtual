@@ -68,52 +68,52 @@ const productCadastrosNavItems = [
 ]
 
 const cadastrosNavItems = [
-    { href: '/admin/price-tables', label: 'Tabelas de Preço', icon: Tag },
+    { href: '/admin/price-tables', label: 'Tabelas de PreÃ§o', icon: Tag },
     { href: '/admin/payment-conditions', label: 'Meios de Pagamento', icon: CreditCard },
 ]
 
 const settingsNavItems = [
-    { href: '/admin/settings', label: 'Configurações Gerais', icon: Settings },
+    { href: '/admin/settings', label: 'ConfiguraÃ§Ãµes Gerais', icon: Settings },
 ]
 
 const fiscalSettingsNavItems = [
     { href: '/admin/settings/fiscal-emitente', label: 'Dados do Emitente', icon: Building2 },
-    { href: '/admin/settings/fiscal-configuracoes', label: 'Configura��es Fiscais', icon: Gauge },
-    { href: '/admin/settings/fiscal-ambiente', label: 'Ambiente de Emiss�o', icon: Radio },
+    { href: '/admin/settings/fiscal-configuracoes', label: 'Configurações Fiscais', icon: Gauge },
+    { href: '/admin/settings/fiscal-ambiente', label: 'Ambiente de Emissão', icon: Radio },
     { href: '/admin/settings/fiscal-certificado', label: 'Certificado Digital', icon: FileKey2 },
-    { href: '/admin/product-tax-profiles', label: 'Perfis Tributários', icon: ShieldCheck },
+    { href: '/admin/product-tax-profiles', label: 'Perfis TributÃ¡rios', icon: ShieldCheck },
     { href: '/admin/fiscal-bases', label: 'Bases Fiscais', icon: Database },
 ]
 
 const marketingNavItems = [
     { href: '/admin/marketing/campaigns', label: 'Campanhas', icon: Megaphone },
     { href: '/admin/marketing/coupons', label: 'Cupons', icon: TicketPercent },
-    { href: '/admin/marketing/notifications', label: 'Notificações', icon: Bell },
+    { href: '/admin/marketing/notifications', label: 'NotificaÃ§Ãµes', icon: Bell },
     { href: '/admin/marketing/push', label: 'Push Notifications', icon: Send },
     { href: '/admin/marketing/popups', label: 'Popups', icon: ImageIcon },
-    { href: '/admin/marketing/history', label: 'Histórico', icon: History },
+    { href: '/admin/marketing/history', label: 'HistÃ³rico', icon: History },
 ]
 
 const financeiroNavItems = [
     { href: '/admin/financeiro/contas-a-receber', label: 'Contas a Receber', icon: Wallet },
-    { href: '/admin/financeiro/relatorio', label: 'Relatório', icon: BarChart3 },
+    { href: '/admin/financeiro/relatorio', label: 'RelatÃ³rio', icon: BarChart3 },
 ]
 
 const logisticaNavItems = [
     { href: '/admin/logistica/pedidos', label: 'Pedidos p/ Rota', icon: PackageCheck },
     { href: '/admin/logistica/rotas', label: 'Central de Rotas', icon: Route },
-    { href: '/admin/logistica/historico', label: 'Histórico', icon: History },
-    { href: '/admin/logistica/veiculos', label: 'Veículos', icon: Truck },
+    { href: '/admin/logistica/historico', label: 'HistÃ³rico', icon: History },
+    { href: '/admin/logistica/veiculos', label: 'VeÃ­culos', icon: Truck },
     { href: '/admin/logistica/motoristas', label: 'Motoristas', icon: UserCircle },
     { href: '/admin/logistica/centros', label: 'Centros', icon: Warehouse },
-    { href: '/admin/logistica/regioes', label: 'Regiões', icon: MapPin },
+    { href: '/admin/logistica/regioes', label: 'RegiÃµes', icon: MapPin },
     { href: '/admin/logistica/custos', label: 'Custos', icon: DollarSign },
 ]
 
 const bottomNavItems = [
     { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
     { href: '/admin/customers', label: 'Clientes', icon: Users },
-    { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
+    { href: '/admin/reports', label: 'RelatÃ³rios', icon: BarChart3 },
 ]
 
 export function AdminSidebar() {
@@ -572,7 +572,7 @@ export function AdminSidebar() {
                         )}
                     </div>
 
-                    {/* Logística Group */}
+                    {/* LogÃ­stica Group */}
                     <div className="pt-1">
                         {collapsed ? (
                             <DropdownMenu>
@@ -591,12 +591,12 @@ export function AdminSidebar() {
                                         )} />
                                     )} />
                                     <TooltipContent side="right">
-                                        <p>Logística</p>
+                                        <p>LogÃ­stica</p>
                                     </TooltipContent>
                                 </Tooltip>
                                 <DropdownMenuContent side="right" sideOffset={16} align="start" className="w-56">
                                     <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                        Logística
+                                        LogÃ­stica
                                     </div>
                                     {logisticaNavItems.map((item) => {
                                         const isActive = pathname.startsWith(item.href)
@@ -625,7 +625,7 @@ export function AdminSidebar() {
                                     )}
                                 >
                                     <Truck className="h-5 w-5 shrink-0" />
-                                    <span className="flex-1 text-left truncate">Logística</span>
+                                    <span className="flex-1 text-left truncate">LogÃ­stica</span>
                                     <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", effectiveLogisticaOpen && "rotate-180")} />
                                 </Button>
                                 <div className={cn(
@@ -697,7 +697,7 @@ export function AdminSidebar() {
                     </div>
                 </nav>
 
-                    {/* Configurações Group */}
+                    {/* ConfiguraÃ§Ãµes Group */}
                     <div className="pt-1">
                         {collapsed ? (
                             <DropdownMenu>
@@ -716,12 +716,12 @@ export function AdminSidebar() {
                                         )} />
                                     )} />
                                     <TooltipContent side="right">
-                                        <p>Configurações</p>
+                                        <p>ConfiguraÃ§Ãµes</p>
                                     </TooltipContent>
                                 </Tooltip>
                                 <DropdownMenuContent side="right" sideOffset={16} align="start" className="w-56">
                                     <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                        Configurações
+                                        ConfiguraÃ§Ãµes
                                     </div>
                                     {settingsNavItems.map((item) => {
                                         const isActive = pathname.startsWith(item.href)
@@ -767,7 +767,7 @@ export function AdminSidebar() {
                                     )}
                                 >
                                     <Settings className="h-5 w-5 shrink-0" />
-                                    <span className="flex-1 text-left truncate">Configurações</span>
+                                    <span className="flex-1 text-left truncate">ConfiguraÃ§Ãµes</span>
                                     <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', effectiveSettingsOpen && 'rotate-180')} />
                                 </Button>
                                 <div className={cn(

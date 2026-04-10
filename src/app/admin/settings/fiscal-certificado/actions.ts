@@ -179,7 +179,15 @@ export async function saveCertificateAction(
       return { data: null, error: 'Valide o certificado A1 com a senha operacional antes de ativar.' }
     }
     if (normalizedStatus === 'expired') {
-      return { data: null, error: 'Nao e possivel ativar um certificado expirado.' }
+      const expiredAt = parsedMetadata?.validTo
+        ? new Date(parsedMetadata.validTo).toLocaleDateString('pt-BR')
+        : null
+      return {
+        data: null,
+        error: expiredAt
+          ? `O certificado A1 informado venceu em ${expiredAt} e nao pode ser ativado.`
+          : 'Nao e possivel ativar um certificado expirado.',
+      }
     }
   }
 
@@ -204,7 +212,9 @@ export async function saveCertificateAction(
     alert_days_before_expiry: input.alert_days_before_expiry,
     validation_notes: normalizedPath
       ? parsedMetadata
-        ? 'Metadados do certificado A1 extraidos automaticamente a partir do arquivo e da senha operacional.'
+        ? normalizedStatus === 'expired'
+          ? 'Metadados do certificado A1 extraidos automaticamente, mas o certificado ja esta vencido.'
+          : 'Metadados do certificado A1 extraidos automaticamente a partir do arquivo e da senha operacional.'
         : 'Arquivo operacional registrado, mas ainda sem validacao automatica concluida.'
       : 'Nenhum certificado operacional enviado.',
     last_validated_at: normalizedPath && parsedMetadata ? new Date().toISOString() : null,
