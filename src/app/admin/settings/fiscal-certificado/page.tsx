@@ -25,7 +25,6 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FiscalHelpText } from '../components/FiscalHelpText'
-import { FiscalReadinessCard } from '../components/FiscalReadinessCard'
 import { FiscalPageSummaryPanel } from '../components/FiscalPageSummaryPanel'
 import { loadCertificateAction, saveCertificateAction, uploadCertificateAction } from './actions'
 import type { CompanyCertificateConfig } from '@/lib/types'
@@ -272,7 +271,6 @@ export default function FiscalCertificadoPage() {
         helperText="Aqui ficam apenas upload, segurança e validade operacional do certificado A1. Ambiente de emissão, dados do emitente e vínculos fiscais são configurados em páginas separadas."
       />
 
-      <FiscalReadinessCard />
 
       <Card className="glass-card border-0">
         <CardContent className="p-6 space-y-4">

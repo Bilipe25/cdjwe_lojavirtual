@@ -265,6 +265,38 @@ export async function evaluateCompanyFiscalReadiness(): Promise<FiscalReadinessS
     },
   ]
 
+  // ─── Motor Fiscal readiness (GAP-11) ───────────
+  const { count: productsWithTaxProfile } = await supabase
+    .from('products')
+    .select('id', { count: 'exact', head: true })
+    .not('tax_profile_id', 'is', null)
+
+  const hasProductsConfigured = (productsWithTaxProfile || 0) > 0
+
+  items.push({
+    key: 'products_tax_profile',
+    label: 'Produtos com perfil fiscal vinculado',
+    status: hasProductsConfigured ? 'ok' : 'missing',
+    href: '/admin/products',
+    detail: hasProductsConfigured
+      ? `${productsWithTaxProfile} produto(s) com perfil fiscal configurado.`
+      : 'Nenhum produto possui perfil fiscal vinculado. Configure pelo menos 1 produto para habilitar o Motor Fiscal.',
+    blocking: true,
+  })
+
+  const cnaeValue = String(profile?.cnae_principal || '')
+  const hasCnae = cnaeValue.length > 0 && /^\d{7}$/.test(cnaeValue)
+  items.push({
+    key: 'emitter_cnae',
+    label: 'CNAE principal do emitente',
+    status: hasCnae ? 'ok' : 'warning',
+    href: '/admin/settings/fiscal-emitente',
+    detail: hasCnae
+      ? `CNAE: ${cnaeValue}`
+      : 'CNAE principal nao informado. Recomendado para determinacao de obrigatoriedade de IPI e regras especiais.',
+    blocking: false,
+  })
+
   const completedCount = items.filter((item) => item.status === 'ok').length
   const blockingCount = items.filter((item) => item.blocking && item.status !== 'ok').length
   const warningCount = items.filter((item) => item.status === 'warning').length
@@ -279,3 +311,4 @@ export async function evaluateCompanyFiscalReadiness(): Promise<FiscalReadinessS
     isReadyForProduction: blockingCount === 0,
   }
 }
+

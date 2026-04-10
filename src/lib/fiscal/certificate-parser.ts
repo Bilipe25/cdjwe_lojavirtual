@@ -1,14 +1,6 @@
 import 'server-only'
 
-import { execFile } from 'node:child_process'
-import { promises as fs } from 'node:fs'
-import crypto from 'node:crypto'
-import os from 'node:os'
-import path from 'node:path'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
-const OPENSSL_PASSWORD_ENV = 'CDJWE_CERT_PASSWORD'
+import forge from 'node-forge'
 
 export interface ParsedA1CertificateMetadata {
   subject: string
@@ -21,242 +13,168 @@ export interface ParsedA1CertificateMetadata {
   hasPrivateKey: boolean
 }
 
-function buildTempCertificatePath(extension: string): string {
-  const safeExtension = extension && extension.startsWith('.') ? extension : '.pfx'
-  return path.join(
-    os.tmpdir(),
-    `cdjwe-cert-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${safeExtension}`
-  )
-}
-
+/**
+ * Classifies the error thrown during PKCS#12 parsing and returns a
+ * user-facing message in Portuguese.  The goal is to map *every* known
+ * failure mode to an accurate description so the admin never sees a
+ * misleading message (e.g. "missing private key" when the real problem
+ * is a wrong password).
+ */
 function normalizeCertificateParserError(error: unknown): string {
   if (error instanceof Error && error.message) {
-    if (/spawn .*openssl.*enoent|not recognized as an internal or external command|command not found/i.test(error.message)) {
-      return 'O host atual nao possui OpenSSL disponivel para validar o certificado A1 fora do ambiente Windows.'
+    const msg = error.message
+
+    // node-forge throws "PKCS#12 MAC could not be verified. Invalid password?"
+    // or "Invalid password" when the passphrase is wrong.
+    if (/invalid password|mac could not be verified|mac verify/i.test(msg)) {
+      return 'Nao foi possivel abrir o certificado A1 com a senha informada. Verifique a senha e tente novamente.'
     }
 
-    if (/password|senha|network password|invalid password|mac verify error|mac verify failure/i.test(error.message)) {
-      return 'Nao foi possivel abrir o certificado A1 com a senha informada.'
+    // node-forge throws "Cannot read PKCS#12 PFX" or ASN.1 parse errors
+    // when the file is not a valid PKCS#12 container.
+    if (
+      /cannot read pkcs|too few bytes|invalid asn|unexpected asn|invalid der|premature end/i.test(msg)
+    ) {
+      return 'O arquivo enviado nao e um certificado PKCS#12 valido. Verifique se o arquivo .pfx ou .p12 esta integro.'
     }
 
-    if (/unsupported|legacy/i.test(error.message)) {
-      return 'O host atual nao conseguiu abrir este certificado A1 com os algoritmos PKCS#12 disponiveis.'
+    // Unsupported / legacy algorithm the JS implementation cannot handle.
+    if (/unsupported|not supported|unknown oid|unknown algorithm/i.test(msg)) {
+      return 'O arquivo A1 utiliza um algoritmo de criptografia nao suportado. Tente reexportar o certificado com algoritmo moderno (AES/SHA-256).'
     }
 
-    if (/private key|chave privada/i.test(error.message)) {
-      return 'O arquivo informado nao contem a chave privada necessaria para o certificado A1.'
+    // Explicit private key messages (from our own throw below, or pass-through).
+    if (/private key|chave privada/i.test(msg)) {
+      return 'O arquivo informado nao contem a chave privada necessaria para o certificado A1. Reexporte o certificado incluindo a chave privada.'
     }
 
-    return error.message
+    return msg
   }
 
   return 'Falha ao validar o certificado A1.'
 }
 
-function normalizeOpenSslDate(label: string, rawValue: string): string {
-  const value = rawValue.replace(`${label}=`, '').trim()
-  const parsed = new Date(value)
-
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error('Nao foi possivel interpretar a validade do certificado A1.')
-  }
-
-  return parsed.toISOString()
+/**
+ * Formats a forge certificate attribute map (subject / issuer) into the
+ * classic X.509 one-line string representation:
+ *   CN = Foo, O = Bar, C = BR
+ */
+function formatDN(attrs: forge.pki.CertificateField[]): string {
+  return attrs
+    .map((attr) => {
+      const name = attr.shortName || attr.name || attr.type || '?'
+      return `${name} = ${attr.value}`
+    })
+    .join(', ')
 }
 
-function parseOpenSslLine(output: string, prefix: string): string {
-  const line = output
-    .split(/\r?\n/)
-    .find((entry) => entry.trim().toLowerCase().startsWith(prefix.toLowerCase()))
-
-  if (!line) {
-    throw new Error(`Nao foi possivel localizar o campo ${prefix} na validacao do certificado A1.`)
-  }
-
-  return line.trim()
+/**
+ * Computes the SHA-1 thumbprint of a certificate – the same value
+ * Windows shows in the certificate details dialog.
+ */
+function computeThumbprint(cert: forge.pki.Certificate): string {
+  const derBytes = forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes()
+  const md = forge.md.sha1.create()
+  md.update(derBytes)
+  return md.digest().toHex().toUpperCase()
 }
 
-function shouldRetryWithLegacy(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  return /unsupported|legacy|unknown pbe algorithm|inner_evp_generic_fetch/i.test(error.message)
-}
-
-async function runOpenSslPkcs12(
-  tempPath: string,
-  password: string,
-  modeArgs: string[],
-  outputPath: string
-): Promise<void> {
-  const baseArgs = ['pkcs12', '-in', tempPath, '-passin', `env:${OPENSSL_PASSWORD_ENV}`, ...modeArgs, '-out', outputPath]
-  const commonOptions = {
-    windowsHide: true,
-    maxBuffer: 1024 * 1024,
-    env: {
-      ...process.env,
-      [OPENSSL_PASSWORD_ENV]: password,
-    },
-  }
-
-  try {
-    await execFileAsync('openssl', baseArgs, commonOptions)
-  } catch (error) {
-    if (!shouldRetryWithLegacy(error)) {
-      throw error
-    }
-
-    await execFileAsync('openssl', [...baseArgs, '-legacy'], commonOptions)
-  }
-}
-
-async function readRequiredFile(filePath: string, errorMessage: string): Promise<string> {
-  const content = await fs.readFile(filePath, 'utf8').catch(() => '')
-
-  if (!content.trim()) {
-    throw new Error(errorMessage)
-  }
-
-  return content
-}
-
-async function parseA1CertificateWithOpenSsl(
-  tempPath: string,
-  password: string
-): Promise<ParsedA1CertificateMetadata> {
-  const certPath = buildTempCertificatePath('.pem')
-  const keyPath = buildTempCertificatePath('.key')
-
-  try {
-    await runOpenSslPkcs12(tempPath, password, ['-clcerts', '-nokeys'], certPath)
-    await runOpenSslPkcs12(tempPath, password, ['-nocerts', '-nodes'], keyPath)
-
-    const certContent = await readRequiredFile(
-      certPath,
-      'Nao foi possivel extrair o certificado publico do arquivo A1.'
-    )
-    const keyContent = await readRequiredFile(
-      keyPath,
-      'O arquivo informado nao contem a chave privada necessaria para o certificado A1.'
-    )
-
-    if (!/BEGIN CERTIFICATE/.test(certContent)) {
-      throw new Error('Nao foi possivel extrair o certificado publico do arquivo A1.')
-    }
-
-    if (!/BEGIN (?:ENCRYPTED )?(?:RSA |EC )?PRIVATE KEY/.test(keyContent)) {
-      throw new Error('O arquivo informado nao contem a chave privada necessaria para o certificado A1.')
-    }
-
-    const certInfo = await execFileAsync(
-      'openssl',
-      ['x509', '-in', certPath, '-noout', '-serial', '-issuer', '-subject', '-dates', '-fingerprint', '-sha1'],
-      { windowsHide: true, maxBuffer: 1024 * 1024 }
-    )
-
-    const info = certInfo.stdout
-    const subjectLine = parseOpenSslLine(info, 'subject=')
-    const issuerLine = parseOpenSslLine(info, 'issuer=')
-    const serialLine = parseOpenSslLine(info, 'serial=')
-    const notBeforeLine = parseOpenSslLine(info, 'notBefore=')
-    const notAfterLine = parseOpenSslLine(info, 'notAfter=')
-    const fingerprintLine = parseOpenSslLine(info, 'sha1 fingerprint=')
-
-    const subject = subjectLine.replace(/^subject=/i, '').trim()
-    const cnMatch = subject.match(/CN\s*=\s*([^,\/]+)/i)
-
-    return {
-      subject,
-      subjectCommonName: cnMatch ? cnMatch[1].trim() : null,
-      issuer: issuerLine.replace(/^issuer=/i, '').trim(),
-      serialNumber: serialLine.replace(/^serial=/i, '').trim(),
-      thumbprint: fingerprintLine.replace(/^sha1 fingerprint=/i, '').replace(/:/g, '').trim(),
-      validFrom: normalizeOpenSslDate('notBefore', notBeforeLine),
-      validTo: normalizeOpenSslDate('notAfter', notAfterLine),
-      hasPrivateKey: true,
-    }
-  } catch (error) {
-    throw new Error(normalizeCertificateParserError(error))
-  } finally {
-    await fs.rm(certPath, { force: true }).catch(() => undefined)
-    await fs.rm(keyPath, { force: true }).catch(() => undefined)
-  }
-}
-
+/**
+ * Parses a PKCS#12 (.pfx / .p12) buffer entirely in JavaScript using
+ * `node-forge`.  This implementation does **not** depend on any
+ * operating-system binary (openssl, powershell, certutil, etc.) and
+ * therefore works reliably in every environment – local dev (Windows /
+ * macOS / Linux) and serverless production (Vercel, AWS Lambda, etc.).
+ *
+ * Returns the same `ParsedA1CertificateMetadata` interface consumed by
+ * the rest of the fiscal certificate pipeline.
+ */
 export async function parseA1CertificateFromBuffer(
   fileBuffer: Buffer,
   password: string,
-  fileName = 'certificado.pfx'
+  _fileName = 'certificado.pfx'
 ): Promise<ParsedA1CertificateMetadata> {
   if (!password.trim()) {
     throw new Error('Informe a senha do certificado para validar o arquivo A1.')
   }
 
-  const extension = path.extname(fileName) || '.pfx'
-  const tempPath = buildTempCertificatePath(extension)
-
   try {
-    await fs.writeFile(tempPath, fileBuffer)
+    // node-forge expects a binary string, not a Node.js Buffer.
+    const binaryString = fileBuffer.toString('binary')
 
-    if (process.platform !== 'win32') {
-      return await parseA1CertificateWithOpenSsl(tempPath, password)
+    // Decode the ASN.1 structure first, then open the PKCS#12 bag.
+    const asn1 = forge.asn1.fromDer(binaryString)
+    const p12 = forge.pkcs12.pkcs12FromAsn1(asn1, password)
+
+    // ── Extract certificates ──────────────────────────────────────────
+    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })
+    const certBagList = certBags[forge.pki.oids.certBag] || []
+
+    if (certBagList.length === 0) {
+      throw new Error('Nenhum certificado utilizavel foi encontrado no arquivo A1.')
     }
 
-    const script = `
-$ErrorActionPreference = 'Stop'
-$path = $env:CDJWE_CERT_PATH
-$password = $env:CDJWE_CERT_PASSWORD
-$bytes = [System.IO.File]::ReadAllBytes($path)
-$collection = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
-$flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet
-$collection.Import($bytes, $password, $flags)
-$cert = $collection | Sort-Object NotAfter -Descending | Select-Object -First 1
-if ($null -eq $cert) {
-  throw 'Nenhum certificado utilizavel foi encontrado no arquivo A1.'
-}
-$commonName = $cert.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
-[pscustomobject]@{
-  subject = $cert.Subject
-  subjectCommonName = $(if ([string]::IsNullOrWhiteSpace($commonName)) { $null } else { $commonName })
-  issuer = $cert.Issuer
-  serialNumber = $cert.SerialNumber
-  thumbprint = $cert.Thumbprint
-  validFrom = $cert.NotBefore.ToUniversalTime().ToString('o')
-  validTo = $cert.NotAfter.ToUniversalTime().ToString('o')
-  hasPrivateKey = $cert.HasPrivateKey
-} | ConvertTo-Json -Compress -Depth 3
-`
+    // Pick the leaf certificate (the one with the latest expiry).
+    const certs = certBagList
+      .filter((bag) => bag.cert !== undefined && bag.cert !== null)
+      .map((bag) => bag.cert as forge.pki.Certificate)
 
-    const { stdout, stderr } = await execFileAsync(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', script],
-      {
-        env: {
-          ...process.env,
-          CDJWE_CERT_PATH: tempPath,
-          CDJWE_CERT_PASSWORD: password,
-        },
-        windowsHide: true,
-        maxBuffer: 1024 * 1024,
-      }
-    )
-
-    if (stderr?.trim()) {
-      throw new Error(stderr.trim())
+    if (certs.length === 0) {
+      throw new Error('Nao foi possivel extrair o certificado publico do arquivo A1.')
     }
 
-    const parsed = JSON.parse(stdout.trim()) as ParsedA1CertificateMetadata
+    const cert = certs.length === 1
+      ? certs[0]
+      : certs.sort(
+          (a, b) => b.validity.notAfter.getTime() - a.validity.notAfter.getTime()
+        )[0]
 
-    if (!parsed.serialNumber || !parsed.issuer || !parsed.validFrom || !parsed.validTo) {
+    // ── Extract private key ───────────────────────────────────────────
+    const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })
+    const keyBagList = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag] || []
+
+    // Also check for unencrypted key bags as a fallback.
+    const keyBags2 = p12.getBags({ bagType: forge.pki.oids.keyBag })
+    const keyBagList2 = keyBags2[forge.pki.oids.keyBag] || []
+
+    const allKeys = [...keyBagList, ...keyBagList2]
+    const hasPrivateKey = allKeys.some((bag) => bag.key !== undefined && bag.key !== null)
+
+    if (!hasPrivateKey) {
+      throw new Error(
+        'O arquivo informado nao contem a chave privada necessaria para o certificado A1. Reexporte o certificado incluindo a chave privada.'
+      )
+    }
+
+    // ── Build metadata ────────────────────────────────────────────────
+    const subject = formatDN(cert.subject.attributes)
+    const issuer = formatDN(cert.issuer.attributes)
+
+    const cnAttr = cert.subject.getField('CN')
+    const subjectCommonName = cnAttr ? String(cnAttr.value) : null
+
+    const serialNumber = cert.serialNumber.toUpperCase()
+    const thumbprint = computeThumbprint(cert)
+
+    const validFrom = cert.validity.notBefore.toISOString()
+    const validTo = cert.validity.notAfter.toISOString()
+
+    // ── Validate essential fields ─────────────────────────────────────
+    if (!serialNumber || !issuer || !validFrom || !validTo) {
       throw new Error('Os metadados principais do certificado nao puderam ser extraidos.')
     }
 
-    if (!parsed.hasPrivateKey) {
-      throw new Error('O arquivo informado nao contem a chave privada necessaria para o certificado A1.')
+    return {
+      subject,
+      subjectCommonName,
+      issuer,
+      serialNumber,
+      thumbprint,
+      validFrom,
+      validTo,
+      hasPrivateKey: true,
     }
-
-    return parsed
   } catch (error) {
     throw new Error(normalizeCertificateParserError(error))
-  } finally {
-    await fs.rm(tempPath, { force: true }).catch(() => undefined)
   }
 }

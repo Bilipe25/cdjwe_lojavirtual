@@ -271,6 +271,19 @@ export async function uploadCertificateAction(
     return { path: null, error: 'Formato invalido. Use um arquivo .pfx ou .p12.' }
   }
 
+  // PKCS#12 files may arrive with several MIME types depending on the
+  // browser / OS combination.  We accept all known variants and also
+  // allow `application/octet-stream` (common generic fallback).
+  const allowedMimeTypes = [
+    'application/x-pkcs12',
+    'application/pkcs12',
+    'application/x-pem-file',
+    'application/octet-stream',
+  ]
+  if (file.type && !allowedMimeTypes.includes(file.type.toLowerCase())) {
+    return { path: null, error: 'Tipo de arquivo nao reconhecido. Envie um certificado .pfx ou .p12 valido.' }
+  }
+
   if (file.size > 10 * 1024 * 1024) {
     return { path: null, error: 'Arquivo muito grande. O limite e de 10MB.' }
   }

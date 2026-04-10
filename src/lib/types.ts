@@ -598,6 +598,35 @@ export interface OrderItem {
   fiscal_cfop?: string | null
   fiscal_context?: Record<string, unknown> | null
   fiscal_payload?: Record<string, unknown> | null
+  // Motor Fiscal — tax calculation columns (migration 097)
+  fiscal_unit_value?: number | null
+  fiscal_total_value?: number | null
+  fiscal_discount_value?: number | null
+  fiscal_freight_value?: number | null
+  icms_cst?: string | null
+  icms_base?: number | null
+  icms_rate?: number | null
+  icms_value?: number | null
+  icms_st_base?: number | null
+  icms_st_rate?: number | null
+  icms_st_value?: number | null
+  icms_st_mva?: number | null
+  fcp_base?: number | null
+  fcp_rate?: number | null
+  fcp_value?: number | null
+  pis_cst?: string | null
+  pis_base?: number | null
+  pis_rate?: number | null
+  pis_value?: number | null
+  cofins_cst?: string | null
+  cofins_base?: number | null
+  cofins_rate?: number | null
+  cofins_value?: number | null
+  ipi_cst?: string | null
+  ipi_base?: number | null
+  ipi_rate?: number | null
+  ipi_value?: number | null
+  total_tributos?: number | null
   subtotal: number
   created_at: string
   // Relations
@@ -613,6 +642,21 @@ export interface OrderItemFiscalSnapshot {
   fiscal_cfop: string | null
   fiscal_context: Record<string, unknown> | null
   fiscal_payload: Record<string, unknown> | null
+  // Motor Fiscal — tax breakdown snapshot
+  icms_cst?: string | null
+  icms_base?: number | null
+  icms_rate?: number | null
+  icms_value?: number | null
+  icms_st_base?: number | null
+  icms_st_value?: number | null
+  fcp_value?: number | null
+  pis_cst?: string | null
+  pis_value?: number | null
+  cofins_cst?: string | null
+  cofins_value?: number | null
+  ipi_cst?: string | null
+  ipi_value?: number | null
+  total_tributos?: number | null
   ncm_version_id?: string | null
   tipi_version_id?: string | null
   cest_version_id?: string | null
@@ -817,6 +861,24 @@ export interface CompanyFiscalEnvironment {
   proximo_numero_nfe: number
   tipo_emissao: string
   emissao_ativa: boolean
+  // NF-e extended
+  max_itens_por_nota: number
+  ultima_nota_nfe: number
+  // NFC-e
+  serie_nfce: string
+  nota_inicial_nfce: number
+  ultima_nota_nfce: number
+  csc_id_nfce: string | null
+  csc_numero_nfce: string | null
+  // Reference code
+  codigo_referencia_nota: 'codigo_barras' | 'codigo_fabricante' | 'codigo_erp' | 'codigo_interno'
+  // Taxes & freight
+  desconto_impostos_prazo: boolean
+  bloquear_retorno_parcial_remessa: boolean
+  icms_base_pis_cofins: boolean
+  frete_base_icms: boolean
+  modalidade_frete_padrao: string
+  // JSONB bag for item info toggles, default notes, etc.
   parametros_jsonb: Record<string, unknown> | null
   created_at: string
   updated_at: string
