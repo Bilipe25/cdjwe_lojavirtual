@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner'
 import { loadFiscalProfileAction, saveFiscalProfileAction } from './actions'
 import { FiscalHelpText } from '../components/FiscalHelpText'
+import { FiscalPageSummaryPanel } from '../components/FiscalPageSummaryPanel'
 import type { CompanyFiscalProfile } from '@/lib/types'
 
 function maskCNPJ(value: string): string {
@@ -137,6 +138,24 @@ export default function FiscalEmitentePage() {
     const [savedForm, setSavedForm] = useState<FormState>(initialForm)
 
     const hasChanges = JSON.stringify(form) !== JSON.stringify(savedForm)
+    const pendingItems = [
+        !form.razaoSocial.trim(),
+        form.cnpj.replace(/\D/g, '').length !== 14,
+        !form.regimeTributario,
+        !form.crt,
+        form.indicadorContribuinte === 'contributor' && !form.inscricaoEstadual.trim(),
+        !form.fiscalAddress.trim(),
+        !form.fiscalNumber.trim(),
+        !form.fiscalNeighborhood.trim(),
+        !form.fiscalCity.trim(),
+        form.fiscalState.trim().length !== 2,
+        form.fiscalZipCode.replace(/\D/g, '').length !== 8,
+        !/^\d{7}$/.test(form.fiscalMunicipalityCodeIbge),
+    ].filter(Boolean).length
+    const cadastroCompleto = pendingItems === 0
+    const lastUpdatedLabel = profile?.updated_at
+        ? new Date(profile.updated_at).toLocaleDateString('pt-BR')
+        : 'Ainda não salvo'
 
     const updateField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
         setForm(prev => ({ ...prev, [key]: value }))
@@ -270,6 +289,34 @@ export default function FiscalEmitentePage() {
                     </Button>
                 </div>
             </div>
+
+            <FiscalPageSummaryPanel
+                badges={[
+                    { label: cadastroCompleto ? 'Cadastro confiável' : 'Cadastro com pendências', tone: cadastroCompleto ? 'success' : 'warning' },
+                    { label: 'Somente dados do emitente', tone: 'info' },
+                    { label: form.indicadorContribuinte === 'exempt' ? 'Emitente isento' : 'Emitente contribuinte', tone: 'neutral' },
+                ]}
+                items={[
+                    {
+                        label: 'Status',
+                        value: cadastroCompleto ? 'Pronto para uso cadastral' : 'Revisão necessária',
+                        detail: cadastroCompleto
+                            ? 'Os dados essenciais do emitente estão preenchidos.'
+                            : 'Ainda faltam campos essenciais para emissão.',
+                    },
+                    {
+                        label: 'Pendências',
+                        value: pendingItems === 0 ? 'Nenhuma crítica' : `${pendingItems} ponto(s) para revisar`,
+                        detail: 'Razão social, CNPJ, regime e endereço fiscal entram nessa checagem.',
+                    },
+                    {
+                        label: 'Última atualização',
+                        value: lastUpdatedLabel,
+                        detail: hasChanges ? 'Existem alterações locais ainda não salvas.' : 'Sem alterações pendentes nesta página.',
+                    },
+                ]}
+                helperText="Aqui ficam os dados cadastrais e identificadores do emissor. Vínculos com bases fiscais ficam em Configurações Fiscais, enquanto ambiente e certificado ficam nas páginas operacionais próprias."
+            />
 
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                 <Card className="glass-card border-0">

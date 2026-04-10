@@ -61,12 +61,12 @@ const productCadastrosNavItems = [
 ]
 
 const cadastrosNavItems = [
-    { href: '/admin/price-tables', label: 'Tabelas de PreÃ§o', icon: Tag },
+    { href: '/admin/price-tables', label: 'Tabelas de Preço', icon: Tag },
     { href: '/admin/payment-conditions', label: 'Meios de Pagamento', icon: CreditCard },
 ]
 
 const settingsNavItems = [
-    { href: '/admin/settings', label: 'ConfiguraÃ§Ãµes Gerais', icon: Settings },
+    { href: '/admin/settings', label: 'Configurações Gerais', icon: Settings },
 ]
 
 const fiscalSettingsNavItems = [
@@ -74,39 +74,39 @@ const fiscalSettingsNavItems = [
     { href: '/admin/settings/fiscal-configuracoes', label: 'Configurações Fiscais', icon: Gauge },
     { href: '/admin/settings/fiscal-ambiente', label: 'Ambiente de Emissão', icon: Radio },
     { href: '/admin/settings/fiscal-certificado', label: 'Certificado Digital', icon: FileKey2 },
-    { href: '/admin/product-tax-profiles', label: 'Perfis TributÃ¡rios', icon: ShieldCheck },
+    { href: '/admin/product-tax-profiles', label: 'Perfis Tributários', icon: ShieldCheck },
     { href: '/admin/fiscal-bases', label: 'Bases Fiscais', icon: Database },
 ]
 
 const marketingNavItems = [
     { href: '/admin/marketing/campaigns', label: 'Campanhas', icon: Megaphone },
     { href: '/admin/marketing/coupons', label: 'Cupons', icon: TicketPercent },
-    { href: '/admin/marketing/notifications', label: 'NotificaÃ§Ãµes', icon: Bell },
+    { href: '/admin/marketing/notifications', label: 'Notificações', icon: Bell },
     { href: '/admin/marketing/push', label: 'Push Notifications', icon: Send },
     { href: '/admin/marketing/popups', label: 'Popups', icon: ImageIcon },
-    { href: '/admin/marketing/history', label: 'HistÃ³rico', icon: History },
+    { href: '/admin/marketing/history', label: 'Histórico', icon: History },
 ]
 
 const financeiroNavItems = [
     { href: '/admin/financeiro/contas-a-receber', label: 'Contas a Receber', icon: Wallet },
-    { href: '/admin/financeiro/relatorio', label: 'RelatÃ³rio', icon: BarChart3 },
+    { href: '/admin/financeiro/relatorio', label: 'Relatório', icon: BarChart3 },
 ]
 
 const logisticaNavItems = [
     { href: '/admin/logistica/pedidos', label: 'Pedidos p/ Rota', icon: PackageCheck },
     { href: '/admin/logistica/rotas', label: 'Central de Rotas', icon: Route },
-    { href: '/admin/logistica/historico', label: 'HistÃ³rico', icon: History },
-    { href: '/admin/logistica/veiculos', label: 'VeÃ­culos', icon: Truck },
+    { href: '/admin/logistica/historico', label: 'Histórico', icon: History },
+    { href: '/admin/logistica/veiculos', label: 'Veículos', icon: Truck },
     { href: '/admin/logistica/motoristas', label: 'Motoristas', icon: UserCircle },
     { href: '/admin/logistica/centros', label: 'Centros', icon: Warehouse },
-    { href: '/admin/logistica/regioes', label: 'RegiÃµes', icon: MapPin },
+    { href: '/admin/logistica/regioes', label: 'Regiões', icon: MapPin },
     { href: '/admin/logistica/custos', label: 'Custos', icon: DollarSign },
 ]
 
 const bottomNavItems = [
     { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
     { href: '/admin/customers', label: 'Clientes', icon: Users },
-    { href: '/admin/reports', label: 'RelatÃ³rios', icon: BarChart3 },
+    { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
 ]
 
 export function AdminMobileHeader() {
@@ -404,7 +404,7 @@ export function AdminMobileHeader() {
                                 </div>
                             </div>
 
-                            {/* LogÃ­stica Group */}
+                            {/* Logística Group */}
                             <div className="pt-1">
                                 <Button
                                     variant="ghost"
@@ -415,7 +415,7 @@ export function AdminMobileHeader() {
                                     )}
                                 >
                                     <Truck className="h-5 w-5 shrink-0" />
-                                    <span className="flex-1 text-left truncate">LogÃ­stica</span>
+                                    <span className="flex-1 text-left truncate">Logística</span>
                                     <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform duration-200", effectiveLogisticaOpen && "rotate-180")} />
                                 </Button>
                                 <div className={cn(
@@ -471,7 +471,7 @@ export function AdminMobileHeader() {
                             </div>
                         </nav>
 
-                            {/* ConfiguraÃ§Ãµes Group */}
+                            {/* Configurações Group */}
                             <div className="pt-1">
                                 <Button
                                     variant="ghost"
@@ -482,7 +482,7 @@ export function AdminMobileHeader() {
                                     )}
                                 >
                                     <Settings className="h-5 w-5 shrink-0" />
-                                    <span className="flex-1 text-left truncate">ConfiguraÃ§Ãµes</span>
+                                    <span className="flex-1 text-left truncate">Configurações</span>
                                     <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', effectiveSettingsOpen && 'rotate-180')} />
                                 </Button>
                                 <div className={cn(

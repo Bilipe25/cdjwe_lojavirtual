@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle,
   CheckCircle2,
-  Gauge,
   Hash,
   Loader2,
   Power,
@@ -40,6 +39,7 @@ import {
 } from '@/components/ui/select'
 import { FiscalHelpText } from '../components/FiscalHelpText'
 import { FiscalReadinessCard } from '../components/FiscalReadinessCard'
+import { FiscalPageSummaryPanel } from '../components/FiscalPageSummaryPanel'
 import { loadFiscalEnvironmentAction, saveFiscalEnvironmentAction } from './actions'
 import type { CompanyFiscalEnvironment } from '@/lib/types'
 
@@ -168,12 +168,38 @@ export default function FiscalAmbientePage() {
         </Button>
       </div>
 
+      <FiscalPageSummaryPanel
+        badges={[
+          { label: form.ambiente === 'producao' ? 'Produção' : 'Homologação', tone: form.ambiente === 'producao' ? 'success' : 'info' },
+          { label: form.emissaoAtiva ? 'Emissão ativa' : 'Emissão inativa', tone: form.emissaoAtiva ? 'success' : 'warning' },
+          { label: 'Controle operacional', tone: 'neutral' },
+        ]}
+        items={[
+          {
+            label: 'Status',
+            value: form.emissaoAtiva ? 'Operação habilitada' : 'Operação controlada',
+            detail: 'Esta página define como a empresa opera na emissão, não as regras fiscais da base.',
+          },
+          {
+            label: 'Pendências',
+            value: form.seriePadraoNfe && form.proximoNumeroNfe && form.tipoEmissao ? 'Sem lacunas locais' : 'Revisar parâmetros básicos',
+            detail: 'A checagem final ainda depende da prontidão fiscal geral da empresa.',
+          },
+          {
+            label: 'Última atualização',
+            value: env?.updated_at ? new Date(env.updated_at).toLocaleDateString('pt-BR') : 'Ainda não salvo',
+            detail: hasChanges ? 'Existem alterações locais ainda não salvas.' : 'Sem alterações pendentes nesta página.',
+          },
+        ]}
+        helperText="Aqui ficam somente parâmetros operacionais de emissão. Dados do emissor, vínculos com bases fiscais e certificado digital são administrados em páginas separadas."
+      />
+
       <FiscalReadinessCard />
 
       <div className="rounded-2xl border bg-amber-50/60 p-4 text-sm text-amber-800 flex items-start gap-3">
         <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
         <span>
-          A liberação de produção e a ativação da emissão agora passam por uma checagem real de prontidão fiscal no backend.
+          A liberação de produção e a ativação da emissão passam por uma checagem real de prontidão fiscal no backend.
           Se houver bloqueios, o salvamento explica o que ainda precisa ser resolvido.
         </span>
       </div>

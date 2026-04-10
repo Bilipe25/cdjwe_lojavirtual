@@ -5,204 +5,204 @@ import { Loader2, Pencil, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog'
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui/select'
 import { BRAZIL_UF_OPTIONS } from '@/lib/fiscal/icms'
 import type { IbscbsBaseOption, IcmsBaseOption } from '../emitter-taxes'
 
 interface EmitterStateLinkDialogProps {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    type: 'icms' | 'ibscbs'
-    mode: 'add' | 'edit'
-    existingUFs: (string | null)[]
-    icmsOptions?: IcmsBaseOption[]
-    ibscbsOptions?: IbscbsBaseOption[]
-    editData?: {
-        id: string
-        targetUf: string | null
-        baseId: string
-        versionId?: string | null
-    }
-    onSave: (data: {
-        targetUf: string | null
-        baseId: string
-        versionId?: string | null
-        editId?: string
-    }) => Promise<void>
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  type: 'icms' | 'ibscbs'
+  mode: 'add' | 'edit'
+  existingUFs: (string | null)[]
+  icmsOptions?: IcmsBaseOption[]
+  ibscbsOptions?: IbscbsBaseOption[]
+  editData?: {
+    id: string
+    targetUf: string | null
+    baseId: string
+    versionId?: string | null
+  }
+  onSave: (data: {
+    targetUf: string | null
+    baseId: string
+    versionId?: string | null
+    editId?: string
+  }) => Promise<void>
 }
 
 const UF_ALL_OPTION = { value: '__NATIONAL__', label: 'Brasil (regra nacional / padrão)' }
 
 export function EmitterStateLinkDialog({
-    open,
-    onOpenChange,
-    type,
-    mode,
-    existingUFs,
-    icmsOptions,
-    ibscbsOptions,
-    editData,
-    onSave,
+  open,
+  onOpenChange,
+  type,
+  mode,
+  existingUFs,
+  icmsOptions,
+  ibscbsOptions,
+  editData,
+  onSave,
 }: EmitterStateLinkDialogProps) {
-    const [selectedUf, setSelectedUf] = useState<string>('__NATIONAL__')
-    const [selectedBaseId, setSelectedBaseId] = useState<string>('')
-    const [selectedVersionId, setSelectedVersionId] = useState<string>('')
-    const [saving, setSaving] = useState(false)
+  const [selectedUf, setSelectedUf] = useState<string>('__NATIONAL__')
+  const [selectedBaseId, setSelectedBaseId] = useState<string>('')
+  const [selectedVersionId, setSelectedVersionId] = useState<string>('')
+  const [saving, setSaving] = useState(false)
 
-    useEffect(() => {
-        if (!open) return
+  useEffect(() => {
+    if (!open) return
 
-        if (mode === 'edit' && editData) {
-            setSelectedUf(editData.targetUf || '__NATIONAL__')
-            setSelectedBaseId(editData.baseId)
-            setSelectedVersionId(editData.versionId || '')
-            return
-        }
-
-        setSelectedUf('__NATIONAL__')
-        setSelectedBaseId('')
-        setSelectedVersionId('')
-    }, [editData, mode, open])
-
-    const availableUFs = [UF_ALL_OPTION, ...BRAZIL_UF_OPTIONS.map((uf) => ({ value: uf.value, label: `${uf.value} — ${uf.label}` }))].filter(
-        (uf) => {
-            const ufValue = uf.value === '__NATIONAL__' ? null : uf.value
-            if (mode === 'edit' && editData?.targetUf === ufValue) return true
-            return !existingUFs.includes(ufValue)
-        }
-    )
-
-    const options = type === 'icms' ? icmsOptions || [] : ibscbsOptions || []
-    const selectedIbscbsOption = useMemo(
-        () => (type === 'ibscbs' ? (ibscbsOptions || []).find((option) => option.id === selectedBaseId) : undefined),
-        [ibscbsOptions, selectedBaseId, type]
-    )
-
-    useEffect(() => {
-        if (type !== 'ibscbs') return
-        if (!selectedIbscbsOption) {
-            setSelectedVersionId('')
-            return
-        }
-        setSelectedVersionId(selectedIbscbsOption.activeVersionId || '')
-    }, [selectedIbscbsOption, type])
-
-    const handleConfirm = async () => {
-        if (!selectedBaseId) return
-
-        setSaving(true)
-        await onSave({
-            targetUf: selectedUf === '__NATIONAL__' ? null : selectedUf,
-            baseId: selectedBaseId,
-            versionId: type === 'ibscbs' ? selectedVersionId || null : null,
-            editId: mode === 'edit' ? editData?.id : undefined,
-        })
-        setSaving(false)
-        onOpenChange(false)
+    if (mode === 'edit' && editData) {
+      setSelectedUf(editData.targetUf || '__NATIONAL__')
+      setSelectedBaseId(editData.baseId)
+      setSelectedVersionId(editData.versionId || '')
+      return
     }
 
-    const typeLabel = type === 'icms' ? 'ICMS' : 'IBS/CBS'
+    setSelectedUf('__NATIONAL__')
+    setSelectedBaseId('')
+    setSelectedVersionId('')
+  }, [editData, mode, open])
 
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        {mode === 'add' ? (
-                            <Plus className="h-5 w-5 text-bronze" />
-                        ) : (
-                            <Pencil className="h-5 w-5 text-bronze" />
-                        )}
-                        {mode === 'add' ? `Vincular base ${typeLabel}` : `Editar vínculo ${typeLabel}`}
-                    </DialogTitle>
-                </DialogHeader>
+  const availableUFs = [UF_ALL_OPTION, ...BRAZIL_UF_OPTIONS.map((uf) => ({ value: uf.value, label: `${uf.value} — ${uf.label}` }))].filter(
+    (uf) => {
+      const ufValue = uf.value === '__NATIONAL__' ? null : uf.value
+      if (mode === 'edit' && editData?.targetUf === ufValue) return true
+      return !existingUFs.includes(ufValue)
+    }
+  )
 
-                <div className="space-y-4 py-2">
-                    <div className="space-y-2">
-                        <Label>UF de destino</Label>
-                        <Select value={selectedUf} onValueChange={(value) => setSelectedUf(value || '__NATIONAL__')}>
-                            <SelectTrigger className="bg-white/60">
-                                <SelectValue placeholder="Selecione a UF" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {availableUFs.map((uf) => (
-                                    <SelectItem key={uf.value} value={uf.value}>
-                                        {uf.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                            Use Brasil para a regra nacional. Escolha uma UF específica apenas quando houver exceção fiscal por estado.
-                        </p>
-                    </div>
+  const options = type === 'icms' ? icmsOptions || [] : ibscbsOptions || []
+  const selectedIbscbsOption = useMemo(
+    () => (type === 'ibscbs' ? (ibscbsOptions || []).find((option) => option.id === selectedBaseId) : undefined),
+    [ibscbsOptions, selectedBaseId, type]
+  )
 
-                    <div className="space-y-2">
-                        <Label>Base {typeLabel}</Label>
-                        <Select value={selectedBaseId} onValueChange={(value) => setSelectedBaseId(value || '')}>
-                            <SelectTrigger className="bg-white/60">
-                                <SelectValue placeholder={`Selecione uma base ${typeLabel}`} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {options.length === 0 ? (
-                                    <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-                                        Nenhuma base {typeLabel} ativa encontrada.
-                                    </div>
-                                ) : (
-                                    options.map((option) => (
-                                        <SelectItem key={option.id} value={option.id}>
-                                            {option.code} — {option.name}
-                                        </SelectItem>
-                                    ))
-                                )}
-                            </SelectContent>
-                        </Select>
-                    </div>
+  useEffect(() => {
+    if (type !== 'ibscbs') return
+    if (!selectedIbscbsOption) {
+      setSelectedVersionId('')
+      return
+    }
+    setSelectedVersionId(selectedIbscbsOption.activeVersionId || '')
+  }, [selectedIbscbsOption, type])
 
-                    {type === 'ibscbs' ? (
-                        <div className="space-y-2 rounded-xl border bg-muted/10 p-4">
-                            <div className="text-sm font-medium">Versão vinculada da base IBS/CBS</div>
-                            <div className="text-sm text-muted-foreground">
-                                {selectedIbscbsOption?.activeVersionLabel || 'Selecione uma base com versão ativa.'}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                                {selectedIbscbsOption?.activeValidFrom
-                                    ? `Vigência inicial: ${new Date(selectedIbscbsOption.activeValidFrom).toLocaleDateString('pt-BR')}`
-                                    : 'A base selecionada precisa ter uma versão ativa para ser vinculada ao emitente.'}
-                            </div>
-                        </div>
-                    ) : null}
-                </div>
+  const handleConfirm = async () => {
+    if (!selectedBaseId) return
 
-                <DialogFooter className="gap-2">
-                    <DialogClose asChild>
-                        <Button variant="outline" disabled={saving}>
-                            Cancelar
-                        </Button>
-                    </DialogClose>
-                    <Button
-                        className="gradient-navy border-0 text-white gap-1.5"
-                        onClick={handleConfirm}
-                        disabled={!selectedBaseId || (type === 'ibscbs' && !selectedVersionId) || saving}
-                    >
-                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                        {mode === 'add' ? 'Adicionar' : 'Salvar'}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+    setSaving(true)
+    await onSave({
+      targetUf: selectedUf === '__NATIONAL__' ? null : selectedUf,
+      baseId: selectedBaseId,
+      versionId: type === 'ibscbs' ? selectedVersionId || null : null,
+      editId: mode === 'edit' ? editData?.id : undefined,
+    })
+    setSaving(false)
+    onOpenChange(false)
+  }
+
+  const typeLabel = type === 'icms' ? 'ICMS' : 'IBS/CBS'
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {mode === 'add' ? (
+              <Plus className="h-5 w-5 text-bronze" />
+            ) : (
+              <Pencil className="h-5 w-5 text-bronze" />
+            )}
+            {mode === 'add' ? `Vincular base ${typeLabel}` : `Editar vínculo ${typeLabel}`}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>UF de destino</Label>
+            <Select value={selectedUf} onValueChange={(value) => setSelectedUf(value || '__NATIONAL__')}>
+              <SelectTrigger className="bg-white/60">
+                <SelectValue placeholder="Selecione a UF" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableUFs.map((uf) => (
+                  <SelectItem key={uf.value} value={uf.value}>
+                    {uf.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Use Brasil para a regra nacional. Escolha uma UF específica apenas quando houver exceção fiscal por estado.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Base {typeLabel}</Label>
+            <Select value={selectedBaseId} onValueChange={(value) => setSelectedBaseId(value || '')}>
+              <SelectTrigger className="bg-white/60">
+                <SelectValue placeholder={`Selecione uma base ${typeLabel}`} />
+              </SelectTrigger>
+              <SelectContent>
+                {options.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                    Nenhuma base {typeLabel} ativa encontrada.
+                  </div>
+                ) : (
+                  options.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.code} — {option.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {type === 'ibscbs' ? (
+            <div className="space-y-2 rounded-xl border bg-muted/10 p-4">
+              <div className="text-sm font-medium">Versão vinculada da base IBS/CBS</div>
+              <div className="text-sm text-muted-foreground">
+                {selectedIbscbsOption?.activeVersionLabel || 'Selecione uma base com versão ativa.'}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {selectedIbscbsOption?.activeValidFrom
+                  ? `Vigência inicial: ${new Date(selectedIbscbsOption.activeValidFrom).toLocaleDateString('pt-BR')}`
+                  : 'A base selecionada precisa ter uma versão ativa para ser vinculada ao emitente.'}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <DialogClose asChild>
+            <Button variant="outline" disabled={saving}>
+              Cancelar
+            </Button>
+          </DialogClose>
+          <Button
+            className="gradient-navy border-0 text-white gap-1.5"
+            onClick={handleConfirm}
+            disabled={!selectedBaseId || (type === 'ibscbs' && !selectedVersionId) || saving}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {mode === 'add' ? 'Adicionar' : 'Salvar'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }

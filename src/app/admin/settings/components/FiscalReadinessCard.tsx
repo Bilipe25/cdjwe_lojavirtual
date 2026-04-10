@@ -4,12 +4,12 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import {
-  CheckCircle2,
-  XCircle,
   AlertTriangle,
   ArrowRight,
-  ShieldCheck,
+  CheckCircle2,
   Loader2,
+  ShieldCheck,
+  XCircle,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { loadFiscalReadinessAction } from '../fiscal-readiness-actions'
@@ -82,8 +82,7 @@ export function FiscalReadinessCard() {
     )
   }
 
-  const { items, completedCount, totalCount, warningCount, blockingCount, isReadyForEmission } =
-    summary
+  const { items, completedCount, totalCount, warningCount, blockingCount, isReadyForEmission } = summary
   const percentage = Math.round((completedCount / totalCount) * 100)
 
   const renderIcon = (item: FiscalReadinessItem) => {
