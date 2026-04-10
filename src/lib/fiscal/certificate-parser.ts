@@ -1,15 +1,14 @@
-'use server'
-
 import 'server-only'
 
 import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
+import crypto from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
-import crypto from 'node:crypto'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
+const OPENSSL_PASSWORD_ENV = 'CDJWE_CERT_PASSWORD'
 
 export interface ParsedA1CertificateMetadata {
   subject: string
@@ -30,14 +29,18 @@ function buildTempCertificatePath(extension: string): string {
   )
 }
 
-function normalizePowerShellError(error: unknown): string {
+function normalizeCertificateParserError(error: unknown): string {
   if (error instanceof Error && error.message) {
     if (/spawn .*openssl.*enoent|not recognized as an internal or external command|command not found/i.test(error.message)) {
       return 'O host atual nao possui OpenSSL disponivel para validar o certificado A1 fora do ambiente Windows.'
     }
 
-    if (/password|senha|network password|invalid password|mac verify error|pkcs12/i.test(error.message)) {
+    if (/password|senha|network password|invalid password|mac verify error|mac verify failure/i.test(error.message)) {
       return 'Nao foi possivel abrir o certificado A1 com a senha informada.'
+    }
+
+    if (/unsupported|legacy/i.test(error.message)) {
+      return 'O host atual nao conseguiu abrir este certificado A1 com os algoritmos PKCS#12 disponiveis.'
     }
 
     if (/private key|chave privada/i.test(error.message)) {
@@ -73,6 +76,48 @@ function parseOpenSslLine(output: string, prefix: string): string {
   return line.trim()
 }
 
+function shouldRetryWithLegacy(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return /unsupported|legacy|unknown pbe algorithm|inner_evp_generic_fetch/i.test(error.message)
+}
+
+async function runOpenSslPkcs12(
+  tempPath: string,
+  password: string,
+  modeArgs: string[],
+  outputPath: string
+): Promise<void> {
+  const baseArgs = ['pkcs12', '-in', tempPath, '-passin', `env:${OPENSSL_PASSWORD_ENV}`, ...modeArgs, '-out', outputPath]
+  const commonOptions = {
+    windowsHide: true,
+    maxBuffer: 1024 * 1024,
+    env: {
+      ...process.env,
+      [OPENSSL_PASSWORD_ENV]: password,
+    },
+  }
+
+  try {
+    await execFileAsync('openssl', baseArgs, commonOptions)
+  } catch (error) {
+    if (!shouldRetryWithLegacy(error)) {
+      throw error
+    }
+
+    await execFileAsync('openssl', [...baseArgs, '-legacy'], commonOptions)
+  }
+}
+
+async function readRequiredFile(filePath: string, errorMessage: string): Promise<string> {
+  const content = await fs.readFile(filePath, 'utf8').catch(() => '')
+
+  if (!content.trim()) {
+    throw new Error(errorMessage)
+  }
+
+  return content
+}
+
 async function parseA1CertificateWithOpenSsl(
   tempPath: string,
   password: string
@@ -81,24 +126,24 @@ async function parseA1CertificateWithOpenSsl(
   const keyPath = buildTempCertificatePath('.key')
 
   try {
-    const certExport = await execFileAsync(
-      'openssl',
-      ['pkcs12', '-in', tempPath, '-clcerts', '-nokeys', '-passin', `pass:${password}`, '-out', certPath],
-      { windowsHide: true, maxBuffer: 1024 * 1024 }
+    await runOpenSslPkcs12(tempPath, password, ['-clcerts', '-nokeys'], certPath)
+    await runOpenSslPkcs12(tempPath, password, ['-nocerts', '-nodes'], keyPath)
+
+    const certContent = await readRequiredFile(
+      certPath,
+      'Nao foi possivel extrair o certificado publico do arquivo A1.'
+    )
+    const keyContent = await readRequiredFile(
+      keyPath,
+      'O arquivo informado nao contem a chave privada necessaria para o certificado A1.'
     )
 
-    if (certExport.stderr?.trim()) {
-      throw new Error(certExport.stderr.trim())
+    if (!/BEGIN CERTIFICATE/.test(certContent)) {
+      throw new Error('Nao foi possivel extrair o certificado publico do arquivo A1.')
     }
 
-    const keyExport = await execFileAsync(
-      'openssl',
-      ['pkcs12', '-in', tempPath, '-nocerts', '-nodes', '-passin', `pass:${password}`, '-out', keyPath],
-      { windowsHide: true, maxBuffer: 1024 * 1024 }
-    )
-
-    if (!/BEGIN (?:ENCRYPTED )?(?:RSA |EC )?PRIVATE KEY/.test(keyExport.stdout)) {
-      throw new Error('private key missing')
+    if (!/BEGIN (?:ENCRYPTED )?(?:RSA |EC )?PRIVATE KEY/.test(keyContent)) {
+      throw new Error('O arquivo informado nao contem a chave privada necessaria para o certificado A1.')
     }
 
     const certInfo = await execFileAsync(
@@ -129,7 +174,7 @@ async function parseA1CertificateWithOpenSsl(
       hasPrivateKey: true,
     }
   } catch (error) {
-    throw new Error(normalizePowerShellError(error))
+    throw new Error(normalizeCertificateParserError(error))
   } finally {
     await fs.rm(certPath, { force: true }).catch(() => undefined)
     await fs.rm(keyPath, { force: true }).catch(() => undefined)
@@ -210,7 +255,7 @@ $commonName = $cert.GetNameInfo([System.Security.Cryptography.X509Certificates.X
 
     return parsed
   } catch (error) {
-    throw new Error(normalizePowerShellError(error))
+    throw new Error(normalizeCertificateParserError(error))
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => undefined)
   }
