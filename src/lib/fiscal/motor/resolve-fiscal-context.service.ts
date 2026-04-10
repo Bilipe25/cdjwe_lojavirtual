@@ -84,6 +84,15 @@ async function loadEmitterContext(): Promise<FiscalCalculationResult<EmitterCont
       uf: profile.fiscal_state.toUpperCase(),
       ibge: profile.fiscal_municipality_code_ibge,
       country_code: profile.fiscal_country_code || '1058',
+      razao_social: profile.razao_social || profile.company_name || '',
+      nome_fantasia: profile.nome_fantasia || profile.trade_name || null,
+      logradouro: profile.fiscal_street || profile.street || '',
+      numero: profile.fiscal_number || profile.number || 'S/N',
+      complemento: profile.fiscal_complement || profile.complement || null,
+      bairro: profile.fiscal_neighborhood || profile.neighborhood || '',
+      cidade: profile.fiscal_city || profile.city || '',
+      cep: profile.fiscal_zip_code || profile.zip_code || null,
+      telefone: profile.phone || null,
       aliquota_pis: safeNumber(federalConfig?.aliquota_pis, 0.65),
       aliquota_cofins: safeNumber(federalConfig?.aliquota_cofins, 3.0),
       credito_presumido_icms: federalConfig?.credito_presumido_icms === true,
@@ -157,6 +166,14 @@ async function loadStoreContext(storeId: string): Promise<FiscalCalculationResul
       country_code: (address?.country_code || '1058').replace(/\D/g, ''),
       is_consumer_final: isConsumerFinal,
       fiscal_email: fiscalData?.fiscal_email || store.email || null,
+      nome: store.name || store.company_name || '',
+      logradouro: (address?.street as string) || '',
+      numero: (address?.number as string) || 'S/N',
+      complemento: (address?.complement as string) || null,
+      bairro: (address?.neighborhood as string) || '',
+      cidade: (address?.city as string) || '',
+      cep: (address?.zip_code as string) || null,
+      telefone: store.phone || null,
     },
   }
 }
@@ -181,7 +198,7 @@ async function loadEnvironmentContext(): Promise<FiscalCalculationResult<Environ
     return { success: false, error: { code: 'ENV_NOT_FOUND', message: 'Ambiente de emissao nao configurado.' } }
   }
 
-  return {
+    return {
     success: true,
     data: {
       ambiente: env.ambiente === 'producao' ? 'producao' : 'homologacao',
@@ -189,6 +206,7 @@ async function loadEnvironmentContext(): Promise<FiscalCalculationResult<Environ
       proximo_numero_nfe: safeNumber(env.proximo_numero_nfe, 1),
       tipo_emissao: env.tipo_emissao || '1',
       modalidade_frete_padrao: env.modalidade_frete_padrao || 'destinatario',
+      natureza_operacao: env.natureza_operacao || 'VENDA DE MERCADORIA',
       desconto_impostos_prazo: env.desconto_impostos_prazo !== false,
       icms_base_pis_cofins: env.icms_base_pis_cofins === true,
       frete_base_icms: env.frete_base_icms === true,

@@ -16,6 +16,17 @@ export interface EmitterContext {
   uf: string
   ibge: string
   country_code: string
+  // Identity
+  razao_social: string
+  nome_fantasia: string | null
+  // Address
+  logradouro: string
+  numero: string
+  complemento: string | null
+  bairro: string
+  cidade: string
+  cep: string | null
+  telefone: string | null
   // Federal config
   aliquota_pis: number
   aliquota_cofins: number
@@ -40,6 +51,16 @@ export interface StoreContext {
   country_code: string
   is_consumer_final: boolean
   fiscal_email: string | null
+  // Identity
+  nome: string
+  // Address
+  logradouro: string
+  numero: string
+  complemento: string | null
+  bairro: string
+  cidade: string
+  cep: string | null
+  telefone: string | null
 }
 
 // --------------- Environment Context ---------------
@@ -50,6 +71,7 @@ export interface EnvironmentContext {
   proximo_numero_nfe: number
   tipo_emissao: string
   modalidade_frete_padrao: string
+  natureza_operacao: string
   // Toggles
   desconto_impostos_prazo: boolean
   icms_base_pis_cofins: boolean
