@@ -116,15 +116,15 @@ export async function generateDanfePdf(
 
     // 4. Build DANFE data
     const danfeData: DanfeData = {
-      emitterName: profile.razao_social || profile.company_name || 'EMPRESA',
-      emitterFantasy: profile.nome_fantasia || profile.trade_name || null,
+      emitterName: profile.razao_social || 'EMPRESA',
+      emitterFantasy: profile.nome_fantasia || null,
       emitterCnpj: formatCnpj(profile.cnpj || ''),
       emitterIe: profile.inscricao_estadual || null,
-      emitterAddress: [profile.fiscal_street || profile.street, profile.fiscal_number || profile.number]
+      emitterAddress: [profile.fiscal_address, profile.fiscal_number]
         .filter(Boolean).join(', '),
-      emitterCityUf: [profile.fiscal_city || profile.city, profile.fiscal_state?.toUpperCase()]
+      emitterCityUf: [profile.fiscal_city, profile.fiscal_state?.toUpperCase()]
         .filter(Boolean).join(' / '),
-      emitterPhone: profile.phone || null,
+      emitterPhone: profile.fiscal_phone || profile.phone || null,
       chaveAcesso: doc.chave_acesso || '',
       numeroNf: doc.numero_nf,
       serie: doc.serie,
