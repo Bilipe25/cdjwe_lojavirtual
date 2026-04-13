@@ -37,8 +37,6 @@ import {
   generateDanfeAction,
 } from '@/app/admin/fiscal-review/actions'
 
-// ─── Types ────────────────────────────────────────
-
 interface FiscalDoc {
   id: string
   document_model: string
@@ -59,35 +57,51 @@ interface FiscalDoc {
   valor_total_nota: number | null
 }
 
-type FiscalStatus = 'none' | 'pending' | 'processing' | 'authorized' | 'denied' | 'cancelled' | 'correction' | 'error'
+type FiscalStatus =
+  | 'none'
+  | 'pending'
+  | 'processing'
+  | 'authorized'
+  | 'denied'
+  | 'cancelled'
+  | 'correction'
+  | 'error'
 
-const FISCAL_STATUS_CONFIG: Record<FiscalStatus, { label: string; color: string; icon: React.ElementType }> = {
-  none:       { label: 'Sem NF-e',    color: 'bg-slate-100 text-slate-600 border-slate-200',      icon: FileWarning },
-  pending:    { label: 'Pendente',    color: 'bg-blue-50 text-blue-700 border-blue-200',          icon: Clock },
-  processing: { label: 'Processando', color: 'bg-amber-50 text-amber-700 border-amber-200',      icon: Loader2 },
-  authorized: { label: 'Autorizada',  color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: ShieldCheck },
-  denied:     { label: 'Rejeitada',   color: 'bg-red-50 text-red-700 border-red-200',             icon: ShieldAlert },
-  cancelled:  { label: 'Cancelada',   color: 'bg-slate-100 text-slate-500 border-slate-300',      icon: Ban },
-  correction: { label: 'CC-e',        color: 'bg-orange-50 text-orange-700 border-orange-200',    icon: Edit3 },
-  error:      { label: 'Erro',        color: 'bg-red-50 text-red-700 border-red-200',             icon: ShieldX },
+const FISCAL_STATUS_CONFIG: Record<
+  FiscalStatus,
+  { label: string; color: string; icon: React.ElementType }
+> = {
+  none: { label: 'Sem NF-e', color: 'bg-slate-100 text-slate-600 border-slate-200', icon: FileWarning },
+  pending: { label: 'Pendente', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: Clock },
+  processing: { label: 'Processando', color: 'bg-amber-50 text-amber-700 border-amber-200', icon: Loader2 },
+  authorized: { label: 'Autorizada', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: ShieldCheck },
+  denied: { label: 'Rejeitada', color: 'bg-red-50 text-red-700 border-red-200', icon: ShieldAlert },
+  cancelled: { label: 'Cancelada', color: 'bg-slate-100 text-slate-500 border-slate-300', icon: Ban },
+  correction: { label: 'CC-e', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: Edit3 },
+  error: { label: 'Erro', color: 'bg-red-50 text-red-700 border-red-200', icon: ShieldX },
 }
-
-// ─── Props ────────────────────────────────────────
 
 interface FiscalSectionProps {
   orderId: string
   orderStatus: string
 }
 
-// ─── Component ────────────────────────────────────
+function getActionErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = error.message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+
+  if (typeof error === 'string' && error.trim()) return error
+
+  return fallback
+}
 
 export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
   const [fiscalDoc, setFiscalDoc] = useState<FiscalDoc | null>(null)
   const [loading, setLoading] = useState(true)
   const [emitting, setEmitting] = useState(false)
   const [generatingDanfe, setGeneratingDanfe] = useState(false)
-
-  // Modal states
   const [emitModal, setEmitModal] = useState<'55' | '65' | null>(null)
   const [cancelModal, setCancelModal] = useState(false)
   const [correctionModal, setCorrectionModal] = useState(false)
@@ -111,6 +125,7 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
     } else {
       setFiscalDoc(null)
     }
+
     setLoading(false)
   }, [orderId])
 
@@ -119,13 +134,11 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
   }, [loadFiscalDoc])
 
   const status: FiscalStatus = fiscalDoc
-    ? (fiscalDoc.document_status as FiscalStatus) || 'pending'
+    ? ((fiscalDoc.document_status as FiscalStatus) || 'pending')
     : 'none'
 
   const config = FISCAL_STATUS_CONFIG[status] || FISCAL_STATUS_CONFIG.none
   const StatusIcon = config.icon
-
-  // ─── Handlers ─────────────────────────────────
 
   const handleEmit = async (modelo: '55' | '65') => {
     setEmitting(true)
@@ -142,10 +155,7 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
         })
         await loadFiscalDoc()
       } else {
-        const errorMsg = typeof result.error === 'object' && result.error !== null
-          ? (result.error as Record<string, string>).message || 'Erro na emissão.'
-          : String(result.error || 'Erro na emissão.')
-        toast.error(errorMsg)
+        toast.error(getActionErrorMessage(result.error, 'Erro na emissao.'))
       }
     } catch {
       toast.error('Erro inesperado ao emitir documento fiscal.')
@@ -156,7 +166,7 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
 
   const handleCancel = async () => {
     if (justificativa.trim().length < 15) {
-      toast.error('Justificativa deve ter no mínimo 15 caracteres.')
+      toast.error('Justificativa deve ter no minimo 15 caracteres.')
       return
     }
     if (!fiscalDoc) return
@@ -170,10 +180,7 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
         setJustificativa('')
         await loadFiscalDoc()
       } else {
-        const errorMsg = typeof result.error === 'object' && result.error !== null
-          ? (result.error as Record<string, string>).message || 'Erro no cancelamento.'
-          : String(result.error || 'Erro no cancelamento.')
-        toast.error(errorMsg)
+        toast.error(getActionErrorMessage(result.error, 'Erro no cancelamento.'))
       }
     } catch {
       toast.error('Erro inesperado ao cancelar.')
@@ -184,7 +191,7 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
 
   const handleCorrection = async () => {
     if (correcaoText.trim().length < 15) {
-      toast.error('Texto da correção deve ter no mínimo 15 caracteres.')
+      toast.error('Texto da correcao deve ter no minimo 15 caracteres.')
       return
     }
     if (!fiscalDoc) return
@@ -193,15 +200,12 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
     try {
       const result = await sendCartaCorrecaoAction(fiscalDoc.id, correcaoText.trim())
       if (result.success) {
-        toast.success('Carta de Correção enviada com sucesso!')
+        toast.success('Carta de Correcao enviada com sucesso!')
         setCorrectionModal(false)
         setCorrecaoText('')
         await loadFiscalDoc()
       } else {
-        const errorMsg = typeof result.error === 'object' && result.error !== null
-          ? (result.error as Record<string, string>).message || 'Erro na carta de correção.'
-          : String(result.error || 'Erro na carta de correção.')
-        toast.error(errorMsg)
+        toast.error(getActionErrorMessage(result.error, 'Erro na carta de correcao.'))
       }
     } catch {
       toast.error('Erro inesperado.')
@@ -216,14 +220,10 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
     try {
       const result = await generateDanfeAction(fiscalDoc.id)
       if (result.success && result.data?.storagePath) {
-        // Open DANFE download via API route
         window.open(`/api/fiscal/danfe/${fiscalDoc.id}`, '_blank')
         toast.success('DANFE gerado!')
       } else {
-        const errorMsg = typeof result.error === 'object' && result.error !== null
-          ? (result.error as Record<string, string>).message || 'Erro ao gerar DANFE.'
-          : String(result.error || 'Erro ao gerar DANFE.')
-        toast.error(errorMsg)
+        toast.error(getActionErrorMessage(result.error, 'Erro ao gerar DANFE.'))
       }
     } catch {
       toast.error('Erro ao gerar DANFE.')
@@ -231,8 +231,6 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
       setGeneratingDanfe(false)
     }
   }
-
-  // ─── Render ───────────────────────────────────
 
   if (loading) {
     return (
@@ -252,28 +250,28 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
   return (
     <>
       <div className="space-y-3">
-        <h4 className="font-bold text-lg text-navy flex items-center gap-2">
+        <h4 className="flex items-center gap-2 text-lg font-bold text-navy">
           <FileText className="h-5 w-5" />
-          Nota Fiscal Eletrônica
+          Nota Fiscal Eletronica
         </h4>
 
-        {/* No fiscal document */}
         {!fiscalDoc && (
           <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
-            <div className="mx-auto h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
               <FileWarning className="h-6 w-6 text-slate-400" />
             </div>
-            <p className="text-sm font-medium text-slate-600 mb-1">
+            <p className="mb-1 text-sm font-medium text-slate-600">
               Nenhuma NF-e vinculada a este pedido
             </p>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="mb-4 text-xs text-slate-400">
               Emita uma nota fiscal para gerar o documento auxiliar (DANFE).
             </p>
+
             {canEmit && (
               <div className="flex items-center justify-center gap-3">
                 <Button
                   size="sm"
-                  className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-200 rounded-xl font-bold"
+                  className="gap-2 rounded-xl bg-emerald-600 font-bold text-white shadow-lg shadow-emerald-200 hover:bg-emerald-700"
                   onClick={() => setEmitModal('55')}
                   disabled={emitting}
                 >
@@ -283,7 +281,7 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="gap-2 rounded-xl font-bold border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                  className="gap-2 rounded-xl border-emerald-200 font-bold text-emerald-700 hover:bg-emerald-50"
                   onClick={() => setEmitModal('65')}
                   disabled={emitting}
                 >
@@ -292,30 +290,28 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
                 </Button>
               </div>
             )}
+
             {!canEmit && orderStatus === 'pending' && (
-              <p className="text-xs text-amber-600 mt-2">
-                <AlertTriangle className="h-3 w-3 inline mr-1" />
-                Pedido com status &quot;Pendente&quot; não permite emissão fiscal.
+              <p className="mt-2 text-xs text-amber-600">
+                <AlertTriangle className="mr-1 inline h-3 w-3" />
+                Pedido com status &quot;Pendente&quot; nao permite emissao fiscal.
               </p>
             )}
           </div>
         )}
 
-        {/* Fiscal document exists */}
         {fiscalDoc && (
-          <div className="rounded-xl border border-border/60 bg-white shadow-sm overflow-hidden">
-            {/* Homologação Banner */}
+          <div className="overflow-hidden rounded-xl border border-border/60 bg-white shadow-sm">
             {isHomologacao && (
-              <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-800 font-medium flex items-center gap-2">
+              <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800">
                 <AlertTriangle className="h-3.5 w-3.5" />
-                SEM VALOR FISCAL — Emitido em ambiente de homologação
+                SEM VALOR FISCAL - Emitido em ambiente de homologacao
               </div>
             )}
 
-            {/* Header with status */}
-            <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
               <div className="flex items-center gap-3">
-                <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${config.color}`}>
+                <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${config.color}`}>
                   <StatusIcon className="h-5 w-5" />
                 </div>
                 <div>
@@ -327,8 +323,8 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
                       {config.label}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Série {fiscalDoc.serie} • {fiscalDoc.natureza_operacao}
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Serie {fiscalDoc.serie} • {fiscalDoc.natureza_operacao}
                   </p>
                 </div>
               </div>
@@ -342,26 +338,22 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
 
             <Separator />
 
-            {/* Details grid */}
-            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 gap-3 p-4 text-sm sm:grid-cols-2">
               <div>
-                <span className="text-xs text-muted-foreground block mb-0.5">Chave de Acesso</span>
-                <span className="font-mono text-xs break-all text-slate-700">
-                  {fiscalDoc.chave_acesso
-                    ? fiscalDoc.chave_acesso.replace(/(.{4})/g, '$1 ').trim()
-                    : '—'
-                  }
+                <span className="mb-0.5 block text-xs text-muted-foreground">Chave de Acesso</span>
+                <span className="break-all font-mono text-xs text-slate-700">
+                  {fiscalDoc.chave_acesso ? fiscalDoc.chave_acesso.replace(/(.{4})/g, '$1 ').trim() : '-'}
                 </span>
               </div>
               <div>
-                <span className="text-xs text-muted-foreground block mb-0.5">Protocolo de Autorização</span>
+                <span className="mb-0.5 block text-xs text-muted-foreground">Protocolo de Autorizacao</span>
                 <span className="font-mono text-xs text-slate-700">
-                  {fiscalDoc.protocolo_autorizacao || '—'}
+                  {fiscalDoc.protocolo_autorizacao || '-'}
                 </span>
               </div>
               {fiscalDoc.data_autorizacao && (
                 <div>
-                  <span className="text-xs text-muted-foreground block mb-0.5">Data Autorização</span>
+                  <span className="mb-0.5 block text-xs text-muted-foreground">Data Autorizacao</span>
                   <span className="text-xs text-slate-700">
                     {new Date(fiscalDoc.data_autorizacao).toLocaleString('pt-BR')}
                   </span>
@@ -369,14 +361,17 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
               )}
               {fiscalDoc.motivo_status && (
                 <div>
-                  <span className="text-xs text-muted-foreground block mb-0.5">Motivo SEFAZ</span>
+                  <span className="mb-0.5 block text-xs text-muted-foreground">Motivo SEFAZ</span>
                   <span className="text-xs text-slate-700">{fiscalDoc.motivo_status}</span>
                 </div>
               )}
               {fiscalDoc.correction_count && fiscalDoc.correction_count > 0 && (
                 <div>
-                  <span className="text-xs text-muted-foreground block mb-0.5">Cartas de Correção</span>
-                  <Badge variant="outline" className="text-[10px] bg-orange-50 text-orange-700 border-orange-200">
+                  <span className="mb-0.5 block text-xs text-muted-foreground">Cartas de Correcao</span>
+                  <Badge
+                    variant="outline"
+                    className="border-orange-200 bg-orange-50 text-[10px] text-orange-700"
+                  >
                     {fiscalDoc.correction_count} CC-e enviada(s)
                   </Badge>
                 </div>
@@ -385,8 +380,7 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
 
             <Separator />
 
-            {/* Action buttons */}
-            <div className="p-4 flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 p-4">
               {canDanfe && (
                 <Button
                   size="sm"
@@ -395,151 +389,152 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
                   onClick={handleDanfe}
                   disabled={generatingDanfe}
                 >
-                  {generatingDanfe ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                  {generatingDanfe ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
                   {isHomologacao ? 'DANFE (Sem Valor)' : 'DANFE'}
                 </Button>
               )}
+
               {canCancel && (
                 <Button
                   size="sm"
                   variant="outline"
-                  className="gap-2 rounded-lg text-xs font-bold text-red-600 border-red-200 hover:bg-red-50"
+                  className="gap-2 rounded-lg border-red-200 text-xs font-bold text-red-600 hover:bg-red-50"
                   onClick={() => setCancelModal(true)}
                 >
                   <XCircle className="h-3.5 w-3.5" />
                   Cancelar NF-e
                 </Button>
               )}
+
               {canCorrect && (
                 <Button
                   size="sm"
                   variant="outline"
-                  className="gap-2 rounded-lg text-xs font-bold text-orange-600 border-orange-200 hover:bg-orange-50"
+                  className="gap-2 rounded-lg border-orange-200 text-xs font-bold text-orange-600 hover:bg-orange-50"
                   onClick={() => setCorrectionModal(true)}
                 >
                   <Edit3 className="h-3.5 w-3.5" />
-                  Carta de Correção
+                  Carta de Correcao
                 </Button>
               )}
+
               <Button
                 size="sm"
                 variant="ghost"
-                className="gap-2 rounded-lg text-xs font-bold text-navy ml-auto"
+                className="ml-auto gap-2 rounded-lg text-xs font-bold text-navy"
                 onClick={() => window.open(`/admin/fiscal-review/${orderId}`, '_blank')}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
-                Revisão Fiscal
+                Revisao Fiscal
               </Button>
             </div>
           </div>
         )}
       </div>
 
-      {/* ─── Emit Confirmation Modal ─── */}
       <Dialog open={emitModal !== null} onOpenChange={(open) => !open && setEmitModal(null)}>
         <DialogContent className="max-w-md rounded-2xl border-0 shadow-2xl">
           <DialogHeader>
-            <div className="mx-auto h-14 w-14 rounded-full bg-emerald-50 flex items-center justify-center mb-2">
+            <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50">
               <Send className="h-7 w-7 text-emerald-600" />
             </div>
             <DialogTitle className="text-center text-xl">
               Emitir {emitModal === '65' ? 'NFC-e' : 'NF-e'}?
             </DialogTitle>
-            <p className="text-center text-sm text-muted-foreground mt-2">
-              Isso irá gerar o XML fiscal, assinar digitalmente e submeter ao SEFAZ.
+            <p className="mt-2 text-center text-sm text-muted-foreground">
+              Isso vai gerar o XML fiscal, assinar digitalmente e submeter ao SEFAZ.
               Confirme para prosseguir.
             </p>
           </DialogHeader>
-          <DialogFooter className="flex-row gap-3 mt-4">
-            <Button
-              variant="outline"
-              className="flex-1 rounded-xl"
-              onClick={() => setEmitModal(null)}
-            >
+          <DialogFooter className="mt-4 flex-row gap-3">
+            <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setEmitModal(null)}>
               Cancelar
             </Button>
             <Button
-              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-lg shadow-emerald-200 font-bold"
+              className="flex-1 rounded-xl bg-emerald-600 font-bold text-white shadow-lg shadow-emerald-200 hover:bg-emerald-700"
               onClick={() => emitModal && handleEmit(emitModal)}
               disabled={emitting}
             >
-              {emitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-              Confirmar Emissão
+              {emitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+              Confirmar Emissao
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ─── Cancel Modal ─── */}
       <Dialog open={cancelModal} onOpenChange={setCancelModal}>
         <DialogContent className="max-w-md rounded-2xl border-0 shadow-2xl">
           <DialogHeader>
-            <div className="mx-auto h-14 w-14 rounded-full bg-red-50 flex items-center justify-center mb-2">
+            <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-red-50">
               <XCircle className="h-7 w-7 text-red-600" />
             </div>
             <DialogTitle className="text-center text-xl">Cancelar NF-e</DialogTitle>
-            <p className="text-center text-sm text-muted-foreground mt-2">
-              Informe a justificativa do cancelamento (mínimo 15 caracteres).
+            <p className="mt-2 text-center text-sm text-muted-foreground">
+              Informe a justificativa do cancelamento (minimo 15 caracteres).
             </p>
           </DialogHeader>
           <textarea
             value={justificativa}
             onChange={(e) => setJustificativa(e.target.value)}
             placeholder="Motivo do cancelamento..."
-            className="w-full h-28 p-3 border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-200"
+            className="h-28 w-full resize-none rounded-xl border p-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
             maxLength={255}
           />
           <div className="text-right text-xs text-muted-foreground">
-            {justificativa.trim().length}/255 (mín. 15)
+            {justificativa.trim().length}/255 (min. 15)
           </div>
-          <DialogFooter className="flex-row gap-3 mt-2">
+          <DialogFooter className="mt-2 flex-row gap-3">
             <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setCancelModal(false)}>
               Voltar
             </Button>
             <Button
-              className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-lg shadow-red-200 font-bold"
+              className="flex-1 rounded-xl bg-red-600 font-bold text-white shadow-lg shadow-red-200 hover:bg-red-700"
               onClick={handleCancel}
               disabled={submitting || justificativa.trim().length < 15}
             >
-              {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <XCircle className="h-4 w-4 mr-2" />}
+              {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
               Confirmar Cancelamento
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ─── Correction Modal ─── */}
       <Dialog open={correctionModal} onOpenChange={setCorrectionModal}>
         <DialogContent className="max-w-md rounded-2xl border-0 shadow-2xl">
           <DialogHeader>
-            <div className="mx-auto h-14 w-14 rounded-full bg-orange-50 flex items-center justify-center mb-2">
+            <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-orange-50">
               <Edit3 className="h-7 w-7 text-orange-600" />
             </div>
-            <DialogTitle className="text-center text-xl">Carta de Correção</DialogTitle>
-            <p className="text-center text-sm text-muted-foreground mt-2">
-              Descreva a correção a ser registrada (mínimo 15 caracteres). Não pode alterar valores ou dados cadastrais.
+            <DialogTitle className="text-center text-xl">Carta de Correcao</DialogTitle>
+            <p className="mt-2 text-center text-sm text-muted-foreground">
+              Descreva a correcao a ser registrada (minimo 15 caracteres). Nao pode alterar
+              valores ou dados cadastrais.
             </p>
           </DialogHeader>
           <textarea
             value={correcaoText}
             onChange={(e) => setCorrecaoText(e.target.value)}
-            placeholder="Texto da correção..."
-            className="w-full h-28 p-3 border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-200"
+            placeholder="Texto da correcao..."
+            className="h-28 w-full resize-none rounded-xl border p-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
             maxLength={1000}
           />
           <div className="text-right text-xs text-muted-foreground">
-            {correcaoText.trim().length}/1000 (mín. 15)
+            {correcaoText.trim().length}/1000 (min. 15)
           </div>
-          <DialogFooter className="flex-row gap-3 mt-2">
+          <DialogFooter className="mt-2 flex-row gap-3">
             <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setCorrectionModal(false)}>
               Voltar
             </Button>
             <Button
-              className="flex-1 bg-orange-600 hover:bg-orange-700 text-white rounded-xl shadow-lg shadow-orange-200 font-bold"
+              className="flex-1 rounded-xl bg-orange-600 font-bold text-white shadow-lg shadow-orange-200 hover:bg-orange-700"
               onClick={handleCorrection}
               disabled={submitting || correcaoText.trim().length < 15}
             >
-              {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Edit3 className="h-4 w-4 mr-2" />}
+              {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Edit3 className="mr-2 h-4 w-4" />}
               Enviar CC-e
             </Button>
           </DialogFooter>
@@ -548,8 +543,6 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
     </>
   )
 }
-
-// ─── Public helper for badges ───────────────────
 
 export { FISCAL_STATUS_CONFIG }
 export type { FiscalStatus }
