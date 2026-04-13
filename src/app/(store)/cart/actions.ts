@@ -938,7 +938,7 @@ export async function checkoutAction(
         p_shipping_address: shippingAddressStr,
         p_notes: notes || null,
         p_items: legacyOrderItemsPayload,
-        ...(normalizedCouponCode ? { p_coupon_code: normalizedCouponCode } : {}),
+        p_coupon_code: normalizedCouponCode || null,
     }
 
     const atomicPayloadV2 = {
@@ -958,7 +958,7 @@ export async function checkoutAction(
         p_shipping_address: shippingAddressStr,
         p_notes: notes || null,
         p_items: checkoutItemsPayloadV2,
-        ...(normalizedCouponCode ? { p_coupon_code: normalizedCouponCode } : {}),
+        p_coupon_code: normalizedCouponCode || null,
     }
 
     const createdNoteLegacy = buildOrderCreatedAuditNote(validatedItems.length, finalTotal)
