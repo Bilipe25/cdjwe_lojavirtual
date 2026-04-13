@@ -3,6 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { generateDanfePdf } from '@/lib/fiscal/transport/danfe-generator.service'
 
+function toResponseBody(buffer: Buffer): ArrayBuffer {
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ documentId: string }> }
@@ -50,7 +54,7 @@ export async function GET(
         const buffer = Buffer.from(await fileData.arrayBuffer())
         const fileName = `DANFE_${doc.numero_nf || 'sem_numero'}_serie_${doc.serie || '0'}.pdf`
 
-        return new NextResponse(buffer, {
+        return new NextResponse(toResponseBody(buffer), {
           headers: {
             'Content-Type': 'application/pdf',
             'Content-Disposition': `inline; filename="${fileName}"`,
@@ -72,7 +76,7 @@ export async function GET(
 
     const fileName = `DANFE_${doc.numero_nf || 'sem_numero'}_serie_${doc.serie || '0'}.pdf`
 
-    return new NextResponse(result.pdfBuffer, {
+    return new NextResponse(toResponseBody(result.pdfBuffer), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `inline; filename="${fileName}"`,
