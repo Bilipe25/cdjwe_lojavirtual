@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { FiscalSection } from './FiscalSection'
 import {
     Dialog,
     DialogContent,
@@ -419,6 +420,11 @@ export function OrderDetailModal({
                             variant="panel"
                         />
                     </div>
+
+                    <Separator />
+
+                    {/* Fiscal Section — NF-e */}
+                    <FiscalSection orderId={resolvedOrder.id} orderStatus={resolvedOrder.status} />
 
                     <Separator />
 

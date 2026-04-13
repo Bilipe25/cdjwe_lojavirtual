@@ -12,7 +12,6 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 // Components
 import { OrderFilters, statusConfig } from './components/OrderFilters'
 import { OrderList, OrderWithDetails } from './components/OrderList'
-import { OrderDetailModal, type AdminOrderDetailRecord } from './components/OrderDetailModal'
 
 // Actions
 import { deleteOrderAction } from './actions'
@@ -85,7 +84,6 @@ export default function AdminOrdersPage() {
 
     // Interactivity
     const [selectedOrders, setSelectedOrders] = useState<string[]>([])
-    const [selectedOrderDetail, setSelectedOrderDetail] = useState<AdminOrderDetailRecord | null>(null)
 
     const loadOrders = useCallback(async () => {
         setLoading(true)
@@ -137,6 +135,25 @@ export default function AdminOrdersPage() {
                 }
             }
 
+            // Fiscal enrichment: get latest fiscal document status per order
+            const fiscalStatusById = new Map<string, string>()
+            if (orderIds.length > 0) {
+                const { data: fiscalData } = await supabase
+                    .from('fiscal_documents')
+                    .select('order_id, document_status')
+                    .in('order_id', orderIds)
+                    .order('created_at', { ascending: false })
+
+                if (fiscalData) {
+                    // Only keep the most recent per order
+                    for (const fd of fiscalData) {
+                        if (!fiscalStatusById.has(fd.order_id)) {
+                            fiscalStatusById.set(fd.order_id, fd.document_status)
+                        }
+                    }
+                }
+            }
+
             const mapped = rows.map((order) => {
                 const enrichment = enrichmentById.get(order.id)
                 const customerName = order.profile_full_name || enrichment?.customerName || ''
@@ -171,6 +188,7 @@ export default function AdminOrdersPage() {
                     },
                     item_count: itemCount,
                     sales_channel: salesChannel,
+                    fiscal_status: fiscalStatusById.get(order.id) || null,
                 }
             })
             setOrders(mapped)
@@ -192,8 +210,7 @@ export default function AdminOrdersPage() {
 
     const updateOrderStatus = async (orderId: string, newStatus: OrderStatus, skipRefresh = false) => {
         const currentStatus =
-            orders.find((order) => order.id === orderId)?.status ||
-            (selectedOrderDetail?.id === orderId ? selectedOrderDetail.status : null)
+            orders.find((order) => order.id === orderId)?.status || null
 
         if (currentStatus) {
             if (currentStatus === newStatus) return true
@@ -245,9 +262,6 @@ export default function AdminOrdersPage() {
 
         if (!skipRefresh) {
             setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
-            if (selectedOrderDetail?.id === orderId) {
-                setSelectedOrderDetail(prev => prev ? { ...prev, status: newStatus } : null)
-            }
             toast.success(`Pedido atualizado para: ${statusConfig[newStatus].label}`)
         }
         return true;
@@ -301,9 +315,6 @@ export default function AdminOrdersPage() {
             setOrders((prev) => prev.map((order) => (
                 changedIds.has(order.id) ? { ...order, status: newStatus } : order
             )))
-            if (selectedOrderDetail?.id && changedIds.has(selectedOrderDetail.id)) {
-                setSelectedOrderDetail((prev) => prev ? { ...prev, status: newStatus } : null)
-            }
         }
 
         if (changedRows.length > 0) {
@@ -338,9 +349,6 @@ export default function AdminOrdersPage() {
 
             setOrders((prev) => prev.filter((order) => order.id !== orderId))
             setSelectedOrders((prev) => prev.filter((id) => id !== orderId))
-            if (selectedOrderDetail?.id === orderId) {
-                setSelectedOrderDetail(null)
-            }
 
             toast.success(
                 'alreadyDeleted' in result && result.alreadyDeleted
@@ -432,7 +440,6 @@ export default function AdminOrdersPage() {
                 deletingOrderIds={deletingOrderIds}
                 selectedOrders={selectedOrders}
                 onToggleSelect={toggleSelectOrder}
-                onViewDetail={setSelectedOrderDetail}
                 onUpdateStatus={updateOrderStatus}
                 onDelete={deleteOrder}
             />
@@ -464,14 +471,6 @@ export default function AdminOrdersPage() {
                 </div>
             )}
 
-            {/* Enterprise Detail Drawer Modal */}
-            <OrderDetailModal 
-                order={selectedOrderDetail}
-                open={!!selectedOrderDetail}
-                onOpenChange={(open) => !open && setSelectedOrderDetail(null)}
-                deletingOrderIds={deletingOrderIds}
-                onDelete={deleteOrder}
-            />
         </div>
     )
 }

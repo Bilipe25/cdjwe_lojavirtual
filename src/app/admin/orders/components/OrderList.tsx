@@ -1,4 +1,5 @@
 import React from 'react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -11,7 +12,10 @@ import {
     ClipboardList,
     Trash2,
     AlertCircle,
-    Loader2
+    Loader2,
+    FileText,
+    ShieldCheck,
+    Send
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -54,6 +58,7 @@ export interface OrderWithDetails {
     payment_condition?: { name: string };
     item_count?: number;
     sales_channel?: 'customer_portal' | 'representative';
+    fiscal_status?: string | null;
 }
 
 interface OrderListProps {
@@ -62,7 +67,7 @@ interface OrderListProps {
     deletingOrderIds: string[];
     selectedOrders: string[];
     onToggleSelect: (id: string) => void;
-    onViewDetail: (order: OrderWithDetails) => void;
+    onViewDetail?: (order: OrderWithDetails) => void;
     onUpdateStatus: (id: string, newStatus: OrderStatus) => void;
     onDelete?: (id: string) => Promise<boolean> | boolean;
 }
@@ -77,6 +82,7 @@ export function OrderList({
     onUpdateStatus,
     onDelete
 }: OrderListProps) {
+    const router = useRouter()
     const [orderToDelete, setOrderToDelete] = React.useState<string | null>(null)
 
     if (loading) {
@@ -136,7 +142,7 @@ export function OrderList({
                             className={`glass-card border-0 hover:shadow-md transition-all cursor-pointer ${
                                 isSelected ? 'ring-2 ring-bronze bg-bronze/5' : ''
                             } ${order.status === 'cancelled' ? 'opacity-70 grayscale-[0.5]' : ''}`}
-                            onClick={() => onViewDetail(order)}
+                            onClick={() => router.push(`/admin/orders/${order.id}`)}
                         >
                             <CardContent className="p-0">
                                 <div className="flex flex-col sm:flex-row sm:items-center p-4 gap-4">
@@ -174,6 +180,27 @@ export function OrderList({
                                             >
                                                 {isRepresentativeOrder ? 'Canal: Representante' : 'Canal: Cliente'}
                                             </Badge>
+                                            {order.fiscal_status && order.fiscal_status !== 'none' && (
+                                                <Badge
+                                                    variant="outline"
+                                                    className={`text-[10px] gap-1 ${
+                                                        order.fiscal_status === 'authorized' ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                                        : order.fiscal_status === 'denied' || order.fiscal_status === 'error' ? 'border-red-300 bg-red-50 text-red-700'
+                                                        : order.fiscal_status === 'cancelled' ? 'border-slate-300 bg-slate-100 text-slate-500'
+                                                        : order.fiscal_status === 'correction' ? 'border-orange-300 bg-orange-50 text-orange-700'
+                                                        : 'border-blue-300 bg-blue-50 text-blue-700'
+                                                    }`}
+                                                >
+                                                    {order.fiscal_status === 'authorized' && <ShieldCheck className="h-3 w-3" />}
+                                                    {order.fiscal_status === 'authorized' ? 'NF-e' 
+                                                        : order.fiscal_status === 'denied' ? 'NF-e Rejeitada'
+                                                        : order.fiscal_status === 'cancelled' ? 'NF-e Cancelada'
+                                                        : order.fiscal_status === 'correction' ? 'CC-e'
+                                                        : order.fiscal_status === 'pending' || order.fiscal_status === 'processing' ? 'NF-e Pendente'
+                                                        : 'NF-e'
+                                                    }
+                                                </Badge>
+                                            )}
                                         </div>
                                         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm text-muted-foreground truncate">
                                             <span className="font-medium text-slate-700 truncate max-w-[200px]" title={order.store?.company_name}>
@@ -223,8 +250,11 @@ export function OrderList({
                                                     <MoreHorizontal className="h-5 w-5" />
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end" className="w-48">
-                                                    <DropdownMenuItem onClick={() => onViewDetail(order)}>
+                                                    <DropdownMenuItem onClick={() => router.push(`/admin/orders/${order.id}`)}>
                                                         <Eye className="h-4 w-4 mr-2" /> Ver Detalhes
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => window.open(`/admin/fiscal-review/${order.id}`, '_blank')}>
+                                                        <FileText className="h-4 w-4 mr-2" /> Revisão Fiscal
                                                     </DropdownMenuItem>
                                                     <DropdownMenuSeparator />
                                                     
