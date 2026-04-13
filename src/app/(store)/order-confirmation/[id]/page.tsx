@@ -2,12 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
     CheckCircle2,
     Package,
-    MapPin,
-    Calendar,
     FileDown,
     MessageCircle,
     Mail,
@@ -17,11 +15,10 @@ import {
     Loader2,
     AlertCircle,
     RotateCcw,
+    Eye,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
@@ -30,9 +27,7 @@ import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getWhatsAppLink } from '@/lib/utils'
-import { OrderItemPriceDetails } from '@/components/orders/order-item-price-details'
 import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
-import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
 
 type OrderConfirmationRecord = Order & {
     store?: Record<string, unknown> | null
@@ -59,19 +54,22 @@ const statusConfig: Record<OrderStatus, { label: string; color: string }> = {
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
 function PageSkeleton() {
     return (
-        <div className="mx-auto max-w-4xl px-4 py-8 space-y-6">
-            <div className="flex flex-col items-center gap-4 py-8">
-                <Skeleton className="h-24 w-24 rounded-full" />
-                <Skeleton className="h-8 w-64" />
-                <Skeleton className="h-4 w-80" />
-                <Skeleton className="h-10 w-40" />
+        <div className="mx-auto max-w-3xl px-4 md:px-6 py-8 md:py-12 space-y-5">
+            <div className="flex flex-col items-center gap-3 py-6">
+                <Skeleton className="h-16 w-16 rounded-full" />
+                <Skeleton className="h-7 w-56" />
+                <Skeleton className="h-4 w-72" />
+                <Skeleton className="h-8 w-36" />
             </div>
-            <Skeleton className="h-44 w-full rounded-2xl" />
-            <Skeleton className="h-64 w-full rounded-2xl" />
-            <div className="grid grid-cols-3 gap-3">
-                <Skeleton className="h-14 w-full rounded-xl" />
-                <Skeleton className="h-14 w-full rounded-xl" />
-                <Skeleton className="h-14 w-full rounded-xl" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                <Skeleton className="h-20 w-full rounded-2xl" />
+                <Skeleton className="h-20 w-full rounded-2xl" />
+                <Skeleton className="h-20 w-full rounded-2xl" />
+                <Skeleton className="h-20 w-full rounded-2xl" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+                <Skeleton className="h-12 w-full rounded-xl" />
+                <Skeleton className="h-12 w-full rounded-xl" />
             </div>
         </div>
     )
@@ -96,6 +94,85 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
                 <Button onClick={() => router.push('/orders')}>Ver meus pedidos</Button>
             </div>
         </div>
+    )
+}
+
+// ─── Action Card ──────────────────────────────────────────────────────────────
+const actionColorVariants: Record<string, { icon: string; hover: string }> = {
+    primary: {
+        icon: 'bg-primary/10 text-primary',
+        hover: 'hover:border-primary/30 hover:bg-primary/5',
+    },
+    green: {
+        icon: 'bg-green-100 text-green-600',
+        hover: 'hover:border-green-400/40 hover:bg-green-50 dark:hover:bg-green-950/20',
+    },
+    blue: {
+        icon: 'bg-blue-100 text-blue-600',
+        hover: 'hover:border-blue-400/40 hover:bg-blue-50 dark:hover:bg-blue-950/20',
+    },
+}
+
+function ActionCard({
+    icon,
+    label,
+    sublabel,
+    onClick,
+    disabled,
+    loading,
+    variant = 'primary',
+    delay,
+}: {
+    icon: React.ReactNode
+    label: string
+    sublabel?: string
+    onClick: () => void
+    disabled?: boolean
+    loading?: boolean
+    variant?: 'primary' | 'green' | 'blue'
+    delay: number
+}) {
+    const colors = actionColorVariants[variant]
+
+    return (
+        <motion.button
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay, type: 'spring', stiffness: 300, damping: 25 }}
+            onClick={onClick}
+            disabled={disabled}
+            className={`
+                group relative flex flex-col items-center justify-center gap-2.5 
+                rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm
+                px-4 py-5 sm:py-6 text-center
+                transition-all duration-200 ease-out
+                hover:shadow-lg hover:shadow-black/5
+                ${colors.hover}
+                active:scale-[0.97]
+                disabled:opacity-50 disabled:cursor-not-allowed
+                cursor-pointer
+            `}
+        >
+            <div className={`
+                flex items-center justify-center
+                h-11 w-11 rounded-xl
+                ${colors.icon}
+                transition-transform duration-200
+                group-hover:scale-110
+            `}>
+                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : icon}
+            </div>
+            <div>
+                <span className="text-sm font-semibold text-foreground block leading-tight">
+                    {loading ? 'Aguarde...' : label}
+                </span>
+                {sublabel && (
+                    <span className="text-[11px] text-muted-foreground mt-0.5 block">
+                        {sublabel}
+                    </span>
+                )}
+            </div>
+        </motion.button>
     )
 }
 
@@ -160,7 +237,7 @@ export default function OrderConfirmationPage() {
 
             setOrder(orderData as OrderConfirmationRecord)
 
-            // 4. Load items
+            // 4. Load items (needed for PDF/WhatsApp)
             const { data: itemsData, error: itemsError } = await supabase
                 .from('order_items')
                 .select('*')
@@ -206,6 +283,7 @@ export default function OrderConfirmationPage() {
         if (!order) return
         const systemName = settings?.system_name || 'CDJWE'
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+        const paymentDisplay = getOrderPaymentDisplay(order)
 
         const itemLines = items.map(item =>
             `• *${item.product_name}*\n  Tecido: ${item.fabric_name} | Cor: ${item.color_name}${item.size ? ` | Tam: ${item.size}` : ''}\n  ${item.quantity}x R$ ${item.unit_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} = *R$ ${item.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}*`
@@ -267,328 +345,134 @@ export default function OrderConfirmationPage() {
     if (!order) return null
 
     const statusCfg = statusConfig[order.status as OrderStatus] ?? statusConfig.pending
-    const paymentDisplay = getOrderPaymentDisplay(order)
-    const couponDiscountAmount = Number(order.coupon_discount_amount || 0)
-    const paymentDiscountAmount = Math.max(0, Number(order.discount_amount || 0) - couponDiscountAmount)
 
     return (
-        <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 md:py-10 space-y-6">
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-10 lg:py-12 space-y-5">
 
-            {/* ── Hero Banner ──────────────────────────────────────────────── */}
+            {/* ── Compact Hero Banner ──────────────────────────────────── */}
             <motion.div
-                initial={{ opacity: 0, y: -20 }}
+                initial={{ opacity: 0, y: -16 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
-                className="relative rounded-3xl overflow-hidden bg-linear-to-br from-primary/10 via-background to-bronze/5 border border-primary/10 p-8 text-center"
+                transition={{ duration: 0.45 }}
+                className="relative rounded-2xl overflow-hidden bg-linear-to-br from-green-50/80 via-background to-primary/5 border border-green-200/40 px-5 py-6 text-center"
             >
-                {/* Animated success icon */}
-                <div className="flex justify-center mb-5">
+                {/* Success icon — compact */}
+                <div className="flex justify-center mb-3">
                     <div className="relative">
                         <motion.div
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
-                            transition={{ type: 'spring', stiffness: 200, delay: 0.2 }}
-                            className="h-20 w-20 rounded-full bg-green-100 flex items-center justify-center shadow-lg"
+                            transition={{ type: 'spring', stiffness: 220, delay: 0.15 }}
+                            className="h-14 w-14 rounded-full bg-green-100 flex items-center justify-center shadow-md shadow-green-200/40"
                         >
-                            <CheckCircle2 className="h-10 w-10 text-green-600" />
+                            <CheckCircle2 className="h-7 w-7 text-green-600" />
                         </motion.div>
-                        {/* Pulsing ring */}
                         <motion.div
-                            className="absolute inset-0 rounded-full border-2 border-green-400/40"
-                            animate={{ scale: [1, 1.5, 1.8], opacity: [0.8, 0.3, 0] }}
-                            transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
+                            className="absolute inset-0 rounded-full border-2 border-green-400/30"
+                            animate={{ scale: [1, 1.6, 2], opacity: [0.7, 0.2, 0] }}
+                            transition={{ duration: 2.2, repeat: Infinity, ease: 'easeOut' }}
                         />
                     </div>
                 </div>
 
                 <motion.h1
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                    className="text-2xl sm:text-3xl font-bold font-heading text-gradient-navy mb-2"
+                    transition={{ delay: 0.3 }}
+                    className="text-xl sm:text-2xl font-bold font-heading text-foreground mb-1"
                 >
-                    Pedido Realizado com Sucesso! 🎉
+                    Pedido Realizado! 🎉
                 </motion.h1>
 
                 <motion.p
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    transition={{ delay: 0.6 }}
-                    className="text-muted-foreground text-sm sm:text-base max-w-md mx-auto mb-5"
+                    transition={{ delay: 0.45 }}
+                    className="text-muted-foreground text-xs sm:text-sm max-w-sm mx-auto mb-4"
                 >
-                    Seu pedido foi registrado e já está sendo processado para análise. Em breve nossa equipe irá preparar os itens solicitados.
+                    Seu pedido foi registrado e está sendo processado.
                 </motion.p>
 
                 <motion.div
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.7 }}
-                    className="flex flex-wrap justify-center gap-3"
+                    transition={{ delay: 0.55 }}
+                    className="flex flex-wrap justify-center gap-2"
                 >
-                    <div className="px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-sm font-bold text-primary">
+                    <div className="px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-xs font-bold text-primary">
                         #{order.order_number}
                     </div>
-                    <Badge className={`text-xs border px-3 py-1.5 ${statusCfg.color}`}>
-                        <Clock className="h-3 w-3 mr-1.5" />
+                    <Badge className={`text-[11px] border px-2.5 py-1 ${statusCfg.color}`}>
+                        <Clock className="h-3 w-3 mr-1" />
                         {statusCfg.label}
                     </Badge>
                 </motion.div>
             </motion.div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* ── Left: Items + Summary ─────────────────────────────────── */}
-                <div className="lg:col-span-2 space-y-5">
-
-                    {/* Items list */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.5 }}
-                    >
-                        <Card className="glass-card border-0">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <Package className="h-4 w-4 text-bronze" />
-                                    Itens do Pedido ({items.length})
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                <AnimatePresence>
-                                    {items.map((item, i) => (
-                                        <motion.div
-                                            key={item.id}
-                                            initial={{ opacity: 0, x: -10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            transition={{ delay: 0.6 + i * 0.07 }}
-                                            className="flex items-start gap-4 p-4 rounded-xl bg-muted/30 border border-border/40"
-                                        >
-                                            <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                                                <Package className="h-5 w-5 text-primary/50" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <h4 className="font-semibold text-sm">{item.product_name}</h4>
-                                                <p className="text-xs text-muted-foreground mt-0.5">
-                                                    {item.fabric_name} — {item.color_name}
-                                                    {item.size && ` — Tam: ${item.size}`}
-                                                </p>
-                                                <OrderItemPriceDetails item={item} className="mt-1" />
-                                            </div>
-                                            <div className="text-right shrink-0">
-                                                <p className="text-sm font-bold text-gradient-bronze">
-                                                    R$ {item.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                </p>
-                                            </div>
-                                        </motion.div>
-                                    ))}
-                                </AnimatePresence>
-                                <div className="rounded-xl border border-border/60 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-                                    Os valores e condicoes comerciais deste pedido foram preservados no momento da compra para manter o historico financeiro consistente.
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </motion.div>
-
-                    {/* Quick Actions */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.8 }}
-                    >
-                        <Card className="glass-card border-0">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-base">Ações Rápidas</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    {/* PDF */}
-                                    <Button
-                                        variant="outline"
-                                        className="h-auto py-3 flex-col gap-1.5 border-border/60 hover:border-primary/40 hover:bg-primary/5 transition-all"
-                                        onClick={handleDownloadPDF}
-                                        disabled={isPrinting}
-                                    >
-                                        {isPrinting
-                                            ? <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                                            : <FileDown className="h-5 w-5 text-primary" />
-                                        }
-                                        <span className="text-xs font-medium">
-                                            {isPrinting ? 'Gerando...' : 'Baixar PDF'}
-                                        </span>
-                                    </Button>
-
-                                    {/* WhatsApp */}
-                                    <Button
-                                        variant="outline"
-                                        className="h-auto py-3 flex-col gap-1.5 border-border/60 hover:border-green-400/60 hover:bg-green-50 dark:hover:bg-green-950/20 transition-all"
-                                        onClick={handleWhatsApp}
-                                    >
-                                        <MessageCircle className="h-5 w-5 text-green-600" />
-                                        <span className="text-xs font-medium">Enviar WhatsApp</span>
-                                    </Button>
-
-                                    {/* Email */}
-                                    <Button
-                                        variant="outline"
-                                        className="h-auto py-3 flex-col gap-1.5 border-border/60 hover:border-blue-400/60 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-all"
-                                        onClick={handleSendEmail}
-                                        disabled={isSendingEmail}
-                                    >
-                                        {isSendingEmail
-                                            ? <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                                            : <Mail className="h-5 w-5 text-blue-600" />
-                                        }
-                                        <span className="text-xs font-medium">
-                                            {isSendingEmail ? 'Enviando...' : 'Enviar por E-mail'}
-                                        </span>
-                                    </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </motion.div>
-
-                    {/* Navigation */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.9 }}
-                        className="flex flex-col sm:flex-row gap-3"
-                    >
-                        <Button
-                            variant="outline"
-                            className="flex-1 gap-2"
-                            onClick={() => router.push('/orders')}
-                        >
-                            <Package className="h-4 w-4" />
-                            Ver meus pedidos
-                        </Button>
-                        <Button
-                            className="flex-1 gap-2 gradient-bronze border-0 text-white"
-                            onClick={() => router.push('/catalog')}
-                        >
-                            <ShoppingBag className="h-4 w-4" />
-                            Continuar comprando
-                            <ArrowRight className="h-4 w-4" />
-                        </Button>
-                    </motion.div>
-                </div>
-
-                {/* ── Right: Order details sidebar ─────────────────────────── */}
-                <div className="space-y-4">
-                    {/* Order info */}
-                    <motion.div
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.6 }}
-                    >
-                        <Card className="glass-card border-0">
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <Calendar className="h-4 w-4 text-bronze" />
-                                    Detalhes do Pedido
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-3 text-sm">
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-foreground shrink-0">Número</span>
-                                    <span className="font-bold text-right">#{order.order_number}</span>
-                                </div>
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-foreground shrink-0">Data</span>
-                                    <span className="text-right">
-                                        {format(new Date(order.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-foreground shrink-0">Status</span>
-                                    <Badge className={`text-xs border ${statusCfg.color}`}>
-                                        {statusCfg.label}
-                                    </Badge>
-                                </div>
-                                <Separator />
-                                {order.subtotal !== order.total && (
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-muted-foreground">Subtotal</span>
-                                        <span>R$ {order.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                    </div>
-                                )}
-                                {couponDiscountAmount > 0 && (
-                                    <div className="flex justify-between text-sm text-green-600">
-                                        <span>Cupom ({order.coupon_code || 'aplicado'})</span>
-                                        <span>- R$ {couponDiscountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                    </div>
-                                )}
-                                {paymentDiscountAmount > 0 && (
-                                    <div className="flex justify-between text-sm text-green-600">
-                                        <span>Desconto de pagamento</span>
-                                        <span>- R$ {paymentDiscountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                    </div>
-                                )}
-                                <div className="flex justify-between font-bold text-base">
-                                    <span>Total</span>
-                                    <span className="text-gradient-bronze">
-                                        R$ {order.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    </span>
-                                </div>
-                                <div className="rounded-xl border border-border/60 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                                    Valores, descontos e pagamento permanecem registrados como foram aprovados no checkout, mesmo que o cadastro comercial mude depois.
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </motion.div>
-
-                    {/* Payment */}
-                    {paymentDisplay.hasSnapshot && (
-                        <motion.div
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: 0.7 }}
-                        >
-                            <OrderPaymentSummaryCard order={order} title="Pagamento" />
-                        </motion.div>
-                    )}
-
-                    {/* Shipping address */}
-                    {order.shipping_address && (
-                        <motion.div
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: 0.75 }}
-                        >
-                            <Card className="glass-card border-0">
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-sm flex items-center gap-2">
-                                        <MapPin className="h-4 w-4 text-bronze" />
-                                        Endereço de Entrega
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-sm text-muted-foreground leading-relaxed">
-                                        {order.shipping_address}
-                                    </p>
-                                </CardContent>
-                            </Card>
-                        </motion.div>
-                    )}
-
-                    {/* Notes */}
-                    {order.notes && (
-                        <motion.div
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: 0.8 }}
-                        >
-                            <Card className="glass-card border-0">
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-sm">Observações</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <p className="text-sm text-muted-foreground">{order.notes}</p>
-                                </CardContent>
-                            </Card>
-                        </motion.div>
-                    )}
-                </div>
+            {/* ── Quick Actions Grid ──────────────────────────────────── */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                <ActionCard
+                    icon={<Eye className="h-5 w-5" />}
+                    label="Ver Pedido"
+                    sublabel="Detalhes completos"
+                    onClick={() => router.push(`/order/${order.id}`)}
+                    variant="primary"
+                    delay={0.5}
+                />
+                <ActionCard
+                    icon={<FileDown className="h-5 w-5" />}
+                    label="Baixar PDF"
+                    sublabel="Comprovante"
+                    onClick={handleDownloadPDF}
+                    disabled={isPrinting}
+                    loading={isPrinting}
+                    variant="primary"
+                    delay={0.55}
+                />
+                <ActionCard
+                    icon={<MessageCircle className="h-5 w-5" />}
+                    label="WhatsApp"
+                    sublabel="Compartilhar pedido"
+                    onClick={handleWhatsApp}
+                    variant="green"
+                    delay={0.6}
+                />
+                <ActionCard
+                    icon={<Mail className="h-5 w-5" />}
+                    label="Enviar E-mail"
+                    sublabel="Confirmação"
+                    onClick={handleSendEmail}
+                    disabled={isSendingEmail}
+                    loading={isSendingEmail}
+                    variant="blue"
+                    delay={0.65}
+                />
             </div>
+
+            {/* ── Navigation ──────────────────────────────────────────── */}
+            <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.75 }}
+                className="flex flex-col sm:flex-row gap-3"
+            >
+                <Button
+                    variant="outline"
+                    className="flex-1 gap-2 h-11"
+                    onClick={() => router.push('/orders')}
+                >
+                    <Package className="h-4 w-4" />
+                    Meus Pedidos
+                </Button>
+                <Button
+                    className="flex-1 gap-2 h-11 gradient-bronze border-0 text-white"
+                    onClick={() => router.push('/catalog')}
+                >
+                    <ShoppingBag className="h-4 w-4" />
+                    Continuar Comprando
+                    <ArrowRight className="h-4 w-4" />
+                </Button>
+            </motion.div>
         </div>
     )
 }

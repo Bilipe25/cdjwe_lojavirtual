@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
@@ -16,7 +16,6 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { NoticeCard } from '@/components/store/NoticeCard'
 import { useSettings } from '@/components/providers/settings-provider'
-import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
 import { getClientFinancialSummary } from '@/app/admin/financeiro/contas-a-receber/actions'
 
 interface DashboardCard {
@@ -105,7 +104,6 @@ const item = {
 
 export default function DashboardPage() {
     const { settings } = useSettings()
-    const { isStandalone } = usePwaRuntime()
     const [userName, setUserName] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
     const [finSummary, setFinSummary] = useState<{ totalOpen: number; totalOverdue: number } | null>(null)
@@ -149,12 +147,12 @@ export default function DashboardPage() {
     }, [])
 
     return (
-        <div className={`mx-auto px-4 py-6 ${isStandalone ? 'max-w-6xl lg:px-6 lg:py-8' : 'max-w-lg'}`}>
+        <div className="mx-auto max-w-6xl px-4 py-6 lg:px-6 lg:py-8">
             {/* Greeting */}
             <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={`mb-8 ${isStandalone ? 'lg:flex lg:items-start lg:justify-between lg:gap-6' : ''}`}
+                className="mb-8 lg:flex lg:items-start lg:justify-between lg:gap-6"
             >
                 {loading ? (
                     <div className="space-y-2">
@@ -162,35 +160,15 @@ export default function DashboardPage() {
                         <div className="h-5 w-72 rounded-md bg-muted animate-pulse" />
                     </div>
                 ) : (
-                    <div className={`space-y-4 ${isStandalone ? 'lg:flex lg:flex-1 lg:items-start lg:justify-between lg:gap-6 lg:space-y-0' : ''}`}>
-                        <div>
-                            <div className="flex flex-wrap items-center gap-3">
-                                <h1 className="text-3xl font-bold font-heading tracking-tight text-gradient-navy">
-                                    Bem-vindo(a), {userName || 'visitante'}
-                                </h1>
-                            </div>
-                            <p className="mt-1 text-balance text-muted-foreground">
-                                {greeting}. Escolha um atalho para continuar sua operacao.
-                            </p>
+                    <div>
+                        <div className="flex flex-wrap items-center gap-3">
+                            <h1 className="text-3xl font-bold font-heading tracking-tight text-gradient-navy">
+                                Bem-vindo(a), {userName || 'visitante'}
+                            </h1>
                         </div>
-
-                        {isStandalone && (
-                            <div className="hidden min-w-[280px] rounded-3xl border border-white/70 bg-white/88 p-4 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.35)] backdrop-blur-xl lg:block">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                                    Workspace
-                                </p>
-                                <div className="mt-3 grid grid-cols-2 gap-3">
-                                    <div className="rounded-2xl bg-navy/[0.04] px-3 py-3">
-                                        <p className="text-2xl font-bold font-heading text-navy">{dashboardCards.length}</p>
-                                        <p className="mt-1 text-xs text-muted-foreground">atalhos ativos</p>
-                                    </div>
-                                    <div className="rounded-2xl bg-bronze/[0.08] px-3 py-3">
-                                        <p className="text-sm font-semibold text-foreground">Fluxo rapido</p>
-                                        <p className="mt-1 text-xs text-muted-foreground">catalogo, pedidos e perfil</p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                        <p className="mt-1 text-balance text-muted-foreground">
+                            {greeting}. Escolha um atalho para continuar sua operacao.
+                        </p>
                     </div>
                 )}
             </motion.div>
@@ -240,12 +218,12 @@ export default function DashboardPage() {
                 </motion.div>
             )}
 
-            {/* Quick Access Grid */}
+            {/* Quick Access Grid — responsive: 2 cols mobile, 3 cols tablet, 4 cols desktop */}
             <motion.div
                 variants={container}
                 initial="hidden"
                 animate="show"
-                className={`grid gap-3 ${isStandalone ? 'grid-cols-2 xl:grid-cols-3' : 'grid-cols-2 sm:grid-cols-3'}`}
+                className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4"
             >
                 {dashboardCards.map((card) => (
                     <motion.div key={card.title} variants={item}>
@@ -253,10 +231,10 @@ export default function DashboardPage() {
                             <Link href={card.href}>
                                 <motion.div
                                     whileTap={{ scale: 0.95 }}
-                                    className={`relative flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border border-border/40 transition-all duration-200 ${card.color} min-h-[110px] shadow-sm`}
+                                    className={`relative flex flex-col items-center justify-center gap-3 p-5 lg:p-6 rounded-2xl border border-border/40 transition-all duration-200 ${card.color} min-h-[110px] lg:min-h-[130px] shadow-sm`}
                                 >
-                                    <card.icon className={`h-8 w-8 ${card.iconColor}`} />
-                                    <span className="text-xs font-semibold text-foreground text-center leading-tight">
+                                    <card.icon className={`h-8 w-8 lg:h-9 lg:w-9 ${card.iconColor}`} />
+                                    <span className="text-xs lg:text-sm font-semibold text-foreground text-center leading-tight">
                                         {card.title}
                                     </span>
                                 </motion.div>
@@ -265,10 +243,10 @@ export default function DashboardPage() {
                             <div
                                 role="button"
                                 aria-disabled="true"
-                                className={`relative flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border border-border/30 ${card.color} min-h-[110px] opacity-60 cursor-not-allowed`}
+                                className={`relative flex flex-col items-center justify-center gap-3 p-5 lg:p-6 rounded-2xl border border-border/30 ${card.color} min-h-[110px] lg:min-h-[130px] opacity-60 cursor-not-allowed`}
                             >
-                                <card.icon className={`h-8 w-8 ${card.iconColor}`} />
-                                <span className="text-xs font-semibold text-muted-foreground text-center leading-tight">
+                                <card.icon className={`h-8 w-8 lg:h-9 lg:w-9 ${card.iconColor}`} />
+                                <span className="text-xs lg:text-sm font-semibold text-muted-foreground text-center leading-tight">
                                     {card.title}
                                 </span>
                                 {card.badge && (
@@ -292,4 +270,3 @@ export default function DashboardPage() {
         </div>
     )
 }
-

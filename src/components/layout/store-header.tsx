@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
+    Home,
     ShoppingCart,
     Package,
     ClipboardList,
@@ -55,6 +56,11 @@ const navItems = [
     { href: '/fabrics', label: 'Tecidos', icon: Scissors },
     { href: '/orders', label: 'Meus Pedidos', icon: ClipboardList },
     { href: '/about', label: 'Sobre Nos', icon: Building2 },
+]
+
+const desktopNavItems = [
+    { href: '/dashboard', label: 'Inicio', icon: Home },
+    ...navItems,
 ]
 
 const typeConfig: Record<string, { icon: LucideIcon; color: string; bg: string; label: string }> = {
@@ -233,7 +239,7 @@ export function StoreHeader() {
                         </Link>
 
                         <nav className={`hidden items-center ${isStandalone ? 'gap-1.5 xl:flex' : 'gap-1 lg:flex'}`} aria-label="Navegacao principal">
-                            {navItems.map((item) => {
+                            {desktopNavItems.map((item) => {
                                 const isActive = pathname.startsWith(item.href)
                                 return (
                                     <Link key={item.href} href={item.href}>
