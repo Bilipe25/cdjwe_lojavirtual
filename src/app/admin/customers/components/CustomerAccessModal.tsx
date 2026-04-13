@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Key, Copy, Loader2, MessageCircle, Mail, Eye, EyeOff, RefreshCw, Building2, AtSign, Truck } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Key, Copy, Loader2, MessageCircle, Mail, Eye, EyeOff, RefreshCw, Building2, AtSign, ShieldCheck, ShieldX, UserCog } from 'lucide-react'
 import {
     Dialog,
     DialogContent,
@@ -14,25 +14,45 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { generateCustomerPassword, setCustomerPassword, sendAccessLink, promoteCustomerToDriver } from '../actions'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { generateCustomerPassword, setCustomerPassword, sendAccessLink, updateCustomerRoleAsAdmin, updateCustomerStatusAsAdmin } from '../actions'
 import { toast } from 'sonner'
 import type { CustomerWithStore } from './CustomerList'
 import { getPrimaryCustomerAccessIdentifier, hasRealCustomerEmail, normalizeEmail } from '@/lib/customers/access'
+
+type CustomerAccessRole = 'client' | 'representative' | 'driver'
+type CustomerAccessStatus = 'pending' | 'approved' | 'blocked' | 'imported'
 
 interface CustomerAccessModalProps {
     customer: CustomerWithStore | null
     isOpen: boolean
     onClose: () => void
+    onAccessUpdated?: (updates: { role: CustomerAccessRole; status: CustomerAccessStatus }) => void
 }
 
-export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAccessModalProps) {
+const ROLE_LABELS: Record<CustomerAccessRole, string> = {
+    client: 'Cliente',
+    representative: 'Representante',
+    driver: 'Motorista',
+}
+
+const STATUS_LABELS: Record<CustomerAccessStatus, string> = {
+    pending: 'Pendente',
+    approved: 'Liberado',
+    blocked: 'Bloqueado',
+    imported: 'Importado',
+}
+
+export function CustomerAccessModal({ customer, isOpen, onClose, onAccessUpdated }: CustomerAccessModalProps) {
     const [password, setPassword] = useState('')
     const [customPassword, setCustomPassword] = useState('')
     const [showPassword, setShowPassword] = useState(true)
     const [generating, setGenerating] = useState(false)
     const [settingPassword, setSettingPassword] = useState(false)
     const [sendingLink, setSendingLink] = useState(false)
-    const [promotingToDriver, setPromotingToDriver] = useState(false)
+    const [selectedRole, setSelectedRole] = useState<CustomerAccessRole>((customer?.role as CustomerAccessRole) || 'client')
+    const [updatingRole, setUpdatingRole] = useState(false)
+    const [updatingStatus, setUpdatingStatus] = useState(false)
 
     const store = customer?.stores?.[0]
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
@@ -48,7 +68,38 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
             }),
         [customer?.email, hasRealEmail, store?.cnpj, store?.document_number]
     )
-    const isDriver = customer?.role === 'driver'
+
+    useEffect(() => {
+        setSelectedRole((customer?.role as CustomerAccessRole) || 'client')
+    }, [customer?.role])
+
+    const accessAction = useMemo(() => {
+        if (!customer || customer.status === 'blocked') {
+            return {
+                nextStatus: 'approved' as const,
+                label: customer?.status === 'blocked' ? 'Liberar acesso' : 'Aprovar acesso',
+                icon: ShieldCheck,
+                buttonClassName: 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800',
+            }
+        }
+
+        if (customer.status === 'approved') {
+            return {
+                nextStatus: 'blocked' as const,
+                label: 'Bloquear acesso',
+                icon: ShieldX,
+                buttonClassName: 'border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800',
+            }
+        }
+
+        return {
+            nextStatus: 'approved' as const,
+            label: 'Aprovar acesso',
+            icon: ShieldCheck,
+            buttonClassName: 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800',
+        }
+    }, [customer])
+    const AccessActionIcon = accessAction.icon
 
     const handleGenerate = async () => {
         if (!customer) return
@@ -131,18 +182,43 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
         }
     }
 
-    const handlePromoteToDriver = async () => {
-        if (!customer || isDriver) return
-        setPromotingToDriver(true)
+    const handleRoleUpdate = async () => {
+        if (!customer || selectedRole === customer.role) return
+        setUpdatingRole(true)
         try {
-            const result = await promoteCustomerToDriver(customer.id)
+            const result = await updateCustomerRoleAsAdmin(customer.id, selectedRole)
             if ('error' in result && result.error) {
                 toast.error(result.error)
                 return
             }
-            toast.success('Cliente definido como motorista com sucesso!')
+
+            toast.success(`Perfil alterado para ${ROLE_LABELS[selectedRole].toLowerCase()} com sucesso!`)
+            onAccessUpdated?.({
+                role: selectedRole,
+                status: (result.status || customer.status) as CustomerAccessStatus,
+            })
         } finally {
-            setPromotingToDriver(false)
+            setUpdatingRole(false)
+        }
+    }
+
+    const handleToggleAccess = async () => {
+        if (!customer) return
+        setUpdatingStatus(true)
+        try {
+            const result = await updateCustomerStatusAsAdmin(customer.id, accessAction.nextStatus)
+            if ('error' in result && result.error) {
+                toast.error(result.error)
+                return
+            }
+
+            toast.success(accessAction.nextStatus === 'blocked' ? 'Acesso bloqueado com sucesso!' : 'Acesso liberado com sucesso!')
+            onAccessUpdated?.({
+                role: (customer.role as CustomerAccessRole) || selectedRole,
+                status: accessAction.nextStatus,
+            })
+        } finally {
+            setUpdatingStatus(false)
         }
     }
 
@@ -226,23 +302,49 @@ export function CustomerAccessModal({ customer, isOpen, onClose }: CustomerAcces
                     <Separator />
 
                     <div className="space-y-3">
-                        <h4 className="text-sm font-semibold text-navy">Acesso ao painel de motorista</h4>
-                        {isDriver ? (
-                            <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs text-emerald-700 flex items-center gap-2">
-                                <Truck className="h-3.5 w-3.5" />
-                                Perfil ja configurado como motorista.
+                        <h4 className="text-sm font-semibold text-navy">Perfil de acesso</h4>
+                        <Select value={selectedRole} onValueChange={(value) => setSelectedRole(value as CustomerAccessRole)}>
+                            <SelectTrigger className="h-10 w-full">
+                                <SelectValue>{ROLE_LABELS[selectedRole]}</SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="client">Cliente</SelectItem>
+                                <SelectItem value="representative">Representante</SelectItem>
+                                <SelectItem value="driver">Motorista</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Button
+                            variant="outline"
+                            onClick={handleRoleUpdate}
+                            disabled={updatingRole || !customer || selectedRole === customer.role}
+                            className="w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                        >
+                            {updatingRole ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />}
+                            Salvar perfil de acesso
+                        </Button>
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3">
+                        <h4 className="text-sm font-semibold text-navy">Status do acesso</h4>
+                        <div className="rounded border bg-slate-50 px-3 py-2 text-sm">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-muted-foreground">Status atual</span>
+                                <Badge variant="outline">
+                                    {customer ? STATUS_LABELS[customer.status as CustomerAccessStatus] || customer.status : 'Nao informado'}
+                                </Badge>
                             </div>
-                        ) : (
-                            <Button
-                                variant="outline"
-                                onClick={handlePromoteToDriver}
-                                disabled={promotingToDriver}
-                                className="w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
-                            >
-                                {promotingToDriver ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
-                                Definir como motorista
-                            </Button>
-                        )}
+                        </div>
+                        <Button
+                            variant="outline"
+                            onClick={handleToggleAccess}
+                            disabled={updatingStatus || !customer}
+                            className={`w-full gap-2 ${accessAction.buttonClassName}`}
+                        >
+                            {updatingStatus ? <Loader2 className="h-4 w-4 animate-spin" /> : <AccessActionIcon className="h-4 w-4" />}
+                            {accessAction.label}
+                        </Button>
                     </div>
 
                     <Separator />

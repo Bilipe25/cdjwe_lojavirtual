@@ -52,6 +52,21 @@ export async function updateSession(request: NextRequest) {
             return NextResponse.redirect(url)
         }
 
+        const isBlockedPage = request.nextUrl.pathname.startsWith('/blocked')
+        const isPendingPage = request.nextUrl.pathname.startsWith('/pending-approval')
+
+        if (requiresBlockedRedirect(role, status) && !isBlockedPage) {
+            const url = request.nextUrl.clone()
+            url.pathname = '/blocked'
+            return NextResponse.redirect(url)
+        }
+
+        if (requiresPendingRedirect(role, status) && !isPendingPage) {
+            const url = request.nextUrl.clone()
+            url.pathname = '/pending-approval'
+            return NextResponse.redirect(url)
+        }
+
         if (request.nextUrl.pathname.startsWith('/admin')) {
             if (role !== 'admin') {
                 const url = request.nextUrl.clone()

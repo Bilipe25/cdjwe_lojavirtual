@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { getCustomerAuditLog, getCustomerOrders, getCustomerTags, getRepresentatives } from '../actions'
+import { toast } from 'sonner'
+import { getCustomerAuditLog, getCustomerOrders, getCustomerTags, getRepresentatives, updateCustomerStatusAsAdmin } from '../actions'
 import type { CustomerWithStore } from '../components/CustomerList'
 import type { CustomerLoginAudit, CustomerType, CustomerTag, Profile } from '@/lib/types'
 import type { CustomerOrderSummary } from '../components/CustomerOrdersTab'
@@ -57,6 +58,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
     const [loadingOrders, setLoadingOrders] = useState(false)
     const [didLoadAudit, setDidLoadAudit] = useState(false)
     const [didLoadOrders, setDidLoadOrders] = useState(false)
+    const [updatingHeaderStatus, setUpdatingHeaderStatus] = useState(false)
 
     useEffect(() => {
         let isMounted = true
@@ -175,11 +177,30 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
         })
     }
 
-    const handleRoleUpdated = (role: 'driver') => {
+    const handleAccessUpdated = (updates: { role: 'client' | 'representative' | 'driver'; status: 'pending' | 'approved' | 'blocked' | 'imported' }) => {
         setCustomer((previous) => {
             if (!previous) return previous
-            return { ...previous, role } as CustomerWithStore
+            return { ...previous, role: updates.role, status: updates.status } as CustomerWithStore
         })
+    }
+
+    const handleStatusChange = async (nextStatus: 'approved' | 'blocked') => {
+        if (!customer) return
+        setUpdatingHeaderStatus(true)
+        try {
+            const result = await updateCustomerStatusAsAdmin(customer.id, nextStatus)
+            if (result.error) {
+                toast.error(result.error)
+                return
+            }
+
+            setCustomer((previous) => (
+                previous ? { ...previous, status: nextStatus } as CustomerWithStore : previous
+            ))
+            toast.success(nextStatus === 'approved' ? 'Acesso liberado com sucesso!' : 'Acesso bloqueado com sucesso!')
+        } finally {
+            setUpdatingHeaderStatus(false)
+        }
     }
 
     if (loading) {
@@ -319,6 +340,8 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                             <Button 
                                 size="sm" 
                                 className="bg-green-600 hover:bg-green-700 text-white shadow-sm"
+                                onClick={() => void handleStatusChange('approved')}
+                                disabled={updatingHeaderStatus}
                             >
                                 <Check className="h-4 w-4 mr-2" /> Aprovar
                             </Button>
@@ -327,6 +350,8 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                                 size="sm" 
                                 variant="outline" 
                                 className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                                onClick={() => void handleStatusChange('blocked')}
+                                disabled={updatingHeaderStatus}
                             >
                                 <Ban className="h-4 w-4 mr-2" /> Bloquear
                             </Button>
@@ -358,8 +383,22 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                     <Button variant="outline" size="sm" className="bg-white whitespace-nowrap" onClick={() => setActiveTab('access')}>
                         <Key className="h-3.5 w-3.5 mr-1" /> Acessos
                     </Button>
-                    <Button variant="outline" size="sm" className="text-destructive border-destructive/30 whitespace-nowrap">
-                        <Ban className="h-3.5 w-3.5 mr-1" /> Bloquear
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive border-destructive/30 whitespace-nowrap"
+                        onClick={() => void handleStatusChange(customer.status === 'approved' ? 'blocked' : 'approved')}
+                        disabled={updatingHeaderStatus}
+                    >
+                        {customer.status === 'approved' ? (
+                            <>
+                                <Ban className="h-3.5 w-3.5 mr-1" /> Bloquear
+                            </>
+                        ) : (
+                            <>
+                                <Check className="h-3.5 w-3.5 mr-1" /> Aprovar
+                            </>
+                        )}
                     </Button>
                 </div>
             </div>
@@ -472,7 +511,7 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
                 
                 {activeTab === 'access' && (
                     <div className="bg-white rounded-2xl border p-6 shadow-sm">
-                        <CustomerAccessTab customer={customer} onRoleUpdated={handleRoleUpdated} />
+                        <CustomerAccessTab customer={customer} onAccessUpdated={handleAccessUpdated} />
                     </div>
                 )}
                 

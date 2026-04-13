@@ -454,6 +454,22 @@ export default function CustomersPage() {
         void refreshCustomersPage()
     }
 
+    const handleAccessUpdated = (profileId: string, updates: { role: 'client' | 'representative' | 'driver'; status: 'pending' | 'approved' | 'blocked' | 'imported' }) => {
+        setCustomers((previous) =>
+            previous.map((customer) =>
+                customer.id === profileId
+                    ? { ...customer, role: updates.role, status: updates.status }
+                    : customer
+            )
+        )
+
+        setAccessCustomer((previous) => (
+            previous?.id === profileId
+                ? { ...previous, role: updates.role, status: updates.status }
+                : previous
+        ))
+    }
+
     const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE))
 
     return (
@@ -574,6 +590,10 @@ export default function CustomersPage() {
                 customer={accessCustomer}
                 isOpen={!!accessCustomer}
                 onClose={() => setAccessCustomer(null)}
+                onAccessUpdated={(updates) => {
+                    if (!accessCustomer) return
+                    handleAccessUpdated(accessCustomer.id, updates)
+                }}
             />
         </div>
     )

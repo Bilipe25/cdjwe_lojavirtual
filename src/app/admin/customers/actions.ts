@@ -52,6 +52,7 @@ async function verifyAdmin() {
 }
 
 type CustomerStatus = 'pending' | 'approved' | 'blocked' | 'imported'
+type CustomerAccessRole = 'client' | 'representative' | 'driver'
 
 type UpsertCustomerDomainInput = {
     profileId: string
@@ -295,6 +296,181 @@ function isRepresentativeCustomerType(type?: { slug?: string | null; name?: stri
     return slug === 'representante' || name === 'representante'
 }
 
+async function findRepresentativeCustomerTypeId(
+    supabaseAdmin: Awaited<ReturnType<typeof getAdminClient>>
+) {
+    const { data: customerTypes, error } = await supabaseAdmin
+        .from('customer_types')
+        .select('id, slug, name')
+        .order('sort_order')
+        .order('name')
+
+    if (error) throw error
+
+    return customerTypes?.find((type) => isRepresentativeCustomerType(type))?.id || null
+}
+
+async function syncDriverOperationalState(params: {
+    supabaseAdmin: Awaited<ReturnType<typeof getAdminClient>>
+    profileId: string
+    role: CustomerAccessRole
+    status: CustomerStatus
+    phone?: string | null
+}) {
+    const { supabaseAdmin, profileId, role, status, phone = null } = params
+
+    const { data: driverRow, error: driverLoadError } = await supabaseAdmin
+        .from('drivers')
+        .select('id, status, phone')
+        .eq('profile_id', profileId)
+        .maybeSingle()
+
+    if (driverLoadError) throw driverLoadError
+
+    const shouldHaveDriverAccess = role === 'driver'
+    const shouldBeOperational = shouldHaveDriverAccess && status === 'approved'
+
+    if (!driverRow?.id) {
+        if (!shouldHaveDriverAccess) {
+            return
+        }
+
+        const { error: createDriverError } = await supabaseAdmin
+            .from('drivers')
+            .insert({
+                profile_id: profileId,
+                phone,
+                status: shouldBeOperational ? 'available' : 'inactive',
+                notes: 'Criado automaticamente a partir do modulo de clientes.',
+            })
+
+        if (createDriverError) throw createDriverError
+        return
+    }
+
+    const nextDriverStatus = shouldBeOperational
+        ? (driverRow.status === 'inactive' ? 'available' : driverRow.status)
+        : 'inactive'
+
+    const shouldUpdatePhone = (driverRow.phone || null) !== (phone || null)
+    const shouldUpdateStatus = driverRow.status !== nextDriverStatus
+
+    if (!shouldUpdatePhone && !shouldUpdateStatus) {
+        return
+    }
+
+    const { error: updateDriverError } = await supabaseAdmin
+        .from('drivers')
+        .update({
+            ...(shouldUpdatePhone ? { phone } : {}),
+            ...(shouldUpdateStatus ? { status: nextDriverStatus } : {}),
+        })
+        .eq('id', driverRow.id)
+
+    if (updateDriverError) throw updateDriverError
+}
+
+export async function updateCustomerRoleAsAdmin(profileId: string, targetRole: CustomerAccessRole) {
+    try {
+        await verifyAdmin()
+        const supabaseAdmin = await getAdminClient()
+
+        const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .select('id, role, status, phone, full_name')
+            .eq('id', profileId)
+            .single()
+
+        if (profileError || !profile) {
+            return { error: 'Cliente nao encontrado.' }
+        }
+
+        if (profile.role === 'admin') {
+            return { error: 'Nao e permitido alterar o perfil de um administrador.' }
+        }
+
+        if (!['client', 'representative', 'driver'].includes(profile.role)) {
+            return { error: 'Somente clientes, representantes e motoristas podem ter o acesso alterado.' }
+        }
+
+        if (!['client', 'representative', 'driver'].includes(targetRole)) {
+            return { error: 'Perfil de acesso invalido.' }
+        }
+
+        const { data: primaryStore, error: storeError } = await supabaseAdmin
+            .from('stores')
+            .select('id, customer_type_id, customer_type:customer_types(id, slug, name)')
+            .eq('profile_id', profileId)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle()
+
+        if (storeError) throw storeError
+
+        const currentStoreType = primaryStore?.customer_type as { id?: string; slug?: string | null; name?: string | null } | null | undefined
+        const currentStoreTypeId = primaryStore?.customer_type_id || null
+        const hasRepresentativeType = isRepresentativeCustomerType(currentStoreType)
+
+        let nextCustomerTypeId = currentStoreTypeId
+        if (targetRole === 'representative') {
+            const representativeTypeId =
+                hasRepresentativeType && currentStoreTypeId
+                    ? currentStoreTypeId
+                    : await findRepresentativeCustomerTypeId(supabaseAdmin)
+
+            if (!representativeTypeId) {
+                return { error: 'Nao foi encontrado um tipo de cliente "Representante" para vincular ao cadastro.' }
+            }
+
+            nextCustomerTypeId = representativeTypeId
+        } else if (hasRepresentativeType) {
+            nextCustomerTypeId = null
+        }
+
+        if (primaryStore?.id && nextCustomerTypeId !== currentStoreTypeId) {
+            const { error: updateStoreError } = await supabaseAdmin
+                .from('stores')
+                .update({ customer_type_id: nextCustomerTypeId })
+                .eq('id', primaryStore.id)
+
+            if (updateStoreError) throw updateStoreError
+        }
+
+        if (profile.role !== targetRole) {
+            const { error: profileUpdateError } = await supabaseAdmin
+                .from('profiles')
+                .update({ role: targetRole })
+                .eq('id', profileId)
+
+            if (profileUpdateError) throw profileUpdateError
+        }
+
+        await syncDriverOperationalState({
+            supabaseAdmin,
+            profileId,
+            role: targetRole,
+            status: profile.status as CustomerStatus,
+            phone: profile.phone,
+        })
+
+        try {
+            await supabaseAdmin.auth.admin.updateUserById(profileId, {
+                user_metadata: {
+                    role: targetRole,
+                    ...(profile.full_name ? { full_name: profile.full_name } : {}),
+                },
+            })
+        } catch (authError) {
+            console.error('[CUSTOMER ROLE UPDATE] Failed to sync auth metadata:', authError)
+        }
+
+        return { success: true, role: targetRole, status: profile.status as CustomerStatus }
+    } catch (err: unknown) {
+        console.error('Update Customer Role Error:', err)
+        return { error: toErrorMessage(err, 'Erro ao alterar o perfil de acesso.') }
+    }
+}
+
 async function syncProfileRoleWithCustomerType(params: {
     supabaseAdmin: Awaited<ReturnType<typeof getAdminClient>>
     profileId: string
@@ -311,6 +487,21 @@ async function syncProfileRoleWithCustomerType(params: {
         currentStatus = null,
         fullName = null,
     } = params
+
+    if (currentRole === 'driver') {
+        try {
+            await supabaseAdmin.auth.admin.updateUserById(profileId, {
+                user_metadata: {
+                    role: 'driver',
+                    ...(fullName ? { full_name: fullName } : {}),
+                },
+            })
+        } catch (authError) {
+            console.error('[CUSTOMER ROLE SYNC] Failed to sync auth metadata for driver:', authError)
+        }
+
+        return { role: 'driver' as const, changed: false }
+    }
 
     const normalizedCustomerTypeId = toOptionalUuid(customerTypeId)
     if (!normalizedCustomerTypeId) {
@@ -735,7 +926,7 @@ export async function updateCustomerStatusAsAdmin(profileId: string, status: Cus
 
         const { data: profile, error: profileLoadError } = await supabaseAdmin
             .from('profiles')
-            .select('id, role, status, email, full_name')
+            .select('id, role, status, email, full_name, phone')
             .eq('id', profileId)
             .single()
 
@@ -755,6 +946,14 @@ export async function updateCustomerStatusAsAdmin(profileId: string, status: Cus
 
             if (updateError) throw updateError
         }
+
+        await syncDriverOperationalState({
+            supabaseAdmin,
+            profileId,
+            role: profile.role as CustomerAccessRole,
+            status,
+            phone: profile.phone,
+        })
 
         if (status === 'approved' && profile.status !== 'approved' && profile.email) {
             await sendAccountApprovedEmail({
@@ -782,7 +981,7 @@ export async function bulkUpdateCustomerStatusAsAdmin(ids: string[], status: Cus
 
         const { data: customers, error: loadError } = await supabaseAdmin
             .from('profiles')
-            .select('id, role, status, email, full_name')
+            .select('id, role, status, email, full_name, phone')
             .in('id', uniqueIds)
             .in('role', ['client', 'representative', 'driver'])
 
@@ -798,6 +997,29 @@ export async function bulkUpdateCustomerStatusAsAdmin(ids: string[], status: Cus
             .in('id', customerIds)
 
         if (updateError) throw updateError
+
+        const driverIds = customers
+            .filter((customer) => customer.role === 'driver')
+            .map((customer) => customer.id)
+
+        if (driverIds.length > 0) {
+            if (status === 'approved') {
+                const { error: reactivateDriversError } = await supabaseAdmin
+                    .from('drivers')
+                    .update({ status: 'available' })
+                    .in('profile_id', driverIds)
+                    .eq('status', 'inactive')
+
+                if (reactivateDriversError) throw reactivateDriversError
+            } else {
+                const { error: deactivateDriversError } = await supabaseAdmin
+                    .from('drivers')
+                    .update({ status: 'inactive' })
+                    .in('profile_id', driverIds)
+
+                if (deactivateDriversError) throw deactivateDriversError
+            }
+        }
 
         if (status === 'approved') {
             const emailTargets = customers.filter((customer) => customer.status !== 'approved' && customer.email)
@@ -894,77 +1116,7 @@ export async function getCustomerAccessSnapshot(profileId: string) {
 }
 
 export async function promoteCustomerToDriver(profileId: string) {
-    try {
-        await verifyAdmin()
-        const supabaseAdmin = await getAdminClient()
-
-        const { data: profile, error: profileError } = await supabaseAdmin
-            .from('profiles')
-            .select('id, role, status, phone, full_name')
-            .eq('id', profileId)
-            .single()
-
-        if (profileError || !profile) {
-            return { error: 'Cliente nao encontrado.' }
-        }
-
-        if (profile.role === 'admin') {
-            return { error: 'Nao e permitido alterar um administrador para motorista.' }
-        }
-
-        if (!['client', 'representative', 'driver'].includes(profile.role)) {
-            return { error: 'Somente clientes ou representantes podem ser definidos como motorista.' }
-        }
-
-        const { data: existingDriver, error: existingDriverError } = await supabaseAdmin
-            .from('drivers')
-            .select('id')
-            .eq('profile_id', profileId)
-            .maybeSingle()
-
-        if (existingDriverError) throw existingDriverError
-
-        if (!existingDriver?.id) {
-            const { error: createDriverError } = await supabaseAdmin
-                .from('drivers')
-                .insert({
-                    profile_id: profileId,
-                    phone: profile.phone || null,
-                    status: 'available',
-                    notes: 'Criado automaticamente a partir do modulo de clientes.',
-                })
-
-            if (createDriverError) throw createDriverError
-        }
-
-        if (profile.role !== 'driver' || profile.status !== 'approved') {
-            const { error: profileUpdateError } = await supabaseAdmin
-                .from('profiles')
-                .update({
-                    role: 'driver',
-                    status: 'approved',
-                })
-                .eq('id', profileId)
-
-            if (profileUpdateError) throw profileUpdateError
-        }
-
-        try {
-            await supabaseAdmin.auth.admin.updateUserById(profileId, {
-                user_metadata: {
-                    role: 'driver',
-                    ...(profile.full_name ? { full_name: profile.full_name } : {}),
-                },
-            })
-        } catch (authError) {
-            console.error('[PROMOTE CUSTOMER TO DRIVER] Failed to sync auth metadata:', authError)
-        }
-
-        return { success: true }
-    } catch (err: unknown) {
-        console.error('Promote Customer To Driver Error:', err)
-        return { error: toErrorMessage(err, 'Erro ao definir cliente como motorista.') }
-    }
+    return updateCustomerRoleAsAdmin(profileId, 'driver')
 }
 
 // ==================== IMPORT CUSTOMERS FROM CSV ====================
