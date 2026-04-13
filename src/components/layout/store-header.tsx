@@ -50,6 +50,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useFavoritesStore } from '@/lib/stores/favorites-store'
 import { useNotifications, type ClientNotification } from '@/lib/hooks/use-notifications'
 import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
+import { ThemeToggle } from '@/components/ui/theme-toggle'
 
 const navItems = [
     { href: '/catalog', label: 'Catalogo', icon: Package },
@@ -270,6 +271,9 @@ export function StoreHeader() {
                         </div>
 
                         <div className={`flex items-center ${isStandalone ? 'gap-1.5' : 'gap-1'}`}>
+                            {/* Theme toggle */}
+                            <ThemeToggle />
+
                             <Link href="/favorites">
                                 <Button variant="ghost" size="icon" className={`relative ${isStandalone ? 'rounded-xl' : ''}`}>
                                     <Heart className="h-5 w-5" />
@@ -295,7 +299,7 @@ export function StoreHeader() {
                                     </AnimatePresence>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-96 overflow-hidden rounded-xl border-border/50 p-0 shadow-xl">
-                                    <div className="flex items-center justify-between border-b bg-muted/20 px-4 py-3">
+                                    <div className="flex items-center justify-between border-b bg-muted/20 dark:bg-muted/30 px-4 py-3">
                                         <div className="flex items-center gap-2.5">
                                             <div className="flex h-7 w-7 items-center justify-center rounded-lg gradient-bronze">
                                                 <Bell className="h-3.5 w-3.5 text-white" />
@@ -347,7 +351,7 @@ export function StoreHeader() {
                                                             key={notification.id}
                                                             onClick={() => handleNotificationClick(notification)}
                                                             className={`group flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors ${
-                                                                !notification.is_read ? 'bg-primary/2 hover:bg-primary/5' : 'hover:bg-muted/30'
+                                                                !notification.is_read ? 'bg-primary/5 hover:bg-primary/10 dark:bg-primary/10 dark:hover:bg-primary/20' : 'hover:bg-muted/30 dark:hover:bg-muted/10'
                                                             }`}
                                                         >
                                                             <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${config.bg}`}>

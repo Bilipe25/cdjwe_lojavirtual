@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Image from 'next/image'
 import Link from 'next/link'
@@ -89,7 +89,7 @@ export function ProductCard({
                         </Badge>
                     )}
                     {product.category && (
-                        <Badge variant="secondary" className={`${imageBadgeBase} hidden border-white/45 bg-white/82 text-[9px] sm:flex sm:text-[10px] text-slate-700`}>
+                        <Badge variant="secondary" className={`${imageBadgeBase} hidden border-white/45 bg-background/80 text-[9px] sm:flex sm:text-[10px] text-foreground`}>
                             {product.category.name}
                         </Badge>
                     )}
@@ -106,7 +106,7 @@ export function ProductCard({
                 {/* Favorite heart - larger touch area on mobile */}
                 <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(product.id) }}
-                    className="absolute top-2 right-2 sm:top-3 sm:right-3 h-9 w-9 sm:h-8 sm:w-8 rounded-full bg-white/80 backdrop-blur flex items-center justify-center hover:bg-white transition-all shadow-sm z-10 mobile-touch-target"
+                    className="absolute top-2 right-2 sm:top-3 sm:right-3 h-9 w-9 sm:h-8 sm:w-8 rounded-full bg-background/80 backdrop-blur flex items-center justify-center hover:bg-background transition-all shadow-sm z-10 mobile-touch-target"
                 >
                     <Heart
                         className={`h-4 w-4 transition-colors ${
@@ -132,7 +132,7 @@ export function ProductCard({
                             <Button
                                 size="sm"
                                 variant="secondary"
-                                className="bg-white/90 hover:bg-white shadow"
+                                className="bg-background/90 hover:bg-background shadow"
                             >
                                 Detalhes
                             </Button>

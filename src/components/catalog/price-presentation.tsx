@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { Badge } from '@/components/ui/badge'
 import type { PriceLayer } from '@/lib/pricing/calculate-product-price'
@@ -36,22 +36,22 @@ export function getVariantPriceBadges({
     discountPercentage?: number
 }): PriceBadgeDescriptor[] {
     if (layer === 'variant') {
-        return [{ label: 'Cor', className: 'bg-indigo-100 text-indigo-800' }]
+        return [{ label: 'Cor', className: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-300' }]
     }
 
     if (layer === 'price_table_override') {
-        return [{ label: 'Tabela', className: 'bg-amber-100 text-amber-800' }]
+        return [{ label: 'Tabela', className: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300' }]
     }
 
     if (layer === 'size_absolute') {
-        return [{ label: 'Tamanho', className: 'bg-sky-100 text-sky-800' }]
+        return [{ label: 'Tamanho', className: 'bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300' }]
     }
 
     if (layer === 'price_table_discount' && discountPercentage > 0) {
         return [
             {
                 label: `-${discountPercentage}%`,
-                className: 'bg-green-100 text-green-800',
+                className: 'bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300',
             },
         ]
     }
@@ -70,7 +70,7 @@ export function PricePresentation({
     badgeClassName,
 }: PricePresentationProps) {
     return (
-        <div className={cn('rounded-2xl border border-border/70 bg-white p-5 shadow-sm', className)}>
+        <div className={cn('rounded-2xl border border-border/70 bg-card p-5 shadow-sm', className)}>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                     <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -85,7 +85,7 @@ export function PricePresentation({
                 <Badge
                     variant="secondary"
                     className={cn(
-                        'w-fit rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-700',
+                        'w-fit rounded-full border border-border/50 bg-muted/50 px-3 py-1 text-[11px] font-medium text-foreground',
                         badgeClassName
                     )}
                 >

@@ -360,7 +360,7 @@ export function QuickViewContent({
         ) ?? []
 
     return (
-        <div className="flex flex-col bg-white md:grid md:h-full md:grid-cols-[1fr_1.2fr] md:overflow-hidden">
+        <div className="flex flex-col bg-background md:grid md:h-full md:grid-cols-[1fr_1.2fr] md:overflow-hidden">
             <div className="relative shrink-0 overflow-hidden bg-muted/20 md:h-full md:border-r md:border-border/50">
                 <ProductImageGallery
                     images={displayImages}
@@ -375,7 +375,7 @@ export function QuickViewContent({
 
                 <button
                     onClick={() => toggle(product.id)}
-                    className="absolute left-3 top-3 z-20 flex h-8 w-8 items-center justify-center rounded border border-border bg-white shadow-sm transition-colors hover:bg-muted"
+                    className="absolute left-3 top-3 z-20 flex h-8 w-8 items-center justify-center rounded border border-border bg-background shadow-sm transition-colors hover:bg-muted"
                 >
                     <Heart
                         className={`h-4 w-4 ${
@@ -462,7 +462,7 @@ export function QuickViewContent({
                                         className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                                             selectedSizeOption?.id === sizeOption.id
                                                 ? 'border-primary bg-primary text-primary-foreground'
-                                                : 'border-border bg-white text-foreground hover:bg-muted'
+                                                : 'border-border bg-background text-foreground hover:bg-muted'
                                         }`}
                                     >
                                         {sizeOption.name}
@@ -491,7 +491,7 @@ export function QuickViewContent({
                                         className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                                             selectedFabric === fabric.id
                                                 ? 'border-primary bg-primary text-primary-foreground'
-                                                : 'border-border bg-white text-foreground hover:bg-muted'
+                                                : 'border-border bg-background text-foreground hover:bg-muted'
                                         }`}
                                     >
                                         {fabric.name}
@@ -533,7 +533,7 @@ export function QuickViewContent({
                                         placeholder="Buscar cor..."
                                         value={colorSearch}
                                         onChange={(event) => setColorSearch(event.target.value)}
-                                        className="h-8 w-full rounded-md border border-border bg-white pl-8 pr-3 text-sm transition-colors focus:border-primary focus:outline-none"
+                                        className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm transition-colors focus:border-primary focus:outline-none"
                                     />
                                 </div>
                             )}
@@ -562,8 +562,8 @@ export function QuickViewContent({
                                             key={color.id}
                                             className={`flex items-center justify-between rounded-md border p-1.5 pr-2 transition-colors ${
                                                 isSelected
-                                                    ? 'border-primary/40 bg-primary/5'
-                                                    : 'border-border/60 bg-white hover:border-border'
+                                                    ? 'border-primary/40 bg-primary/5 dark:bg-primary/10'
+                                                    : 'border-border/60 bg-background hover:border-border/80 dark:hover:border-border'
                                             }`}
                                         >
                                             <button
@@ -617,7 +617,7 @@ export function QuickViewContent({
                                                         R$ {lineTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                     </span>
                                                 )}
-                                                <div className="flex shrink-0 items-center gap-1 rounded border border-border/80 bg-white p-0.5">
+                                                <div className="flex shrink-0 items-center gap-1 rounded border border-border/80 bg-background p-0.5">
                                                     <button
                                                         className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-all hover:bg-muted hover:text-foreground active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent md:h-7 md:w-8"
                                                         disabled={quantity === 0 || !canSelectVariants}
@@ -663,7 +663,7 @@ export function QuickViewContent({
                     )}
                 </div>
 
-                <div className="shrink-0 border-t border-border bg-white p-3 md:p-4">
+                <div className="shrink-0 border-t border-border bg-background p-3 md:p-4">
                     {isSalesBlocked && (
                         <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                             Compras bloqueadas para este cliente. Fale com o administrativo.

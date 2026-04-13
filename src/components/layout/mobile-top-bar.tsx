@@ -24,6 +24,7 @@ import { OrderFilters } from '@/app/(store)/orders/components/OrderFilters'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { useSettings } from '@/components/providers/settings-provider'
 import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
+import { ThemeToggle } from '@/components/ui/theme-toggle'
 import type { Category, Fabric } from '@/lib/types'
 
 interface MobileCatalogSizeFilterOption {
@@ -311,6 +312,8 @@ export function MobileTopBar() {
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
+                            {/* Theme toggle */}
+                            <ThemeToggle size="sm" />
                             {/* Catalog or Orders Actions (Main Orders page only) */}
                             {(isCatalogPage || isOrdersPageMain) && (
                                 <>

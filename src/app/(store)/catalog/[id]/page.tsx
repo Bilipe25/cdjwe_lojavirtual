@@ -1,4 +1,4 @@
-﻿
+
 'use client'
 
 import { useMemo, useState } from 'react'
@@ -332,6 +332,7 @@ export default function ProductDetailPage() {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.2 }}
                     className="space-y-6 lg:pr-2"
+
                 >
                     <div>
                         <div className="mb-3 flex items-start justify-between gap-4">
@@ -339,7 +340,7 @@ export default function ProductDetailPage() {
                                 {product.category && (
                                     <Badge
                                         variant="secondary"
-                                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-700"
+                                        className="rounded-full border border-border bg-muted/50 px-3 py-1 text-[11px] font-semibold text-foreground"
                                     >
                                         {(product.category as { name: string }).name}
                                     </Badge>
@@ -353,7 +354,7 @@ export default function ProductDetailPage() {
 
                             <button
                                 onClick={() => toggle(product.id)}
-                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border/70 bg-white text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
                                 aria-label={
                                     favorited
                                         ? 'Remover dos favoritos'
@@ -368,7 +369,7 @@ export default function ProductDetailPage() {
                             </button>
                         </div>
 
-                        <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-slate-950 lg:text-4xl">
+                        <h1 className="font-heading text-3xl font-bold text-foreground lg:text-4xl">
                             {product.name}
                         </h1>
                         {product.size && !product.has_size_variants && (
@@ -471,7 +472,7 @@ export default function ProductDetailPage() {
                     )}
 
                     {availableColors.length > 0 && (
-                        <div className="rounded-2xl border border-border/70 bg-white p-5 shadow-sm">
+                        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
                             <div className="mb-3 flex items-center justify-between">
                                 <h3 className="text-sm font-semibold">
                                     Cores e quantidades
@@ -497,7 +498,7 @@ export default function ProductDetailPage() {
                                         value={colorSearch}
                                         onChange={(event) => setColorSearch(event.target.value)}
                                         placeholder="Buscar cor..."
-                                        className="h-11 w-full rounded-xl border border-border bg-white pl-10 pr-3 text-sm outline-none transition-colors focus:border-primary"
+                                        className="h-11 w-full rounded-xl border border-border bg-background pl-10 pr-3 text-sm outline-none transition-colors focus:border-primary"
                                     />
                                 </div>
                             )}
@@ -578,11 +579,11 @@ export default function ProductDetailPage() {
 
                                             <div className="flex items-center gap-3">
                                                 {quantity > 0 && (
-                                                    <span className="hidden min-w-[92px] text-right text-sm font-semibold text-slate-900 lg:block">
+                                                    <span className="hidden min-w-[92px] text-right text-sm font-semibold text-foreground lg:block">
                                                         R$ {lineTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                     </span>
                                                 )}
-                                                <div className="flex items-center gap-2 rounded-lg border bg-white p-1">
+                                                <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-background p-1">
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
@@ -627,9 +628,9 @@ export default function ProductDetailPage() {
                                 )}
                             </div>
 
-                            <div className="mt-4 flex flex-col gap-1 rounded-xl bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                            <div className="mt-4 flex flex-col gap-1 rounded-xl bg-muted/50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                                 <span className="text-muted-foreground">Total selecionado</span>
-                                <span className="text-lg font-semibold text-slate-950">
+                                <span className="text-lg font-semibold text-foreground">
                                     {totalSelectedQuantity} iten
                                     {totalSelectedQuantity !== 1 ? 's' : ''} = R${' '}
                                     {totalSelectedPrice.toLocaleString('pt-BR', {
@@ -648,7 +649,7 @@ export default function ProductDetailPage() {
 
                     <Separator />
 
-                    <div className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-lg shadow-slate-950/10">
+                    <div className="rounded-2xl border border-border bg-slate-950 dark:bg-card p-5 text-white dark:text-foreground shadow-lg shadow-slate-950/10 dark:shadow-black/50">
                         {isSalesBlocked && (
                             <div className="mb-4 rounded-xl border border-red-300/40 bg-red-500/10 px-3 py-2 text-sm text-red-100">
                                 Compras bloqueadas para este cliente. Solicite liberacao administrativa.
@@ -656,7 +657,7 @@ export default function ProductDetailPage() {
                         )}
                         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                             <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55 dark:text-muted-foreground">
                                     Resumo da selecao
                                 </p>
                                 <p className="mt-1 text-2xl font-bold">
@@ -666,7 +667,7 @@ export default function ProductDetailPage() {
                                     })}
                                 </p>
                             </div>
-                            <p className="text-sm text-white/72">
+                            <p className="text-sm text-white/72 dark:text-muted-foreground/80">
                                 {totalSelectedQuantity} iten
                                 {totalSelectedQuantity !== 1 ? 's' : ''} selecionado
                                 {totalSelectedQuantity !== 1 ? 's' : ''}
@@ -674,13 +675,13 @@ export default function ProductDetailPage() {
                         </div>
 
                         {isRepresentativeView ? (
-                            <div className="rounded-xl border border-white/20 bg-white/5 px-4 py-3 text-sm text-white/85">
+                            <div className="rounded-xl border border-white/20 dark:border-border/50 bg-white/5 dark:bg-muted/30 px-4 py-3 text-sm text-white/85 dark:text-muted-foreground">
                                 Catalogo em modo somente visualizacao para representante.
                             </div>
                         ) : (
                             <Button
                                 size="lg"
-                                className="h-14 w-full border-0 bg-white text-slate-950 shadow-md hover:bg-white/92 disabled:bg-white/70"
+                                className="h-14 w-full border-0 bg-white dark:bg-primary dark:text-primary-foreground text-slate-950 shadow-md hover:bg-white/92 dark:hover:bg-primary/90 disabled:opacity-70 disabled:grayscale"
                                 onClick={handleAddToCart}
                                 disabled={
                                     isSalesBlocked ||

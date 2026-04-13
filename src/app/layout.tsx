@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Outfit } from "next/font/google";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { PwaRuntimeProvider } from "@/components/providers/pwa-runtime-provider";
+import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -82,12 +83,14 @@ export default function RootLayout({
           Pular para o conteudo
         </a>
         <PwaRuntimeProvider>
-          <QueryProvider>
-            <TooltipProvider>
-              {children}
-              <Toaster richColors position="top-right" />
-            </TooltipProvider>
-          </QueryProvider>
+          <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
+            <QueryProvider>
+              <TooltipProvider>
+                {children}
+                <Toaster richColors position="top-right" />
+              </TooltipProvider>
+            </QueryProvider>
+          </ThemeProvider>
         </PwaRuntimeProvider>
       </body>
     </html>

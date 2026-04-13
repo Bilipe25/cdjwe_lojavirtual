@@ -183,15 +183,15 @@ export default function DashboardPage() {
                 >
                     {finSummary.totalOverdue > 0 && (
                         <a href="/invoices" className="block">
-                            <div className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 p-3.5">
-                                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-100">
+                            <div className="flex items-center gap-3 rounded-2xl border border-red-200 dark:border-red-800/40 bg-red-50 dark:bg-red-950/30 p-3.5">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-100 dark:bg-red-900/40">
                                     <AlertTriangle className="h-4.5 w-4.5 text-red-600" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-semibold text-red-800">
+                                    <p className="text-sm font-semibold text-red-800 dark:text-red-300">
                                         Faturas vencidas
                                     </p>
-                                    <p className="text-xs text-red-600">
+                                    <p className="text-xs text-red-600 dark:text-red-400">
                                         Voce tem {finSummary.totalOverdue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} em faturas vencidas.
                                     </p>
                                 </div>
@@ -200,12 +200,12 @@ export default function DashboardPage() {
                     )}
                     {finSummary.totalOpen > 0 && finSummary.totalOverdue === 0 && (
                         <a href="/invoices" className="block">
-                            <div className="flex items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-3.5">
-                                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100">
+                            <div className="flex items-center gap-3 rounded-2xl border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/30 p-3.5">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40">
                                     <Receipt className="h-4.5 w-4.5 text-blue-600" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-semibold text-blue-800">
+                                    <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">
                                         Faturas em aberto
                                     </p>
                                     <p className="text-xs text-blue-600">

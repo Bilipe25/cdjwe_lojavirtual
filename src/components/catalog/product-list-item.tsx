@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Image from 'next/image'
 import { Package, Heart, ShoppingCart } from 'lucide-react'
@@ -59,7 +59,7 @@ export function ProductListItem({
     }
 
     return (
-        <article className="group relative flex items-center gap-3 rounded-xl border border-border/50 bg-white/90 p-2 shadow-sm transition-all hover:bg-white hover:border-primary/30 hover:shadow-md md:p-3">
+        <article className="group relative flex items-center gap-3 rounded-xl border border-border/50 bg-card/90 dark:bg-card/40 p-2 shadow-sm transition-all hover:bg-card hover:border-primary/30 hover:shadow-md dark:shadow-black/20 md:p-3">
             <button
                 type="button"
                 onClick={handlePrimaryAction}
@@ -145,7 +145,7 @@ export function ProductListItem({
                             event.stopPropagation()
                             toggle(product.id)
                         }}
-                        className="mobile-touch-target flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/40 bg-white/80 text-muted-foreground transition-all hover:text-foreground hover:bg-white shadow-sm md:h-9 md:w-9"
+                        className="mobile-touch-target flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/40 bg-background/80 text-muted-foreground transition-all hover:text-foreground hover:bg-background shadow-sm md:h-9 md:w-9"
                         aria-label={favorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
                     >
                         <Heart
@@ -173,7 +173,7 @@ export function ProductListItem({
                             <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-9 px-3 rounded-lg text-xs bg-white/80 shadow-sm"
+                                className="h-9 px-3 rounded-lg text-xs bg-background/80 shadow-sm"
                                 onClick={handlePrimaryAction}
                             >
                                 Detalhes
@@ -201,7 +201,7 @@ export function ProductListItem({
                         <Button
                             size="icon"
                             variant="outline"
-                            className="h-8 w-8 rounded-full bg-white shadow-sm"
+                            className="h-8 w-8 rounded-full bg-background shadow-sm"
                             aria-label="Ver detalhes"
                             onClick={handlePrimaryAction}
                         >

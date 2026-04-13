@@ -354,7 +354,7 @@ export default function OrderConfirmationPage() {
                 initial={{ opacity: 0, y: -16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.45 }}
-                className="relative rounded-2xl overflow-hidden bg-linear-to-br from-green-50/80 via-background to-primary/5 border border-green-200/40 px-5 py-6 text-center"
+                className="relative rounded-2xl overflow-hidden bg-linear-to-br from-green-50/80 via-background to-primary/5 dark:from-green-950/30 dark:via-background dark:to-primary/10 border border-green-200/40 dark:border-green-800/20 px-5 py-6 text-center"
             >
                 {/* Success icon — compact */}
                 <div className="flex justify-center mb-3">
@@ -363,7 +363,7 @@ export default function OrderConfirmationPage() {
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
                             transition={{ type: 'spring', stiffness: 220, delay: 0.15 }}
-                            className="h-14 w-14 rounded-full bg-green-100 flex items-center justify-center shadow-md shadow-green-200/40"
+                            className="h-14 w-14 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center shadow-md shadow-green-200/40 dark:shadow-green-900/30"
                         >
                             <CheckCircle2 className="h-7 w-7 text-green-600" />
                         </motion.div>
