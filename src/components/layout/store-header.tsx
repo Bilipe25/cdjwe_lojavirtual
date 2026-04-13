@@ -222,7 +222,7 @@ export function StoreHeader() {
             className={`sticky top-0 z-50 hidden w-full md:block ${isStandalone ? 'px-4 pt-4 lg:px-6' : ''}`}
             role="banner"
         >
-            <div className={isStandalone ? 'rounded-[24px] border border-white/70 bg-white/88 shadow-[0_20px_48px_-34px_rgba(15,23,42,0.45)] backdrop-blur-xl' : 'glass-card border-0 border-b'}>
+            <div className={isStandalone ? 'rounded-[24px] border border-white/70 dark:border-border/50 bg-white/88 dark:bg-card/90 shadow-[0_20px_48px_-34px_rgba(15,23,42,0.45)] dark:shadow-black/20 backdrop-blur-xl' : 'glass-card border-0 border-b'}>
                 <div className={`mx-auto ${isStandalone ? 'max-w-[1440px] px-5 lg:px-6' : 'max-w-7xl px-4 sm:px-6 lg:px-8'}`}>
                     <div className={`flex items-center justify-between gap-4 ${isStandalone ? 'h-[68px]' : 'h-16'}`}>
                         <Link href="/catalog" className="flex shrink-0 items-center gap-3" aria-label={`${settings?.system_name || 'Loja'} - Pagina inicial`}>
@@ -262,7 +262,7 @@ export function StoreHeader() {
                                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                 <Input
                                     placeholder="Buscar produtos..."
-                                    className={`pl-9 border-border/50 focus:bg-white ${isStandalone ? 'h-11 rounded-2xl bg-white/85 shadow-sm' : 'bg-white/60'}`}
+                                    className={`pl-9 border-border/50 focus:bg-white dark:focus:bg-background ${isStandalone ? 'h-11 rounded-2xl bg-white/85 dark:bg-background/60 shadow-sm' : 'bg-white/60 dark:bg-muted/40'}`}
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     onKeyDown={handleSearch}

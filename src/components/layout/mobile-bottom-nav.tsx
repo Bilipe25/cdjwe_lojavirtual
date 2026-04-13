@@ -59,7 +59,7 @@ export function MobileBottomNav() {
                     data-mobile-bottom-nav-inner
                     className={`flex items-center justify-around h-(--bottom-nav-height) ${
                         isStandalone
-                            ? 'mx-auto max-w-md rounded-[24px] border border-white/65 bg-white/92 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.5)] backdrop-blur-xl'
+                            ? 'mx-auto max-w-md rounded-[24px] border border-white/65 dark:border-border/50 bg-white/92 dark:bg-card/90 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.5)] dark:shadow-black/20 backdrop-blur-xl'
                             : 'glass-nav'
                     }`}
                 >

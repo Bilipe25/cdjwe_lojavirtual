@@ -290,7 +290,7 @@ export function MobileTopBar() {
                                 ref={inputRef}
                                 type="search"
                                 placeholder={isCatalogPage ? "Buscar produtos..." : "Buscar pedidos..."}
-                                className="w-full h-8 pl-8 pr-3 rounded-lg border border-border/60 bg-muted/60 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 focus:bg-white transition-colors"
+                                className="w-full h-8 pl-8 pr-3 rounded-lg border border-border/60 bg-muted/60 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 focus:bg-white dark:focus:bg-background transition-colors"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={handleKeyDown}
