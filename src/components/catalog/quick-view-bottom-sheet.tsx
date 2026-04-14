@@ -66,24 +66,26 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
             >
                 <Drawer.Portal>
                     <Drawer.Overlay
-                        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+                        className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-[3px]"
                         onClick={onClose}
                     />
                     <Drawer.Content
                         ref={drawerContentRef}
-                        className="fixed inset-0 z-50 flex flex-col bg-background focus:outline-none"
+                        className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-background/92 backdrop-blur-xl focus:outline-none"
                         style={{ height: '100dvh', maxHeight: '100dvh' }}
                     >
                         <Drawer.Title className="sr-only">Detalhes do produto</Drawer.Title>
+
+                        <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.28),transparent_62%)] dark:bg-[radial-gradient(circle_at_top,rgba(70,92,150,0.22),transparent_62%)]" />
 
                         <div
                             className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-center px-4"
                             style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
                         >
-                            <div className="h-1.5 w-10 rounded-full bg-white/75 dark:bg-white/20 shadow-sm backdrop-blur-sm" />
+                            <div className="h-1.5 w-10 rounded-full bg-white/80 dark:bg-white/20 shadow-sm backdrop-blur-sm" />
                             <button
                                 onClick={onClose}
-                                className="pointer-events-auto absolute right-4 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background/80 text-foreground shadow-lg shadow-black/10 backdrop-blur-md transition-colors hover:bg-background"
+                                className="pointer-events-auto absolute right-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/60 bg-white/78 text-foreground shadow-lg shadow-black/10 backdrop-blur-md transition-colors hover:bg-white dark:border-white/8 dark:bg-[rgba(24,32,54,0.84)] dark:hover:bg-[rgba(30,40,66,0.92)]"
                                 style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
                                 aria-label="Fechar"
                             >
@@ -106,11 +108,11 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
             <Drawer.Root open={Boolean(cartConfirmation)} onOpenChange={(val) => !val && handleCloseConfirmation()}>
                 <Drawer.Portal>
                     <Drawer.Overlay
-                        className="fixed inset-0 z-[60] bg-black/35 backdrop-blur-[2px]"
+                        className="fixed inset-0 z-[60] bg-slate-950/38 backdrop-blur-[3px]"
                         onClick={handleCloseConfirmation}
                     />
                     <Drawer.Content
-                        className="fixed inset-x-0 bottom-0 z-[60] rounded-t-[28px] border border-border/60 bg-background px-4 pb-4 pt-3 shadow-[0_-24px_60px_-26px_rgba(15,23,42,0.45)] focus:outline-none"
+                        className="fixed inset-x-0 bottom-0 z-[60] rounded-t-[32px] border border-white/65 bg-white/88 px-4 pb-4 pt-3 shadow-[0_-24px_60px_-26px_rgba(15,23,42,0.45)] backdrop-blur-xl focus:outline-none dark:border-white/8 dark:bg-[rgba(20,28,48,0.88)]"
                         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
                     >
                         <Drawer.Title className="sr-only">Itens adicionados ao carrinho</Drawer.Title>
@@ -118,28 +120,28 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                         {cartConfirmation && (
                             <div className="mx-auto w-full max-w-md">
                                 <div className="mb-3 flex justify-center">
-                                    <div className="h-1.5 w-10 rounded-full bg-muted" />
+                                    <div className="h-1.5 w-10 rounded-full bg-white/75 dark:bg-white/18" />
                                 </div>
 
                                 <div className="mb-4 flex items-start gap-3">
-                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400">
+                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/50 bg-background/85 text-primary shadow-sm dark:border-white/8 dark:bg-white/6 dark:text-white">
                                         <CheckCircle2 className="h-5 w-5" />
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                        <p className="text-base font-semibold text-foreground">Produto adicionado ao pedido</p>
+                                        <p className="text-base font-semibold text-gradient-navy">Produto adicionado ao pedido</p>
                                         <p className="mt-1 text-sm leading-5 text-muted-foreground">
                                             Seu item ja esta no carrinho. Deseja continuar comprando ou revisar o pedido?
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="rounded-3xl border border-border bg-muted/20 p-3">
+                                <div className="glass-card rounded-[26px] border-0 p-3">
                                     <div className="mb-3 flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                                             <ShoppingBag className="h-3.5 w-3.5" />
                                             Itens adicionados
                                         </div>
-                                        <span className="rounded-full bg-background px-2.5 py-1 text-xs font-semibold text-foreground shadow-sm">
+                                        <span className="rounded-full border border-white/50 bg-background/85 px-2.5 py-1 text-xs font-semibold text-foreground shadow-sm dark:border-white/8 dark:bg-white/6 dark:text-white">
                                             {cartConfirmation.totalQuantity} item{cartConfirmation.totalQuantity > 1 ? 's' : ''}
                                         </span>
                                     </div>
@@ -148,9 +150,9 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                                         {cartConfirmation.items.slice(0, 3).map((item) => (
                                             <div
                                                 key={`${item.id}-${item.sizeName || 'size'}-${item.colorName || 'color'}`}
-                                                className="flex items-center gap-3 rounded-2xl bg-background border border-transparent dark:border-border/50 px-2.5 py-2 shadow-sm dark:shadow-md"
+                                                className="flex items-center gap-3 rounded-2xl border border-white/50 bg-background/85 px-2.5 py-2 shadow-sm dark:border-white/8 dark:bg-white/6"
                                             >
-                                                <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-muted">
+                                                <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-muted/50 dark:bg-white/10">
                                                     {item.imageUrl ? (
                                                         <Image
                                                             src={item.imageUrl}
@@ -165,30 +167,30 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                                                     )}
                                                 </div>
                                                 <div className="min-w-0 flex-1">
-                                                    <p className="truncate text-sm font-semibold text-foreground">{item.productName}</p>
-                                                    <p className="truncate text-xs text-muted-foreground">
+                                                    <p className="truncate text-sm font-semibold text-foreground dark:text-white">{item.productName}</p>
+                                                    <p className="truncate text-xs text-muted-foreground dark:text-white/68">
                                                         {[item.sizeName, item.fabricName, item.colorName].filter(Boolean).join(' / ')}
                                                     </p>
                                                 </div>
                                                 <div className="shrink-0 text-right">
-                                                    <p className="text-sm font-semibold text-foreground">
+                                                    <p className="text-sm font-semibold text-foreground dark:text-white">
                                                         R$ {item.lineTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                     </p>
-                                                    <p className="text-[11px] text-muted-foreground">Qtd. {item.quantity}</p>
+                                                    <p className="text-[11px] text-muted-foreground dark:text-white/65">Qtd. {item.quantity}</p>
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
 
                                     {cartConfirmation.items.length > 3 && (
-                                        <p className="mt-3 text-center text-xs font-medium text-muted-foreground">
+                                        <p className="mt-3 text-center text-xs font-medium text-muted-foreground dark:text-white/68">
                                             +{cartConfirmation.items.length - 3} item(ns) adicionados neste lote
                                         </p>
                                     )}
 
-                                    <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
-                                        <span className="text-sm font-medium text-muted-foreground">Total deste lote</span>
-                                        <span className="text-lg font-semibold text-foreground">
+                                    <div className="mt-3 flex items-center justify-between border-t border-white/45 pt-3 dark:border-white/8">
+                                        <span className="text-sm font-medium text-muted-foreground dark:text-white/70">Total deste lote</span>
+                                        <span className="text-lg font-semibold text-gradient-navy dark:text-white dark:[-webkit-text-fill-color:unset] dark:bg-none">
                                             R$ {cartConfirmation.totalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                         </span>
                                     </div>
@@ -198,14 +200,14 @@ export function QuickViewBottomSheet({ productId, open, onClose }: QuickViewBott
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        className="h-11 rounded-2xl border-border bg-background text-sm font-semibold text-foreground"
+                                        className="h-11 rounded-2xl border-white/55 bg-white/75 text-sm font-semibold text-foreground backdrop-blur-md dark:border-white/8 dark:bg-white/6 dark:text-white"
                                         onClick={handleCloseConfirmation}
                                     >
                                         Continuar comprando
                                     </Button>
                                     <Button
                                         type="button"
-                                        className="h-11 rounded-2xl text-sm font-semibold"
+                                        className="h-11 rounded-2xl border-0 text-sm font-semibold text-white gradient-bronze shadow-[0_18px_34px_-22px_rgba(180,120,70,0.78)] hover:opacity-95"
                                         onClick={handleGoToCart}
                                     >
                                         Ir para pedido

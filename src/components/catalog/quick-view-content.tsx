@@ -252,6 +252,21 @@ export function QuickViewContent({
         )
     }, 0)
 
+    const isAddToCartDisabled =
+        isSalesBlocked ||
+        !selectedFabric ||
+        totalQuantity === 0 ||
+        addingToCart ||
+        !canSelectVariants
+
+    const addToCartLabel = isSalesBlocked
+        ? 'Vendas restritas'
+        : !canSelectVariants
+          ? 'Selecione tamanho'
+          : totalQuantity === 0
+            ? 'Selecionar cores'
+            : 'Adicionar lote'
+
     const handleActivateVariant = (variantId: string) => {
         const variant = variants.find((item) => item.id === variantId)
         if (!variant) return
@@ -681,23 +696,11 @@ export function QuickViewContent({
 
                         <Button
                             className="h-11 w-full min-w-[180px] gap-2 rounded-md px-6 font-semibold sm:w-auto"
-                            disabled={
-                                isSalesBlocked ||
-                                !selectedFabric ||
-                                totalQuantity === 0 ||
-                                addingToCart ||
-                                !canSelectVariants
-                            }
+                            disabled={isAddToCartDisabled}
                             onClick={handleAddToCart}
                         >
                             <ShoppingCart className="h-4 w-4" />
-                            {isSalesBlocked
-                                ? 'Vendas restritas'
-                                : !canSelectVariants
-                                ? 'Selecione tamanho'
-                                : totalQuantity === 0
-                                  ? 'Selecionar cores'
-                                  : 'Adicionar lote'}
+                            {addToCartLabel}
                         </Button>
                     </div>
                 </div>

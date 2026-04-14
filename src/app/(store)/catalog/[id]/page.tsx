@@ -202,6 +202,37 @@ export default function ProductDetailPage() {
         )
     }, 0)
 
+    const isAddToCartDisabled =
+        isSalesBlocked ||
+        !selectedFabric ||
+        totalSelectedQuantity === 0 ||
+        addingToCart ||
+        !canSelectVariants
+
+    const addToCartLabel = isSalesBlocked
+        ? 'Vendas restritas'
+        : !canSelectVariants
+          ? 'Selecione o tamanho'
+          : totalSelectedQuantity === 0
+            ? 'Selecione as quantidades'
+            : `Adicionar ${totalSelectedQuantity} itens ao carrinho`
+
+    const mobileSelectionSummary = [selectedSizeOption?.name, activeFabric?.name]
+        .filter(Boolean)
+        .join(' • ')
+
+    const mobileGuidance = isRepresentativeView
+        ? 'Catalogo em modo somente visualizacao.'
+        : isSalesBlocked
+          ? 'Compras indisponiveis para este cliente no momento.'
+          : !selectedFabric
+            ? 'Escolha um tecido e ajuste as quantidades.'
+            : !canSelectVariants
+              ? 'Selecione o tamanho para liberar a compra.'
+              : totalSelectedQuantity === 0
+                ? 'Defina as quantidades para montar seu pedido.'
+                : mobileSelectionSummary || 'Selecao pronta para envio ao carrinho.'
+
     const handleActivateVariant = (variant: ProductDetailVariant) => {
         if (variant.image_url) {
             setActiveImageIndex(0)
@@ -282,7 +313,14 @@ export default function ProductDetailPage() {
     }
 
     return (
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <div
+            className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
+            style={{
+                paddingBottom: isMobile
+                    ? 'calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 11rem)'
+                    : undefined,
+            }}
+        >
             <Button variant="ghost" className="mb-4 gap-2 rounded-xl" onClick={() => router.push(catalogBasePath)}>
                 <ArrowLeft className="h-4 w-4" />
                 Voltar ao catalogo
@@ -651,7 +689,7 @@ export default function ProductDetailPage() {
 
                     <Separator />
 
-                    <div className="rounded-3xl gradient-navy border-0 p-5 text-white shadow-xl shadow-slate-950/15">
+                    <div className="hidden rounded-3xl gradient-navy border-0 p-5 text-white shadow-xl shadow-slate-950/15 md:block">
                         {isSalesBlocked && (
                             <div className="mb-4 rounded-2xl border border-red-200/20 bg-white/10 px-3 py-2 text-sm text-red-50">
                                 Compras bloqueadas para este cliente. Solicite liberacao administrativa.
@@ -685,22 +723,10 @@ export default function ProductDetailPage() {
                                 size="lg"
                                 className="h-14 w-full rounded-2xl border-0 bg-white text-slate-950 shadow-md hover:bg-white/92 disabled:opacity-70 disabled:grayscale"
                                 onClick={handleAddToCart}
-                                disabled={
-                                    isSalesBlocked ||
-                                    !selectedFabric ||
-                                    totalSelectedQuantity === 0 ||
-                                    addingToCart ||
-                                    !canSelectVariants
-                                }
+                                disabled={isAddToCartDisabled}
                             >
                                 <ShoppingCart className="mr-2 h-5 w-5" />
-                                {isSalesBlocked
-                                    ? 'Vendas restritas'
-                                    : !canSelectVariants
-                                    ? 'Selecione o tamanho'
-                                    : totalSelectedQuantity === 0
-                                      ? 'Selecione as quantidades'
-                                      : `Adicionar ${totalSelectedQuantity} itens ao carrinho`}
+                                {addToCartLabel}
                             </Button>
                         )}
                     </div>
@@ -720,6 +746,78 @@ export default function ProductDetailPage() {
                         </div>
                     </div>
                 </motion.div>
+            </div>
+
+            <div
+                className="fixed inset-x-0 z-30 px-3 md:hidden"
+                style={{
+                    bottom: 'calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 0.75rem)',
+                }}
+            >
+                <div className="mx-auto max-w-md rounded-[28px] border border-white/65 bg-white/88 p-3 shadow-[0_24px_52px_-28px_rgba(15,23,42,0.45)] backdrop-blur-xl dark:border-white/8 dark:bg-[rgba(20,28,48,0.86)] dark:shadow-black/30">
+                    <div className="rounded-[24px] gradient-navy px-4 py-3 text-white shadow-[0_18px_36px_-26px_rgba(15,23,42,0.6)]">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/65">
+                                    Resumo da selecao
+                                </p>
+                                <p className="mt-1 text-xl font-bold">
+                                    R${' '}
+                                    {totalSelectedPrice.toLocaleString('pt-BR', {
+                                        minimumFractionDigits: 2,
+                                    })}
+                                </p>
+                                <p className="mt-1 text-xs leading-5 text-white/78">
+                                    {mobileGuidance}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-white/12 bg-white/10 px-3 py-2 text-right shadow-inner shadow-white/5">
+                                <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-white/55">
+                                    Itens
+                                </p>
+                                <p className="mt-1 text-lg font-bold">
+                                    {totalSelectedQuantity || 0}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {selectedSizeOption?.name && (
+                                <span className="rounded-full border border-white/14 bg-white/10 px-3 py-1 text-[11px] font-medium text-white/88">
+                                    {selectedSizeOption.name}
+                                </span>
+                            )}
+                            {activeFabric?.name && (
+                                <span className="rounded-full border border-white/14 bg-white/10 px-3 py-1 text-[11px] font-medium text-white/88">
+                                    {activeFabric.name}
+                                </span>
+                            )}
+                            {totalSelectedQuantity > 0 && (
+                                <span className="rounded-full border border-white/14 bg-white/10 px-3 py-1 text-[11px] font-medium text-white/88">
+                                    {totalSelectedQuantity} item
+                                    {totalSelectedQuantity !== 1 ? 's' : ''}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {isRepresentativeView ? (
+                        <div className="mt-3 rounded-2xl border border-white/55 bg-background/85 px-4 py-3 text-sm text-muted-foreground dark:border-white/8 dark:bg-white/5">
+                            Catalogo em modo somente visualizacao para representante.
+                        </div>
+                    ) : (
+                        <Button
+                            size="lg"
+                            className="mt-3 h-12 w-full rounded-2xl border-0 gradient-bronze text-white shadow-[0_18px_34px_-22px_rgba(180,120,70,0.8)] hover:opacity-95 disabled:opacity-65 disabled:grayscale"
+                            onClick={handleAddToCart}
+                            disabled={isAddToCartDisabled}
+                        >
+                            <ShoppingCart className="mr-2 h-5 w-5" />
+                            {addToCartLabel}
+                        </Button>
+                    )}
+                </div>
             </div>
         </div>
     )
