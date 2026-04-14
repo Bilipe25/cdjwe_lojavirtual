@@ -10,6 +10,7 @@ import {
     validateCheckoutSelectionAgainstCommercialSettings,
     validateStoreCreditLimitForOrder,
 } from '@/lib/commercial/store-commercial'
+import type { StoreCommercialSettings } from '@/lib/commercial/types'
 import {
     getAvailableCheckoutPayments,
     resolveCheckoutPaymentSelection,
@@ -24,6 +25,14 @@ import { isCheckoutV2Enabled } from '@/lib/flags/checkout'
 type PriceTableContext = {
     discountPercentage: number
     overrides: Record<string, number>
+}
+
+type CheckoutSessionContext = {
+    userId: string
+    userEmail: string | null
+    storeId: string
+    commercialSettings: StoreCommercialSettings | null
+    resolvedPriceTableId: string | null
 }
 
 type VariantPricingRelation<T> = T | T[] | null
@@ -114,6 +123,21 @@ export type CheckoutCouponPreview = {
     eligibleSubtotal: number
     discountAmount: number
     paymentDiscountBlocked: boolean
+}
+
+export type CheckoutBootstrapPayload = {
+    reconciledItems: CartItem[]
+    missingKeys: string[]
+    missingVariantIds: string[]
+    priceChanged: boolean
+    addresses: Awaited<ReturnType<typeof getAvailableStoreAddressesForStore>>
+    defaultAddressId: string
+    paymentMethods: Awaited<ReturnType<typeof getAvailableCheckoutPayments>>['methodGroups']
+    globalConditions: Awaited<ReturnType<typeof getAvailableCheckoutPayments>>['globalConditions']
+    priceTableRules: Awaited<ReturnType<typeof getAvailableCheckoutPayments>>['priceTableRules']
+    financialProfile: StoreCommercialSettings['financial_profile'] | 'no_restriction'
+    checkoutBlocked: boolean
+    paymentRestrictionMessage: string | null
 }
 
 type RpcErrorLike = {
@@ -258,12 +282,11 @@ async function resolveActivePriceTableId(
     return resolved.priceTableId
 }
 
-async function getActivePriceTableContext(
+async function getPriceTableContext(
     supabase: Awaited<ReturnType<typeof createClient>>,
-    storeId: string,
+    tableId: string | null,
     variantIds: string[]
 ): Promise<PriceTableContext> {
-    const tableId = await resolveActivePriceTableId(supabase, storeId)
     if (!tableId) return { discountPercentage: 0, overrides: {} }
 
     const { data: priceTable } = await supabase
@@ -303,6 +326,19 @@ async function getActivePriceTableContext(
         discountPercentage: priceTable.discount_percentage || 0,
         overrides,
     }
+}
+
+async function getActivePriceTableContext(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    storeId: string,
+    variantIds: string[],
+    resolvedPriceTableId?: string | null
+): Promise<PriceTableContext> {
+    const tableId =
+        resolvedPriceTableId === undefined
+            ? await resolveActivePriceTableId(supabase, storeId)
+            : resolvedPriceTableId
+    return getPriceTableContext(supabase, tableId, variantIds)
 }
 
 async function fetchVariantPricingRows(
@@ -372,21 +408,13 @@ async function fetchSizeOptionsById(
     return output
 }
 
-export async function getAvailablePaymentRules(cartTotal: number) {
-    const supabase = await createClient()
+async function resolveCheckoutSessionContext(
+    supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<CheckoutSessionContext | { error: string }> {
     const {
         data: { user },
     } = await supabase.auth.getUser()
-    if (!user) {
-        return {
-            priceTableRules: [],
-            globalConditions: [],
-            paymentMethods: [],
-            financialProfile: 'no_restriction',
-            checkoutBlocked: false,
-            paymentRestrictionMessage: null as string | null,
-        }
-    }
+    if (!user) return { error: 'Usuario nao autenticado.' }
 
     const { data: store } = await supabase
         .from('stores')
@@ -394,14 +422,7 @@ export async function getAvailablePaymentRules(cartTotal: number) {
         .eq('profile_id', user.id)
         .single()
     if (!store) {
-        return {
-            priceTableRules: [],
-            globalConditions: [],
-            paymentMethods: [],
-            financialProfile: 'no_restriction',
-            checkoutBlocked: false,
-            paymentRestrictionMessage: null as string | null,
-        }
+        return { error: 'Loja do usuario nao localizada.' }
     }
 
     const commercialSettings = await getStoreCommercialSettings(supabase, store.id)
@@ -410,44 +431,209 @@ export async function getAvailablePaymentRules(cartTotal: number) {
         settings: commercialSettings,
     })
 
+    return {
+        userId: user.id,
+        userEmail: user.email ?? null,
+        storeId: store.id,
+        commercialSettings,
+        resolvedPriceTableId: resolvedPriceTable.priceTableId,
+    }
+}
+
+async function getAvailableStoreAddressesForStore(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    storeId: string
+) {
+    const { data: addresses } = await supabase
+        .from('store_addresses')
+        .select('*')
+        .eq('store_id', storeId)
+        .order('is_main', { ascending: false })
+        .order('created_at', { ascending: true })
+
+    return addresses || []
+}
+
+async function getAvailablePaymentRulesForContext(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    params: {
+        cartTotal: number
+        commercialSettings: StoreCommercialSettings | null
+        resolvedPriceTableId: string | null
+    }
+) {
     const availability = await getAvailableCheckoutPayments(supabase, {
-        cartTotal,
-        priceTableId: resolvedPriceTable.priceTableId,
+        cartTotal: params.cartTotal,
+        priceTableId: params.resolvedPriceTableId,
     })
-    const filteredAvailability = applyCommercialPaymentAvailability(availability, commercialSettings)
+    const filteredAvailability = applyCommercialPaymentAvailability(
+        availability,
+        params.commercialSettings
+    )
 
     return {
         priceTableRules: filteredAvailability.priceTableRules,
         globalConditions: filteredAvailability.globalConditions,
         paymentMethods: filteredAvailability.methodGroups,
-        financialProfile: commercialSettings?.financial_profile || 'no_restriction',
+        financialProfile: params.commercialSettings?.financial_profile || 'no_restriction',
         checkoutBlocked: filteredAvailability.blocked,
         paymentRestrictionMessage: filteredAvailability.reason,
     }
 }
 
+async function getCurrentVariantPricingForContext(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    params: {
+        storeId: string
+        resolvedPriceTableId: string | null
+        input: Array<PricingLineInput> | string[]
+    }
+) {
+    const pricingLines = normalizePricingLines(params.input)
+    if (!pricingLines.length) {
+        return { prices: {}, missingKeys: [], missingVariantIds: [] }
+    }
+
+    const variantIds = Array.from(new Set(pricingLines.map((line) => line.variantId)))
+    const sizeOptionIds = Array.from(
+        new Set(
+            pricingLines
+                .map((line) => line.sizeOptionId)
+                .filter((value): value is string => Boolean(value))
+        )
+    )
+
+    const [priceTableContext, variantsResult, sizeOptionMap] = await Promise.all([
+        getActivePriceTableContext(
+            supabase,
+            params.storeId,
+            variantIds,
+            params.resolvedPriceTableId
+        ),
+        fetchVariantPricingRows(supabase, variantIds),
+        fetchSizeOptionsById(supabase, sizeOptionIds),
+    ])
+
+    if (variantsResult.error) {
+        return { error: 'Falha ao validar os precos do carrinho.' as const }
+    }
+
+    const variantMap = new Map<string, VariantPricingRow>()
+    variantsResult.variants.forEach((variant) => variantMap.set(variant.id, variant))
+
+    const prices: Record<string, PriceSnapshot> = {}
+    const missingVariantIds: string[] = []
+    const missingKeys: string[] = []
+
+    pricingLines.forEach((line) => {
+        const cartKey = line.cartKey || buildCartKey(line.variantId, line.sizeOptionId ?? null)
+        const dbVariant = variantMap.get(line.variantId)
+        const isEffectivelyActive = Boolean(
+            dbVariant?.is_active &&
+            dbVariant?.product?.is_active &&
+            dbVariant?.fabric?.is_active &&
+            dbVariant?.color?.is_active
+        )
+
+        if (!dbVariant || !isEffectivelyActive) {
+            missingVariantIds.push(line.variantId)
+            missingKeys.push(cartKey)
+            return
+        }
+
+        const product = dbVariant.product
+        if (!product) {
+            missingVariantIds.push(line.variantId)
+            missingKeys.push(cartKey)
+            return
+        }
+
+        const productHasSizeVariants = Boolean(product.has_size_variants)
+        const requestedSizeOptionId = line.sizeOptionId ?? null
+        const sizeOption = requestedSizeOptionId
+            ? sizeOptionMap.get(requestedSizeOptionId) || null
+            : null
+
+        if (requestedSizeOptionId) {
+            if (!sizeOption || !sizeOption.is_active || sizeOption.product_id !== product.id) {
+                missingKeys.push(cartKey)
+                return
+            }
+        }
+
+        if (productHasSizeVariants && !sizeOption) {
+            missingKeys.push(cartKey)
+            return
+        }
+
+        const pricing = resolveVariantPricing({
+            basePrice: product.base_price ?? 0,
+            fabricModifier: dbVariant.fabric?.price_modifier ?? 0,
+            variantPriceOverride: dbVariant.price_override ?? null,
+            variantId: dbVariant.id,
+            sizePriceMode: sizeOption?.price_mode ?? null,
+            sizePriceValue: sizeOption?.price_value ?? null,
+            priceTable: priceTableContext,
+        })
+
+        const snapshot: PriceSnapshot = {
+            unitPrice: pricing.unitPrice,
+            productPrice: pricing.productPrice,
+            variationPrice: pricing.variationPrice,
+            finalPrice: pricing.finalPrice,
+            sizePrice: pricing.sizePrice,
+            sizeOptionId: sizeOption?.id ?? null,
+            sizeName: sizeOption?.name ?? product.size ?? null,
+        }
+
+        prices[cartKey] = snapshot
+
+        if (!requestedSizeOptionId && !prices[line.variantId]) {
+            prices[line.variantId] = snapshot
+        }
+    })
+
+    const foundVariantIds = new Set(variantsResult.variants.map((variant) => variant.id))
+    variantIds.forEach((variantId) => {
+        if (!foundVariantIds.has(variantId)) {
+            missingVariantIds.push(variantId)
+        }
+    })
+
+    return {
+        prices,
+        missingKeys: Array.from(new Set(missingKeys)),
+        missingVariantIds: Array.from(new Set(missingVariantIds)),
+    }
+}
+
+export async function getAvailablePaymentRules(cartTotal: number) {
+    const supabase = await createClient()
+    const context = await resolveCheckoutSessionContext(supabase)
+    if ('error' in context) {
+        return {
+            priceTableRules: [],
+            globalConditions: [],
+            paymentMethods: [],
+            financialProfile: 'no_restriction',
+            checkoutBlocked: false,
+            paymentRestrictionMessage: null as string | null,
+        }
+    }
+
+    return getAvailablePaymentRulesForContext(supabase, {
+        cartTotal,
+        commercialSettings: context.commercialSettings,
+        resolvedPriceTableId: context.resolvedPriceTableId,
+    })
+}
+
 export async function getAvailableStoreAddresses() {
     const supabase = await createClient()
-    const {
-        data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return []
+    const context = await resolveCheckoutSessionContext(supabase)
+    if ('error' in context) return []
 
-    const { data: store } = await supabase
-        .from('stores')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single()
-    if (!store) return []
-
-    const { data: addresses } = await supabase
-        .from('store_addresses')
-        .select('*')
-        .eq('store_id', store.id)
-        .order('is_main', { ascending: false })
-        .order('created_at', { ascending: true })
-
-    return addresses || []
+    return getAvailableStoreAddressesForStore(supabase, context.storeId)
 }
 
 export async function createStoreAddress(data: {
@@ -493,128 +679,99 @@ export async function createStoreAddress(data: {
 
 export async function getCurrentVariantPricing(input: Array<PricingLineInput> | string[]) {
     const supabase = await createClient()
-    const {
-        data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return { error: 'Usuario nao autenticado.' as const }
+    const context = await resolveCheckoutSessionContext(supabase)
+    if ('error' in context) return { error: context.error }
 
-    const pricingLines = normalizePricingLines(input)
-    if (!pricingLines.length) {
-        return { prices: {}, missingKeys: [], missingVariantIds: [] }
+    return getCurrentVariantPricingForContext(supabase, {
+        storeId: context.storeId,
+        resolvedPriceTableId: context.resolvedPriceTableId,
+        input,
+    })
+}
+
+export async function getCheckoutBootstrap(items: CartItem[]) {
+    const supabase = await createClient()
+    const context = await resolveCheckoutSessionContext(supabase)
+    if ('error' in context) return { error: context.error }
+
+    const pricingResult = await getCurrentVariantPricingForContext(supabase, {
+        storeId: context.storeId,
+        resolvedPriceTableId: context.resolvedPriceTableId,
+        input: items.map((item) => ({
+            cartKey: item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null),
+            variantId: item.variantId,
+            sizeOptionId: item.sizeOptionId ?? null,
+        })),
+    })
+
+    if ('error' in pricingResult) {
+        return { error: pricingResult.error }
     }
 
-    const variantIds = Array.from(new Set(pricingLines.map((line) => line.variantId)))
-    const sizeOptionIds = Array.from(
-        new Set(
-            pricingLines
-                .map((line) => line.sizeOptionId)
-                .filter((value): value is string => Boolean(value))
-        )
-    )
+    const updatedAt = new Date().toISOString()
+    let priceChanged = false
+    const missingKeys = pricingResult.missingKeys || []
+    const reconciledItems = items
+        .filter((item) => !missingKeys.includes(item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null)))
+        .map((item) => {
+            const currentKey = item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null)
+            const priceInfo = pricingResult.prices?.[currentKey]
+            if (!priceInfo) return item
 
-    const { data: store } = await supabase
-        .from('stores')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single()
-    if (!store) return { error: 'Loja do usuario nao localizada.' as const }
+            const nextCartKey = buildCartKey(item.variantId, priceInfo.sizeOptionId ?? null)
+            const hasChanged =
+                priceInfo.unitPrice !== item.unitPrice ||
+                (priceInfo.sizeOptionId ?? null) !== (item.sizeOptionId ?? null) ||
+                (priceInfo.sizeName || item.size || null) !== (item.size || null) ||
+                (priceInfo.sizePrice ?? null) !== (item.sizePrice ?? null) ||
+                nextCartKey !== currentKey
 
-    const [priceTableContext, variantsResult, sizeOptionMap] = await Promise.all([
-        getActivePriceTableContext(supabase, store.id, variantIds),
-        fetchVariantPricingRows(supabase, variantIds),
-        fetchSizeOptionsById(supabase, sizeOptionIds),
-    ])
+            if (!hasChanged) return item
 
-    if (variantsResult.error) {
-        return { error: 'Falha ao validar os precos do carrinho.' as const }
-    }
-
-    const variantMap = new Map<string, VariantPricingRow>()
-    variantsResult.variants.forEach((variant) => variantMap.set(variant.id, variant))
-
-    const prices: Record<string, PriceSnapshot> = {}
-    const missingVariantIds: string[] = []
-    const missingKeys: string[] = []
-
-    pricingLines.forEach((line) => {
-        const cartKey = line.cartKey || buildCartKey(line.variantId, line.sizeOptionId ?? null)
-        const dbVariant = variantMap.get(line.variantId)
-        const isEffectivelyActive = Boolean(
-            dbVariant?.is_active &&
-            dbVariant?.product?.is_active &&
-            dbVariant?.fabric?.is_active &&
-            dbVariant?.color?.is_active
-        )
-
-        if (!dbVariant || !isEffectivelyActive) {
-            missingVariantIds.push(line.variantId)
-            missingKeys.push(cartKey)
-            return
-        }
-
-        const product = dbVariant.product
-        if (!product) {
-            missingVariantIds.push(line.variantId)
-            missingKeys.push(cartKey)
-            return
-        }
-
-        const productHasSizeVariants = Boolean(product.has_size_variants)
-        const requestedSizeOptionId = line.sizeOptionId ?? null
-        const sizeOption = requestedSizeOptionId ? sizeOptionMap.get(requestedSizeOptionId) || null : null
-
-        if (requestedSizeOptionId) {
-            if (!sizeOption || !sizeOption.is_active || sizeOption.product_id !== product.id) {
-                missingKeys.push(cartKey)
-                return
+            priceChanged = true
+            return {
+                ...item,
+                unitPrice: priceInfo.unitPrice,
+                sizeOptionId: priceInfo.sizeOptionId,
+                size: priceInfo.sizeName || item.size,
+                sizePrice: priceInfo.sizePrice,
+                cartKey: nextCartKey,
+                updatedAt,
             }
-        }
-
-        if (productHasSizeVariants && !sizeOption) {
-            missingKeys.push(cartKey)
-            return
-        }
-
-        const pricing = resolveVariantPricing({
-            basePrice: product.base_price ?? 0,
-            fabricModifier: dbVariant.fabric?.price_modifier ?? 0,
-            variantPriceOverride: dbVariant.price_override ?? null,
-            variantId: dbVariant.id,
-            sizePriceMode: sizeOption?.price_mode ?? null,
-            sizePriceValue: sizeOption?.price_value ?? null,
-            priceTable: priceTableContext,
         })
 
-        const snapshot: PriceSnapshot = {
-            unitPrice: pricing.unitPrice,
-            productPrice: pricing.productPrice,
-            variationPrice: pricing.variationPrice,
-            finalPrice: pricing.finalPrice,
-            sizePrice: pricing.sizePrice,
-            sizeOptionId: sizeOption?.id ?? null,
-            sizeName: sizeOption?.name ?? product.size ?? null,
-        }
+    const recalculatedSubtotal = reconciledItems.reduce(
+        (acc, item) => acc + item.unitPrice * item.quantity,
+        0
+    )
 
-        prices[cartKey] = snapshot
+    const [addresses, paymentAvailability] = await Promise.all([
+        getAvailableStoreAddressesForStore(supabase, context.storeId),
+        getAvailablePaymentRulesForContext(supabase, {
+            cartTotal: recalculatedSubtotal,
+            commercialSettings: context.commercialSettings,
+            resolvedPriceTableId: context.resolvedPriceTableId,
+        }),
+    ])
 
-        // Legacy compatibility for code paths still keyed only by variant id.
-        if (!requestedSizeOptionId && !prices[line.variantId]) {
-            prices[line.variantId] = snapshot
-        }
-    })
+    const defaultAddressId = addresses.find((address) => address.is_main)?.id || addresses[0]?.id || ''
 
-    const foundVariantIds = new Set(variantsResult.variants.map((variant) => variant.id))
-    variantIds.forEach((variantId) => {
-        if (!foundVariantIds.has(variantId)) {
-            missingVariantIds.push(variantId)
-        }
-    })
-
-    return {
-        prices,
-        missingKeys: Array.from(new Set(missingKeys)),
-        missingVariantIds: Array.from(new Set(missingVariantIds)),
+    const payload: CheckoutBootstrapPayload = {
+        reconciledItems,
+        missingKeys,
+        missingVariantIds: pricingResult.missingVariantIds || [],
+        priceChanged,
+        addresses,
+        defaultAddressId,
+        paymentMethods: paymentAvailability.paymentMethods,
+        globalConditions: paymentAvailability.globalConditions,
+        priceTableRules: paymentAvailability.priceTableRules,
+        financialProfile: paymentAvailability.financialProfile,
+        checkoutBlocked: paymentAvailability.checkoutBlocked,
+        paymentRestrictionMessage: paymentAvailability.paymentRestrictionMessage,
     }
+
+    return { data: payload }
 }
 
 export async function previewCouponForOrder(items: CartItem[], couponCode: string) {
@@ -692,20 +849,11 @@ export async function checkoutAction(
     if (!selectedPaymentId) return { error: 'Condicao de pagamento obrigatoria.' }
 
     const supabase = await createClient()
-    const {
-        data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return { error: 'Usuario nao autenticado.' }
-
-    const { data: store, error: storeError } = await supabase
-        .from('stores')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single()
-    if (!store || storeError) return { error: 'Loja do usuario nao localizada no sistema.' }
+    const context = await resolveCheckoutSessionContext(supabase)
+    if ('error' in context) return { error: context.error }
     const normalizedCouponCode = normalizeCouponCodeInput(couponCode)
 
-    const commercialSettings = await getStoreCommercialSettings(supabase, store.id)
+    const commercialSettings = context.commercialSettings
     if (commercialSettings?.financial_profile === 'block_sales') {
         return { error: 'Este cliente esta com vendas restritas e nao pode finalizar novos pedidos.' }
     }
@@ -741,7 +889,12 @@ export async function checkoutAction(
         return { error: 'Alguns itens nao estao mais disponiveis. Revise o carrinho antes de finalizar.' }
     }
 
-    const priceTableContext = await getActivePriceTableContext(supabase, store.id, variantIds)
+    const priceTableContext = await getActivePriceTableContext(
+        supabase,
+        context.storeId,
+        variantIds,
+        context.resolvedPriceTableId
+    )
 
     let secureSubtotal = 0
     const validatedItems = items.map((clientItem) => {
@@ -796,11 +949,7 @@ export async function checkoutAction(
         return { error: `Pedido minimo obrigatorio de R$ ${settings.min_order_amount.toFixed(2)}.` }
     }
 
-    const resolvedPriceTable = await resolveEffectivePriceTableIdForStore(supabase, {
-        storeId: store.id,
-        settings: commercialSettings,
-    })
-    const activePriceTableId = resolvedPriceTable.priceTableId
+    const activePriceTableId = context.resolvedPriceTableId
     const resolvedPayment = await resolveCheckoutPaymentSelection(supabase, {
         cartTotal: secureSubtotal,
         selectedPaymentId,
@@ -839,8 +988,8 @@ export async function checkoutAction(
 
     if (normalizedCouponCode) {
         const { data: couponPreviewData, error: couponPreviewError } = await supabase.rpc('client_preview_coupon_for_order', {
-            p_store_id: store.id,
-            p_profile_id: user.id,
+            p_store_id: context.storeId,
+            p_profile_id: context.userId,
             p_coupon_code: normalizedCouponCode,
             p_items: couponPreviewItemsPayload,
         })
@@ -871,7 +1020,7 @@ export async function checkoutAction(
 
     const creditLimitMessage = await validateStoreCreditLimitForOrder({
         supabase,
-        storeId: store.id,
+        storeId: context.storeId,
         settings: commercialSettings,
         orderTotal: finalTotal,
     })
@@ -880,7 +1029,7 @@ export async function checkoutAction(
     }
 
     let shippingAddressStr: string | null = null
-    let addressQuery = supabase.from('store_addresses').select('*').eq('store_id', store.id)
+    let addressQuery = supabase.from('store_addresses').select('*').eq('store_id', context.storeId)
     addressQuery = selectedAddressId
         ? addressQuery.eq('id', selectedAddressId)
         : addressQuery.eq('is_main', true)
@@ -919,8 +1068,8 @@ export async function checkoutAction(
     }))
 
     const atomicPayloadBase = {
-        p_store_id: store.id,
-        p_profile_id: user.id,
+        p_store_id: context.storeId,
+        p_profile_id: context.userId,
         p_payment_method_id: paymentSelection.paymentMethodId,
         p_payment_condition_id: paymentConditionId,
         p_payment_rule_id: paymentRuleId,
@@ -942,8 +1091,8 @@ export async function checkoutAction(
     }
 
     const atomicPayloadV2 = {
-        p_store_id: store.id,
-        p_profile_id: user.id,
+        p_store_id: context.storeId,
+        p_profile_id: context.userId,
         p_payment_method_id: paymentSelection.paymentMethodId,
         p_payment_condition_id: paymentConditionId,
         p_payment_rule_id: paymentRuleId,
@@ -1057,14 +1206,14 @@ export async function checkoutAction(
 
         const [settingsRes, profileRes, storeDataRes] = await Promise.all([
             supabase.from('system_settings').select('system_name, email').limit(1).single(),
-            supabase.from('profiles').select('full_name, email').eq('id', user.id).single(),
-            supabase.from('stores').select('company_name').eq('profile_id', user.id).single(),
+            supabase.from('profiles').select('full_name, email').eq('id', context.userId).single(),
+            supabase.from('stores').select('company_name').eq('profile_id', context.userId).single(),
         ])
 
         const systemName = settingsRes.data?.system_name || 'CDJWE'
         const adminEmail = settingsRes.data?.email
         const clientName = profileRes.data?.full_name || 'Cliente'
-        const clientEmail = profileRes.data?.email || user.email
+        const clientEmail = profileRes.data?.email || context.userEmail || undefined
         const companyName = storeDataRes.data?.company_name || 'N/A'
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://cdjwe-lojavirtual.vercel.app'
 

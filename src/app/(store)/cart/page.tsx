@@ -50,7 +50,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { useSettings } from '@/components/providers/settings-provider'
 import { cn } from '@/lib/utils'
 import { useCartStore } from '@/lib/stores/cart-store'
-import { createClient } from '@/lib/supabase/client'
 import type {
     CartItem,
     PaymentCondition,
@@ -62,12 +61,10 @@ import type {
 import { toast } from 'sonner'
 import {
     checkoutAction,
-    getAvailablePaymentRules,
-    getAvailableStoreAddresses,
-    getCurrentVariantPricing,
+    getCheckoutBootstrap,
     previewCouponForOrder,
 } from './actions'
-import type { CheckoutCouponPreview } from './actions'
+import type { CheckoutBootstrapPayload, CheckoutCouponPreview } from './actions'
 
 function formatCurrency(value: number) {
     return value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
@@ -170,6 +167,57 @@ function buildPaymentOptionsFromMethodGroup(group: CheckoutPaymentMethodGroup): 
     return [...ruleOptions, ...conditionOptions]
 }
 
+function resolvePaymentSelection(
+    payload: Pick<CheckoutBootstrapPayload, 'paymentMethods' | 'priceTableRules' | 'globalConditions'>,
+    currentMethodId: string,
+    currentPaymentId: string
+) {
+    const groupedMethods = payload.paymentMethods.filter(
+        (group) => group.rules.length > 0 || group.conditions.length > 0
+    )
+
+    if (groupedMethods.length > 0) {
+        const nextMethodId = groupedMethods.some((group) => group.method.id === currentMethodId)
+            ? currentMethodId
+            : groupedMethods[0].method.id
+        const nextGroup =
+            groupedMethods.find((group) => group.method.id === nextMethodId) || groupedMethods[0]
+        const nextOptions = buildPaymentOptionsFromMethodGroup(nextGroup)
+
+        return {
+            selectedPaymentMethod: nextMethodId,
+            selectedPayment: nextOptions.some((option) => option.id === currentPaymentId)
+                ? currentPaymentId
+                : nextOptions[0]?.id || '',
+        }
+    }
+
+    if (payload.priceTableRules.length > 0) {
+        return {
+            selectedPaymentMethod: '',
+            selectedPayment: payload.priceTableRules.some((rule) => rule.id === currentPaymentId)
+                ? currentPaymentId
+                : payload.priceTableRules[0].id,
+        }
+    }
+
+    if (payload.globalConditions.length > 0) {
+        return {
+            selectedPaymentMethod: '',
+            selectedPayment: payload.globalConditions.some(
+                (condition) => condition.id === currentPaymentId
+            )
+                ? currentPaymentId
+                : payload.globalConditions[0].id,
+        }
+    }
+
+    return {
+        selectedPaymentMethod: '',
+        selectedPayment: '',
+    }
+}
+
 function CheckoutSection({
     icon: Icon,
     eyebrow,
@@ -240,13 +288,13 @@ function CheckoutSection({
 }
 
 function CheckoutHeader({
-    nextOrderNumber,
+    title,
     count,
     total,
     onBack,
     onClear,
 }: {
-    nextOrderNumber: string
+    title: string
     count: number
     total: number
     onBack: () => void
@@ -266,7 +314,7 @@ function CheckoutHeader({
                     </Button>
                     <div className="min-w-0">
                         <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-foreground sm:text-2xl">
-                            {nextOrderNumber || 'Finalizar pedido'}
+                            {title}
                         </h1>
                         <p className="mt-1 text-sm text-muted-foreground">
                             Revise, escolha entrega e confirme o pedido.
@@ -600,26 +648,22 @@ export default function CartPage() {
     const [addressError, setAddressError] = useState<string | null>(null)
     const [notes, setNotes] = useState('')
     const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false)
-    const [nextOrderNumber, setNextOrderNumber] = useState('')
     const [newAddressDialogOpen, setNewAddressDialogOpen] = useState(false)
     const [couponInput, setCouponInput] = useState('')
     const [appliedCoupon, setAppliedCoupon] = useState<CheckoutCouponPreview | null>(null)
     const [couponApplying, setCouponApplying] = useState(false)
     const [couponInlineFeedback, setCouponInlineFeedback] = useState<CouponInlineFeedback | null>(null)
     const [priceValidationPending, setPriceValidationPending] = useState(false)
-    const [lastValidatedKey, setLastValidatedKey] = useState('')
     const [checkoutBlockedByPolicy, setCheckoutBlockedByPolicy] = useState(false)
     const [paymentRestrictionMessage, setPaymentRestrictionMessage] = useState<string | null>(null)
     const selectedPaymentMethodRef = useRef(selectedPaymentMethod)
+    const selectedPaymentRef = useRef(selectedPayment)
+    const checkoutBootstrapRequestRef = useRef(0)
     const [isCartHydrated, setIsCartHydrated] = useState(() => persistApi?.hasHydrated?.() ?? false)
 
     const total = subtotal()
     const count = totalItems()
-    const itemsKey = useMemo(
-        () => items.map((item) => getCartItemKey(item)).sort().join('|'),
-        [items]
-    )
-    const couponValidationKey = useMemo(
+    const checkoutBootstrapKey = useMemo(
         () =>
             items
                 .map((item) => `${getCartItemKey(item)}:${item.quantity}:${item.unitPrice}`)
@@ -627,6 +671,7 @@ export default function CartPage() {
                 .join('|'),
         [items]
     )
+    const couponValidationKey = checkoutBootstrapKey
     const lastCouponValidationKeyRef = useRef('')
 
     const selectedAddress = useMemo(
@@ -825,6 +870,10 @@ export default function CartPage() {
     }, [selectedPaymentMethod])
 
     useEffect(() => {
+        selectedPaymentRef.current = selectedPayment
+    }, [selectedPayment])
+
+    useEffect(() => {
         if (!appliedCoupon?.couponCode) return
 
         const nextValidationKey = `${appliedCoupon.couponCode}::${couponValidationKey}`
@@ -936,194 +985,94 @@ export default function CartPage() {
     )
 
     useEffect(() => {
-        const validatePrices = async () => {
-            if (!isCartHydrated) return
-            if (!itemsKey || itemsKey === lastValidatedKey) return
-
-            setPriceValidationPending(true)
-            try {
-                const result = await getCurrentVariantPricing(
-                    items.map((item) => ({
-                        cartKey: getCartItemKey(item),
-                        variantId: item.variantId,
-                        sizeOptionId: item.sizeOptionId ?? null,
-                    }))
-                )
-                if (!result) return
-
-                if ('error' in result) {
-                    toast.warning(
-                        'Nao foi possivel validar os precos agora. Tentaremos novamente em instantes.'
-                    )
-                    return
-                }
-
-                const missingKeys = result.missingKeys || []
-                let updatedItems = items.filter((item) => !missingKeys.includes(getCartItemKey(item)))
-                let priceChanged = false
-
-                updatedItems = updatedItems.map((item) => {
-                    const priceInfo = result.prices?.[getCartItemKey(item)]
-                    if (!priceInfo) return item
-                    if (
-                        priceInfo.unitPrice !== item.unitPrice ||
-                        (priceInfo.sizeOptionId ?? null) !== (item.sizeOptionId ?? null)
-                    ) {
-                        priceChanged = true
-                        return {
-                            ...item,
-                            unitPrice: priceInfo.unitPrice,
-                            sizeOptionId: priceInfo.sizeOptionId,
-                            size: priceInfo.sizeName || item.size,
-                            sizePrice: priceInfo.sizePrice,
-                            cartKey: getCartItemKey({
-                                ...item,
-                                sizeOptionId: priceInfo.sizeOptionId,
-                            }),
-                        }
-                    }
-                    return item
-                })
-
-                if (missingKeys.length > 0) {
-                    toast.error(
-                        'Alguns itens nao estao mais disponiveis e foram removidos do carrinho.'
-                    )
-                }
-
-                if (priceChanged) {
-                    toast.message('Precos atualizados conforme tabela comercial e variacoes.')
-                }
-
-                if (missingKeys.length > 0 || priceChanged) {
-                    setItems(updatedItems)
-                    setLastValidatedKey(
-                        updatedItems.map((item) => getCartItemKey(item)).sort().join('|')
-                    )
-                } else {
-                    setLastValidatedKey(itemsKey)
-                }
-            } finally {
-                setPriceValidationPending(false)
-            }
+        if (!isCartHydrated || items.length === 0) {
+            setAddressesLoading(false)
+            setPriceValidationPending(false)
+            return
         }
 
-        void validatePrices()
-    }, [isCartHydrated, items, itemsKey, lastValidatedKey, setItems])
-
-    useEffect(() => {
-        const loadAddresses = async () => {
+        const requestId = ++checkoutBootstrapRequestRef.current
+        const timeoutId = window.setTimeout(() => {
             setAddressesLoading(true)
-            try {
-                const addresses = await getAvailableStoreAddresses()
-                setStoreAddresses(addresses || [])
+            setPriceValidationPending(true)
+            setAddressError(null)
 
-                const mainAddress = addresses?.find((address) => address.is_main)
-                if (mainAddress) {
-                    setSelectedAddressId(mainAddress.id)
-                } else if (addresses && addresses.length > 0) {
-                    setSelectedAddressId(addresses[0].id)
-                }
-            } catch (err: unknown) {
-                console.error('[CHECKOUT] Failed to load addresses:', err)
-                setAddressError(
-                    err instanceof Error ? err.message : 'Erro ao carregar enderecos'
-                )
-            } finally {
-                setAddressesLoading(false)
-            }
+            void getCheckoutBootstrap(items)
+                .then((result) => {
+                    if (requestId !== checkoutBootstrapRequestRef.current) return
+                    if (!result || ('error' in result && result.error)) {
+                        const message =
+                            ('error' in result && result.error) ||
+                            'Nao foi possivel atualizar o checkout agora.'
+                        toast.warning(message)
+                        setAddressError(message)
+                        return
+                    }
+
+                    if (!('data' in result) || !result.data) {
+                        const message = 'Nao foi possivel carregar o checkout agora.'
+                        toast.warning(message)
+                        setAddressError(message)
+                        return
+                    }
+
+                    const payload = result.data
+                    setStoreAddresses(payload.addresses)
+                    setSelectedAddressId((previous) =>
+                        payload.addresses.some((address) => address.id === previous)
+                            ? previous
+                            : payload.defaultAddressId
+                    )
+
+                    setPaymentMethodGroups(payload.paymentMethods)
+                    setPriceTableRules(payload.priceTableRules)
+                    setPaymentConditions(payload.globalConditions)
+                    setCheckoutBlockedByPolicy(payload.checkoutBlocked)
+                    setPaymentRestrictionMessage(payload.paymentRestrictionMessage)
+
+                    const nextSelection = resolvePaymentSelection(
+                        payload,
+                        selectedPaymentMethodRef.current,
+                        selectedPaymentRef.current
+                    )
+                    setSelectedPaymentMethod(nextSelection.selectedPaymentMethod)
+                    setSelectedPayment(nextSelection.selectedPayment)
+
+                    if (payload.missingKeys.length > 0) {
+                        toast.error(
+                            'Alguns itens nao estao mais disponiveis e foram removidos do carrinho.'
+                        )
+                    }
+
+                    if (payload.priceChanged) {
+                        toast.message('Precos atualizados conforme tabela comercial e variacoes.')
+                    }
+
+                    if (payload.missingKeys.length > 0 || payload.priceChanged) {
+                        setItems(payload.reconciledItems)
+                    }
+                })
+                .catch((err: unknown) => {
+                    if (requestId !== checkoutBootstrapRequestRef.current) return
+                    console.error('[CHECKOUT] Failed to bootstrap checkout:', err)
+                    const message =
+                        err instanceof Error
+                            ? err.message
+                            : 'Erro ao atualizar checkout.'
+                    toast.warning(message)
+                    setAddressError(message)
+                })
+                .finally(() => {
+                    if (requestId !== checkoutBootstrapRequestRef.current) return
+                    setAddressesLoading(false)
+                    setPriceValidationPending(false)
+                })
+        }, 180)
+
+        return () => {
+            window.clearTimeout(timeoutId)
         }
-
-        void loadAddresses()
-    }, [])
-
-    useEffect(() => {
-        const loadPaymentRules = async () => {
-            if (!isCartHydrated) return
-
-            const rulesResponse = await getAvailablePaymentRules(total)
-            const nextMethodGroups = (rulesResponse.paymentMethods || []) as CheckoutPaymentMethodGroup[]
-            const nextTableRules = rulesResponse.priceTableRules || []
-            const nextConditions = rulesResponse.globalConditions || []
-            const nextCheckoutBlocked = Boolean(rulesResponse.checkoutBlocked)
-            const nextRestrictionMessage = rulesResponse.paymentRestrictionMessage || null
-
-            setPaymentMethodGroups(nextMethodGroups)
-            setPriceTableRules(nextTableRules)
-            setPaymentConditions(nextConditions)
-            setCheckoutBlockedByPolicy(nextCheckoutBlocked)
-            setPaymentRestrictionMessage(nextRestrictionMessage)
-
-            const groupedMethods = nextMethodGroups.filter(
-                (group) => group.rules.length > 0 || group.conditions.length > 0
-            )
-
-            if (groupedMethods.length > 0) {
-                const nextMethodId = groupedMethods.some(
-                    (group) => group.method.id === selectedPaymentMethodRef.current
-                )
-                    ? selectedPaymentMethodRef.current
-                    : groupedMethods[0].method.id
-
-                const nextGroup =
-                    groupedMethods.find((group) => group.method.id === nextMethodId) ||
-                    groupedMethods[0]
-
-                const nextOptions = buildPaymentOptionsFromMethodGroup(nextGroup)
-
-                setSelectedPaymentMethod(nextMethodId)
-                setSelectedPayment((previous) =>
-                    nextOptions.some((option) => option.id === previous)
-                        ? previous
-                        : nextOptions[0]?.id || ''
-                )
-                return
-            }
-
-            setSelectedPaymentMethod('')
-
-            if (nextTableRules.length > 0) {
-                setSelectedPayment((previous) =>
-                    nextTableRules.some((rule) => rule.id === previous)
-                        ? previous
-                        : nextTableRules[0].id
-                )
-                return
-            }
-
-            if (nextConditions.length > 0) {
-                setSelectedPayment((previous) =>
-                    nextConditions.some((condition) => condition.id === previous)
-                        ? previous
-                        : nextConditions[0].id
-                )
-                return
-            }
-
-            setSelectedPayment('')
-        }
-
-        void loadPaymentRules()
-    }, [isCartHydrated, total])
-
-    useEffect(() => {
-        const loadNextOrderNumber = async () => {
-            const supabase = createClient()
-            const orderResponse = await supabase
-                .from('orders')
-                .select('order_number')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .single()
-
-            const lastNumStr = orderResponse.data?.order_number || 'PED000000'
-            const lastNum = parseInt(lastNumStr.replace(/\D/g, ''), 10) || 0
-            const nextNum = (lastNum + 1).toString().padStart(6, '0')
-            setNextOrderNumber(`Pedido${nextNum}`)
-        }
-
-        void loadNextOrderNumber()
-    }, [])
+    }, [checkoutBootstrapKey, isCartHydrated, items, setItems])
 
     const handlePlaceOrder = useCallback(() => {
         if (items.length === 0) {
@@ -1255,7 +1204,7 @@ export default function CartPage() {
             <div className="space-y-4 lg:space-y-5">
                 <div className="hidden md:block">
                     <CheckoutHeader
-                        nextOrderNumber={nextOrderNumber}
+                        title="Finalizar pedido"
                         count={count}
                         total={total}
                         onBack={() => router.back()}
@@ -1897,7 +1846,7 @@ export default function CartPage() {
                                                     Pedido
                                                 </p>
                                                 <p className="mt-0.5 text-sm font-semibold text-white">
-                                                    {nextOrderNumber || '...'}
+                                                    Checkout
                                                 </p>
                                             </div>
                                         </div>
