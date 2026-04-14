@@ -883,6 +883,12 @@ export default function CartPage() {
         try {
             const result = await previewCouponForOrder(items, normalizedCode)
             if ('error' in result && result.error) {
+                if (
+                    Array.isArray(result.reconciledItems) &&
+                    (result.priceChanged || (result.missingKeys?.length || 0) > 0)
+                ) {
+                    setItems(result.reconciledItems)
+                }
                 if (options?.silent) {
                     setAppliedCoupon(null)
                     setCouponInput('')
@@ -919,6 +925,19 @@ export default function CartPage() {
                 return false
             }
 
+            if (
+                Array.isArray(result.reconciledItems) &&
+                (result.priceChanged || (result.missingKeys?.length || 0) > 0)
+            ) {
+                setItems(result.reconciledItems)
+                if (result.missingKeys?.length) {
+                    toast.error('Alguns itens nao estao mais disponiveis e foram removidos do carrinho.')
+                }
+                if (result.priceChanged) {
+                    toast.message('Precos atualizados antes da validacao do cupom.')
+                }
+            }
+
             setAppliedCoupon(result.data)
             setCouponInput(result.data.couponCode)
             setCouponInlineFeedback(null)
@@ -928,7 +947,7 @@ export default function CartPage() {
         } finally {
             setCouponApplying(false)
         }
-    }, [couponValidationKey, items])
+    }, [couponValidationKey, items, setItems])
 
     const handleApplyCoupon = useCallback(() => {
         void applyCouponCode(couponInput, { silent: false })

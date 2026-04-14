@@ -92,6 +92,14 @@ type PriceSnapshot = {
     sizeName: string | null
 }
 
+type CartReconciliationResult = {
+    reconciledItems: CartItem[]
+    missingKeys: string[]
+    missingVariantIds: string[]
+    priceChanged: boolean
+    subtotal: number
+}
+
 type CreateOrderAtomicResult = {
     order_id: string
     order_number: string
@@ -140,6 +148,25 @@ export type CheckoutBootstrapPayload = {
     paymentRestrictionMessage: string | null
 }
 
+type ReorderOrderItemRow = {
+    product_variant_id: string
+    size_option_id: string | null
+    product_name: string
+    fabric_name: string
+    color_name: string
+    size: string | null
+    size_name: string | null
+    quantity: number
+    unit_price: number
+    variant: VariantPricingRelation<{
+        product_id: string | null
+        product?: VariantPricingRelation<{
+            id: string
+            images?: Array<{ url: string | null; is_primary: boolean | null; sort_order: number | null }>
+        }>
+    }>
+}
+
 type RpcErrorLike = {
     message?: string
     details?: string
@@ -169,6 +196,46 @@ function buildCartKey(variantId: string, sizeOptionId: string | null) {
 
 function normalizeCouponCodeInput(value: string | null | undefined) {
     return (value || '').trim().toUpperCase()
+}
+
+function buildPricingLinesFromCartItems(items: CartItem[]) {
+    return items.map((item) => ({
+        cartKey: item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null),
+        variantId: item.variantId,
+        sizeOptionId: item.sizeOptionId ?? null,
+    }))
+}
+
+function buildCouponPreviewItemsPayload(items: CartItem[]) {
+    return items.map((item) => ({
+        product_variant_id: item.variantId,
+        size_option_id: item.sizeOptionId ?? null,
+        quantity: item.quantity,
+    }))
+}
+
+function mapOrderItemsToCartItems(items: ReorderOrderItemRow[]): CartItem[] {
+    return items.map((item) => {
+        const variant = unwrapRelation(item.variant)
+        const product = unwrapRelation(variant?.product ?? null)
+        const primaryImage =
+            product?.images?.find((image) => image.is_primary) || product?.images?.[0] || null
+
+        return {
+            cartKey: buildCartKey(item.product_variant_id, item.size_option_id ?? null),
+            variantId: item.product_variant_id,
+            productId: variant?.product_id || product?.id || '',
+            productName: item.product_name,
+            fabricName: item.fabric_name,
+            colorName: item.color_name,
+            size: item.size_name || item.size,
+            sizeOptionId: item.size_option_id ?? null,
+            sizePrice: null,
+            imageUrl: primaryImage?.url || null,
+            quantity: item.quantity,
+            unitPrice: Number(item.unit_price || 0),
+        }
+    })
 }
 
 function getRpcErrorMessage(error: RpcErrorLike | null) {
@@ -609,6 +676,62 @@ async function getCurrentVariantPricingForContext(
     }
 }
 
+async function reconcileCartItemsForContext(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    context: CheckoutSessionContext,
+    items: CartItem[]
+): Promise<CartReconciliationResult | { error: string }> {
+    const pricingResult = await getCurrentVariantPricingForContext(supabase, {
+        storeId: context.storeId,
+        resolvedPriceTableId: context.resolvedPriceTableId,
+        input: buildPricingLinesFromCartItems(items),
+    })
+
+    if ('error' in pricingResult) {
+        return { error: pricingResult.error || 'Falha ao reconciliar itens do carrinho.' }
+    }
+
+    const updatedAt = new Date().toISOString()
+    let priceChanged = false
+    const missingKeys = pricingResult.missingKeys || []
+    const reconciledItems = items
+        .filter((item) => !missingKeys.includes(item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null)))
+        .map((item) => {
+            const currentKey = item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null)
+            const priceInfo = pricingResult.prices?.[currentKey]
+            if (!priceInfo) return item
+
+            const nextCartKey = buildCartKey(item.variantId, priceInfo.sizeOptionId ?? null)
+            const hasChanged =
+                priceInfo.unitPrice !== item.unitPrice ||
+                (priceInfo.sizeOptionId ?? null) !== (item.sizeOptionId ?? null) ||
+                (priceInfo.sizeName || item.size || null) !== (item.size || null) ||
+                (priceInfo.sizePrice ?? null) !== (item.sizePrice ?? null) ||
+                nextCartKey !== currentKey
+
+            if (!hasChanged) return item
+
+            priceChanged = true
+            return {
+                ...item,
+                unitPrice: priceInfo.unitPrice,
+                sizeOptionId: priceInfo.sizeOptionId,
+                size: priceInfo.sizeName || item.size,
+                sizePrice: priceInfo.sizePrice,
+                cartKey: nextCartKey,
+                updatedAt,
+            }
+        })
+
+    return {
+        reconciledItems,
+        missingKeys,
+        missingVariantIds: pricingResult.missingVariantIds || [],
+        priceChanged,
+        subtotal: reconciledItems.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0),
+    }
+}
+
 export async function getAvailablePaymentRules(cartTotal: number) {
     const supabase = await createClient()
     const context = await resolveCheckoutSessionContext(supabase)
@@ -696,61 +819,15 @@ export async function getCheckoutBootstrap(items: CartItem[]) {
     const context = await resolveCheckoutSessionContext(supabase)
     if ('error' in context) return { error: context.error }
 
-    const pricingResult = await getCurrentVariantPricingForContext(supabase, {
-        storeId: context.storeId,
-        resolvedPriceTableId: context.resolvedPriceTableId,
-        input: items.map((item) => ({
-            cartKey: item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null),
-            variantId: item.variantId,
-            sizeOptionId: item.sizeOptionId ?? null,
-        })),
-    })
-
-    if ('error' in pricingResult) {
-        return { error: pricingResult.error }
+    const reconciliation = await reconcileCartItemsForContext(supabase, context, items)
+    if ('error' in reconciliation) {
+        return { error: reconciliation.error }
     }
-
-    const updatedAt = new Date().toISOString()
-    let priceChanged = false
-    const missingKeys = pricingResult.missingKeys || []
-    const reconciledItems = items
-        .filter((item) => !missingKeys.includes(item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null)))
-        .map((item) => {
-            const currentKey = item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null)
-            const priceInfo = pricingResult.prices?.[currentKey]
-            if (!priceInfo) return item
-
-            const nextCartKey = buildCartKey(item.variantId, priceInfo.sizeOptionId ?? null)
-            const hasChanged =
-                priceInfo.unitPrice !== item.unitPrice ||
-                (priceInfo.sizeOptionId ?? null) !== (item.sizeOptionId ?? null) ||
-                (priceInfo.sizeName || item.size || null) !== (item.size || null) ||
-                (priceInfo.sizePrice ?? null) !== (item.sizePrice ?? null) ||
-                nextCartKey !== currentKey
-
-            if (!hasChanged) return item
-
-            priceChanged = true
-            return {
-                ...item,
-                unitPrice: priceInfo.unitPrice,
-                sizeOptionId: priceInfo.sizeOptionId,
-                size: priceInfo.sizeName || item.size,
-                sizePrice: priceInfo.sizePrice,
-                cartKey: nextCartKey,
-                updatedAt,
-            }
-        })
-
-    const recalculatedSubtotal = reconciledItems.reduce(
-        (acc, item) => acc + item.unitPrice * item.quantity,
-        0
-    )
 
     const [addresses, paymentAvailability] = await Promise.all([
         getAvailableStoreAddressesForStore(supabase, context.storeId),
         getAvailablePaymentRulesForContext(supabase, {
-            cartTotal: recalculatedSubtotal,
+            cartTotal: reconciliation.subtotal,
             commercialSettings: context.commercialSettings,
             resolvedPriceTableId: context.resolvedPriceTableId,
             applyCartTotalFilter: false,
@@ -760,10 +837,10 @@ export async function getCheckoutBootstrap(items: CartItem[]) {
     const defaultAddressId = addresses.find((address) => address.is_main)?.id || addresses[0]?.id || ''
 
     const payload: CheckoutBootstrapPayload = {
-        reconciledItems,
-        missingKeys,
-        missingVariantIds: pricingResult.missingVariantIds || [],
-        priceChanged,
+        reconciledItems: reconciliation.reconciledItems,
+        missingKeys: reconciliation.missingKeys,
+        missingVariantIds: reconciliation.missingVariantIds,
+        priceChanged: reconciliation.priceChanged,
         addresses,
         defaultAddressId,
         paymentCatalogMethods: paymentAvailability.paymentMethods,
@@ -788,29 +865,25 @@ export async function previewCouponForOrder(items: CartItem[], couponCode: strin
     }
 
     const supabase = await createClient()
-    const {
-        data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return { error: 'Usuario nao autenticado.' }
+    const context = await resolveCheckoutSessionContext(supabase)
+    if ('error' in context) return { error: context.error }
 
-    const { data: store, error: storeError } = await supabase
-        .from('stores')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single()
-    if (!store || storeError) return { error: 'Loja do usuario nao localizada no sistema.' }
-
-    const itemsPayload = items.map((item) => ({
-        product_variant_id: item.variantId,
-        size_option_id: item.sizeOptionId ?? null,
-        quantity: item.quantity,
-    }))
+    const reconciliation = await reconcileCartItemsForContext(supabase, context, items)
+    if ('error' in reconciliation) return { error: reconciliation.error }
+    if (!reconciliation.reconciledItems.length) {
+        return {
+            error: 'Adicione itens validos no carrinho para aplicar cupom.',
+            missingKeys: reconciliation.missingKeys,
+            reconciledItems: [] as CartItem[],
+            priceChanged: reconciliation.priceChanged,
+        }
+    }
 
     const { data, error } = await supabase.rpc('client_preview_coupon_for_order', {
-        p_store_id: store.id,
-        p_profile_id: user.id,
+        p_store_id: context.storeId,
+        p_profile_id: context.userId,
         p_coupon_code: normalizedCouponCode,
-        p_items: itemsPayload,
+        p_items: buildCouponPreviewItemsPayload(reconciliation.reconciledItems),
     })
 
     const errorMessage = getRpcErrorMessage(error as RpcErrorLike | null)
@@ -837,7 +910,12 @@ export async function previewCouponForOrder(items: CartItem[], couponCode: strin
         paymentDiscountBlocked: Boolean(previewRow.payment_discount_blocked),
     }
 
-    return { data: preview }
+    return {
+        data: preview,
+        reconciledItems: reconciliation.reconciledItems,
+        missingKeys: reconciliation.missingKeys,
+        priceChanged: reconciliation.priceChanged,
+    }
 }
 
 export async function checkoutAction(
@@ -860,6 +938,14 @@ export async function checkoutAction(
     if (commercialSettings?.financial_profile === 'block_sales') {
         return { error: 'Este cliente esta com vendas restritas e nao pode finalizar novos pedidos.' }
     }
+
+    const reconciliation = await reconcileCartItemsForContext(supabase, context, items)
+    if ('error' in reconciliation) return { error: reconciliation.error }
+    if (!reconciliation.reconciledItems.length) {
+        return { error: 'Alguns itens nao estao mais disponiveis. Revise o carrinho antes de finalizar.' }
+    }
+
+    items = reconciliation.reconciledItems
 
     const variantIds = Array.from(new Set(items.map((item) => item.variantId)))
     const sizeOptionIds = Array.from(
@@ -980,11 +1066,7 @@ export async function checkoutAction(
     const paymentRuleId = paymentSelection.paymentRuleId
     const paymentConditionId = paymentSelection.paymentConditionId
 
-    const couponPreviewItemsPayload = validatedItems.map((item) => ({
-        product_variant_id: item.variantId,
-        size_option_id: item.sizeOptionId ?? null,
-        quantity: item.quantity,
-    }))
+    const couponPreviewItemsPayload = buildCouponPreviewItemsPayload(validatedItems)
 
     let couponDiscountAmount = 0
     let paymentDiscountBlockedByCoupon = false
@@ -1267,4 +1349,66 @@ export async function checkoutAction(
     }
 
     return { success: true, orderId: createdOrderId }
+}
+
+export async function getReorderCartItems(orderId: string) {
+    if (!orderId) {
+        return { error: 'Pedido nao informado.' }
+    }
+
+    const supabase = await createClient()
+    const context = await resolveCheckoutSessionContext(supabase)
+    if ('error' in context) return { error: context.error }
+
+    const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('id', orderId)
+        .eq('profile_id', context.userId)
+        .maybeSingle()
+
+    if (orderError || !order?.id) {
+        return { error: 'Pedido nao localizado para este cliente.' }
+    }
+
+    const { data: items, error: itemsError } = await supabase
+        .from('order_items')
+        .select(`
+            product_variant_id,
+            size_option_id,
+            product_name,
+            fabric_name,
+            color_name,
+            size,
+            size_name,
+            quantity,
+            unit_price,
+            variant:product_variants(
+                product_id,
+                product:products(
+                    id,
+                    images:product_images(url, is_primary, sort_order)
+                )
+            )
+        `)
+        .eq('order_id', orderId)
+
+    if (itemsError) {
+        console.error('[REORDER] failed to load order items:', itemsError)
+        return { error: 'Nao foi possivel carregar os itens do pedido.' }
+    }
+
+    const baseCartItems = mapOrderItemsToCartItems((items || []) as unknown as ReorderOrderItemRow[])
+    if (!baseCartItems.length) {
+        return { error: 'Este pedido nao possui itens disponiveis para refazer.' }
+    }
+
+    const reconciliation = await reconcileCartItemsForContext(supabase, context, baseCartItems)
+    if ('error' in reconciliation) return { error: reconciliation.error }
+
+    return {
+        items: reconciliation.reconciledItems,
+        missingKeys: reconciliation.missingKeys,
+        priceChanged: reconciliation.priceChanged,
+    }
 }

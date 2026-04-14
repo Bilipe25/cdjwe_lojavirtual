@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { ClipboardList, Eye, Search, Filter, ChevronLeft, ChevronRight, RotateCcw, Loader2, Calendar } from 'lucide-react'
+import { ClipboardList, Search, Filter, ChevronRight, RotateCcw, Loader2, Calendar } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -18,12 +18,12 @@ import { ptBR } from 'date-fns/locale'
 import { useCartStore } from '@/lib/stores/cart-store'
 import { toast } from 'sonner'
 import { PullToRefresh } from '@/components/ui/pull-to-refresh'
-import { getCurrentVariantPricing } from '@/app/(store)/cart/actions'
+import { getReorderCartItems } from '@/app/(store)/cart/actions'
 
 const PAGE_SIZE = 15
 
-function buildCartKey(variantId: string, sizeOptionId: string | null) {
-    return `${variantId}::${sizeOptionId || 'legacy'}`
+type OrderListRow = Order & {
+    payment_condition?: { name: string } | Array<{ name: string }> | null
 }
 
 const statusConfig: Record<OrderStatus, { label: string; color: string }> = {
@@ -46,7 +46,7 @@ export default function OrdersPage() {
 function OrdersContent() {
     const searchParams = useSearchParams()
     const router = useRouter()
-    const [orders, setOrders] = useState<Order[]>([])
+    const [orders, setOrders] = useState<OrderListRow[]>([])
     const [loading, setLoading] = useState(true)
     
     // Pagination & Filter States from URL
@@ -61,11 +61,14 @@ function OrdersContent() {
     const { addItem, openCart } = useCartStore()
     const observerTarget = useRef<HTMLDivElement>(null)
 
-    // Reset page and orders when search/filters change
     useEffect(() => {
-        setOrders([])
-        setCurrentPage(1)
-        setHasMore(true)
+        const timeoutId = window.setTimeout(() => {
+            setOrders([])
+            setCurrentPage(1)
+            setHasMore(true)
+        }, 0)
+
+        return () => window.clearTimeout(timeoutId)
     }, [statusFilter, dateFilter, debouncedSearch])
 
     useEffect(() => {
@@ -106,10 +109,11 @@ function OrdersContent() {
 
             const { data, count, error } = await query
             if (!error && data) {
+                const typedData = data as unknown as OrderListRow[]
                 if (currentPage === 1) {
-                    setOrders(data as any)
+                    setOrders(typedData)
                 } else {
-                    setOrders(prev => [...prev, ...(data as any)])
+                    setOrders(prev => [...prev, ...typedData])
                 }
                 setTotalCount(count || 0)
                 setHasMore((count || 0) > (currentPage * PAGE_SIZE))
@@ -118,7 +122,7 @@ function OrdersContent() {
         }
 
         loadPaginatedOrders()
-    }, [statusFilter, dateFilter, debouncedSearch, currentPage])
+    }, [statusFilter, dateFilter, debouncedSearch, currentPage, hasMore])
 
     // Intersection Observer for Infinite Scroll
     useEffect(() => {
@@ -138,86 +142,34 @@ function OrdersContent() {
         return () => observer.disconnect()
     }, [hasMore, loading])
 
-    const totalPages = Math.ceil(totalCount / PAGE_SIZE)
-
     const handleReorder = async (e: React.MouseEvent, orderId: string) => {
         e.preventDefault()
         e.stopPropagation()
         setReorderingId(orderId)
         try {
-            const supabase = createClient()
-            const { data: items } = await supabase
-                .from('order_items')
-                .select(`
-                    *,
-                    variant:product_variants(
-                        product_id,
-                        product:products(
-                            id,
-                            images:product_images(url, is_primary, sort_order)
-                        )
-                    )
-                `)
-                .eq('order_id', orderId)
-            if (items && items.length > 0) {
-                const pricingLines = items.map((item: any) => ({
-                    variantId: item.product_variant_id as string,
-                    sizeOptionId: (item.size_option_id as string | null) ?? null,
-                    cartKey: buildCartKey(
-                        item.product_variant_id as string,
-                        (item.size_option_id as string | null) ?? null
-                    ),
-                }))
-                const pricingRes = await getCurrentVariantPricing(pricingLines)
-                const priceMap = !pricingRes || 'error' in pricingRes ? {} : pricingRes.prices || {}
-                const missingKeys = !pricingRes || 'error' in pricingRes ? [] : (pricingRes.missingKeys || [])
-
-                if (pricingRes && 'error' in pricingRes) {
-                    toast.warning('Não foi possível validar preços agora. Os valores serão confirmados no carrinho.')
-                }
-                if (missingKeys.length > 0) {
-                    toast.error('Alguns itens não estão mais disponíveis e foram ignorados.')
-                }
-
-                let addedCount = 0
-                let priceChanged = false
-
-                items.forEach((item: any) => {
-                    const cartKey = buildCartKey(
-                        item.product_variant_id as string,
-                        (item.size_option_id as string | null) ?? null
-                    )
-                    if (missingKeys.includes(cartKey)) return
-                    const product = item.variant?.product
-                    const primaryImage = product?.images?.find((img: any) => img.is_primary) || product?.images?.[0]
-                    const currentPrice = priceMap[cartKey]?.unitPrice
-                    if (currentPrice !== undefined && currentPrice !== item.unit_price) {
-                        priceChanged = true
-                    }
-                    addItem({
-                        cartKey,
-                        variantId: item.product_variant_id,
-                        productId: item.variant?.product_id || '',
-                        productName: item.product_name,
-                        fabricName: item.fabric_name,
-                        colorName: item.color_name,
-                        size: item.size_name || item.size,
-                        sizeOptionId: item.size_option_id ?? null,
-                        sizePrice: priceMap[cartKey]?.sizePrice ?? null,
-                        imageUrl: primaryImage?.url || null,
-                        quantity: item.quantity,
-                        unitPrice: currentPrice ?? item.unit_price,
-                    })
-                    addedCount += 1
-                })
-                if (addedCount > 0) {
-                    if (priceChanged) {
-                        toast.message('Preços atualizados conforme tabela e variações.')
-                    }
-                    toast.success(`${addedCount} itens adicionados ao carrinho!`)
-                    openCart()
-                }
+            const result = await getReorderCartItems(orderId)
+            if ('error' in result && result.error) {
+                toast.error(result.error)
+                return
             }
+
+            if (!('items' in result) || !result.items?.length) {
+                toast.error('Nenhum item disponível para refazer este pedido.')
+                return
+            }
+
+            result.items.forEach((item) => {
+                addItem(item)
+            })
+
+            if (result.missingKeys?.length) {
+                toast.error('Alguns itens não estão mais disponíveis e foram ignorados.')
+            }
+            if (result.priceChanged) {
+                toast.message('Preços atualizados conforme tabela e variações.')
+            }
+            toast.success(`${result.items.length} itens adicionados ao carrinho!`)
+            openCart()
         } catch {
             toast.error('Erro ao refazer pedido.')
         }
@@ -253,11 +205,15 @@ function OrdersContent() {
                             if (val) params.set('search', val)
                             else params.delete('search')
                             router.replace(`/orders?${params.toString()}`)
+                            setCurrentPage(1)
+                            setOrders([])
+                            setHasMore(true)
                         }}
                         className="pl-9 h-11 bg-white/60"
                     />
                 </div>
-                <Select value={statusFilter} onValueChange={(v: any) => {
+                <Select value={statusFilter} onValueChange={(v: string | null) => {
+                    if (!v) return
                     const params = new URLSearchParams(searchParams)
                     if (v === 'all') params.delete('status')
                     else params.set('status', v)
@@ -277,7 +233,8 @@ function OrdersContent() {
                         ))}
                     </SelectContent>
                 </Select>
-                <Select value={dateFilter} onValueChange={(v: any) => {
+                <Select value={dateFilter} onValueChange={(v: string | null) => {
+                    if (!v) return
                     const params = new URLSearchParams(searchParams)
                     if (v === 'all') params.delete('date')
                     else params.set('date', v)
@@ -366,7 +323,9 @@ function OrdersContent() {
                                                                 </p>
                                                                 {order.payment_condition && (
                                                                     <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight opacity-70">
-                                                                        {(order.payment_condition as { name: string }).name}
+                                                                        {Array.isArray(order.payment_condition)
+                                                                            ? order.payment_condition[0]?.name
+                                                                            : order.payment_condition?.name}
                                                                     </p>
                                                                 )}
                                                             </div>
