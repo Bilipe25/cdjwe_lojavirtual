@@ -1,7 +1,7 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
-import { usePathname, useSearchParams } from 'next/navigation'
+import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
 import { Search, Filter, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
@@ -34,6 +34,17 @@ interface CatalogSizeFilterOption {
     sort_order: number
 }
 
+interface FilterCountProduct {
+    category_id: string | null
+    product_variants: Array<{
+        fabric_id: string | null
+    }> | null
+    product_size_options: Array<{
+        slug: string | null
+        is_active?: boolean | null
+    }> | null
+}
+
 type CatalogProduct = Product & {
     images: { url: string; is_primary: boolean }[]
     size_options?: Product['size_options']
@@ -62,13 +73,14 @@ function CatalogContentInner() {
     // Filter State
     const pathname = usePathname()
     const searchParams = useSearchParams()
+    const router = useRouter()
     const initialSearch = searchParams.get('search') || ''
-    const [search, setSearch] = useState(initialSearch)
+    const initialSort = searchParams.get('sort') || 'name'
     const [debouncedSearch, setDebouncedSearch] = useState(initialSearch)
     const [selectedCategory, setSelectedCategory] = useState<string>('all')
     const [selectedFabric, setSelectedFabric] = useState<string>('all')
     const [selectedSize, setSelectedSize] = useState<string>('all')
-    const [sortBy, setSortBy] = useState<string>('name')
+    const [sortBy, setSortBy] = useState<string>(initialSort)
     const [viewMode, setViewMode] = useState<CatalogViewMode>(() => {
         if (typeof window === 'undefined') return 'grid'
         const saved = window.localStorage.getItem(CATALOG_VIEW_STORAGE_KEY)
@@ -87,6 +99,33 @@ function CatalogContentInner() {
     const isMobile = useIsMobile()
     const greetingData = useCustomerGreeting()
 
+    const updateCatalogUrl = (nextParams: {
+        search?: string
+        category?: string
+        fabric?: string
+        size?: string
+        sort?: string
+    }) => {
+        const params = new URLSearchParams(searchParams.toString())
+
+        const applyParam = (key: string, value?: string, emptyValue = 'all') => {
+            if (!value || value === emptyValue) {
+                params.delete(key)
+                return
+            }
+            params.set(key, value)
+        }
+
+        applyParam('search', nextParams.search ?? debouncedSearch, '')
+        applyParam('category', nextParams.category ?? selectedCategory)
+        applyParam('fabric', nextParams.fabric ?? selectedFabric)
+        applyParam('size', nextParams.size ?? selectedSize)
+        applyParam('sort', nextParams.sort ?? sortBy, 'name')
+
+        const query = params.toString()
+        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    }
+
     // Sync search state with URL search params (TopBar search)
     // We REMOVED the internal debounce as it's handled by MobileTopBar
     useEffect(() => {
@@ -94,37 +133,30 @@ function CatalogContentInner() {
         const urlCategory = searchParams.get('category') || 'all'
         const urlFabric = searchParams.get('fabric') || 'all'
         const urlSize = searchParams.get('size') || 'all'
-
-        const needsSync =
-            urlSearch !== search ||
-            urlSearch !== debouncedSearch ||
-            urlCategory !== selectedCategory ||
-            urlFabric !== selectedFabric ||
-            urlSize !== selectedSize
-
-        if (!needsSync) return
+        const urlSort = searchParams.get('sort') || 'name'
 
         const frame = window.requestAnimationFrame(() => {
-            if (urlSearch !== search) setSearch(urlSearch)
-            if (urlSearch !== debouncedSearch) setDebouncedSearch(urlSearch)
-            if (urlCategory !== selectedCategory) setSelectedCategory(urlCategory)
-            if (urlFabric !== selectedFabric) setSelectedFabric(urlFabric)
-            if (urlSize !== selectedSize) setSelectedSize(urlSize)
+            setDebouncedSearch(urlSearch)
+            setSelectedCategory(urlCategory)
+            setSelectedFabric(urlFabric)
+            setSelectedSize(urlSize)
+            setSortBy(urlSort)
             setCurrentPage(1)
         })
 
         return () => window.cancelAnimationFrame(frame)
-    }, [debouncedSearch, search, searchParams, selectedCategory, selectedFabric, selectedSize])
+    }, [searchParams])
 
     useEffect(() => {
         window.localStorage.setItem(CATALOG_VIEW_STORAGE_KEY, viewMode)
     }, [viewMode])
 
-    // Load static filters once
+    const [filterCounts, setFilterCounts] = useState({ category: {} as Record<string, number>, fabric: {} as Record<string, number>, size: {} as Record<string, number> })
+
     useEffect(() => {
         const loadFilters = async () => {
             const supabase = createClient()
-            const [categoriesRes, fabricsRes, sizeOptionsRes] = await Promise.all([
+            const [categoriesRes, fabricsRes, sizeOptionsRes, allProductsRes] = await Promise.all([
                 supabase.from('categories').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
                 supabase.from('fabrics').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
                 supabase
@@ -133,6 +165,7 @@ function CatalogContentInner() {
                     .eq('is_active', true)
                     .order('sort_order', { ascending: true })
                     .order('name', { ascending: true }),
+                supabase.from('products').select('id, category_id, product_variants(fabric_id), product_size_options(slug, is_active)').eq('is_active', true)
             ])
             if (categoriesRes.data) setCategories(categoriesRes.data)
             if (fabricsRes.data) setFabrics(fabricsRes.data)
@@ -159,6 +192,31 @@ function CatalogContentInner() {
                         return a.name.localeCompare(b.name, 'pt-BR')
                     })
                 )
+            }
+            const allProducts = Array.isArray(allProductsRes.data)
+                ? (allProductsRes.data as FilterCountProduct[])
+                : []
+
+            if (allProducts.length > 0) {
+                const c: Record<string, number> = {};
+                const f: Record<string, number> = {};
+                const s: Record<string, number> = {};
+                allProducts.forEach((p) => {
+                    if (p.category_id) c[p.category_id] = (c[p.category_id] || 0) + 1;
+                    if (p.product_variants) {
+                        const uniqueFabs = new Set<string>();
+                        p.product_variants.forEach((variant) => { if (variant.fabric_id) uniqueFabs.add(variant.fabric_id) });
+                        uniqueFabs.forEach(id => f[id] = (f[id] || 0) + 1);
+                    }
+                    if (p.product_size_options) {
+                        const uniqueSizes = new Set<string>();
+                        p.product_size_options.forEach((option) => { if (option.slug && option.is_active !== false) uniqueSizes.add(option.slug) });
+                        uniqueSizes.forEach(slug => s[slug] = (s[slug] || 0) + 1);
+                    }
+                });
+                setFilterCounts({ category: c, fabric: f, size: s })
+            } else {
+                setFilterCounts({ category: {}, fabric: {}, size: {} })
             }
         }
         loadFilters()
@@ -300,9 +358,10 @@ function CatalogContentInner() {
         setSelectedCategory('all')
         setSelectedFabric('all')
         setSelectedSize('all')
-        setSearch('')
+        setSortBy('name')
         setDebouncedSearch('')
         setCurrentPage(1)
+        updateCatalogUrl({ search: '', category: 'all', fabric: 'all', size: 'all', sort: 'name' })
     }
 
     const totalPages = Math.ceil(totalCount / PAGE_SIZE)
@@ -352,7 +411,11 @@ function CatalogContentInner() {
             <CategoryCarousel
                 categories={categories}
                 selectedCategory={selectedCategory}
-                onSelect={(id: string) => { setSelectedCategory(id); setCurrentPage(1); }}
+                onSelect={(id: string) => {
+                    setSelectedCategory(id)
+                    setCurrentPage(1)
+                    updateCatalogUrl({ category: id })
+                }}
             />
 
             {/* Filter Button (tablet only) - hidden on mobile (handled by MobileTopBar) and large desktop (sidebar) */}
@@ -374,24 +437,40 @@ function CatalogContentInner() {
                             <SheetTitle>Filtros</SheetTitle>
                         </SheetHeader>
                         <ScrollArea className="mt-6 h-[calc(100vh-100px)]">
-                            <CatalogFilters 
-                                categories={categories}
+                            <CatalogFilters counts={filterCounts} categories={categories}
                                 fabrics={fabrics}
                                 sizes={sizes}
                                 selectedCategory={selectedCategory}
                                 selectedFabric={selectedFabric}
                                 selectedSize={selectedSize}
                                 sortBy={sortBy}
-                                onSortChange={(v) => { setSortBy(v); setCurrentPage(1); }}
-                                onCategoryChange={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
-                                onFabricChange={(id) => { setSelectedFabric(id); setCurrentPage(1); }}
-                                onSizeChange={(slug) => { setSelectedSize(slug); setCurrentPage(1); }}
+                                onSortChange={(v) => {
+                                    setSortBy(v)
+                                    setCurrentPage(1)
+                                    updateCatalogUrl({ sort: v })
+                                }}
+                                onCategoryChange={(id) => {
+                                    setSelectedCategory(id)
+                                    setCurrentPage(1)
+                                    updateCatalogUrl({ category: id })
+                                }}
+                                onFabricChange={(id) => {
+                                    setSelectedFabric(id)
+                                    setCurrentPage(1)
+                                    updateCatalogUrl({ fabric: id })
+                                }}
+                                onSizeChange={(slug) => {
+                                    setSelectedSize(slug)
+                                    setCurrentPage(1)
+                                    updateCatalogUrl({ size: slug })
+                                }}
                                 onClearAll={() => {
-                                    setSelectedCategory('all');
-                                    setSelectedFabric('all');
-                                    setSelectedSize('all');
-                                    setSortBy('name');
-                                    setCurrentPage(1);
+                                    setSelectedCategory('all')
+                                    setSelectedFabric('all')
+                                    setSelectedSize('all')
+                                    setSortBy('name')
+                                    setCurrentPage(1)
+                                    updateCatalogUrl({ category: 'all', fabric: 'all', size: 'all', sort: 'name' })
                                 }}
                             />
                         </ScrollArea>
@@ -426,24 +505,40 @@ function CatalogContentInner() {
                             <SlidersHorizontal className="h-4 w-4" />
                             Filtros
                         </h2>
-                        <CatalogFilters 
-                            categories={categories}
+                        <CatalogFilters counts={filterCounts} categories={categories}
                             fabrics={fabrics}
                             sizes={sizes}
                             selectedCategory={selectedCategory}
                             selectedFabric={selectedFabric}
                             selectedSize={selectedSize}
                             sortBy={sortBy}
-                            onSortChange={(v) => { setSortBy(v); setCurrentPage(1); }}
-                            onCategoryChange={(id) => { setSelectedCategory(id); setCurrentPage(1); }}
-                            onFabricChange={(id) => { setSelectedFabric(id); setCurrentPage(1); }}
-                            onSizeChange={(slug) => { setSelectedSize(slug); setCurrentPage(1); }}
+                            onSortChange={(v) => {
+                                setSortBy(v)
+                                setCurrentPage(1)
+                                updateCatalogUrl({ sort: v })
+                            }}
+                            onCategoryChange={(id) => {
+                                setSelectedCategory(id)
+                                setCurrentPage(1)
+                                updateCatalogUrl({ category: id })
+                            }}
+                            onFabricChange={(id) => {
+                                setSelectedFabric(id)
+                                setCurrentPage(1)
+                                updateCatalogUrl({ fabric: id })
+                            }}
+                            onSizeChange={(slug) => {
+                                setSelectedSize(slug)
+                                setCurrentPage(1)
+                                updateCatalogUrl({ size: slug })
+                            }}
                             onClearAll={() => {
-                                setSelectedCategory('all');
-                                setSelectedFabric('all');
-                                setSelectedSize('all');
-                                setSortBy('name');
-                                setCurrentPage(1);
+                                setSelectedCategory('all')
+                                setSelectedFabric('all')
+                                setSelectedSize('all')
+                                setSortBy('name')
+                                setCurrentPage(1)
+                                updateCatalogUrl({ category: 'all', fabric: 'all', size: 'all', sort: 'name' })
                             }}
                         />
                     </div>

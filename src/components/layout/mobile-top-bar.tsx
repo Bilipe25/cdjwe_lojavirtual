@@ -57,6 +57,7 @@ export function MobileTopBar() {
     const [categories, setCategories] = useState<Category[]>([])
     const [fabrics, setFabrics] = useState<Fabric[]>([])
     const [sizes, setSizes] = useState<MobileCatalogSizeFilterOption[]>([])
+    const [filterCounts, setFilterCounts] = useState({ category: {} as Record<string, number>, fabric: {} as Record<string, number>, size: {} as Record<string, number> })
     const [nextOrderNumber, setNextOrderNumber] = useState<string>('')
 
     const isCatalogPage = pathname.startsWith('/catalog')
@@ -84,12 +85,12 @@ export function MobileTopBar() {
 
     // Load catalog filters (Once per mount if on catalog)
     useEffect(() => {
-        if (!isCatalogPage || (categories.length > 0 && fabrics.length > 0 && sizes.length > 0)) return
+        if (!isCatalogPage || (categories.length > 0 && fabrics.length > 0 && sizes.length > 0 && Object.keys(filterCounts.category).length > 0)) return
         
         const loadCatalogFilters = async () => {
             const supabase = createClient()
             try {
-                const [catRes, fabRes, sizeRes] = await Promise.all([
+                const [catRes, fabRes, sizeRes, allProductsRes] = await Promise.all([
                     supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
                     supabase.from('fabrics').select('*').eq('is_active', true).order('sort_order'),
                     supabase
@@ -98,6 +99,7 @@ export function MobileTopBar() {
                         .eq('is_active', true)
                         .order('sort_order', { ascending: true })
                         .order('name', { ascending: true }),
+                    supabase.from('products').select('id, category_id, product_variants(fabric_id), product_size_options(slug, is_active)').eq('is_active', true)
                 ])
                 if (catRes.data) setCategories(catRes.data)
                 if (fabRes.data) setFabrics(fabRes.data)
@@ -123,6 +125,25 @@ export function MobileTopBar() {
                             return a.name.localeCompare(b.name, 'pt-BR')
                         })
                     )
+                }
+                if (allProductsRes.data) {
+                    const c: Record<string, number> = {};
+                    const f: Record<string, number> = {};
+                    const s: Record<string, number> = {};
+                    allProductsRes.data.forEach((p: any) => {
+                        if (p.category_id) c[p.category_id] = (c[p.category_id] || 0) + 1;
+                        if (p.product_variants) {
+                            const uniqueFabs = new Set<string>();
+                            p.product_variants.forEach((v: any) => { if (v.fabric_id) uniqueFabs.add(v.fabric_id) });
+                            uniqueFabs.forEach(id => f[id] = (f[id] || 0) + 1);
+                        }
+                        if (p.product_size_options) {
+                            const uniqueSizes = new Set<string>();
+                            p.product_size_options.forEach((o: any) => { if (o.slug && o.is_active !== false) uniqueSizes.add(o.slug) });
+                            uniqueSizes.forEach(slug => s[slug] = (s[slug] || 0) + 1);
+                        }
+                    });
+                    setFilterCounts({ category: c, fabric: f, size: s })
                 }
             } catch { /* silent */ }
         }
@@ -328,10 +349,11 @@ export function MobileTopBar() {
                                     <Sheet>
                                         <SheetTrigger
                                             render={
-                                                <button
-                                                    className="h-8 w-8 rounded-full flex items-center justify-center relative text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                                                    aria-label="Filtros"
-                                                >
+                                                    <button
+                                                        id="mobile-filters-trigger"
+                                                        className="h-8 w-8 rounded-full flex items-center justify-center relative text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                                                        aria-label="Filtros"
+                                                    >
                                                     <SlidersHorizontal className="h-4 w-4" />
                                                     {activeFiltersCount > 0 && (
                                                         <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center shadow-sm border border-white">
@@ -351,6 +373,7 @@ export function MobileTopBar() {
                                             <ScrollArea className="h-[calc(100dvh-60px)] p-4">
                                                 {isCatalogPage ? (
                                                     <CatalogFilters
+                                                        counts={filterCounts}
                                                         categories={categories}
                                                         fabrics={fabrics}
                                                         sizes={sizes}

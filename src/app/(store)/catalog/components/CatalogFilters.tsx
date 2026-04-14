@@ -10,6 +10,11 @@ interface CatalogSizeFilterOption {
 }
 
 interface CatalogFiltersProps {
+    counts?: {
+        category: Record<string, number>
+        fabric: Record<string, number>
+        size: Record<string, number>
+    }
     categories: Category[]
     fabrics: Fabric[]
     sizes: CatalogSizeFilterOption[]
@@ -25,6 +30,7 @@ interface CatalogFiltersProps {
 }
 
 export function CatalogFilters({
+    counts,
     categories,
     fabrics,
     sizes,
@@ -55,12 +61,18 @@ export function CatalogFilters({
                     if (val) onSortChange(val)
                 }}>
                     <SelectTrigger className="w-full h-11 bg-muted/30 border-border/40 hover:bg-white hover:border-primary/30 transition-all rounded-xl ring-offset-background focus:ring-1 focus:ring-primary/20">
-                        <SelectValue placeholder="Ordenar por" />
+                        <SelectValue placeholder="Ordenar por">
+                            {sortBy === 'name' ? 'Nome (A-Z)' :
+                             sortBy === 'price_asc' ? 'Menor preço' :
+                             sortBy === 'price_desc' ? 'Maior preço' :
+                             sortBy === 'newest' ? 'Mais recentes' :
+                             'Ordenar por'}
+                        </SelectValue>
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-border/40 shadow-xl">
                         <SelectItem value="name" className="rounded-lg">Nome (A-Z)</SelectItem>
-                        <SelectItem value="price_asc" className="rounded-lg">Menor preço</SelectItem>
-                        <SelectItem value="price_desc" className="rounded-lg">Maior preço</SelectItem>
+                        <SelectItem value="price_asc" className="rounded-lg">Menor preco</SelectItem>
+                        <SelectItem value="price_desc" className="rounded-lg">Maior preco</SelectItem>
                         <SelectItem value="newest" className="rounded-lg">Mais recentes</SelectItem>
                     </SelectContent>
                 </Select>
@@ -100,7 +112,15 @@ export function CatalogFilters({
                                     : 'bg-muted/20 border-transparent hover:bg-muted/40 text-muted-foreground'
                             }`}
                         >
-                            {cat.name}
+                            
+                            <div className="flex items-center justify-between">
+                                <span>{cat.name}</span>
+                                {counts?.category?.[cat.id] !== undefined && (
+                                    <span className="text-xs opacity-50 font-medium">
+                                        {counts.category[cat.id]}
+                                    </span>
+                                )}
+                            </div>
                         </button>
                     ))}
                 </div>
@@ -140,7 +160,15 @@ export function CatalogFilters({
                                     : 'bg-muted/20 border-transparent hover:bg-muted/40 text-muted-foreground'
                             }`}
                         >
-                            {size.name}
+                            
+                            <div className="flex items-center justify-between">
+                                <span>{size.name}</span>
+                                {counts?.size?.[size.slug] !== undefined && (
+                                    <span className="text-xs opacity-50 font-medium">
+                                        {counts.size[size.slug]}
+                                    </span>
+                                )}
+                            </div>
                         </button>
                     ))}
                 </div>
@@ -180,7 +208,15 @@ export function CatalogFilters({
                                     : 'bg-muted/20 border-transparent hover:bg-muted/40 text-muted-foreground'
                             }`}
                         >
-                            {fab.name}
+                            
+                            <div className="flex items-center justify-between">
+                                <span>{fab.name}</span>
+                                {counts?.fabric?.[fab.id] !== undefined && (
+                                    <span className="text-xs opacity-50 font-medium">
+                                        {counts.fabric[fab.id]}
+                                    </span>
+                                )}
+                            </div>
                         </button>
                     ))}
                 </div>
