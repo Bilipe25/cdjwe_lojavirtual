@@ -972,6 +972,7 @@ export interface CartItem {
   imageUrl: string | null
   quantity: number
   unitPrice: number
+  updatedAt?: string | null
 }
 
 // ==================== REPRESENTATIVE SALES MODE ====================

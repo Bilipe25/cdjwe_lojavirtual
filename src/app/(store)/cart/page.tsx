@@ -198,17 +198,17 @@ function CheckoutSection({
     return (
         <Card
             className={cn(
-                'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm',
+                'overflow-hidden rounded-2xl border border-border bg-card shadow-sm',
                 className
             )}
         >
             <CardHeader
-                className={cn('border-b border-slate-100 px-4 py-4 sm:px-5', headerClassName)}
+                className={cn('border-b border-border px-4 py-4 sm:px-5', headerClassName)}
             >
                 <div className="flex items-start gap-3">
                     <div
                         className={cn(
-                            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700',
+                            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground',
                             iconWrapperClassName
                         )}
                     >
@@ -217,19 +217,19 @@ function CheckoutSection({
                     <div className="min-w-0">
                         <p
                             className={cn(
-                                'text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400',
+                                'text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground',
                                 eyebrowClassName
                             )}
                         >
                             {eyebrow}
                         </p>
                         <CardTitle
-                            className={cn('mt-0.5 text-base font-semibold text-slate-950', titleClassName)}
+                            className={cn('mt-0.5 text-base font-semibold text-foreground', titleClassName)}
                         >
                             {title}
                         </CardTitle>
                         {description && (
-                            <p className="mt-1 text-sm leading-5 text-slate-500">{description}</p>
+                            <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
                         )}
                     </div>
                 </div>
@@ -253,35 +253,35 @@ function CheckoutHeader({
     onClear: () => void
 }) {
     return (
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
+        <div className="rounded-2xl border border-border bg-card px-4 py-4 shadow-sm sm:px-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-start gap-3">
                     <Button
                         variant="outline"
                         size="icon"
-                        className="mt-0.5 h-9 w-9 rounded-xl border-slate-200"
+                        className="mt-0.5 h-9 w-9 rounded-xl border-border"
                         onClick={onBack}
                     >
                         <ArrowLeft className="h-4 w-4" />
                     </Button>
                     <div className="min-w-0">
-                        <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-slate-950 sm:text-2xl">
+                        <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-foreground sm:text-2xl">
                             {nextOrderNumber || 'Finalizar pedido'}
                         </h1>
-                        <p className="mt-1 text-sm text-slate-500">
+                        <p className="mt-1 text-sm text-muted-foreground">
                             Revise, escolha entrega e confirme o pedido.
                         </p>
                     </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                        <span className="font-semibold text-slate-950">{count}</span>{' '}
+                    <div className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
+                        <span className="font-semibold text-foreground">{count}</span>{' '}
                         {count === 1 ? 'item' : 'itens'}
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                    <div className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
                         Total parcial
-                        <span className="ml-1 font-semibold text-slate-950">
+                        <span className="ml-1 font-semibold text-foreground">
                             R$ {formatCurrency(total)}
                         </span>
                     </div>
@@ -329,13 +329,13 @@ function EmptyCartState({ onCatalog }: { onCatalog: () => void }) {
             <motion.div
                 initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="rounded-2xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm"
+                className="rounded-2xl border border-border bg-card px-6 py-14 text-center shadow-sm"
             >
-                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-slate-100">
-                    <ShoppingBag className="h-8 w-8 text-slate-500" />
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-muted">
+                    <ShoppingBag className="h-8 w-8 text-muted-foreground" />
                 </div>
-                <h1 className="mt-5 text-2xl font-bold text-slate-950">Carrinho vazio</h1>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+                <h1 className="mt-5 text-2xl font-bold text-foreground">Carrinho vazio</h1>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
                     Adicione produtos para iniciar um novo pedido.
                 </p>
                 <Button
@@ -367,11 +367,11 @@ function CheckoutItemRow({
         <div className="py-3 first:pt-0 last:pb-0">
             <div className="sm:hidden">
                 <div className="flex items-start gap-3">
-                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-border bg-muted">
                         {item.imageUrl ? (
                             <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" />
                         ) : (
-                            <div className="flex h-full w-full items-center justify-center text-slate-400">
+                            <div className="flex h-full w-full items-center justify-center text-muted-foreground">
                                 <Package className="h-4 w-4" />
                             </div>
                         )}
@@ -380,41 +380,41 @@ function CheckoutItemRow({
                     <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                                <h3 className="line-clamp-2 text-sm font-medium leading-5 text-slate-950">
+                                <h3 className="line-clamp-2 text-sm font-medium leading-5 text-foreground">
                                     {item.quantity}x {item.productName}
                                 </h3>
-                                <p className="mt-0.5 line-clamp-1 text-[11px] text-slate-500">
+                                <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
                                     {variantSummary}
                                 </p>
                             </div>
 
                             <div className="shrink-0 text-right">
-                                <p className="text-sm font-semibold text-slate-950">
+                                <p className="text-sm font-semibold text-foreground">
                                     R$ {formatCurrency(subtotal)}
                                 </p>
-                                <p className="mt-0.5 text-[11px] text-slate-400">
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">
                                     Unit. R$ {formatCurrency(item.unitPrice)}
                                 </p>
                             </div>
                         </div>
 
                         <div className="mt-2 flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-0.5 rounded-full border border-slate-200/80 bg-slate-50/80 p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+                            <div className="flex items-center gap-0.5 rounded-full border border-border bg-muted/50 p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 rounded-full text-slate-500 hover:bg-white hover:text-slate-950"
+                                    className="h-6 w-6 rounded-full text-muted-foreground hover:bg-card hover:text-foreground"
                                     onClick={onDecrease}
                                 >
                                     <Minus className="h-3 w-3" strokeWidth={2.2} />
                                 </Button>
-                                <span className="min-w-7 px-1 text-center text-[12px] font-semibold tracking-tight text-slate-950">
+                                <span className="min-w-7 px-1 text-center text-[12px] font-semibold tracking-tight text-foreground">
                                     {item.quantity}
                                 </span>
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 rounded-full text-slate-500 hover:bg-white hover:text-slate-950"
+                                    className="h-6 w-6 rounded-full text-muted-foreground hover:bg-card hover:text-foreground"
                                     onClick={onIncrease}
                                 >
                                     <Plus className="h-3 w-3" strokeWidth={2.2} />
@@ -424,7 +424,7 @@ function CheckoutItemRow({
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 rounded-full px-2.5 text-[11px] font-medium text-slate-400 hover:bg-destructive/10 hover:text-destructive"
+                                className="h-7 rounded-full px-2.5 text-[11px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                 onClick={onRemove}
                             >
                                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
@@ -436,11 +436,11 @@ function CheckoutItemRow({
             </div>
 
             <div className="hidden sm:grid sm:gap-3 sm:grid-cols-[72px_minmax(0,1fr)] xl:grid-cols-[72px_minmax(0,1fr)_160px] xl:items-center">
-                <div className="relative h-[72px] w-[72px] overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                <div className="relative h-[72px] w-[72px] overflow-hidden rounded-xl border border-border bg-muted">
                     {item.imageUrl ? (
                         <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" />
                     ) : (
-                        <div className="flex h-full w-full items-center justify-center text-slate-400">
+                        <div className="flex h-full w-full items-center justify-center text-muted-foreground">
                             <Package className="h-7 w-7" />
                         </div>
                     )}
@@ -449,18 +449,18 @@ function CheckoutItemRow({
                 <div className="min-w-0 space-y-2.5">
                     <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                            <h3 className="truncate text-sm font-semibold text-slate-950">
+                            <h3 className="truncate text-sm font-semibold text-foreground">
                                 {item.productName}
                             </h3>
                             <div className="mt-1 flex flex-wrap gap-1.5">
-                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                                     {item.fabricName}
                                 </span>
-                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                                     {item.colorName}
                                 </span>
                                 {item.size && (
-                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                    <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                                         {item.size}
                                     </span>
                                 )}
@@ -469,7 +469,7 @@ function CheckoutItemRow({
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 shrink-0 rounded-lg text-slate-400 hover:bg-destructive/10 hover:text-destructive xl:hidden"
+                            className="h-7 w-7 shrink-0 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive xl:hidden"
                             onClick={onRemove}
                         >
                             <Trash2 className="h-4 w-4" />
@@ -477,18 +477,18 @@ function CheckoutItemRow({
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-2 xl:hidden">
-                        <div className="text-sm text-slate-500">
+                        <div className="text-sm text-muted-foreground">
                             <span>R$ {formatCurrency(item.unitPrice)}</span>
-                            <span className="mx-2 text-slate-300">/</span>
-                            <span className="font-semibold text-slate-950">
+                            <span className="mx-2 text-muted-foreground">/</span>
+                            <span className="font-semibold text-foreground">
                                 R$ {formatCurrency(subtotal)}
                             </span>
                         </div>
-                        <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-0.5">
+                        <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-0.5">
                             <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onDecrease}>
                                 <Minus className="h-3.5 w-3.5" />
                             </Button>
-                            <span className="w-7 text-center text-sm font-semibold text-slate-950">
+                            <span className="w-7 text-center text-sm font-semibold text-foreground">
                                 {item.quantity}
                             </span>
                             <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onIncrease}>
@@ -500,16 +500,16 @@ function CheckoutItemRow({
 
                 <div className="hidden xl:flex xl:items-center xl:justify-end xl:gap-3">
                     <div className="text-right">
-                        <p className="text-xs text-slate-500">Unitario</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-950">
+                        <p className="text-xs text-muted-foreground">Unitario</p>
+                        <p className="mt-0.5 text-sm font-semibold text-foreground">
                             R$ {formatCurrency(item.unitPrice)}
                         </p>
                     </div>
-                    <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-0.5">
+                    <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-0.5">
                         <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onDecrease}>
                             <Minus className="h-3.5 w-3.5" />
                         </Button>
-                        <span className="w-7 text-center text-sm font-semibold text-slate-950">
+                        <span className="w-7 text-center text-sm font-semibold text-foreground">
                             {item.quantity}
                         </span>
                         <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onIncrease}>
@@ -517,15 +517,15 @@ function CheckoutItemRow({
                         </Button>
                     </div>
                     <div className="min-w-[96px] text-right">
-                        <p className="text-xs text-slate-500">Subtotal</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-950">
+                        <p className="text-xs text-muted-foreground">Subtotal</p>
+                        <p className="mt-0.5 text-sm font-semibold text-foreground">
                             R$ {formatCurrency(subtotal)}
                         </p>
                     </div>
                     <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 shrink-0 rounded-xl px-2.5 text-xs font-medium text-slate-400 hover:bg-destructive/10 hover:text-destructive"
+                        className="h-8 shrink-0 rounded-xl px-2.5 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         onClick={onRemove}
                     >
                         <Trash2 className="mr-1.5 h-3.5 w-3.5" />
@@ -547,17 +547,36 @@ function SummaryRow({
 }) {
     const colorClass =
         emphasis === 'success'
-            ? 'text-emerald-600'
+            ? 'text-emerald-600 dark:text-emerald-500'
             : emphasis === 'warning'
-              ? 'text-amber-600'
+              ? 'text-amber-600 dark:text-amber-500'
               : emphasis === 'strong'
-                ? 'text-slate-950'
-                : 'text-slate-600'
+                ? 'text-foreground'
+                : 'text-muted-foreground'
 
     return (
         <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-slate-500">{label}</span>
+            <span className="text-muted-foreground">{label}</span>
             <span className={cn('text-right font-medium', colorClass)}>{value}</span>
+        </div>
+    )
+}
+
+function CartPageSkeleton() {
+    return (
+        <div className="mx-auto max-w-[1280px] px-4 py-4 pb-44 sm:px-6 sm:pb-28 lg:px-8 lg:py-6 lg:pb-8">
+            <div className="space-y-5">
+                <div className="hidden animate-pulse md:block">
+                    <div className="h-28 rounded-[28px] bg-muted/60" />
+                </div>
+                <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-start">
+                    <div className="space-y-5">
+                        <div className="h-[420px] animate-pulse rounded-[28px] bg-muted/50" />
+                        <div className="h-[220px] animate-pulse rounded-[28px] bg-muted/40" />
+                    </div>
+                    <div className="h-[540px] animate-pulse rounded-[28px] bg-muted/50" />
+                </div>
+            </div>
         </div>
     )
 }
@@ -566,6 +585,7 @@ export default function CartPage() {
     const router = useRouter()
     const { items, removeItem, updateQuantity, subtotal, totalItems, clearCart, setItems } =
         useCartStore()
+    const persistApi = 'persist' in useCartStore ? useCartStore.persist : undefined
     const { settings } = useSettings()
 
     const [loading, setLoading] = useState(false)
@@ -591,6 +611,7 @@ export default function CartPage() {
     const [checkoutBlockedByPolicy, setCheckoutBlockedByPolicy] = useState(false)
     const [paymentRestrictionMessage, setPaymentRestrictionMessage] = useState<string | null>(null)
     const selectedPaymentMethodRef = useRef(selectedPaymentMethod)
+    const [isCartHydrated, setIsCartHydrated] = useState(() => persistApi?.hasHydrated?.() ?? false)
 
     const total = subtotal()
     const count = totalItems()
@@ -698,6 +719,23 @@ export default function CartPage() {
     const selectedPaymentDescription =
         selectedPaymentOption?.description ||
         (isTableRule ? 'Regra comercial exclusiva da sua tabela B2B.' : null)
+
+    useEffect(() => {
+        if (!persistApi) {
+            setIsCartHydrated(true)
+            return
+        }
+
+        setIsCartHydrated(persistApi.hasHydrated?.() ?? false)
+
+        const unsubscribeHydrate = persistApi.onHydrate?.(() => setIsCartHydrated(false))
+        const unsubscribeFinishHydration = persistApi.onFinishHydration?.(() => setIsCartHydrated(true))
+
+        return () => {
+            unsubscribeHydrate?.()
+            unsubscribeFinishHydration?.()
+        }
+    }, [persistApi])
 
     const applyCouponCode = useCallback(async (rawCode: string, options?: { silent?: boolean }) => {
         const normalizedCode = rawCode.trim().toUpperCase()
@@ -816,7 +854,7 @@ export default function CartPage() {
             eyebrow="Cupom"
             title="Cupom de desconto"
             description="Aplique um cupom e acompanhe sua economia em tempo real."
-            className={cn('border-slate-200', className)}
+            className={cn('border-border', className)}
         >
             <div className="space-y-3">
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -832,13 +870,13 @@ export default function CartPage() {
                             }
                         }}
                         placeholder="Tem cupom? Digite aqui"
-                        className="h-11 rounded-xl border-slate-200"
+                        className="h-11 rounded-xl border-border"
                         disabled={couponApplying}
                     />
                     <div className="flex gap-2">
                         <Button
                             variant="outline"
-                            className="h-11 rounded-xl border-slate-200"
+                            className="h-11 rounded-xl border-border"
                             onClick={handleApplyCoupon}
                             disabled={couponApplying || !couponInput.trim()}
                         >
@@ -848,7 +886,7 @@ export default function CartPage() {
                         {appliedCoupon && (
                             <Button
                                 variant="ghost"
-                                className="h-11 rounded-xl text-slate-500 hover:text-slate-900"
+                                className="h-11 rounded-xl text-muted-foreground hover:text-foreground"
                                 onClick={handleRemoveCoupon}
                                 disabled={couponApplying}
                             >
@@ -859,21 +897,21 @@ export default function CartPage() {
                 </div>
 
                 {couponApplying ? (
-                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                    <div className="flex items-center gap-2 rounded-xl border border-border bg-muted px-3 py-3 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Validando cupom...
                     </div>
                 ) : appliedCoupon ? (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 dark:border-emerald-500/20 dark:bg-emerald-500/10">
                         <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                            <span className="rounded-full border border-emerald-200 bg-card px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/20 dark:text-emerald-500">
                                 Cupom aplicado
                             </span>
-                            <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold tracking-[0.08em] text-emerald-800">
+                            <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold tracking-[0.08em] text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-400">
                                 {appliedCoupon.couponCode}
                             </span>
                         </div>
-                        <p className="mt-2 text-sm font-medium text-emerald-900">
+                        <p className="mt-2 text-sm font-medium text-emerald-900 dark:text-emerald-100">
                             Voce economizou R$ {formatCurrency(appliedCoupon.discountAmount)}.
                         </p>
                     </div>
@@ -882,14 +920,14 @@ export default function CartPage() {
                         className={cn(
                             'rounded-xl border px-3 py-3 text-sm',
                             couponInlineFeedback.tone === 'error'
-                                ? 'border-red-200 bg-red-50 text-red-700'
-                                : 'border-slate-200 bg-slate-50 text-slate-600'
+                                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10'
+                                : 'border-border bg-muted text-muted-foreground'
                         )}
                     >
                         {couponInlineFeedback.message}
                     </div>
                 ) : (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-muted-foreground">
                         Digite seu codigo e clique em aplicar para calcular sua economia.
                     </p>
                 )}
@@ -899,6 +937,7 @@ export default function CartPage() {
 
     useEffect(() => {
         const validatePrices = async () => {
+            if (!isCartHydrated) return
             if (!itemsKey || itemsKey === lastValidatedKey) return
 
             setPriceValidationPending(true)
@@ -970,7 +1009,7 @@ export default function CartPage() {
         }
 
         void validatePrices()
-    }, [items, itemsKey, lastValidatedKey, setItems])
+    }, [isCartHydrated, items, itemsKey, lastValidatedKey, setItems])
 
     useEffect(() => {
         const loadAddresses = async () => {
@@ -1000,6 +1039,8 @@ export default function CartPage() {
 
     useEffect(() => {
         const loadPaymentRules = async () => {
+            if (!isCartHydrated) return
+
             const rulesResponse = await getAvailablePaymentRules(total)
             const nextMethodGroups = (rulesResponse.paymentMethods || []) as CheckoutPaymentMethodGroup[]
             const nextTableRules = rulesResponse.priceTableRules || []
@@ -1063,7 +1104,7 @@ export default function CartPage() {
         }
 
         void loadPaymentRules()
-    }, [total])
+    }, [isCartHydrated, total])
 
     useEffect(() => {
         const loadNextOrderNumber = async () => {
@@ -1201,6 +1242,10 @@ export default function CartPage() {
         selectedPayment,
     ])
 
+    if (!isCartHydrated) {
+        return <CartPageSkeleton />
+    }
+
     if (items.length === 0) {
         return <EmptyCartState onCatalog={() => router.push('/catalog')} />
     }
@@ -1219,14 +1264,14 @@ export default function CartPage() {
                 </div>
 
                 {settings && settings.min_order_amount > 0 && total < settings.min_order_amount && (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-500/20 dark:bg-amber-500/10">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                             <div>
-                                <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                                <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-500">
                                     <AlertCircle className="h-4 w-4" />
                                     Pedido minimo
                                 </p>
-                                <p className="mt-1 text-sm text-amber-900">
+                                <p className="mt-1 text-sm text-amber-900 dark:text-amber-100">
                                     Faltam{' '}
                                     <strong>
                                         R$ {formatCurrency(settings.min_order_amount - total)}
@@ -1236,7 +1281,7 @@ export default function CartPage() {
                                 </p>
                             </div>
                             <div className="min-w-[160px]">
-                                <div className="h-2 overflow-hidden rounded-full bg-amber-200">
+                                <div className="h-2 overflow-hidden rounded-full bg-amber-200 dark:bg-amber-500/20">
                                     <div
                                         className="h-full rounded-full bg-amber-500 transition-all duration-500"
                                         style={{
@@ -1247,7 +1292,7 @@ export default function CartPage() {
                                         }}
                                     />
                                 </div>
-                                <p className="mt-2 text-right text-xs text-amber-700">
+                                <p className="mt-2 text-right text-xs text-amber-700 dark:text-amber-500">
                                     {Math.min(
                                         100,
                                         (total / settings.min_order_amount) * 100
@@ -1265,7 +1310,7 @@ export default function CartPage() {
                             icon={ShoppingBag}
                             eyebrow="Pedido"
                             title={`Produtos selecionados (${count})`}
-                            className="-mx-4 rounded-none border-0 bg-transparent shadow-none sm:mx-0 sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm"
+                            className="-mx-4 rounded-none border-0 bg-transparent shadow-none sm:mx-0 sm:rounded-2xl sm:border sm:bg-card sm:shadow-sm"
                             headerClassName="hidden sm:block sm:px-5 sm:py-4"
                             contentClassName="px-4 py-2 sm:px-5 sm:py-4"
                             iconWrapperClassName="h-7 w-7 rounded-lg sm:h-8 sm:w-8 sm:rounded-xl"
@@ -1273,20 +1318,20 @@ export default function CartPage() {
                             titleClassName="mt-0 text-[15px] sm:mt-0.5 sm:text-base"
                         >
                             <div className="mb-2 hidden items-center justify-between gap-3 sm:flex">
-                                <p className="text-sm text-slate-500">
+                                <p className="text-sm text-muted-foreground">
                                     Revise os itens e ajuste as quantidades.
                                 </p>
                                 <Button
                                     variant="ghost"
-                                    className="group h-9 rounded-xl px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 flex items-center gap-2"
+                                    className="group h-9 rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground flex items-center gap-2"
                                     onClick={() => router.push('/catalog')}
                                 >
-                                    <ArrowLeft className="h-4 w-4 text-slate-400 group-hover:text-slate-600 transition-colors" />
+                                    <ArrowLeft className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
                                     Continuar comprando
                                 </Button>
                             </div>
 
-                            <div className="divide-y divide-slate-100">
+                            <div className="divide-y divide-border">
                                 {items.map((item, index) => (
                                     <motion.div
                                         key={getCartItemKey(item)}
@@ -1315,18 +1360,18 @@ export default function CartPage() {
                                 ))}
                             </div>
 
-                            <div className="mt-4 flex flex-col gap-4 border-t border-slate-100 pt-4 sm:mt-5 sm:flex-row sm:items-center sm:justify-between sm:pt-5">
+                            <div className="mt-4 flex flex-col gap-4 border-t border-border pt-4 sm:mt-5 sm:flex-row sm:items-center sm:justify-between sm:pt-5">
                                 <Button
                                     variant="outline"
-                                    className="order-2 h-11 w-full rounded-xl border-slate-200 bg-white text-sm font-medium text-slate-600 shadow-none hover:bg-slate-50 sm:order-1 sm:h-10 sm:w-auto"
+                                    className="order-2 h-11 w-full rounded-xl border-border bg-card text-sm font-medium text-muted-foreground shadow-none hover:bg-muted sm:order-1 sm:h-10 sm:w-auto"
                                     onClick={() => router.push('/catalog')}
                                 >
                                     <Plus className="mr-2 h-4 w-4" />
                                     Adicionar mais itens
                                 </Button>
                                 <div className="order-1 flex items-center justify-between text-base sm:order-2 sm:justify-end sm:gap-4">
-                                    <span className="text-sm font-medium text-slate-500">Subtotal dos itens</span>
-                                    <span className="text-lg font-bold tracking-tight text-slate-950">
+                                    <span className="text-sm font-medium text-muted-foreground">Subtotal dos itens</span>
+                                    <span className="text-lg font-bold tracking-tight text-foreground">
                                         R$ {formatCurrency(total)}
                                     </span>
                                 </div>
@@ -1334,16 +1379,16 @@ export default function CartPage() {
                         </CheckoutSection>
 
                         {/* -- Mobile: Pagamento Card ------------------ */}
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden mb-4">
-                            <div className="border-b border-slate-100 px-4 py-3.5">
+                        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:hidden mb-4">
+                            <div className="border-b border-border px-4 py-3.5">
                                 <div className="flex items-center gap-2.5">
-                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-500">
                                         <CreditCard className="h-4 w-4" />
                                     </div>
                                     <div className="flex flex-1 items-center justify-between gap-2">
                                         <div className="min-w-0">
-                                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Condicao</p>
-                                            <h2 className="text-[15px] font-semibold text-slate-950">Pagamento</h2>
+                                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Condicao</p>
+                                            <h2 className="text-[15px] font-semibold text-foreground">Pagamento</h2>
                                         </div>
                                     </div>
                                 </div>
@@ -1354,8 +1399,8 @@ export default function CartPage() {
                                         className={cn(
                                             'rounded-xl border px-3 py-3 text-sm',
                                             checkoutBlockedByPolicy
-                                                ? 'border-red-200 bg-red-50 text-red-700'
-                                                : 'border-amber-200 bg-amber-50 text-amber-700'
+                                                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10'
+                                                : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10'
                                         )}
                                     >
                                         <div className="flex items-start gap-2">
@@ -1365,14 +1410,14 @@ export default function CartPage() {
                                     </div>
                                 )}
                                 {paymentOptions.length === 0 ? (
-                                    <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
+                                    <div className="rounded-xl border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
                                         Nenhum meio de pagamento disponível.
                                     </div>
                                 ) : (
                                     <>
                                         {paymentMethodGroups.length > 0 && (
                                             <div className="space-y-2">
-                                                <Label className="text-sm font-semibold text-slate-800">
+                                                <Label className="text-sm font-semibold text-foreground">
                                                     Forma de Pagamento
                                                 </Label>
                                                 <Select
@@ -1381,7 +1426,7 @@ export default function CartPage() {
                                                         if (value) setSelectedPaymentMethod(value)
                                                     }}
                                                 >
-                                                    <SelectTrigger className="min-h-11 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
+                                                    <SelectTrigger className="min-h-11 rounded-xl border-border bg-muted/50 px-3 shadow-none">
                                                         <SelectValue placeholder="Selecione...">
                                                             {selectedMethodGroup?.method.name || 'Selecione...'}
                                                         </SelectValue>
@@ -1407,11 +1452,11 @@ export default function CartPage() {
 
                                         <div className="space-y-2">
                                             <div className="flex items-center justify-between gap-2">
-                                                <Label className="text-sm font-semibold text-slate-800">
+                                                <Label className="text-sm font-semibold text-foreground">
                                                     Tipo de Pagamento
                                                 </Label>
                                                 {paymentDiscountPercentageEffective > 0 && (
-                                                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200/80">
+                                                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200/80 dark:bg-emerald-500/10 dark:text-emerald-500 dark:border-emerald-500/20">
                                                         {paymentDiscountPercentageEffective.toFixed(0)}% off
                                                     </span>
                                                 )}
@@ -1423,7 +1468,7 @@ export default function CartPage() {
                                                     setSelectedPayment(value)
                                                 }}
                                             >
-                                                <SelectTrigger className="min-h-11 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
+                                                <SelectTrigger className="min-h-11 rounded-xl border-border bg-muted/50 px-3 shadow-none">
                                                     <SelectValue placeholder="Selecione...">
                                                         {selectedPaymentOption?.label || 'Selecione...'}
                                                     </SelectValue>
@@ -1440,7 +1485,7 @@ export default function CartPage() {
                                                 </SelectContent>
                                             </Select>
                                             {selectedPaymentDescription && (
-                                                <p className="rounded-xl bg-slate-50/60 px-3 py-2 text-xs leading-5 text-slate-500 border border-slate-200/80">
+                                                <p className="rounded-xl bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground border border-border">
                                                     {selectedPaymentDescription}
                                                 </p>
                                             )}
@@ -1450,22 +1495,22 @@ export default function CartPage() {
                             </div>
                         </div>
                         {/* -- Mobile: Entrega Card -------------------- */}
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
-                            <div className="border-b border-slate-100 px-4 py-3.5">
+                        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:hidden">
+                            <div className="border-b border-border px-4 py-3.5">
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="flex items-center gap-2.5">
-                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-500">
                                             <Truck className="h-4 w-4" />
                                         </div>
                                         <div className="min-w-0">
-                                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Endereco</p>
-                                            <h2 className="text-[15px] font-semibold text-slate-950">Entrega</h2>
+                                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Endereco</p>
+                                            <h2 className="text-[15px] font-semibold text-foreground">Entrega</h2>
                                         </div>
                                     </div>
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="h-8 rounded-xl px-2.5 text-xs font-medium text-slate-500"
+                                        className="h-8 rounded-xl px-2.5 text-xs font-medium text-muted-foreground"
                                         onClick={() => setNewAddressDialogOpen(true)}
                                     >
                                         + Novo
@@ -1474,20 +1519,20 @@ export default function CartPage() {
                             </div>
                             <div className="px-4 py-3.5 space-y-3">
                                 {addressesLoading ? (
-                                    <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
+                                    <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
                                         <Loader2 className="h-4 w-4 animate-spin" />
                                         Carregando enderecos...
                                     </div>
                                 ) : addressError ? (
-                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10">
                                         {addressError}
                                     </div>
                                 ) : storeAddresses.length === 0 ? (
-                                    <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
+                                    <div className="rounded-xl border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
                                         Nenhum endereco cadastrado.
                                     </div>
                                 ) : (
-                                    <div className="overflow-hidden rounded-xl bg-slate-50/70 ring-1 ring-slate-200/80">
+                                    <div className="overflow-hidden rounded-xl bg-muted/30 ring-1 ring-border">
                                         {storeAddresses.map((address, index) => {
                                             const isSelected = address.id === selectedAddressId
 
@@ -1499,7 +1544,7 @@ export default function CartPage() {
                                                     className={cn(
                                                         'w-full px-3 py-3 text-left transition-colors',
                                                         isSelected
-                                                            ? 'bg-white'
+                                                            ? 'bg-card'
                                                             : 'bg-transparent'
                                                     )}
                                                 >
@@ -1508,27 +1553,27 @@ export default function CartPage() {
                                                             className={cn(
                                                                 'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
                                                                 isSelected
-                                                                    ? 'border-slate-950 bg-slate-950 text-white'
-                                                                    : 'border-slate-300 bg-white'
+                                                                    ? 'border-foreground bg-foreground text-background'
+                                                                    : 'border-muted-foreground/30 bg-card'
                                                             )}
                                                         >
                                                             {isSelected && <Check className="h-3 w-3" />}
                                                         </span>
                                                         <div className="min-w-0">
                                                             <div className="flex flex-wrap items-center gap-1.5">
-                                                                <p className="text-sm font-semibold text-slate-950">
+                                                                <p className="text-sm font-semibold text-foreground">
                                                                     {address.title}
                                                                 </p>
                                                                 {address.is_main && (
-                                                                    <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">
+                                                                    <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:bg-blue-500/10 dark:text-blue-500">
                                                                         Principal
                                                                     </span>
                                                                 )}
                                                             </div>
-                                                            <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
+                                                            <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
                                                                 {address.address}, {address.number}
                                                             </p>
-                                                            <p className="text-[13px] leading-5 text-slate-500">
+                                                            <p className="text-[13px] leading-5 text-muted-foreground">
                                                                 {address.city}/{address.state} - CEP{' '}
                                                                 {address.zip_code}
                                                             </p>
@@ -1536,7 +1581,7 @@ export default function CartPage() {
                                                     </div>
 
                                                     {index < storeAddresses.length - 1 && (
-                                                        <div className="mt-3 border-t border-slate-200/60" />
+                                                        <div className="mt-3 border-t border-border" />
                                                     )}
                                                 </button>
                                             )
@@ -1545,9 +1590,9 @@ export default function CartPage() {
                                 )}
 
                                 {deliveryMessage && (
-                                    <div className="flex items-center gap-2 rounded-xl bg-blue-50/60 px-3 py-2.5 ring-1 ring-blue-100">
+                                    <div className="flex items-center gap-2 rounded-xl bg-blue-50/60 px-3 py-2.5 ring-1 ring-blue-100 dark:bg-blue-500/10 dark:ring-blue-500/20">
                                         <Truck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                                        <p className="text-[13px] font-medium text-blue-700">{deliveryMessage}</p>
+                                        <p className="text-[13px] font-medium text-blue-700 dark:text-blue-400">{deliveryMessage}</p>
                                     </div>
                                 )}
                             </div>
@@ -1556,15 +1601,15 @@ export default function CartPage() {
                         {renderCouponSection('sm:hidden')}
 
                         {/* -- Mobile: Observações Card ---------------- */}
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:hidden">
-                            <div className="border-b border-slate-100 px-4 py-3.5">
+                        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:hidden">
+                            <div className="border-b border-border px-4 py-3.5">
                                 <div className="flex items-center gap-2.5">
-                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-500">
                                         <MessageSquare className="h-4 w-4" />
                                     </div>
                                     <div className="min-w-0">
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Contexto</p>
-                                        <h2 className="text-[15px] font-semibold text-slate-950">Observacoes</h2>
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Contexto</p>
+                                        <h2 className="text-[15px] font-semibold text-foreground">Observacoes</h2>
                                     </div>
                                 </div>
                             </div>
@@ -1574,7 +1619,7 @@ export default function CartPage() {
                                     value={notes}
                                     onChange={(event) => setNotes(event.target.value)}
                                     rows={3}
-                                    className="min-h-[100px] rounded-xl border-slate-200 bg-slate-50/80 resize-none text-sm"
+                                    className="min-h-[100px] rounded-xl border-border bg-muted/30 resize-none text-sm"
                                 />
                             </div>
                         </div>
@@ -1584,22 +1629,22 @@ export default function CartPage() {
                             icon={Truck}
                             eyebrow="Endereco"
                             title="Endereco de entrega"
-                            className="hidden sm:block sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm"
+                            className="hidden sm:block sm:rounded-2xl sm:border sm:bg-card sm:shadow-sm"
                             headerClassName="sm:px-5 sm:py-4"
                             contentClassName="sm:px-5 sm:py-4"
                         >
                             <div className="space-y-3">
                                 {addressesLoading ? (
-                                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-3 text-sm text-slate-500">
+                                    <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/50 px-3 py-3 text-sm text-muted-foreground">
                                         <Loader2 className="h-4 w-4 animate-spin" />
                                         Carregando enderecos...
                                     </div>
                                 ) : addressError ? (
-                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10">
                                         {addressError}
                                     </div>
                                 ) : storeAddresses.length === 0 ? (
-                                    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-3 py-3 text-sm text-slate-500">
+                                    <div className="rounded-xl border border-dashed border-border bg-muted/50 px-3 py-3 text-sm text-muted-foreground">
                                         Nenhum endereco cadastrado.
                                     </div>
                                 ) : (
@@ -1617,7 +1662,7 @@ export default function CartPage() {
                                                     }
                                                 }}
                                             >
-                                                <SelectTrigger className="min-h-10 flex-1 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
+                                                <SelectTrigger className="min-h-10 flex-1 rounded-xl border-border bg-muted/50 px-3 shadow-none">
                                                     <SelectValue placeholder="Selecione o endereco">
                                                         {selectedAddress
                                                             ? selectedAddress.title
@@ -1647,8 +1692,8 @@ export default function CartPage() {
                                             )}
                                         </div>
                                         {selectedAddress && (
-                                            <div className="rounded-xl bg-slate-50/60 px-3 py-2.5 text-xs leading-5 text-slate-500 border border-slate-200/80">
-                                                <p className="font-medium text-slate-700">
+                                            <div className="rounded-xl bg-muted/50 px-3 py-2.5 text-xs leading-5 text-muted-foreground border border-border">
+                                                <p className="font-medium text-foreground">
                                                     {selectedAddress.address}, {selectedAddress.number}
                                                 </p>
                                                 <p>
@@ -1661,22 +1706,22 @@ export default function CartPage() {
                                 )}
 
                                 {deliveryMessage && (
-                                    <div className="flex items-center gap-2 rounded-xl bg-blue-50/60 px-3 py-2.5 ring-1 ring-blue-100">
+                                    <div className="flex items-center gap-2 rounded-xl bg-blue-50/60 px-3 py-2.5 ring-1 ring-blue-100 dark:bg-blue-500/10 dark:ring-blue-500/20">
                                         <Truck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                                        <p className="text-[13px] font-medium text-blue-700">{deliveryMessage}</p>
+                                        <p className="text-[13px] font-medium text-blue-700 dark:text-blue-400">{deliveryMessage}</p>
                                     </div>
                                 )}
                             </div>
                         </CheckoutSection>
 
-                        {renderCouponSection('hidden sm:block sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm')}
+                        {renderCouponSection('hidden sm:block sm:rounded-2xl sm:border sm:bg-card sm:shadow-sm')}
 
                         {/* -- Desktop: Observações -------------------- */}
                         <CheckoutSection
                             icon={MessageSquare}
                             eyebrow="Contexto"
                             title="Observacoes"
-                            className="hidden sm:block sm:rounded-2xl sm:border sm:bg-white sm:shadow-sm"
+                            className="hidden sm:block sm:rounded-2xl sm:border sm:bg-card sm:shadow-sm"
                             headerClassName="sm:px-5 sm:py-4"
                             contentClassName="sm:px-5 sm:py-4"
                         >
@@ -1685,22 +1730,22 @@ export default function CartPage() {
                                 value={notes}
                                 onChange={(event) => setNotes(event.target.value)}
                                 rows={4}
-                                className="min-h-[120px] rounded-2xl border-slate-200 bg-white resize-none"
+                                className="min-h-[120px] rounded-2xl border-border bg-card resize-none"
                             />
                         </CheckoutSection>
                     </div>
 
                     <div className="hidden space-y-4 xl:sticky xl:top-24 xl:block">
-                        <Card className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_20px_50px_-30px_rgba(15,23,42,0.18)]">
-                            <CardHeader className="border-b border-slate-100 px-5 py-4">
-                                <CardTitle className="font-[family-name:var(--font-heading)] text-lg font-bold text-slate-950">
+                        <Card className="overflow-hidden rounded-2xl border border-border bg-card shadow-[0_20px_50px_-30px_rgba(15,23,42,0.18)]">
+                            <CardHeader className="border-b border-border px-5 py-4">
+                                <CardTitle className="font-[family-name:var(--font-heading)] text-lg font-bold text-foreground">
                                     Resumo
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="px-5 pb-5 pt-4">
                                 <div className="space-y-4">
                                     {priceValidationPending && (
-                                        <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2.5 text-xs text-slate-500">
+                                        <div className="flex items-center gap-2 rounded-xl border border-dashed border-border bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
                                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                             Revalidando precos e regras comerciais.
                                         </div>
@@ -1711,8 +1756,8 @@ export default function CartPage() {
                                             className={cn(
                                                 'rounded-xl border px-3 py-3 text-sm',
                                                 checkoutBlockedByPolicy
-                                                    ? 'border-red-200 bg-red-50 text-red-700'
-                                                    : 'border-amber-200 bg-amber-50 text-amber-700'
+                                                    ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10'
+                                                    : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10'
                                             )}
                                         >
                                             <div className="flex items-start gap-2">
@@ -1725,7 +1770,7 @@ export default function CartPage() {
                                     {/* -- Forma de Pagamento ---------------- */}
                                     {paymentMethodGroups.length > 0 && (
                                         <div className="space-y-2">
-                                            <Label className="text-sm font-semibold text-slate-800">
+                                            <Label className="text-sm font-semibold text-foreground">
                                                 Forma de Pagamento
                                             </Label>
                                             <Select
@@ -1734,7 +1779,7 @@ export default function CartPage() {
                                                     if (value) setSelectedPaymentMethod(value)
                                                 }}
                                             >
-                                                <SelectTrigger className="min-h-11 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
+                                                <SelectTrigger className="min-h-11 rounded-xl border-border bg-muted/50 px-3 shadow-none">
                                                     <SelectValue placeholder="Selecione...">
                                                         {selectedMethodGroup?.method.name || 'Selecione...'}
                                                     </SelectValue>
@@ -1761,11 +1806,11 @@ export default function CartPage() {
                                     {/* -- Tipo / Condição de Pagamento ------ */}
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between gap-2">
-                                            <Label className="text-sm font-semibold text-slate-800">
+                                            <Label className="text-sm font-semibold text-foreground">
                                                 Tipo de Pagamento
                                             </Label>
                                             {paymentDiscountPercentageEffective > 0 && (
-                                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200/80">
+                                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200/80 dark:bg-emerald-500/10 dark:text-emerald-500 dark:border-emerald-500/20">
                                                     {paymentDiscountPercentageEffective.toFixed(0)}% off
                                                 </span>
                                             )}
@@ -1777,7 +1822,7 @@ export default function CartPage() {
                                                 setSelectedPayment(value)
                                             }}
                                         >
-                                            <SelectTrigger className="min-h-11 rounded-xl border-slate-200 bg-slate-50/60 px-3 shadow-none">
+                                            <SelectTrigger className="min-h-11 rounded-xl border-border bg-muted/50 px-3 shadow-none">
                                                 <SelectValue placeholder="Selecione...">
                                                     {selectedPaymentOption?.label || 'Selecione...'}
                                                 </SelectValue>
@@ -1794,7 +1839,7 @@ export default function CartPage() {
                                             </SelectContent>
                                         </Select>
                                         {selectedPaymentDescription && (
-                                            <p className="rounded-xl bg-slate-50/60 px-3 py-2 text-xs leading-5 text-slate-500 border border-slate-200/80">
+                                            <p className="rounded-xl bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground border border-border">
                                                 {selectedPaymentDescription}
                                             </p>
                                         )}
@@ -1840,15 +1885,15 @@ export default function CartPage() {
                                     <div className="rounded-2xl gradient-navy px-4 py-4">
                                         <div className="flex items-end justify-between gap-4">
                                             <div className="space-y-1">
-                                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                                                     Total final
                                                 </p>
                                                 <p className="text-2xl font-bold tracking-tight text-white">
                                                     R$ {formatCurrency(finalTotal)}
                                                 </p>
                                             </div>
-                                            <div className="rounded-xl bg-white/10 px-3 py-2 text-right backdrop-blur-sm">
-                                                <p className="text-[9px] uppercase tracking-[0.14em] text-slate-300">
+                                            <div className="rounded-xl bg-card/10 px-3 py-2 text-right backdrop-blur-sm">
+                                                <p className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
                                                     Pedido
                                                 </p>
                                                 <p className="mt-0.5 text-sm font-semibold text-white">
@@ -1889,17 +1934,17 @@ export default function CartPage() {
             </div>
 
             <div
-                className="fixed inset-x-3 z-40 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur md:hidden"
+                className="fixed inset-x-3 z-40 rounded-2xl border border-border bg-card/95 px-4 py-3 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur md:hidden"
                 style={{
                     bottom: 'calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 12px)',
                 }}
             >
                 <div className="mx-auto flex max-w-7xl items-center gap-3">
                     <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                             Total final
                         </p>
-                        <p className="truncate text-lg font-bold text-slate-950">
+                        <p className="truncate text-lg font-bold text-foreground">
                             R$ {formatCurrency(finalTotal)}
                         </p>
                     </div>
@@ -1946,7 +1991,7 @@ export default function CartPage() {
             <Dialog open={confirmCheckoutOpen} onOpenChange={setConfirmCheckoutOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 mb-2">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 mb-2 dark:bg-emerald-500/10">
                             <ShieldCheck className="h-6 w-6 text-emerald-600" />
                         </div>
                         <DialogTitle className="text-xl font-bold text-center">
@@ -1958,7 +2003,7 @@ export default function CartPage() {
                     </DialogHeader>
 
                     <div className="space-y-4 py-3">
-                        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                        <div className="space-y-3 rounded-2xl border border-border bg-muted/50 p-4">
                             <SummaryRow
                                 label={`Itens (${count})`}
                                 value={`R$ ${formatCurrency(total)}`}
@@ -1994,8 +2039,8 @@ export default function CartPage() {
                             )}
                             <Separator />
                             <div className="flex items-center justify-between gap-3 text-sm">
-                                <span className="font-semibold text-slate-950">Total a pagar</span>
-                                <span className="text-lg font-bold text-slate-950">
+                                <span className="font-semibold text-foreground">Total a pagar</span>
+                                <span className="text-lg font-bold text-foreground">
                                     R$ {formatCurrency(finalTotal)}
                                 </span>
                             </div>

@@ -22,6 +22,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { setViewAsCustomerAction } from '@/app/admin/actions/view-as-customer'
 import { PriceTableInitializer } from '@/components/store/PriceTableInitializer'
+import { CartSessionInitializer } from '@/components/store/CartSessionInitializer'
 import { usePwaRuntime } from '@/components/providers/pwa-runtime-provider'
 
 export default function StoreLayout({
@@ -133,6 +134,7 @@ export default function StoreLayout({
 
                     {/* Price Table State Populator (Client-side) */}
                     <PriceTableInitializer />
+                    <CartSessionInitializer />
 
                     {/* Global Floating Actions - Correctly nested inside Providers */}
                     <GlobalFloatingActions />
