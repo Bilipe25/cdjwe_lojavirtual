@@ -43,6 +43,8 @@ const CART_STORAGE_GUEST_SCOPE = 'guest'
 const CART_SYNC_DEBOUNCE_MS = 450
 
 let cartSyncTimeout: ReturnType<typeof globalThis.setTimeout> | null = null
+let lastSyncedCartItems = new Map<string, CartItem>()
+let forceRemoteCartClear = false
 
 function getNowIso() {
     return new Date().toISOString()
@@ -147,6 +149,59 @@ function mergeCartItems(localItems: CartItem[], remoteItems: CartItem[]) {
     return Array.from(merged.values())
 }
 
+function buildCartItemMap(items: CartItem[]) {
+    const mapped = new Map<string, CartItem>()
+    items.map(normalizeCartItem).forEach((item) => {
+        mapped.set(getCartItemKey(item), item)
+    })
+    return mapped
+}
+
+function areCartItemsEqual(left: CartItem, right: CartItem) {
+    return (
+        getCartItemKey(left) === getCartItemKey(right) &&
+        left.variantId === right.variantId &&
+        left.productId === right.productId &&
+        left.productName === right.productName &&
+        left.fabricName === right.fabricName &&
+        left.colorName === right.colorName &&
+        (left.size ?? null) === (right.size ?? null) &&
+        (left.sizeOptionId ?? null) === (right.sizeOptionId ?? null) &&
+        (left.sizePrice ?? null) === (right.sizePrice ?? null) &&
+        (left.imageUrl ?? null) === (right.imageUrl ?? null) &&
+        left.quantity === right.quantity &&
+        left.unitPrice === right.unitPrice &&
+        (left.updatedAt ?? null) === (right.updatedAt ?? null)
+    )
+}
+
+function diffCartItems(previousItems: CartItem[], nextItems: CartItem[]) {
+    const previousMap = buildCartItemMap(previousItems)
+    const nextMap = buildCartItemMap(nextItems)
+
+    const upserts: CartItem[] = []
+    const deleteKeys: string[] = []
+
+    nextMap.forEach((nextItem, key) => {
+        const previousItem = previousMap.get(key)
+        if (!previousItem || !areCartItemsEqual(previousItem, nextItem)) {
+            upserts.push(nextItem)
+        }
+    })
+
+    previousMap.forEach((_previousItem, key) => {
+        if (!nextMap.has(key)) {
+            deleteKeys.push(key)
+        }
+    })
+
+    return {
+        normalizedNextItems: Array.from(nextMap.values()),
+        upserts,
+        deleteKeys,
+    }
+}
+
 async function getCartSyncContext() {
     const supabase = createClient()
     const {
@@ -159,64 +214,91 @@ async function getCartSyncContext() {
     }
 }
 
+function buildRemoteCartPayload(profileId: string, item: CartItem) {
+    const timestamp = item.updatedAt || getNowIso()
+    return {
+        profile_id: profileId,
+        cart_key: getCartItemKey(item),
+        product_variant_id: item.variantId,
+        product_id: item.productId,
+        size_option_id: item.sizeOptionId ?? null,
+        product_name: item.productName,
+        fabric_name: item.fabricName,
+        color_name: item.colorName,
+        size_name: item.size ?? null,
+        size_price: item.sizePrice ?? null,
+        image_url: item.imageUrl,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        item_updated_at: timestamp,
+        updated_at: timestamp,
+    }
+}
+
+async function applyCartDiff(params: {
+    supabase: Awaited<ReturnType<typeof createClient>>
+    profileId: string
+    previousItems: CartItem[]
+    nextItems: CartItem[]
+    forceClearAll?: boolean
+}) {
+    const { supabase, profileId, previousItems, nextItems, forceClearAll = false } = params
+    const diff = diffCartItems(previousItems, nextItems)
+    const shouldClearAll = forceClearAll && diff.normalizedNextItems.length === 0
+
+    if (shouldClearAll) {
+        await supabase.from('user_cart_items').delete().eq('profile_id', profileId)
+    } else if (diff.deleteKeys.length > 0) {
+        await supabase
+            .from('user_cart_items')
+            .delete()
+            .eq('profile_id', profileId)
+            .in('cart_key', diff.deleteKeys)
+    }
+
+    if (diff.upserts.length > 0) {
+        await supabase
+            .from('user_cart_items')
+            .upsert(
+                diff.upserts.map((item) => buildRemoteCartPayload(profileId, item)),
+                { onConflict: 'profile_id,cart_key' }
+            )
+    }
+
+    return {
+        normalizedNextItems: diff.normalizedNextItems,
+        hasChanges: shouldClearAll || diff.deleteKeys.length > 0 || diff.upserts.length > 0,
+    }
+}
+
 async function pushCartItemsToDb(items: CartItem[]) {
     try {
         const { supabase, profileId } = await getCartSyncContext()
         if (!profileId) return
 
-        const normalizedItems = items.map(normalizeCartItem)
-
-        if (normalizedItems.length === 0) {
-            await supabase.from('user_cart_items').delete().eq('profile_id', profileId)
-            return
-        }
-
-        const { data: existingRows } = await supabase
-            .from('user_cart_items')
-            .select('cart_key')
-            .eq('profile_id', profileId)
-
-        const nextKeys = new Set(normalizedItems.map((item) => getCartItemKey(item)))
-        const staleKeys =
-            existingRows
-                ?.map((row) => row.cart_key)
-                .filter((cartKey) => !nextKeys.has(cartKey)) || []
-
-        if (staleKeys.length > 0) {
-            await supabase
-                .from('user_cart_items')
-                .delete()
-                .eq('profile_id', profileId)
-                .in('cart_key', staleKeys)
-        }
-
-        const payload = normalizedItems.map((item) => {
-            const timestamp = item.updatedAt || getNowIso()
-            return {
-                profile_id: profileId,
-                cart_key: getCartItemKey(item),
-                product_variant_id: item.variantId,
-                product_id: item.productId,
-                size_option_id: item.sizeOptionId ?? null,
-                product_name: item.productName,
-                fabric_name: item.fabricName,
-                color_name: item.colorName,
-                size_name: item.size ?? null,
-                size_price: item.sizePrice ?? null,
-                image_url: item.imageUrl,
-                quantity: item.quantity,
-                unit_price: item.unitPrice,
-                item_updated_at: timestamp,
-                updated_at: timestamp,
-            }
+        const previousItems = Array.from(lastSyncedCartItems.values())
+        const result = await applyCartDiff({
+            supabase,
+            profileId,
+            previousItems,
+            nextItems: items,
+            forceClearAll: forceRemoteCartClear,
         })
 
-        await supabase
-            .from('user_cart_items')
-            .upsert(payload, { onConflict: 'profile_id,cart_key' })
+        lastSyncedCartItems = buildCartItemMap(result.normalizedNextItems)
+        forceRemoteCartClear = false
     } catch {
         // Silent fail: local cart remains the fallback.
     }
+}
+
+function resetCartSyncState() {
+    if (cartSyncTimeout) {
+        globalThis.clearTimeout(cartSyncTimeout)
+        cartSyncTimeout = null
+    }
+    lastSyncedCartItems = new Map<string, CartItem>()
+    forceRemoteCartClear = false
 }
 
 function scheduleCartSync() {
@@ -241,37 +323,32 @@ export const useCartStore = create<CartState>()(
             addItem: (item: CartItem) => {
                 const normalizedIncoming = normalizeCartItem(item)
                 const incomingKey = getCartItemKey(normalizedIncoming)
+                const previousItems = get().items
+                const existingItem = previousItems.find(
+                    (currentItem) => getCartItemKey(currentItem) === incomingKey
+                )
 
-                set((state) => {
-                    const existingItem = state.items.find(
-                        (currentItem) => getCartItemKey(currentItem) === incomingKey
-                    )
+                const nextItems = existingItem
+                    ? previousItems.map((currentItem) =>
+                          getCartItemKey(currentItem) === incomingKey
+                              ? normalizeCartItem({
+                                    ...currentItem,
+                                    quantity: currentItem.quantity + normalizedIncoming.quantity,
+                                    unitPrice: normalizedIncoming.unitPrice,
+                                    sizePrice: normalizedIncoming.sizePrice ?? currentItem.sizePrice ?? null,
+                                })
+                              : currentItem
+                      )
+                    : [...previousItems, normalizedIncoming]
 
-                    if (existingItem) {
-                        return {
-                            items: state.items.map((currentItem) =>
-                                getCartItemKey(currentItem) === incomingKey
-                                    ? normalizeCartItem({
-                                          ...currentItem,
-                                          quantity: currentItem.quantity + normalizedIncoming.quantity,
-                                          unitPrice: normalizedIncoming.unitPrice,
-                                          sizePrice: normalizedIncoming.sizePrice ?? currentItem.sizePrice ?? null,
-                                      })
-                                    : currentItem
-                            ),
-                        }
-                    }
-
-                    return { items: [...state.items, normalizedIncoming] }
-                })
+                set({ items: nextItems })
 
                 scheduleCartSync()
             },
 
             removeItem: (cartKey: string) => {
-                set((state) => ({
-                    items: state.items.filter((item) => getCartItemKey(item) !== cartKey),
-                }))
+                const nextItems = get().items.filter((item) => getCartItemKey(item) !== cartKey)
+                set({ items: nextItems })
 
                 scheduleCartSync()
             },
@@ -282,23 +359,31 @@ export const useCartStore = create<CartState>()(
                     return
                 }
 
-                set((state) => ({
-                    items: state.items.map((item) =>
+                const nextItems = get().items.map((item) =>
                         getCartItemKey(item) === cartKey
                             ? normalizeCartItem({ ...item, quantity })
                             : item
-                    ),
-                }))
+                    )
+                set({ items: nextItems })
 
                 scheduleCartSync()
             },
 
             setItems: (items: CartItem[]) => {
-                set({ items: items.map(normalizeCartItem) })
+                const previousItems = get().items
+                const normalizedItems = items.map(normalizeCartItem)
+                if (previousItems.length > 0 && normalizedItems.length === 0) {
+                    forceRemoteCartClear = true
+                }
+
+                set({ items: normalizedItems })
                 scheduleCartSync()
             },
 
             clearCart: () => {
+                if (get().items.length > 0) {
+                    forceRemoteCartClear = true
+                }
                 set({ items: [] })
                 scheduleCartSync()
             },
@@ -336,7 +421,17 @@ export const useCartStore = create<CartState>()(
                     const mergedItems = mergeCartItems(get().items, remoteItems)
 
                     set({ items: mergedItems })
-                    await pushCartItemsToDb(mergedItems)
+                    lastSyncedCartItems = buildCartItemMap(remoteItems)
+                    forceRemoteCartClear = false
+
+                    const result = await applyCartDiff({
+                        supabase,
+                        profileId,
+                        previousItems: remoteItems,
+                        nextItems: mergedItems,
+                    })
+
+                    lastSyncedCartItems = buildCartItemMap(result.normalizedNextItems)
                 } catch {
                     // Silent fail: local scoped cart remains usable.
                 }
@@ -368,6 +463,7 @@ export function setCartStorageScope(profileId: string | null) {
 }
 
 export async function rehydrateCartStoreForScope(profileId: string | null) {
+    resetCartSyncState()
     setCartStorageScope(profileId)
     useCartStore.setState({ items: [], isOpen: false })
     await useCartStore.persist.rehydrate()

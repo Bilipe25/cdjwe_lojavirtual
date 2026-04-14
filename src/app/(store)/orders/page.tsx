@@ -172,8 +172,9 @@ function OrdersContent() {
             openCart()
         } catch {
             toast.error('Erro ao refazer pedido.')
+        } finally {
+            setReorderingId(null)
         }
-        setReorderingId(null)
     }
 
     return (

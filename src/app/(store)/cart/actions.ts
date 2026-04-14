@@ -92,8 +92,17 @@ type PriceSnapshot = {
     sizeName: string | null
 }
 
+type ReconciledCheckoutItem = CartItem & {
+    sizeName: string | null
+    productPrice: number
+    variationPrice: number | null
+    finalPrice: number
+    subtotal: number
+}
+
 type CartReconciliationResult = {
     reconciledItems: CartItem[]
+    validatedItems: ReconciledCheckoutItem[]
     missingKeys: string[]
     missingVariantIds: string[]
     priceChanged: boolean
@@ -693,42 +702,75 @@ async function reconcileCartItemsForContext(
 
     const updatedAt = new Date().toISOString()
     let priceChanged = false
-    const missingKeys = pricingResult.missingKeys || []
-    const reconciledItems = items
-        .filter((item) => !missingKeys.includes(item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null)))
-        .map((item) => {
-            const currentKey = item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null)
-            const priceInfo = pricingResult.prices?.[currentKey]
-            if (!priceInfo) return item
+    const missingKeys = [...(pricingResult.missingKeys || [])]
+    const validatedItems: ReconciledCheckoutItem[] = []
 
-            const nextCartKey = buildCartKey(item.variantId, priceInfo.sizeOptionId ?? null)
-            const hasChanged =
-                priceInfo.unitPrice !== item.unitPrice ||
-                (priceInfo.sizeOptionId ?? null) !== (item.sizeOptionId ?? null) ||
-                (priceInfo.sizeName || item.size || null) !== (item.size || null) ||
-                (priceInfo.sizePrice ?? null) !== (item.sizePrice ?? null) ||
-                nextCartKey !== currentKey
+    items.forEach((item) => {
+        const currentKey = item.cartKey || buildCartKey(item.variantId, item.sizeOptionId ?? null)
+        if (missingKeys.includes(currentKey)) return
 
-            if (!hasChanged) return item
+        const priceInfo = pricingResult.prices?.[currentKey]
+        if (!priceInfo) {
+            missingKeys.push(currentKey)
+            return
+        }
 
+        const nextCartKey = buildCartKey(item.variantId, priceInfo.sizeOptionId ?? null)
+        const nextSizeName = priceInfo.sizeName || item.size || null
+        const hasChanged =
+            priceInfo.unitPrice !== item.unitPrice ||
+            (priceInfo.sizeOptionId ?? null) !== (item.sizeOptionId ?? null) ||
+            nextSizeName !== (item.size || null) ||
+            (priceInfo.sizePrice ?? null) !== (item.sizePrice ?? null) ||
+            nextCartKey !== currentKey
+
+        if (hasChanged) {
             priceChanged = true
-            return {
-                ...item,
-                unitPrice: priceInfo.unitPrice,
-                sizeOptionId: priceInfo.sizeOptionId,
-                size: priceInfo.sizeName || item.size,
-                sizePrice: priceInfo.sizePrice,
-                cartKey: nextCartKey,
-                updatedAt,
-            }
+        }
+
+        const nextItem: CartItem = {
+            ...item,
+            unitPrice: priceInfo.unitPrice,
+            sizeOptionId: priceInfo.sizeOptionId,
+            size: nextSizeName,
+            sizePrice: priceInfo.sizePrice,
+            cartKey: nextCartKey,
+            updatedAt: hasChanged ? updatedAt : item.updatedAt,
+        }
+
+        validatedItems.push({
+            ...nextItem,
+            sizeName: nextSizeName,
+            productPrice: priceInfo.productPrice,
+            variationPrice: priceInfo.variationPrice,
+            finalPrice: priceInfo.finalPrice,
+            subtotal: priceInfo.unitPrice * nextItem.quantity,
         })
+    })
+
+    const reconciledItems = validatedItems.map((item) => ({
+        cartKey: item.cartKey,
+        variantId: item.variantId,
+        productId: item.productId,
+        productName: item.productName,
+        fabricName: item.fabricName,
+        colorName: item.colorName,
+        size: item.size,
+        sizeOptionId: item.sizeOptionId,
+        sizePrice: item.sizePrice,
+        imageUrl: item.imageUrl,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        updatedAt: item.updatedAt,
+    }))
 
     return {
         reconciledItems,
-        missingKeys,
+        validatedItems,
+        missingKeys: Array.from(new Set(missingKeys)),
         missingVariantIds: pricingResult.missingVariantIds || [],
         priceChanged,
-        subtotal: reconciledItems.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0),
+        subtotal: validatedItems.reduce((acc, item) => acc + item.subtotal, 0),
     }
 }
 
@@ -946,92 +988,8 @@ export async function checkoutAction(
     }
 
     items = reconciliation.reconciledItems
-
-    const variantIds = Array.from(new Set(items.map((item) => item.variantId)))
-    const sizeOptionIds = Array.from(
-        new Set(items.map((item) => item.sizeOptionId).filter((value): value is string => Boolean(value)))
-    )
-
-    const [variantsResult, sizeOptionMap] = await Promise.all([
-        fetchVariantPricingRows(supabase, variantIds),
-        fetchSizeOptionsById(supabase, sizeOptionIds),
-    ])
-
-    if (variantsResult.error) {
-        return { error: 'Falha ao validar os precos originais do catalogo.' }
-    }
-
-    const variantMap = new Map<string, VariantPricingRow>()
-    variantsResult.variants.forEach((variant) => variantMap.set(variant.id, variant))
-
-    const missingIds = variantIds.filter((variantId) => !variantMap.has(variantId))
-    const inactiveIds = variantsResult.variants
-        .filter(
-            (variant) =>
-                !variant.is_active ||
-                !variant.product?.is_active ||
-                !variant.fabric?.is_active ||
-                !variant.color?.is_active
-        )
-        .map((variant) => variant.id)
-    if (missingIds.length > 0 || inactiveIds.length > 0) {
-        return { error: 'Alguns itens nao estao mais disponiveis. Revise o carrinho antes de finalizar.' }
-    }
-
-    const priceTableContext = await getActivePriceTableContext(
-        supabase,
-        context.storeId,
-        variantIds,
-        context.resolvedPriceTableId
-    )
-
-    let secureSubtotal = 0
-    const validatedItems = items.map((clientItem) => {
-        const dbVariant = variantMap.get(clientItem.variantId)
-        if (!dbVariant || !dbVariant.product) {
-            throw new Error(`Produto nao encontrado no sistema: ${clientItem.productName}`)
-        }
-
-        const product = dbVariant.product
-        const requestedSizeOptionId = clientItem.sizeOptionId ?? null
-        const sizeOption = requestedSizeOptionId ? sizeOptionMap.get(requestedSizeOptionId) || null : null
-
-        if (requestedSizeOptionId) {
-            if (!sizeOption || !sizeOption.is_active || sizeOption.product_id !== product.id) {
-                throw new Error(`Tamanho selecionado nao e valido para ${clientItem.productName}.`)
-            }
-        }
-
-        if (product.has_size_variants && !sizeOption) {
-            throw new Error(`Selecione um tamanho valido para ${clientItem.productName}.`)
-        }
-
-        const pricing = resolveVariantPricing({
-            basePrice: product.base_price ?? 0,
-            fabricModifier: dbVariant.fabric?.price_modifier ?? 0,
-            variantPriceOverride: dbVariant.price_override ?? null,
-            variantId: clientItem.variantId,
-            sizePriceMode: sizeOption?.price_mode ?? null,
-            sizePriceValue: sizeOption?.price_value ?? null,
-            priceTable: priceTableContext,
-        })
-
-        const realSubtotal = pricing.unitPrice * clientItem.quantity
-        secureSubtotal += realSubtotal
-
-        return {
-            ...clientItem,
-            cartKey: clientItem.cartKey || buildCartKey(clientItem.variantId, requestedSizeOptionId),
-            sizeOptionId: sizeOption?.id ?? null,
-            sizeName: sizeOption?.name ?? clientItem.size ?? product.size ?? null,
-            sizePrice: pricing.sizePrice,
-            productPrice: pricing.productPrice,
-            variationPrice: pricing.variationPrice,
-            finalPrice: pricing.finalPrice,
-            unitPrice: pricing.unitPrice,
-            subtotal: realSubtotal,
-        }
-    })
+    const validatedItems = reconciliation.validatedItems
+    const secureSubtotal = reconciliation.subtotal
 
     const { data: settings } = await supabase.from('system_settings').select('min_order_amount').single()
     if (settings && settings.min_order_amount > 0 && secureSubtotal < settings.min_order_amount) {
