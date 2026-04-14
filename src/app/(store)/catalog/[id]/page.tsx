@@ -40,6 +40,7 @@ import { buildBaseGalleryImages, buildDisplayGalleryImages } from '@/lib/product
 import { toast } from 'sonner'
 import { ProductImageGallery } from '@/components/products/ProductImageGallery'
 import { PricePresentation, getVariantPriceBadges } from '@/components/catalog/price-presentation'
+import { RelatedProductsSection } from '@/components/catalog/related-products-section'
 
 function buildCartKey(variantId: string, sizeOptionId: string | null) {
     return `${variantId}::${sizeOptionId || 'legacy'}`
@@ -745,7 +746,15 @@ export default function ProductDetailPage() {
                             <span>Qualidade premium</span>
                         </div>
                     </div>
+
                 </motion.div>
+            </div>
+
+            <div className="mt-10 lg:mt-14">
+                <RelatedProductsSection
+                    product={product}
+                    detailsBasePath={catalogBasePath}
+                />
             </div>
 
             <div
