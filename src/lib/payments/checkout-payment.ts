@@ -116,11 +116,16 @@ function buildRuleFallbackCondition(rule: PriceTablePaymentRule): Pick<ResolvedC
 export async function getAvailableCheckoutPayments(
     supabase: SupabaseServerClient,
     params: {
-        cartTotal: number
+        cartTotal?: number | null
         priceTableId?: string | null
+        applyCartTotalFilter?: boolean
     }
 ): Promise<CheckoutPaymentAvailability> {
-    const { cartTotal, priceTableId } = params
+    const {
+        cartTotal = null,
+        priceTableId,
+        applyCartTotalFilter = true,
+    } = params
 
     const [{ data: methodConditionRows }, { data: ruleRows }] = await Promise.all([
         supabase
@@ -166,6 +171,7 @@ export async function getAvailableCheckoutPayments(
         .filter((value): value is PaymentMethodCondition => Boolean(value))
         .filter((link) => {
             if (!link.payment_method?.is_active || !link.payment_condition?.is_active) return false
+            if (!applyCartTotalFilter || cartTotal === null) return true
             return isCartTotalWithinRange(
                 cartTotal,
                 link.payment_condition?.min_order_value || 0,
@@ -176,7 +182,11 @@ export async function getAvailableCheckoutPayments(
 
     const availableRules = ((ruleRows || []) as PriceTablePaymentRuleRow[])
         .filter((rule) => rule.is_active !== false)
-        .filter((rule) => isCartTotalWithinRange(cartTotal, rule.min_order_value, rule.max_order_value))
+        .filter((rule) =>
+            !applyCartTotalFilter || cartTotal === null
+                ? true
+                : isCartTotalWithinRange(cartTotal, rule.min_order_value, rule.max_order_value)
+        )
         .map((rule) => {
             const relation = rule.payment_method_condition
                 ? (unwrapRelation(rule.payment_method_condition) as PaymentMethodConditionRow | null)

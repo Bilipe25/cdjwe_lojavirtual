@@ -167,12 +167,68 @@ function buildPaymentOptionsFromMethodGroup(group: CheckoutPaymentMethodGroup): 
     return [...ruleOptions, ...conditionOptions]
 }
 
+function isTotalWithinRange(value: number, minValue: number, maxValue: number | null | undefined) {
+    return value >= minValue && (!maxValue || value <= maxValue)
+}
+
+function filterPaymentCatalogByTotal(
+    payload: Pick<
+        CheckoutBootstrapPayload,
+        'paymentCatalogMethods' | 'paymentCatalogRules' | 'paymentCatalogConditions'
+    >,
+    total: number
+) {
+    const methodGroups = payload.paymentCatalogMethods
+        .map((group) => {
+            const conditions = group.conditions.filter((link) => {
+                const condition = link.payment_condition
+                if (!condition?.is_active) return false
+                return isTotalWithinRange(
+                    total,
+                    condition.min_order_value || 0,
+                    condition.max_order_value || null
+                )
+            })
+
+            const rules = group.rules.filter((rule) =>
+                isTotalWithinRange(total, rule.min_order_value || 0, rule.max_order_value || null)
+            )
+
+            if (conditions.length === 0 && rules.length === 0) return null
+
+            return {
+                ...group,
+                conditions,
+                rules,
+            }
+        })
+        .filter((group): group is CheckoutPaymentMethodGroup => Boolean(group))
+
+    const globalConditions = payload.paymentCatalogConditions.filter((condition) =>
+        isTotalWithinRange(total, condition.min_order_value || 0, condition.max_order_value || null)
+    )
+
+    const priceTableRules = payload.paymentCatalogRules.filter((rule) =>
+        isTotalWithinRange(total, rule.min_order_value || 0, rule.max_order_value || null)
+    )
+
+    return {
+        methodGroups,
+        globalConditions,
+        priceTableRules,
+    }
+}
+
 function resolvePaymentSelection(
-    payload: Pick<CheckoutBootstrapPayload, 'paymentMethods' | 'priceTableRules' | 'globalConditions'>,
+    availability: {
+        methodGroups: CheckoutPaymentMethodGroup[]
+        priceTableRules: PriceTablePaymentRule[]
+        globalConditions: PaymentCondition[]
+    },
     currentMethodId: string,
     currentPaymentId: string
 ) {
-    const groupedMethods = payload.paymentMethods.filter(
+    const groupedMethods = availability.methodGroups.filter(
         (group) => group.rules.length > 0 || group.conditions.length > 0
     )
 
@@ -192,23 +248,23 @@ function resolvePaymentSelection(
         }
     }
 
-    if (payload.priceTableRules.length > 0) {
+    if (availability.priceTableRules.length > 0) {
         return {
             selectedPaymentMethod: '',
-            selectedPayment: payload.priceTableRules.some((rule) => rule.id === currentPaymentId)
+            selectedPayment: availability.priceTableRules.some((rule) => rule.id === currentPaymentId)
                 ? currentPaymentId
-                : payload.priceTableRules[0].id,
+                : availability.priceTableRules[0].id,
         }
     }
 
-    if (payload.globalConditions.length > 0) {
+    if (availability.globalConditions.length > 0) {
         return {
             selectedPaymentMethod: '',
-            selectedPayment: payload.globalConditions.some(
+            selectedPayment: availability.globalConditions.some(
                 (condition) => condition.id === currentPaymentId
             )
                 ? currentPaymentId
-                : payload.globalConditions[0].id,
+                : availability.globalConditions[0].id,
         }
     }
 
@@ -637,9 +693,9 @@ export default function CartPage() {
     const { settings } = useSettings()
 
     const [loading, setLoading] = useState(false)
-    const [paymentMethodGroups, setPaymentMethodGroups] = useState<CheckoutPaymentMethodGroup[]>([])
-    const [paymentConditions, setPaymentConditions] = useState<PaymentCondition[]>([])
-    const [priceTableRules, setPriceTableRules] = useState<PriceTablePaymentRule[]>([])
+    const [paymentCatalogMethodGroups, setPaymentCatalogMethodGroups] = useState<CheckoutPaymentMethodGroup[]>([])
+    const [paymentCatalogConditions, setPaymentCatalogConditions] = useState<PaymentCondition[]>([])
+    const [paymentCatalogRules, setPaymentCatalogRules] = useState<PriceTablePaymentRule[]>([])
     const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('')
     const [selectedPayment, setSelectedPayment] = useState('')
     const [storeAddresses, setStoreAddresses] = useState<StoreAddress[]>([])
@@ -659,6 +715,8 @@ export default function CartPage() {
     const selectedPaymentMethodRef = useRef(selectedPaymentMethod)
     const selectedPaymentRef = useRef(selectedPayment)
     const checkoutBootstrapRequestRef = useRef(0)
+    const couponPreviewCacheRef = useRef(new Map<string, CheckoutCouponPreview>())
+    const couponValidationTimeoutRef = useRef<number | null>(null)
     const [isCartHydrated, setIsCartHydrated] = useState(() => persistApi?.hasHydrated?.() ?? false)
 
     const total = subtotal()
@@ -678,6 +736,23 @@ export default function CartPage() {
         () => storeAddresses.find((address) => address.id === selectedAddressId) || null,
         [selectedAddressId, storeAddresses]
     )
+
+    const paymentAvailability = useMemo(
+        () =>
+            filterPaymentCatalogByTotal(
+                {
+                    paymentCatalogMethods: paymentCatalogMethodGroups,
+                    paymentCatalogConditions,
+                    paymentCatalogRules,
+                },
+                total
+            ),
+        [paymentCatalogConditions, paymentCatalogMethodGroups, paymentCatalogRules, total]
+    )
+
+    const paymentMethodGroups = paymentAvailability.methodGroups
+    const paymentConditions = paymentAvailability.globalConditions
+    const priceTableRules = paymentAvailability.priceTableRules
 
     const selectedMethodGroup = useMemo(
         () =>
@@ -794,6 +869,16 @@ export default function CartPage() {
             return false
         }
 
+        const cacheKey = `${normalizedCode}::${couponValidationKey}`
+        const cachedPreview = couponPreviewCacheRef.current.get(cacheKey)
+        if (cachedPreview) {
+            setAppliedCoupon(cachedPreview)
+            setCouponInput(cachedPreview.couponCode)
+            setCouponInlineFeedback(null)
+            lastCouponValidationKeyRef.current = cacheKey
+            return true
+        }
+
         setCouponApplying(true)
         try {
             const result = await previewCouponForOrder(items, normalizedCode)
@@ -837,7 +922,8 @@ export default function CartPage() {
             setAppliedCoupon(result.data)
             setCouponInput(result.data.couponCode)
             setCouponInlineFeedback(null)
-            lastCouponValidationKeyRef.current = `${result.data.couponCode}::${couponValidationKey}`
+            couponPreviewCacheRef.current.set(cacheKey, result.data)
+            lastCouponValidationKeyRef.current = cacheKey
             return true
         } finally {
             setCouponApplying(false)
@@ -879,8 +965,21 @@ export default function CartPage() {
         const nextValidationKey = `${appliedCoupon.couponCode}::${couponValidationKey}`
         if (nextValidationKey === lastCouponValidationKeyRef.current) return
 
-        lastCouponValidationKeyRef.current = nextValidationKey
-        void applyCouponCode(appliedCoupon.couponCode, { silent: true })
+        if (couponValidationTimeoutRef.current) {
+            window.clearTimeout(couponValidationTimeoutRef.current)
+        }
+
+        couponValidationTimeoutRef.current = window.setTimeout(() => {
+            lastCouponValidationKeyRef.current = nextValidationKey
+            void applyCouponCode(appliedCoupon.couponCode, { silent: true })
+        }, 320)
+
+        return () => {
+            if (couponValidationTimeoutRef.current) {
+                window.clearTimeout(couponValidationTimeoutRef.current)
+                couponValidationTimeoutRef.current = null
+            }
+        }
     }, [appliedCoupon?.couponCode, applyCouponCode, couponValidationKey])
 
     useEffect(() => {
@@ -891,6 +990,24 @@ export default function CartPage() {
             nextOptions.some((option) => option.id === previous) ? previous : nextOptions[0]?.id || ''
         )
     }, [selectedMethodGroup])
+
+    useEffect(() => {
+        const nextSelection = resolvePaymentSelection(
+            {
+                methodGroups: paymentMethodGroups,
+                globalConditions: paymentConditions,
+                priceTableRules,
+            },
+            selectedPaymentMethodRef.current,
+            selectedPaymentRef.current
+        )
+        if (nextSelection.selectedPaymentMethod !== selectedPaymentMethodRef.current) {
+            setSelectedPaymentMethod(nextSelection.selectedPaymentMethod)
+        }
+        if (nextSelection.selectedPayment !== selectedPaymentRef.current) {
+            setSelectedPayment(nextSelection.selectedPayment)
+        }
+    }, [paymentConditions, paymentMethodGroups, priceTableRules])
 
     const deliveryMessage =
         settings?.default_delivery_days && settings.default_delivery_days > 0
@@ -1024,19 +1141,11 @@ export default function CartPage() {
                             : payload.defaultAddressId
                     )
 
-                    setPaymentMethodGroups(payload.paymentMethods)
-                    setPriceTableRules(payload.priceTableRules)
-                    setPaymentConditions(payload.globalConditions)
+                    setPaymentCatalogMethodGroups(payload.paymentCatalogMethods)
+                    setPaymentCatalogRules(payload.paymentCatalogRules)
+                    setPaymentCatalogConditions(payload.paymentCatalogConditions)
                     setCheckoutBlockedByPolicy(payload.checkoutBlocked)
                     setPaymentRestrictionMessage(payload.paymentRestrictionMessage)
-
-                    const nextSelection = resolvePaymentSelection(
-                        payload,
-                        selectedPaymentMethodRef.current,
-                        selectedPaymentRef.current
-                    )
-                    setSelectedPaymentMethod(nextSelection.selectedPaymentMethod)
-                    setSelectedPayment(nextSelection.selectedPayment)
 
                     if (payload.missingKeys.length > 0) {
                         toast.error(

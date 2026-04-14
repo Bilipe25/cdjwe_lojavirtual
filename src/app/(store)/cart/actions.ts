@@ -132,9 +132,9 @@ export type CheckoutBootstrapPayload = {
     priceChanged: boolean
     addresses: Awaited<ReturnType<typeof getAvailableStoreAddressesForStore>>
     defaultAddressId: string
-    paymentMethods: Awaited<ReturnType<typeof getAvailableCheckoutPayments>>['methodGroups']
-    globalConditions: Awaited<ReturnType<typeof getAvailableCheckoutPayments>>['globalConditions']
-    priceTableRules: Awaited<ReturnType<typeof getAvailableCheckoutPayments>>['priceTableRules']
+    paymentCatalogMethods: Awaited<ReturnType<typeof getAvailableCheckoutPayments>>['methodGroups']
+    paymentCatalogConditions: Awaited<ReturnType<typeof getAvailableCheckoutPayments>>['globalConditions']
+    paymentCatalogRules: Awaited<ReturnType<typeof getAvailableCheckoutPayments>>['priceTableRules']
     financialProfile: StoreCommercialSettings['financial_profile'] | 'no_restriction'
     checkoutBlocked: boolean
     paymentRestrictionMessage: string | null
@@ -460,11 +460,13 @@ async function getAvailablePaymentRulesForContext(
         cartTotal: number
         commercialSettings: StoreCommercialSettings | null
         resolvedPriceTableId: string | null
+        applyCartTotalFilter?: boolean
     }
 ) {
     const availability = await getAvailableCheckoutPayments(supabase, {
         cartTotal: params.cartTotal,
         priceTableId: params.resolvedPriceTableId,
+        applyCartTotalFilter: params.applyCartTotalFilter,
     })
     const filteredAvailability = applyCommercialPaymentAvailability(
         availability,
@@ -751,6 +753,7 @@ export async function getCheckoutBootstrap(items: CartItem[]) {
             cartTotal: recalculatedSubtotal,
             commercialSettings: context.commercialSettings,
             resolvedPriceTableId: context.resolvedPriceTableId,
+            applyCartTotalFilter: false,
         }),
     ])
 
@@ -763,9 +766,9 @@ export async function getCheckoutBootstrap(items: CartItem[]) {
         priceChanged,
         addresses,
         defaultAddressId,
-        paymentMethods: paymentAvailability.paymentMethods,
-        globalConditions: paymentAvailability.globalConditions,
-        priceTableRules: paymentAvailability.priceTableRules,
+        paymentCatalogMethods: paymentAvailability.paymentMethods,
+        paymentCatalogConditions: paymentAvailability.globalConditions,
+        paymentCatalogRules: paymentAvailability.priceTableRules,
         financialProfile: paymentAvailability.financialProfile,
         checkoutBlocked: paymentAvailability.checkoutBlocked,
         paymentRestrictionMessage: paymentAvailability.paymentRestrictionMessage,
