@@ -283,7 +283,7 @@ export default function ProductDetailPage() {
 
     return (
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-            <Button variant="ghost" className="mb-4 gap-2" onClick={() => router.push(catalogBasePath)}>
+            <Button variant="ghost" className="mb-4 gap-2 rounded-xl" onClick={() => router.push(catalogBasePath)}>
                 <ArrowLeft className="h-4 w-4" />
                 Voltar ao catalogo
             </Button>
@@ -299,7 +299,7 @@ export default function ProductDetailPage() {
                     />
 
                     {description && (
-                        <div className="rounded-2xl border border-border/70 bg-muted/10 p-5">
+                        <div className="glass-card rounded-3xl border-0 p-5 sm:p-6">
                             <div className="mb-2 flex items-center justify-between gap-3">
                                 <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                                     Descricao
@@ -354,7 +354,7 @@ export default function ProductDetailPage() {
 
                             <button
                                 onClick={() => toggle(product.id)}
-                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+                                className="glass-card flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-0 text-muted-foreground shadow-sm transition-colors hover:text-foreground"
                                 aria-label={
                                     favorited
                                         ? 'Remover dos favoritos'
@@ -369,7 +369,7 @@ export default function ProductDetailPage() {
                             </button>
                         </div>
 
-                        <h1 className="font-heading text-3xl font-bold text-foreground lg:text-4xl">
+                        <h1 className="font-heading text-3xl font-bold text-gradient-navy lg:text-4xl">
                             {product.name}
                         </h1>
                         {product.size && !product.has_size_variants && (
@@ -384,12 +384,14 @@ export default function ProductDetailPage() {
                         price={priceBreakdown.finalPrice}
                         layer={priceBreakdown.layer}
                         discountPercentage={discountPercentage}
+                        className="glass-card rounded-3xl border-0 p-5 shadow-sm"
+                        badgeClassName="border-white/40 bg-navy/5 text-foreground dark:border-white/10 dark:bg-white/5"
                     />
 
                     <Separator />
 
                     {requiresSizeSelection && (
-                        <div>
+                        <div className="glass-card rounded-3xl border-0 p-5 sm:p-6">
                             <h3 className="mb-3 text-sm font-semibold">
                                 Tamanho
                                 <span className="font-normal text-muted-foreground">
@@ -421,7 +423,7 @@ export default function ProductDetailPage() {
                     )}
 
                     {fabrics.length > 0 && (
-                        <div>
+                        <div className="glass-card rounded-3xl border-0 p-5 sm:p-6">
                             <h3 className="mb-3 text-sm font-semibold">
                                 Tecido
                                 <span className="font-normal text-muted-foreground">
@@ -466,13 +468,13 @@ export default function ProductDetailPage() {
                     )}
 
                     {fabrics.length === 0 && (
-                        <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                        <div className="glass-card rounded-2xl border-0 p-4 text-sm text-muted-foreground">
                             Este produto nao possui variacoes ativas no momento.
                         </div>
                     )}
 
                     {availableColors.length > 0 && (
-                        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+                        <div className="glass-card rounded-3xl border-0 p-5 sm:p-6">
                             <div className="mb-3 flex items-center justify-between">
                                 <h3 className="text-sm font-semibold">
                                     Cores e quantidades
@@ -498,7 +500,7 @@ export default function ProductDetailPage() {
                                         value={colorSearch}
                                         onChange={(event) => setColorSearch(event.target.value)}
                                         placeholder="Buscar cor..."
-                                        className="h-11 w-full rounded-xl border border-border bg-background pl-10 pr-3 text-sm outline-none transition-colors focus:border-primary"
+                                        className="h-11 w-full rounded-xl border border-white/45 bg-background/80 pl-10 pr-3 text-sm outline-none transition-colors focus:border-primary"
                                     />
                                 </div>
                             )}
@@ -525,10 +527,10 @@ export default function ProductDetailPage() {
                                     return (
                                         <div
                                             key={color.id}
-                                            className={`flex shrink-0 items-center justify-between rounded-xl border p-3 transition-colors ${
+                                            className={`flex shrink-0 items-center justify-between rounded-2xl border p-3 transition-colors ${
                                                 quantity > 0
-                                                    ? 'border-primary bg-primary/5'
-                                                    : 'border-border hover:border-primary/30'
+                                                    ? 'border-primary/35 bg-primary/6 shadow-sm'
+                                                    : 'border-white/45 bg-background/70 hover:border-primary/30'
                                             }`}
                                         >
                                             <div className="flex items-center gap-4">
@@ -583,7 +585,7 @@ export default function ProductDetailPage() {
                                                         R$ {lineTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                     </span>
                                                 )}
-                                                <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-background p-1">
+                                                <div className="flex items-center gap-2 rounded-xl border border-white/40 bg-background/85 p-1">
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
@@ -628,7 +630,7 @@ export default function ProductDetailPage() {
                                 )}
                             </div>
 
-                            <div className="mt-4 flex flex-col gap-1 rounded-xl bg-muted/50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                            <div className="mt-4 flex flex-col gap-1 rounded-2xl bg-navy/6 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:bg-white/6">
                                 <span className="text-muted-foreground">Total selecionado</span>
                                 <span className="text-lg font-semibold text-foreground">
                                     {totalSelectedQuantity} iten
@@ -642,22 +644,22 @@ export default function ProductDetailPage() {
                     )}
 
                     {selectedFabric && availableColors.length === 0 && (
-                        <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+                        <div className="glass-card rounded-2xl border-0 p-4 text-sm text-muted-foreground">
                             Nenhuma cor disponivel para este tecido.
                         </div>
                     )}
 
                     <Separator />
 
-                    <div className="rounded-2xl border border-border bg-slate-950 dark:bg-card p-5 text-white dark:text-foreground shadow-lg shadow-slate-950/10 dark:shadow-black/50">
+                    <div className="rounded-3xl gradient-navy border-0 p-5 text-white shadow-xl shadow-slate-950/15">
                         {isSalesBlocked && (
-                            <div className="mb-4 rounded-xl border border-red-300/40 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                            <div className="mb-4 rounded-2xl border border-red-200/20 bg-white/10 px-3 py-2 text-sm text-red-50">
                                 Compras bloqueadas para este cliente. Solicite liberacao administrativa.
                             </div>
                         )}
                         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                             <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55 dark:text-muted-foreground">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">
                                     Resumo da selecao
                                 </p>
                                 <p className="mt-1 text-2xl font-bold">
@@ -667,7 +669,7 @@ export default function ProductDetailPage() {
                                     })}
                                 </p>
                             </div>
-                            <p className="text-sm text-white/72 dark:text-muted-foreground/80">
+                            <p className="text-sm text-white/75">
                                 {totalSelectedQuantity} iten
                                 {totalSelectedQuantity !== 1 ? 's' : ''} selecionado
                                 {totalSelectedQuantity !== 1 ? 's' : ''}
@@ -675,13 +677,13 @@ export default function ProductDetailPage() {
                         </div>
 
                         {isRepresentativeView ? (
-                            <div className="rounded-xl border border-white/20 dark:border-border/50 bg-white/5 dark:bg-muted/30 px-4 py-3 text-sm text-white/85 dark:text-muted-foreground">
+                            <div className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3 text-sm text-white/85">
                                 Catalogo em modo somente visualizacao para representante.
                             </div>
                         ) : (
                             <Button
                                 size="lg"
-                                className="h-14 w-full border-0 bg-white dark:bg-primary dark:text-primary-foreground text-slate-950 shadow-md hover:bg-white/92 dark:hover:bg-primary/90 disabled:opacity-70 disabled:grayscale"
+                                className="h-14 w-full rounded-2xl border-0 bg-white text-slate-950 shadow-md hover:bg-white/92 disabled:opacity-70 disabled:grayscale"
                                 onClick={handleAddToCart}
                                 disabled={
                                     isSalesBlocked ||
@@ -704,15 +706,15 @@ export default function ProductDetailPage() {
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-3">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <div className="glass-card flex items-center gap-3 rounded-2xl border-0 px-4 py-3 text-sm text-muted-foreground">
                             <Truck className="h-4 w-4 shrink-0 text-bronze" />
                             <span>Entrega para todo Brasil</span>
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <div className="glass-card flex items-center gap-3 rounded-2xl border-0 px-4 py-3 text-sm text-muted-foreground">
                             <Shield className="h-4 w-4 shrink-0 text-bronze" />
                             <span>Garantia de fabrica</span>
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <div className="glass-card flex items-center gap-3 rounded-2xl border-0 px-4 py-3 text-sm text-muted-foreground">
                             <Star className="h-4 w-4 shrink-0 text-bronze" />
                             <span>Qualidade premium</span>
                         </div>

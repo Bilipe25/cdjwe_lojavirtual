@@ -302,17 +302,17 @@ function CheckoutSection({
     return (
         <Card
             className={cn(
-                'overflow-hidden rounded-2xl border border-border bg-card shadow-sm',
+                'glass-card overflow-hidden rounded-3xl border-0 shadow-sm',
                 className
             )}
         >
             <CardHeader
-                className={cn('border-b border-border px-4 py-4 sm:px-5', headerClassName)}
+                className={cn('border-b border-white/35 px-4 py-4 sm:px-5 dark:border-white/8', headerClassName)}
             >
                 <div className="flex items-start gap-3">
                     <div
                         className={cn(
-                            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground',
+                            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-navy/5 text-primary dark:bg-white/8',
                             iconWrapperClassName
                         )}
                     >
@@ -328,12 +328,12 @@ function CheckoutSection({
                             {eyebrow}
                         </p>
                         <CardTitle
-                            className={cn('mt-0.5 text-base font-semibold text-foreground', titleClassName)}
+                            className={cn('mt-0.5 font-[family-name:var(--font-heading)] text-[1.02rem] font-semibold tracking-tight text-foreground', titleClassName)}
                         >
                             {title}
                         </CardTitle>
                         {description && (
-                            <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
+                            <p className="mt-1 text-sm leading-5 text-muted-foreground/90">{description}</p>
                         )}
                     </div>
                 </div>
@@ -357,19 +357,19 @@ function CheckoutHeader({
     onClear: () => void
 }) {
     return (
-        <div className="rounded-2xl border border-border bg-card px-4 py-4 shadow-sm sm:px-5">
+        <div className="glass-card rounded-3xl border-0 px-4 py-4 shadow-sm sm:px-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-start gap-3">
                     <Button
                         variant="outline"
                         size="icon"
-                        className="mt-0.5 h-9 w-9 rounded-xl border-border"
+                        className="mt-0.5 h-9 w-9 rounded-xl border-white/40 bg-background/75 shadow-none hover:bg-background dark:border-white/10 dark:bg-white/5"
                         onClick={onBack}
                     >
                         <ArrowLeft className="h-4 w-4" />
                     </Button>
                     <div className="min-w-0">
-                        <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-foreground sm:text-2xl">
+                        <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-gradient-navy sm:text-2xl">
                             {title}
                         </h1>
                         <p className="mt-1 text-sm text-muted-foreground">
@@ -379,11 +379,11 @@ function CheckoutHeader({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                    <div className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
+                    <div className="rounded-xl border border-white/40 bg-background/70 px-3 py-2 text-sm text-muted-foreground backdrop-blur-sm dark:border-white/10 dark:bg-white/6">
                         <span className="font-semibold text-foreground">{count}</span>{' '}
                         {count === 1 ? 'item' : 'itens'}
                     </div>
-                    <div className="rounded-xl border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
+                    <div className="rounded-xl border border-white/40 bg-background/70 px-3 py-2 text-sm text-muted-foreground backdrop-blur-sm dark:border-white/10 dark:bg-white/6">
                         Total parcial
                         <span className="ml-1 font-semibold text-foreground">
                             R$ {formatCurrency(total)}
@@ -433,12 +433,12 @@ function EmptyCartState({ onCatalog }: { onCatalog: () => void }) {
             <motion.div
                 initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="rounded-2xl border border-border bg-card px-6 py-14 text-center shadow-sm"
+                className="glass-card rounded-3xl border-0 px-6 py-14 text-center shadow-sm"
             >
                 <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-muted">
                     <ShoppingBag className="h-8 w-8 text-muted-foreground" />
                 </div>
-                <h1 className="mt-5 text-2xl font-bold text-foreground">Carrinho vazio</h1>
+                <h1 className="mt-5 font-[family-name:var(--font-heading)] text-2xl font-bold text-gradient-navy">Carrinho vazio</h1>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
                     Adicione produtos para iniciar um novo pedido.
                 </p>
@@ -470,8 +470,9 @@ function CheckoutItemRow({
     return (
         <div className="py-3 first:pt-0 last:pb-0">
             <div className="sm:hidden">
+                <div className="rounded-2xl border border-white/35 bg-background/55 p-3 backdrop-blur-sm dark:border-white/8 dark:bg-white/4">
                 <div className="flex items-start gap-3">
-                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-border bg-muted">
+                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/35 bg-background/70 dark:border-white/10 dark:bg-white/6">
                         {item.imageUrl ? (
                             <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" />
                         ) : (
@@ -503,11 +504,11 @@ function CheckoutItemRow({
                         </div>
 
                         <div className="mt-2 flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-0.5 rounded-full border border-border bg-muted/50 p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+                            <div className="flex items-center gap-0.5 rounded-full border border-white/35 bg-background/75 p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] dark:border-white/10 dark:bg-white/6">
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 rounded-full text-muted-foreground hover:bg-card hover:text-foreground"
+                                    className="h-6 w-6 rounded-full text-muted-foreground hover:bg-background hover:text-foreground dark:hover:bg-white/10"
                                     onClick={onDecrease}
                                 >
                                     <Minus className="h-3 w-3" strokeWidth={2.2} />
@@ -518,7 +519,7 @@ function CheckoutItemRow({
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 rounded-full text-muted-foreground hover:bg-card hover:text-foreground"
+                                    className="h-6 w-6 rounded-full text-muted-foreground hover:bg-background hover:text-foreground dark:hover:bg-white/10"
                                     onClick={onIncrease}
                                 >
                                     <Plus className="h-3 w-3" strokeWidth={2.2} />
@@ -537,10 +538,11 @@ function CheckoutItemRow({
                         </div>
                     </div>
                 </div>
+                </div>
             </div>
 
             <div className="hidden sm:grid sm:gap-3 sm:grid-cols-[72px_minmax(0,1fr)] xl:grid-cols-[72px_minmax(0,1fr)_160px] xl:items-center">
-                <div className="relative h-[72px] w-[72px] overflow-hidden rounded-xl border border-border bg-muted">
+                <div className="relative h-[72px] w-[72px] overflow-hidden rounded-2xl border border-white/35 bg-background/70 dark:border-white/10 dark:bg-white/6">
                     {item.imageUrl ? (
                         <Image src={item.imageUrl} alt={item.productName} fill className="object-cover" />
                     ) : (
@@ -557,14 +559,14 @@ function CheckoutItemRow({
                                 {item.productName}
                             </h3>
                             <div className="mt-1 flex flex-wrap gap-1.5">
-                                <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                <span className="rounded-full border border-white/35 bg-background/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground dark:border-white/10 dark:bg-white/6">
                                     {item.fabricName}
                                 </span>
-                                <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                <span className="rounded-full border border-white/35 bg-background/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground dark:border-white/10 dark:bg-white/6">
                                     {item.colorName}
                                 </span>
                                 {item.size && (
-                                    <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                    <span className="rounded-full border border-white/35 bg-background/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground dark:border-white/10 dark:bg-white/6">
                                         {item.size}
                                     </span>
                                 )}
@@ -588,7 +590,7 @@ function CheckoutItemRow({
                                 R$ {formatCurrency(subtotal)}
                             </span>
                         </div>
-                        <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-0.5">
+                        <div className="flex items-center gap-1 rounded-xl border border-white/35 bg-background/75 p-0.5 dark:border-white/10 dark:bg-white/6">
                             <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onDecrease}>
                                 <Minus className="h-3.5 w-3.5" />
                             </Button>
@@ -602,17 +604,17 @@ function CheckoutItemRow({
                     </div>
                 </div>
 
-                <div className="hidden xl:flex xl:items-center xl:justify-end xl:gap-3">
-                    <div className="text-right">
-                        <p className="text-xs text-muted-foreground">Unitario</p>
-                        <p className="mt-0.5 text-sm font-semibold text-foreground">
-                            R$ {formatCurrency(item.unitPrice)}
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-0.5">
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onDecrease}>
-                            <Minus className="h-3.5 w-3.5" />
-                        </Button>
+                    <div className="hidden xl:flex xl:items-center xl:justify-end xl:gap-3">
+                        <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Unitario</p>
+                            <p className="mt-0.5 text-sm font-semibold text-foreground">
+                                R$ {formatCurrency(item.unitPrice)}
+                            </p>
+                        </div>
+                    <div className="flex items-center gap-1 rounded-xl border border-white/35 bg-background/75 p-0.5 dark:border-white/10 dark:bg-white/6">
+                         <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" onClick={onDecrease}>
+                             <Minus className="h-3.5 w-3.5" />
+                         </Button>
                         <span className="w-7 text-center text-sm font-semibold text-foreground">
                             {item.quantity}
                         </span>
@@ -660,8 +662,8 @@ function SummaryRow({
 
     return (
         <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-muted-foreground">{label}</span>
-            <span className={cn('text-right font-medium', colorClass)}>{value}</span>
+            <span className="text-[13px] text-muted-foreground">{label}</span>
+            <span className={cn('text-right text-[13px] font-semibold tracking-tight', colorClass)}>{value}</span>
         </div>
     )
 }
@@ -1039,7 +1041,7 @@ export default function CartPage() {
             eyebrow="Cupom"
             title="Cupom de desconto"
             description="Aplique um cupom e acompanhe sua economia em tempo real."
-            className={cn('border-border', className)}
+            className={className}
         >
             <div className="space-y-3">
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -1055,13 +1057,13 @@ export default function CartPage() {
                             }
                         }}
                         placeholder="Tem cupom? Digite aqui"
-                        className="h-11 rounded-xl border-border"
+                        className="h-11 rounded-xl border-white/45 bg-background/80 dark:border-white/10 dark:bg-white/6"
                         disabled={couponApplying}
                     />
                     <div className="flex gap-2">
                         <Button
                             variant="outline"
-                            className="h-11 rounded-xl border-border"
+                            className="h-11 rounded-xl border-white/45 bg-background/80 dark:border-white/10 dark:bg-white/6"
                             onClick={handleApplyCoupon}
                             disabled={couponApplying || !couponInput.trim()}
                         >
@@ -1082,7 +1084,7 @@ export default function CartPage() {
                 </div>
 
                 {couponApplying ? (
-                    <div className="flex items-center gap-2 rounded-xl border border-border bg-muted px-3 py-3 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2 rounded-xl border border-white/40 bg-background/70 px-3 py-3 text-sm text-muted-foreground dark:border-white/10 dark:bg-white/6">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Validando cupom...
                     </div>
@@ -1106,7 +1108,7 @@ export default function CartPage() {
                             'rounded-xl border px-3 py-3 text-sm',
                             couponInlineFeedback.tone === 'error'
                                 ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10'
-                                : 'border-border bg-muted text-muted-foreground'
+                                : 'border-white/40 bg-background/70 text-muted-foreground dark:border-white/10 dark:bg-white/6'
                         )}
                     >
                         {couponInlineFeedback.message}
@@ -1387,7 +1389,7 @@ export default function CartPage() {
                             icon={ShoppingBag}
                             eyebrow="Pedido"
                             title={`Produtos selecionados (${count})`}
-                            className="-mx-4 rounded-none border-0 bg-transparent shadow-none sm:mx-0 sm:rounded-2xl sm:border sm:bg-card sm:shadow-sm"
+                            className="-mx-4 rounded-none border-0 shadow-none sm:mx-0 sm:rounded-3xl"
                             headerClassName="hidden sm:block sm:px-5 sm:py-4"
                             contentClassName="px-4 py-2 sm:px-5 sm:py-4"
                             iconWrapperClassName="h-7 w-7 rounded-lg sm:h-8 sm:w-8 sm:rounded-xl"
@@ -1440,7 +1442,7 @@ export default function CartPage() {
                             <div className="mt-4 flex flex-col gap-4 border-t border-border pt-4 sm:mt-5 sm:flex-row sm:items-center sm:justify-between sm:pt-5">
                                 <Button
                                     variant="outline"
-                                    className="order-2 h-11 w-full rounded-xl border-border bg-card text-sm font-medium text-muted-foreground shadow-none hover:bg-muted sm:order-1 sm:h-10 sm:w-auto"
+                                    className="order-2 h-11 w-full rounded-xl border-white/40 bg-background/75 text-sm font-medium text-muted-foreground shadow-none hover:bg-background sm:order-1 sm:h-10 sm:w-auto dark:border-white/10 dark:bg-white/6"
                                     onClick={() => router.push('/catalog')}
                                 >
                                     <Plus className="mr-2 h-4 w-4" />
@@ -1456,8 +1458,8 @@ export default function CartPage() {
                         </CheckoutSection>
 
                         {/* -- Mobile: Pagamento Card ------------------ */}
-                        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:hidden mb-4">
-                            <div className="border-b border-border px-4 py-3.5">
+                        <div className="glass-card mb-4 overflow-hidden rounded-3xl border-0 shadow-sm sm:hidden">
+                            <div className="border-b border-white/35 px-4 py-3.5 dark:border-white/8">
                                 <div className="flex items-center gap-2.5">
                                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-500">
                                         <CreditCard className="h-4 w-4" />
@@ -1572,8 +1574,8 @@ export default function CartPage() {
                             </div>
                         </div>
                         {/* -- Mobile: Entrega Card -------------------- */}
-                        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:hidden">
-                            <div className="border-b border-border px-4 py-3.5">
+                        <div className="glass-card overflow-hidden rounded-3xl border-0 shadow-sm sm:hidden">
+                            <div className="border-b border-white/35 px-4 py-3.5 dark:border-white/8">
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="flex items-center gap-2.5">
                                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-500">
@@ -1609,7 +1611,7 @@ export default function CartPage() {
                                         Nenhum endereco cadastrado.
                                     </div>
                                 ) : (
-                                    <div className="overflow-hidden rounded-xl bg-muted/30 ring-1 ring-border">
+                                    <div className="overflow-hidden rounded-xl bg-background/45 ring-1 ring-white/35 dark:bg-white/5 dark:ring-white/10">
                                         {storeAddresses.map((address, index) => {
                                             const isSelected = address.id === selectedAddressId
 
@@ -1621,7 +1623,7 @@ export default function CartPage() {
                                                     className={cn(
                                                         'w-full px-3 py-3 text-left transition-colors',
                                                         isSelected
-                                                            ? 'bg-card'
+                                                            ? 'bg-background/80 dark:bg-white/6'
                                                             : 'bg-transparent'
                                                     )}
                                                 >
@@ -1631,7 +1633,7 @@ export default function CartPage() {
                                                                 'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
                                                                 isSelected
                                                                     ? 'border-foreground bg-foreground text-background'
-                                                                    : 'border-muted-foreground/30 bg-card'
+                                                                    : 'border-muted-foreground/30 bg-background/80 dark:bg-white/6'
                                                             )}
                                                         >
                                                             {isSelected && <Check className="h-3 w-3" />}
@@ -1678,8 +1680,8 @@ export default function CartPage() {
                         {renderCouponSection('sm:hidden')}
 
                         {/* -- Mobile: Observações Card ---------------- */}
-                        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:hidden">
-                            <div className="border-b border-border px-4 py-3.5">
+                        <div className="glass-card overflow-hidden rounded-3xl border-0 shadow-sm sm:hidden">
+                            <div className="border-b border-white/35 px-4 py-3.5 dark:border-white/8">
                                 <div className="flex items-center gap-2.5">
                                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-500">
                                         <MessageSquare className="h-4 w-4" />
@@ -1696,7 +1698,7 @@ export default function CartPage() {
                                     value={notes}
                                     onChange={(event) => setNotes(event.target.value)}
                                     rows={3}
-                                    className="min-h-[100px] rounded-xl border-border bg-muted/30 resize-none text-sm"
+                                    className="min-h-[100px] rounded-xl border-white/40 bg-background/75 resize-none text-sm dark:border-white/10 dark:bg-white/6"
                                 />
                             </div>
                         </div>
@@ -1706,7 +1708,7 @@ export default function CartPage() {
                             icon={Truck}
                             eyebrow="Endereco"
                             title="Endereco de entrega"
-                            className="hidden sm:block sm:rounded-2xl sm:border sm:bg-card sm:shadow-sm"
+                            className="hidden rounded-3xl border-0 sm:block"
                             headerClassName="sm:px-5 sm:py-4"
                             contentClassName="sm:px-5 sm:py-4"
                         >
@@ -1739,7 +1741,7 @@ export default function CartPage() {
                                                     }
                                                 }}
                                             >
-                                                <SelectTrigger className="min-h-10 flex-1 rounded-xl border-border bg-muted/50 px-3 shadow-none">
+                                            <SelectTrigger className="min-h-10 flex-1 rounded-xl border-white/45 bg-background/75 px-3 shadow-none dark:border-white/10 dark:bg-white/6">
                                                     <SelectValue placeholder="Selecione o endereco">
                                                         {selectedAddress
                                                             ? selectedAddress.title
@@ -1769,7 +1771,7 @@ export default function CartPage() {
                                             )}
                                         </div>
                                         {selectedAddress && (
-                                            <div className="rounded-xl bg-muted/50 px-3 py-2.5 text-xs leading-5 text-muted-foreground border border-border">
+                                            <div className="rounded-xl border border-white/40 bg-background/70 px-3 py-2.5 text-xs leading-5 text-muted-foreground dark:border-white/10 dark:bg-white/6">
                                                 <p className="font-medium text-foreground">
                                                     {selectedAddress.address}, {selectedAddress.number}
                                                 </p>
@@ -1791,14 +1793,14 @@ export default function CartPage() {
                             </div>
                         </CheckoutSection>
 
-                        {renderCouponSection('hidden sm:block sm:rounded-2xl sm:border sm:bg-card sm:shadow-sm')}
+                        {renderCouponSection('hidden rounded-3xl border-0 sm:block')}
 
                         {/* -- Desktop: Observações -------------------- */}
                         <CheckoutSection
                             icon={MessageSquare}
                             eyebrow="Contexto"
                             title="Observacoes"
-                            className="hidden sm:block sm:rounded-2xl sm:border sm:bg-card sm:shadow-sm"
+                            className="hidden rounded-3xl border-0 sm:block"
                             headerClassName="sm:px-5 sm:py-4"
                             contentClassName="sm:px-5 sm:py-4"
                         >
@@ -1807,15 +1809,15 @@ export default function CartPage() {
                                 value={notes}
                                 onChange={(event) => setNotes(event.target.value)}
                                 rows={4}
-                                className="min-h-[120px] rounded-2xl border-border bg-card resize-none"
+                                className="min-h-[120px] rounded-2xl border-white/40 bg-background/75 resize-none dark:border-white/10 dark:bg-white/6"
                             />
                         </CheckoutSection>
                     </div>
 
                     <div className="hidden space-y-4 xl:sticky xl:top-24 xl:block">
-                        <Card className="overflow-hidden rounded-2xl border border-border bg-card shadow-[0_20px_50px_-30px_rgba(15,23,42,0.18)]">
-                            <CardHeader className="border-b border-border px-5 py-4">
-                                <CardTitle className="font-[family-name:var(--font-heading)] text-lg font-bold text-foreground">
+                        <Card className="glass-card overflow-hidden rounded-3xl border-0 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.18)]">
+                            <CardHeader className="border-b border-white/35 px-5 py-4 dark:border-white/8">
+                                <CardTitle className="font-[family-name:var(--font-heading)] text-lg font-bold text-gradient-navy">
                                     Resumo
                                 </CardTitle>
                             </CardHeader>
@@ -1856,7 +1858,7 @@ export default function CartPage() {
                                                     if (value) setSelectedPaymentMethod(value)
                                                 }}
                                             >
-                                                <SelectTrigger className="min-h-11 rounded-xl border-border bg-muted/50 px-3 shadow-none">
+                                                <SelectTrigger className="min-h-11 rounded-xl border-white/45 bg-background/75 px-3 shadow-none dark:border-white/10 dark:bg-white/6">
                                                     <SelectValue placeholder="Selecione...">
                                                         {selectedMethodGroup?.method.name || 'Selecione...'}
                                                     </SelectValue>
@@ -1899,7 +1901,7 @@ export default function CartPage() {
                                                 setSelectedPayment(value)
                                             }}
                                         >
-                                            <SelectTrigger className="min-h-11 rounded-xl border-border bg-muted/50 px-3 shadow-none">
+                                            <SelectTrigger className="min-h-11 rounded-xl border-white/45 bg-background/75 px-3 shadow-none dark:border-white/10 dark:bg-white/6">
                                                 <SelectValue placeholder="Selecione...">
                                                     {selectedPaymentOption?.label || 'Selecione...'}
                                                 </SelectValue>
@@ -1916,7 +1918,7 @@ export default function CartPage() {
                                             </SelectContent>
                                         </Select>
                                         {selectedPaymentDescription && (
-                                            <p className="rounded-xl bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground border border-border">
+                                            <p className="rounded-xl border border-white/40 bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground dark:border-white/10 dark:bg-white/6">
                                                 {selectedPaymentDescription}
                                             </p>
                                         )}
@@ -1925,7 +1927,7 @@ export default function CartPage() {
                                     <Separator />
 
                                     {/* -- Resumo financeiro --------------- */}
-                                    <div className="space-y-2.5">
+                                    <div className="space-y-2.5 rounded-2xl border border-white/30 bg-background/45 px-4 py-3 dark:border-white/8 dark:bg-white/4">
                                         <SummaryRow
                                             label={`Itens (${count})`}
                                             value={`R$ ${formatCurrency(total)}`}
@@ -1959,18 +1961,18 @@ export default function CartPage() {
                                     </div>
 
                                     {/* -- Total Final -------------------- */}
-                                    <div className="rounded-2xl gradient-navy px-4 py-4">
+                                    <div className="rounded-[1.4rem] gradient-navy px-4 py-4 shadow-lg shadow-slate-950/12">
                                         <div className="flex items-end justify-between gap-4">
                                             <div className="space-y-1">
-                                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">
                                                     Total final
                                                 </p>
                                                 <p className="text-2xl font-bold tracking-tight text-white">
                                                     R$ {formatCurrency(finalTotal)}
                                                 </p>
                                             </div>
-                                            <div className="rounded-xl bg-card/10 px-3 py-2 text-right backdrop-blur-sm">
-                                                <p className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
+                                            <div className="rounded-xl bg-white/10 px-3 py-2 text-right backdrop-blur-sm">
+                                                <p className="text-[9px] uppercase tracking-[0.14em] text-white/55">
                                                     Pedido
                                                 </p>
                                                 <p className="mt-0.5 text-sm font-semibold text-white">
@@ -2011,7 +2013,7 @@ export default function CartPage() {
             </div>
 
             <div
-                className="fixed inset-x-3 z-40 rounded-2xl border border-border bg-card/95 px-4 py-3 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur md:hidden"
+                className="glass-card fixed inset-x-3 z-40 rounded-3xl border-0 px-4 py-3 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.35)] md:hidden"
                 style={{
                     bottom: 'calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 12px)',
                 }}
@@ -2043,7 +2045,7 @@ export default function CartPage() {
             </div>
 
             <Dialog open={newAddressDialogOpen} onOpenChange={setNewAddressDialogOpen}>
-                <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                <DialogContent className="glass-card max-h-[90vh] overflow-y-auto border-0 sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle className="text-xl font-bold">
                             Novo endereco de entrega
@@ -2066,12 +2068,12 @@ export default function CartPage() {
             </Dialog>
 
             <Dialog open={confirmCheckoutOpen} onOpenChange={setConfirmCheckoutOpen}>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent className="glass-card border-0 sm:max-w-md">
                     <DialogHeader>
-                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 mb-2 dark:bg-emerald-500/10">
+                        <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10">
                             <ShieldCheck className="h-6 w-6 text-emerald-600" />
                         </div>
-                        <DialogTitle className="text-xl font-bold text-center">
+                        <DialogTitle className="text-center text-xl font-bold text-gradient-navy">
                             Confirmar pedido
                         </DialogTitle>
                         <DialogDescription className="text-center">
@@ -2080,7 +2082,7 @@ export default function CartPage() {
                     </DialogHeader>
 
                     <div className="space-y-4 py-3">
-                        <div className="space-y-3 rounded-2xl border border-border bg-muted/50 p-4">
+                        <div className="glass-card space-y-3 rounded-3xl border-0 p-4">
                             <SummaryRow
                                 label={`Itens (${count})`}
                                 value={`R$ ${formatCurrency(total)}`}
@@ -2115,11 +2117,13 @@ export default function CartPage() {
                                 </p>
                             )}
                             <Separator />
-                            <div className="flex items-center justify-between gap-3 text-sm">
-                                <span className="font-semibold text-foreground">Total a pagar</span>
-                                <span className="text-lg font-bold text-foreground">
+                            <div className="rounded-[1.35rem] gradient-navy px-4 py-3 shadow-lg shadow-slate-950/12">
+                                <div className="flex items-center justify-between gap-3 text-sm">
+                                <span className="font-semibold text-white/80">Total a pagar</span>
+                                <span className="text-lg font-bold tracking-tight text-white">
                                     R$ {formatCurrency(finalTotal)}
                                 </span>
+                            </div>
                             </div>
                         </div>
                     </div>

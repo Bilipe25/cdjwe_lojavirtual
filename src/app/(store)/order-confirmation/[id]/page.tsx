@@ -55,7 +55,7 @@ const statusConfig: Record<OrderStatus, { label: string; color: string }> = {
 function PageSkeleton() {
     return (
         <div className="mx-auto max-w-3xl px-4 md:px-6 py-8 md:py-12 space-y-5">
-            <div className="flex flex-col items-center gap-3 py-6">
+            <div className="glass-card flex flex-col items-center gap-3 rounded-3xl px-5 py-6">
                 <Skeleton className="h-16 w-16 rounded-full" />
                 <Skeleton className="h-7 w-56" />
                 <Skeleton className="h-4 w-72" />
@@ -80,18 +80,20 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
     const router = useRouter()
     return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center gap-6">
-            <div className="h-16 w-16 rounded-full bg-red-100 flex items-center justify-center">
+            <div className="glass-card w-full max-w-md rounded-3xl px-6 py-8">
+            <div className="h-16 w-16 rounded-full bg-red-100 flex items-center justify-center mx-auto">
                 <AlertCircle className="h-8 w-8 text-red-500" />
             </div>
-            <div>
-                <h2 className="text-xl font-bold text-foreground mb-2">Ocorreu um problema</h2>
+            <div className="mt-5">
+                <h2 className="text-xl font-bold text-gradient-navy mb-2">Ocorreu um problema</h2>
                 <p className="text-muted-foreground text-sm">{message}</p>
             </div>
-            <div className="flex gap-3">
-                <Button variant="outline" onClick={onRetry} className="gap-2">
+            <div className="mt-6 flex justify-center gap-3">
+                <Button variant="outline" onClick={onRetry} className="gap-2 rounded-xl border-white/40 bg-background/80 dark:border-white/10 dark:bg-white/6">
                     <RotateCcw className="h-4 w-4" /> Tentar Novamente
                 </Button>
-                <Button onClick={() => router.push('/orders')}>Ver meus pedidos</Button>
+                <Button onClick={() => router.push('/orders')} className="rounded-xl gradient-navy border-0 text-white">Ver meus pedidos</Button>
+            </div>
             </div>
         </div>
     )
@@ -143,7 +145,7 @@ function ActionCard({
             disabled={disabled}
             className={`
                 group relative flex flex-col items-center justify-center gap-2.5 
-                rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm
+                glass-card rounded-3xl border-0
                 px-4 py-5 sm:py-6 text-center
                 transition-all duration-200 ease-out
                 hover:shadow-lg hover:shadow-black/5
@@ -354,8 +356,9 @@ export default function OrderConfirmationPage() {
                 initial={{ opacity: 0, y: -16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.45 }}
-                className="relative rounded-2xl overflow-hidden bg-linear-to-br from-green-50/80 via-background to-primary/5 dark:from-green-950/30 dark:via-background dark:to-primary/10 border border-green-200/40 dark:border-green-800/20 px-5 py-6 text-center"
+                className="glass-card relative overflow-hidden rounded-3xl border-0 px-5 py-6 text-center sm:px-6 sm:py-7"
             >
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.34),transparent_48%)] dark:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.06),transparent_42%)]" />
                 {/* Success icon — compact */}
                 <div className="flex justify-center mb-3">
                     <div className="relative">
@@ -363,12 +366,12 @@ export default function OrderConfirmationPage() {
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
                             transition={{ type: 'spring', stiffness: 220, delay: 0.15 }}
-                            className="h-14 w-14 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center shadow-md shadow-green-200/40 dark:shadow-green-900/30"
+                            className="h-14 w-14 rounded-full gradient-navy flex items-center justify-center shadow-md shadow-slate-950/15"
                         >
-                            <CheckCircle2 className="h-7 w-7 text-green-600" />
+                            <CheckCircle2 className="h-7 w-7 text-white" />
                         </motion.div>
                         <motion.div
-                            className="absolute inset-0 rounded-full border-2 border-green-400/30"
+                            className="absolute inset-0 rounded-full border-2 border-primary/20"
                             animate={{ scale: [1, 1.6, 2], opacity: [0.7, 0.2, 0] }}
                             transition={{ duration: 2.2, repeat: Infinity, ease: 'easeOut' }}
                         />
@@ -379,7 +382,7 @@ export default function OrderConfirmationPage() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3 }}
-                    className="text-xl sm:text-2xl font-bold font-heading text-foreground mb-1"
+                    className="text-xl sm:text-2xl font-bold font-heading text-gradient-navy mb-1"
                 >
                     Pedido Realizado! 🎉
                 </motion.h1>
@@ -458,14 +461,14 @@ export default function OrderConfirmationPage() {
             >
                 <Button
                     variant="outline"
-                    className="flex-1 gap-2 h-11"
+                    className="flex-1 gap-2 h-11 rounded-xl border-white/40 bg-background/80 dark:border-white/10 dark:bg-white/6"
                     onClick={() => router.push('/orders')}
                 >
                     <Package className="h-4 w-4" />
                     Meus Pedidos
                 </Button>
                 <Button
-                    className="flex-1 gap-2 h-11 gradient-bronze border-0 text-white"
+                    className="flex-1 gap-2 h-11 rounded-xl gradient-bronze border-0 text-white shadow-md"
                     onClick={() => router.push('/catalog')}
                 >
                     <ShoppingBag className="h-4 w-4" />
