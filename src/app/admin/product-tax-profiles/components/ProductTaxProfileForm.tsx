@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useFieldArray, useForm, type Resolver } from 'react-hook-form'
+import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,6 @@ import {
     SelectContent,
     SelectItem,
     SelectTrigger,
-    SelectValue,
 } from '@/components/ui/select'
 import {
     getFiscalSuggestionsByNcmAction,
@@ -29,10 +28,6 @@ import {
     type FiscalSearchOption,
 } from '@/app/admin/actions/fiscal-bases'
 import {
-    searchCfopConfigOptionsAction,
-    type CfopConfigSearchOption,
-} from '@/app/admin/actions/cfop-configs'
-import {
     listIcmsBaseOptionsAction,
     type IcmsBaseOption,
 } from '@/app/admin/actions/icms-bases'
@@ -43,7 +38,6 @@ import {
 import { productTaxProfileSchema, type ProductTaxProfileFormData } from '../schema'
 import { TaxProfileNcmSelector } from './TaxProfileNcmSelector'
 import { TaxProfileCestSelector } from './TaxProfileCestSelector'
-import { TaxProfileCfopConfigSelector } from './TaxProfileCfopConfigSelector'
 
 interface ProductTaxProfileFormProps {
     saving: boolean
@@ -151,168 +145,72 @@ function buildInitialOption(
     }
 }
 
-function buildInitialCfopConfigOption(
-    snapshot: Record<string, unknown> | undefined,
-    key: 'default_output_cfop_config' | 'default_input_cfop_config'
-): CfopConfigSearchOption | null {
-    const node = snapshot?.[key]
-    if (!node || typeof node !== 'object') return null
-    const value = node as Record<string, unknown>
-    const configId = value.config_id
-    const referenceId = value.reference_id
-    const versionId = value.version_id
-
-    if (!configId || !referenceId || !versionId) return null
-
-    const versionLookup = sanitizeVersionLookup(snapshot?.version_labels, String(versionId))
-
-    return {
-        id: String(configId),
-        configId: String(configId),
-        referenceId: String(referenceId),
-        versionId: String(versionId),
-        versionLabel: versionLookup || '',
-        code: String(value.code || ''),
-        description: String(value.description || ''),
-        secondaryText: [
-            String(value.operation_direction || ''),
-            String(value.operation_scope || ''),
-            String(value.operation_group || ''),
-        ]
-            .filter((part) => part.trim().length > 0)
-            .join(' | '),
-        metadata: {
-            operation_direction: value.operation_direction || null,
-            operation_scope: value.operation_scope || null,
-            configuration_status: value.configuration_status || null,
-            supports_st: value.supports_st === true,
-            impacts_icms: value.impacts_icms !== false,
-            impacts_ibscbs: value.impacts_ibscbs === true,
-        },
-        operationDirection: (String(value.operation_direction || 'both') as 'outbound' | 'inbound' | 'both'),
-        operationScope:
-            String(value.operation_scope || 'all') === 'internal' ||
-            String(value.operation_scope || 'all') === 'interstate' ||
-            String(value.operation_scope || 'all') === 'external'
-                ? (String(value.operation_scope) as 'internal' | 'interstate' | 'external')
-                : 'all',
-        configurationStatus:
-            String(value.configuration_status || 'pending') === 'partial' ||
-            String(value.configuration_status || 'pending') === 'ready' ||
-            String(value.configuration_status || 'pending') === 'legacy'
-                ? (String(value.configuration_status) as 'partial' | 'ready' | 'legacy')
-                : 'pending',
-        supportsSt: value.supports_st === true,
-        impactsIcms: value.impacts_icms !== false,
-        impactsIbscbs: value.impacts_ibscbs === true,
-    }
-}
-
-function buildRuleCfopConfigOption(rule: ProductTaxProfileFormData['rules'][number]): CfopConfigSearchOption | null {
-    if (!rule?.cfopConfigId) return null
-
-    const snapshot =
-        rule.cfopConfigSnapshot && typeof rule.cfopConfigSnapshot === 'object'
-            ? (rule.cfopConfigSnapshot as Record<string, unknown>)
-            : null
-
-    if (snapshot) {
-        return {
-            id: String(snapshot.config_id || rule.cfopConfigId),
-            configId: String(snapshot.config_id || rule.cfopConfigId),
-            referenceId: String(snapshot.reference_id || rule.cfopReferenceId || ''),
-            versionId: String(snapshot.version_id || rule.cfopVersionId || ''),
-            versionLabel: '',
-            code: String(snapshot.code || rule.cfopOverride || ''),
-            description: String(snapshot.description || rule.ruleName || 'CFOP contextual'),
-            secondaryText: [
-                snapshot.operation_direction ? String(snapshot.operation_direction) : null,
-                snapshot.operation_scope ? String(snapshot.operation_scope) : null,
-                snapshot.operation_group ? String(snapshot.operation_group) : null,
-                rule.destinationUf ? `UF ${rule.destinationUf}` : null,
-            ]
-                .filter((part) => typeof part === 'string' && part.trim().length > 0)
-                .join(' | '),
-            metadata: {
-                operation_direction: snapshot.operation_direction || null,
-                operation_scope: snapshot.operation_scope || null,
-                configuration_status: snapshot.configuration_status || null,
-                supports_st: snapshot.supports_st === true,
-                impacts_icms: snapshot.impacts_icms !== false,
-                impacts_ibscbs: snapshot.impacts_ibscbs === true,
-                is_active: snapshot.is_active !== false,
-            },
-            operationDirection:
-                snapshot.operation_direction === 'outbound' ||
-                snapshot.operation_direction === 'inbound' ||
-                snapshot.operation_direction === 'both'
-                    ? snapshot.operation_direction
-                    : ((rule.operationDirection || 'outbound') as 'outbound' | 'inbound' | 'both'),
-            operationScope:
-                snapshot.operation_scope === 'internal' ||
-                snapshot.operation_scope === 'interstate' ||
-                snapshot.operation_scope === 'external'
-                    ? snapshot.operation_scope
-                    : 'all',
-            configurationStatus:
-                snapshot.configuration_status === 'partial' ||
-                snapshot.configuration_status === 'ready' ||
-                snapshot.configuration_status === 'legacy'
-                    ? snapshot.configuration_status
-                    : 'pending',
-            supportsSt: snapshot.supports_st === true,
-            impactsIcms: snapshot.impacts_icms !== false,
-            impactsIbscbs: snapshot.impacts_ibscbs === true,
-        }
-    }
-
-    return {
-        id: rule.cfopConfigId,
-        configId: rule.cfopConfigId,
-        referenceId: rule.cfopReferenceId || '',
-        versionId: rule.cfopVersionId || '',
-        versionLabel: '',
-        code: rule.cfopOverride || '',
-        description: rule.ruleName || 'CFOP contextual',
-        secondaryText: rule.destinationUf ? `UF ${rule.destinationUf}` : undefined,
-        metadata: {},
-        operationDirection: rule.operationDirection || 'outbound',
-        operationScope: 'all',
-        configurationStatus: 'pending',
-        supportsSt: false,
-        impactsIcms: true,
-        impactsIbscbs: false,
-    }
-}
-
 function CatalogSelectField({
     label,
     value,
     options,
     placeholder,
+    loading = false,
     onChange,
 }: {
     label: string
     value?: string
     options: FiscalCatalogItemOption[]
     placeholder: string
+    loading?: boolean
     onChange: (nextValue: string | null) => void
 }) {
+    const EMPTY_VALUE = '__empty__'
+    const selectedOption = options.find((option) => option.code === value) || null
+    const buildOptionDisplayLabel = (option: FiscalCatalogItemOption) => {
+        const normalizedCode = option.code.trim()
+        const normalizedLabel = option.label.trim()
+        const normalizedDescription = (option.description || '').trim()
+
+        const bestDescription =
+            normalizedDescription && normalizedDescription !== normalizedCode
+                ? normalizedDescription
+                : normalizedLabel && normalizedLabel !== normalizedCode
+                  ? normalizedLabel
+                  : ''
+
+        if (!normalizedCode) return bestDescription || placeholder
+        if (!bestDescription) return normalizedCode
+        return `${normalizedCode} - ${bestDescription}`
+    }
+
+    const selectedLabel = selectedOption ? buildOptionDisplayLabel(selectedOption) : placeholder
+
     return (
         <div className="space-y-1.5">
             <Label>{label}</Label>
-            <Select value={value || undefined} onValueChange={onChange}>
+            {loading ? (
+                <div className="flex h-8 w-full items-center rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-muted-foreground dark:bg-input/30">
+                    {placeholder}
+                </div>
+            ) : (
+            <Select
+                value={value || EMPTY_VALUE}
+                onValueChange={(nextValue) => onChange(!nextValue || nextValue === EMPTY_VALUE ? null : nextValue)}
+            >
                 <SelectTrigger className="w-full">
-                    <SelectValue placeholder={placeholder} />
+                    <span
+                        data-slot="select-value"
+                        className={selectedOption ? 'flex flex-1 text-left' : 'flex flex-1 text-left text-muted-foreground'}
+                    >
+                        {selectedLabel}
+                    </span>
                 </SelectTrigger>
                 <SelectContent>
+                    <SelectItem value={EMPTY_VALUE}>{placeholder}</SelectItem>
                     {options.map((option) => (
                         <SelectItem key={option.id} value={option.code}>
-                            {option.code} - {option.label}
+                            {buildOptionDisplayLabel(option)}
                         </SelectItem>
                     ))}
                 </SelectContent>
             </Select>
+            )}
         </div>
     )
 }
@@ -370,36 +268,21 @@ export function ProductTaxProfileForm({
         setValue,
         getValues,
         watch,
-        control,
         formState: { errors },
     } = form
-
-    const { fields: contextualRuleFields, append: appendContextualRule, remove: removeContextualRule } = useFieldArray({
-        control,
-        name: 'rules',
-    })
 
     const [catalogs, setCatalogs] = useState<Record<string, FiscalCatalogItemOption[]>>({})
     const [catalogsLoading, setCatalogsLoading] = useState(true)
     const [activeVersions, setActiveVersions] = useState<
-        Partial<Record<'ncm' | 'tipi' | 'cest' | 'cfop', FiscalReferenceVersionItem | null>>
+        Partial<Record<'ncm' | 'tipi' | 'cest', FiscalReferenceVersionItem | null>>
     >({})
     const [ncmOptions, setNcmOptions] = useState<FiscalSearchOption[]>([])
     const [cestOptions, setCestOptions] = useState<FiscalSearchOption[]>([])
-    const [outputCfopOptions, setOutputCfopOptions] = useState<CfopConfigSearchOption[]>([])
-    const [inputCfopOptions, setInputCfopOptions] = useState<CfopConfigSearchOption[]>([])
     const [ncmLoading, setNcmLoading] = useState(false)
     const [cestLoading, setCestLoading] = useState(false)
-    const [outputCfopLoading, setOutputCfopLoading] = useState(false)
-    const [inputCfopLoading, setInputCfopLoading] = useState(false)
     const [selectedNcm, setSelectedNcm] = useState<FiscalSearchOption | null>(null)
     const [selectedTipi, setSelectedTipi] = useState<FiscalSearchOption | null>(null)
     const [selectedCest, setSelectedCest] = useState<FiscalSearchOption | null>(null)
-    const [selectedOutputCfop, setSelectedOutputCfop] = useState<CfopConfigSearchOption | null>(null)
-    const [selectedInputCfop, setSelectedInputCfop] = useState<CfopConfigSearchOption | null>(null)
-    const [contextCfopOptions, setContextCfopOptions] = useState<Record<number, CfopConfigSearchOption[]>>({})
-    const [contextCfopLoading, setContextCfopLoading] = useState<Record<number, boolean>>({})
-    const [selectedContextCfops, setSelectedContextCfops] = useState<Record<number, CfopConfigSearchOption | null>>({})
     const [ncmSuggestions, setNcmSuggestions] = useState<FiscalNcmSuggestions | null>(null)
     const [icmsBaseOptions, setIcmsBaseOptions] = useState<IcmsBaseOption[]>([])
     const [ibscbsBaseOptions, setIbscbsBaseOptions] = useState<IbscbsBaseOption[]>([])
@@ -434,7 +317,6 @@ export function ProductTaxProfileForm({
                     listFiscalReferenceVersionsAction('ncm'),
                     listFiscalReferenceVersionsAction('tipi'),
                     listFiscalReferenceVersionsAction('cest'),
-                    listFiscalReferenceVersionsAction('cfop'),
                 ]),
                 listIcmsBaseOptionsAction({
                     includeInactive: false,
@@ -455,15 +337,13 @@ export function ProductTaxProfileForm({
             )
             setCatalogs(mappedCatalogs)
 
-            const [ncmVersions, tipiVersions, cestVersions, cfopVersions] = versionResults
+            const [ncmVersions, tipiVersions, cestVersions] = versionResults
             setActiveVersions({
                 ncm: ncmVersions.success && ncmVersions.data ? ncmVersions.data.find((item) => item.isActive) || null : null,
                 tipi:
                     tipiVersions.success && tipiVersions.data ? tipiVersions.data.find((item) => item.isActive) || null : null,
                 cest:
                     cestVersions.success && cestVersions.data ? cestVersions.data.find((item) => item.isActive) || null : null,
-                cfop:
-                    cfopVersions.success && cfopVersions.data ? cfopVersions.data.find((item) => item.isActive) || null : null,
             })
             setIcmsBaseOptions(icmsBaseResult.success && icmsBaseResult.data ? icmsBaseResult.data : [])
             setIbscbsBaseOptions(ibscbsBaseResult.success && ibscbsBaseResult.data ? ibscbsBaseResult.data : [])
@@ -482,16 +362,6 @@ export function ProductTaxProfileForm({
         setSelectedNcm(buildInitialOption(snapshot, 'ncm'))
         setSelectedTipi(buildInitialOption(snapshot, 'tipi'))
         setSelectedCest(buildInitialOption(snapshot, 'cest'))
-        setSelectedOutputCfop(buildInitialCfopConfigOption(snapshot, 'default_output_cfop_config'))
-        setSelectedInputCfop(buildInitialCfopConfigOption(snapshot, 'default_input_cfop_config'))
-        setSelectedContextCfops(
-            Object.fromEntries(
-                ((initialData?.rules || []) as ProductTaxProfileFormData['rules']).map((rule, index) => [
-                    index,
-                    buildRuleCfopConfigOption(rule),
-                ])
-            )
-        )
         setNcmSuggestions(null)
     }, [initialData, reset])
 
@@ -554,33 +424,21 @@ export function ProductTaxProfileForm({
             selectedNcm ? `NCM ${selectedNcm.code}` : null,
             selectedTipi ? `TIPI ${selectedTipi.code}` : null,
             selectedCest ? `CEST ${selectedCest.code}` : null,
-            selectedOutputCfop ? `CFOP saida ${selectedOutputCfop.code}` : null,
-            selectedInputCfop ? `CFOP entrada ${selectedInputCfop.code}` : null,
             selectedIcmsBase ? `ICMS ${selectedIcmsBase.code}` : null,
             selectedIbscbsBase ? `IBS/CBS ${selectedIbscbsBase.code} ${selectedIbscbsBase.versionLabel}` : null,
         ].filter((value): value is string => Boolean(value))
 
         if (parts.length === 0) return 'Perfil ainda sem referencias estruturadas da base fiscal.'
         return parts.join(' | ')
-    }, [selectedCest, selectedIcmsBase, selectedIbscbsBase, selectedInputCfop, selectedNcm, selectedOutputCfop, selectedTipi])
+    }, [selectedCest, selectedIcmsBase, selectedIbscbsBase, selectedNcm, selectedTipi])
 
     const hasReferenceMismatch = useMemo(() => {
         return (
             Boolean(selectedNcm?.versionLabel && activeVersions.ncm && selectedNcm.versionLabel !== activeVersions.ncm.versionLabel) ||
             Boolean(selectedTipi?.versionLabel && activeVersions.tipi && selectedTipi.versionLabel !== activeVersions.tipi.versionLabel) ||
-            Boolean(selectedCest?.versionLabel && activeVersions.cest && selectedCest.versionLabel !== activeVersions.cest.versionLabel) ||
-            Boolean(
-                selectedOutputCfop?.versionLabel &&
-                    activeVersions.cfop &&
-                    selectedOutputCfop.versionLabel !== activeVersions.cfop.versionLabel
-            ) ||
-            Boolean(
-                selectedInputCfop?.versionLabel &&
-                    activeVersions.cfop &&
-                    selectedInputCfop.versionLabel !== activeVersions.cfop.versionLabel
-            )
+            Boolean(selectedCest?.versionLabel && activeVersions.cest && selectedCest.versionLabel !== activeVersions.cest.versionLabel)
         )
-    }, [activeVersions, selectedCest, selectedInputCfop, selectedNcm, selectedOutputCfop, selectedTipi])
+    }, [activeVersions, selectedCest, selectedNcm, selectedTipi])
 
     const handleNcmSearch = async (query: string) => {
         setNcmLoading(true)
@@ -598,43 +456,6 @@ export function ProductTaxProfileForm({
         })
         setCestOptions(result.success && result.data ? result.data : [])
         setCestLoading(false)
-    }
-
-    const handleOutputCfopSearch = async (query: string) => {
-        setOutputCfopLoading(true)
-        const result = await searchCfopConfigOptionsAction({
-            query,
-            operationDirection: 'outbound',
-            limit: 12,
-        })
-        setOutputCfopOptions(result.success && result.data ? result.data : [])
-        setOutputCfopLoading(false)
-    }
-
-    const handleInputCfopSearch = async (query: string) => {
-        setInputCfopLoading(true)
-        const result = await searchCfopConfigOptionsAction({
-            query,
-            operationDirection: 'inbound',
-            limit: 12,
-        })
-        setInputCfopOptions(result.success && result.data ? result.data : [])
-        setInputCfopLoading(false)
-    }
-
-    const handleContextCfopSearch = async (index: number, query: string) => {
-        const direction = watch(`rules.${index}.operationDirection`) || 'outbound'
-        setContextCfopLoading((current) => ({ ...current, [index]: true }))
-        const result = await searchCfopConfigOptionsAction({
-            query,
-            operationDirection: direction,
-            limit: 12,
-        })
-        setContextCfopOptions((current) => ({
-            ...current,
-            [index]: result.success && result.data ? result.data : [],
-        }))
-        setContextCfopLoading((current) => ({ ...current, [index]: false }))
     }
 
     return (
@@ -729,7 +550,16 @@ export function ProductTaxProfileForm({
                             }
                         >
                             <SelectTrigger className="w-full">
-                                <SelectValue placeholder={catalogsLoading ? 'Carregando bases...' : 'Selecione a base de ICMS'} />
+                                <span
+                                    data-slot="select-value"
+                                    className={selectedIcmsBase ? 'flex flex-1 text-left' : 'flex flex-1 text-left text-muted-foreground'}
+                                >
+                                    {selectedIcmsBase
+                                        ? `${selectedIcmsBase.code} - ${selectedIcmsBase.name}`
+                                        : catalogsLoading
+                                          ? 'Carregando bases...'
+                                          : 'Selecione a base de ICMS'}
+                                </span>
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="__none__">Sem base de ICMS vinculada</SelectItem>
@@ -793,7 +623,16 @@ export function ProductTaxProfileForm({
                             }}
                         >
                             <SelectTrigger className="w-full">
-                                <SelectValue placeholder={catalogsLoading ? 'Carregando bases...' : 'Selecione a base de IBS/CBS'} />
+                                <span
+                                    data-slot="select-value"
+                                    className={selectedIbscbsBase ? 'flex flex-1 text-left' : 'flex flex-1 text-left text-muted-foreground'}
+                                >
+                                    {selectedIbscbsBase
+                                        ? `${selectedIbscbsBase.code} - ${selectedIbscbsBase.name} | ${selectedIbscbsBase.versionLabel}`
+                                        : catalogsLoading
+                                          ? 'Carregando bases...'
+                                          : 'Selecione a base de IBS/CBS'}
+                                </span>
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="__none__">Sem base de IBS/CBS vinculada</SelectItem>
@@ -870,16 +709,6 @@ export function ProductTaxProfileForm({
                         label="CEST"
                         selectedVersionLabel={selectedCest?.versionLabel}
                         activeVersion={activeVersions.cest}
-                    />
-                    <VersionStateBadge
-                        label="CFOP saida"
-                        selectedVersionLabel={selectedOutputCfop?.versionLabel}
-                        activeVersion={activeVersions.cfop}
-                    />
-                    <VersionStateBadge
-                        label="CFOP entrada"
-                        selectedVersionLabel={selectedInputCfop?.versionLabel}
-                        activeVersion={activeVersions.cfop}
                     />
                 </div>
 
@@ -980,6 +809,7 @@ export function ProductTaxProfileForm({
                         label="Origem"
                         value={watch('originCode')}
                         options={catalogs.origin || []}
+                        loading={catalogsLoading}
                         placeholder={catalogsLoading ? 'Carregando...' : 'Selecione a origem'}
                         onChange={(value) => setValue('originCode', value || '0', { shouldDirty: true })}
                     />
@@ -987,6 +817,7 @@ export function ProductTaxProfileForm({
                         label="Unidade Comercial"
                         value={watch('commercialUnit') || ''}
                         options={catalogs.commercial_unit || []}
+                        loading={catalogsLoading}
                         placeholder={catalogsLoading ? 'Carregando...' : 'Selecione a unidade'}
                         onChange={(value) => setValue('commercialUnit', value || undefined, { shouldDirty: true })}
                     />
@@ -994,6 +825,7 @@ export function ProductTaxProfileForm({
                         label="Unidade Tributavel"
                         value={watch('taxUnit') || ''}
                         options={catalogs.tax_unit || []}
+                        loading={catalogsLoading}
                         placeholder={catalogsLoading ? 'Carregando...' : 'Selecione a unidade'}
                         onChange={(value) => setValue('taxUnit', value || undefined, { shouldDirty: true })}
                     />
@@ -1001,6 +833,7 @@ export function ProductTaxProfileForm({
                         label="Tipo Fiscal"
                         value={watch('fiscalType') || 'goods'}
                         options={catalogs.fiscal_type || []}
+                        loading={catalogsLoading}
                         placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o tipo fiscal'}
                         onChange={(value) => setValue('fiscalType', value || 'goods', { shouldDirty: true })}
                     />
@@ -1008,6 +841,7 @@ export function ProductTaxProfileForm({
                         label="Tipo de Item"
                         value={watch('itemType') || 'goods'}
                         options={catalogs.item_type || []}
+                        loading={catalogsLoading}
                         placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o tipo de item'}
                         onChange={(value) => setValue('itemType', value || 'goods', { shouldDirty: true })}
                     />
@@ -1015,6 +849,7 @@ export function ProductTaxProfileForm({
                         label="PIS CST"
                         value={watch('pisCst') || ''}
                         options={catalogs.pis_cst || []}
+                        loading={catalogsLoading}
                         placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o CST'}
                         onChange={(value) => setValue('pisCst', value || undefined, { shouldDirty: true })}
                     />
@@ -1022,6 +857,7 @@ export function ProductTaxProfileForm({
                         label="COFINS CST"
                         value={watch('cofinsCst') || ''}
                         options={catalogs.cofins_cst || []}
+                        loading={catalogsLoading}
                         placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o CST'}
                         onChange={(value) => setValue('cofinsCst', value || undefined, { shouldDirty: true })}
                     />
@@ -1029,6 +865,7 @@ export function ProductTaxProfileForm({
                         label="IPI CST Saida"
                         value={watch('ipiCstOut') || ''}
                         options={catalogs.ipi_cst || []}
+                        loading={catalogsLoading}
                         placeholder={catalogsLoading ? 'Carregando...' : 'Selecione o CST'}
                         onChange={(value) => setValue('ipiCstOut', value || undefined, { shouldDirty: true })}
                     />
@@ -1084,62 +921,8 @@ export function ProductTaxProfileForm({
             </section>
 
             <section className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
-                <h3 className="text-sm font-semibold text-navy">4. CFOP e Apoio a Emissao</h3>
+                <h3 className="text-sm font-semibold text-navy">4. Apoio a Emissao</h3>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <TaxProfileCfopConfigSelector
-                        label="CFOP principal de Saida"
-                        value={selectedOutputCfop}
-                        options={outputCfopOptions}
-                        loading={outputCfopLoading}
-                        onSearch={(query) => void handleOutputCfopSearch(query)}
-                        onSelect={(option) => {
-                            setSelectedOutputCfop(option)
-                            setValue('defaultOutputCfopConfigId', option.configId, { shouldDirty: true })
-                            setValue('defaultOutputCfopReferenceId', option.referenceId, { shouldDirty: true })
-                            setValue('defaultOutputCfopVersionId', option.versionId, { shouldDirty: true })
-                            setValue('defaultOutputCfop', option.code, { shouldDirty: true })
-                        }}
-                        onClear={() => {
-                            setSelectedOutputCfop(null)
-                            setValue('defaultOutputCfopConfigId', undefined, { shouldDirty: true })
-                            setValue('defaultOutputCfopReferenceId', undefined, { shouldDirty: true })
-                            setValue('defaultOutputCfopVersionId', undefined, { shouldDirty: true })
-                            setValue('defaultOutputCfop', undefined, { shouldDirty: true })
-                        }}
-                    />
-                    {errors.defaultOutputCfop || errors.defaultOutputCfopConfigId ? (
-                        <p className="-mt-2 text-xs text-red-500">
-                            {errors.defaultOutputCfopConfigId?.message || errors.defaultOutputCfop?.message}
-                        </p>
-                    ) : null}
-
-                    <TaxProfileCfopConfigSelector
-                        label="CFOP principal de Entrada"
-                        value={selectedInputCfop}
-                        options={inputCfopOptions}
-                        loading={inputCfopLoading}
-                        onSearch={(query) => void handleInputCfopSearch(query)}
-                        onSelect={(option) => {
-                            setSelectedInputCfop(option)
-                            setValue('defaultInputCfopConfigId', option.configId, { shouldDirty: true })
-                            setValue('defaultInputCfopReferenceId', option.referenceId, { shouldDirty: true })
-                            setValue('defaultInputCfopVersionId', option.versionId, { shouldDirty: true })
-                            setValue('defaultInputCfop', option.code, { shouldDirty: true })
-                        }}
-                        onClear={() => {
-                            setSelectedInputCfop(null)
-                            setValue('defaultInputCfopConfigId', undefined, { shouldDirty: true })
-                            setValue('defaultInputCfopReferenceId', undefined, { shouldDirty: true })
-                            setValue('defaultInputCfopVersionId', undefined, { shouldDirty: true })
-                            setValue('defaultInputCfop', undefined, { shouldDirty: true })
-                        }}
-                    />
-                    {errors.defaultInputCfop || errors.defaultInputCfopConfigId ? (
-                        <p className="-mt-2 text-xs text-red-500">
-                            {errors.defaultInputCfopConfigId?.message || errors.defaultInputCfop?.message}
-                        </p>
-                    ) : null}
-
                     <div className="space-y-1.5">
                         <Label>Codigo Fiscal Interno</Label>
                         <Input {...register('internalFiscalCode')} />
@@ -1147,136 +930,6 @@ export function ProductTaxProfileForm({
                     <div className="space-y-1.5">
                         <Label>Observacoes Fiscais</Label>
                         <Textarea rows={2} {...register('defaultFiscalNotes')} />
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-dashed bg-slate-50/70 p-4">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <div>
-                            <h4 className="text-sm font-semibold text-navy">CFOPs alternativos por contexto</h4>
-                            <p className="text-xs text-muted-foreground">
-                                Use regras contextuais quando a operação exigir um CFOP diferente do principal por direção, UF ou tipo de contribuinte.
-                            </p>
-                        </div>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                                appendContextualRule({
-                                    id: undefined,
-                                    ruleName: `Regra ${contextualRuleFields.length + 1}`,
-                                    operationDirection: 'outbound',
-                                    originUf: undefined,
-                                    destinationUf: undefined,
-                                    customerTypeId: undefined,
-                                    personType: undefined,
-                                    taxpayerIndicator: undefined,
-                                    cfopOverride: undefined,
-                                    cfopConfigId: undefined,
-                                    cfopReferenceId: undefined,
-                                    cfopVersionId: undefined,
-                                    priority: contextualRuleFields.length,
-                                    isActive: true,
-                                    effectiveFrom: undefined,
-                                    effectiveTo: undefined,
-                                    rulePayload: undefined,
-                                    futureTaxPayload: undefined,
-                                })
-                            }
-                        >
-                            Adicionar regra contextual
-                        </Button>
-                    </div>
-
-                    <div className="mt-4 space-y-3">
-                        {contextualRuleFields.length === 0 ? (
-                            <div className="rounded-xl border bg-white px-4 py-3 text-xs text-muted-foreground">
-                                Nenhum CFOP alternativo cadastrado ainda. O perfil vai usar apenas os CFOPs principais.
-                            </div>
-                        ) : null}
-
-                        {contextualRuleFields.map((field, index) => (
-                            <div key={field.id} className="rounded-xl border bg-white p-4">
-                                <div className="grid gap-3 md:grid-cols-5">
-                                    <div className="space-y-1.5 md:col-span-2">
-                                        <Label>Nome da regra</Label>
-                                        <Input {...register(`rules.${index}.ruleName` as const)} />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label>Direcao</Label>
-                                        <Select
-                                            value={watch(`rules.${index}.operationDirection`) || 'outbound'}
-                                            onValueChange={(value) =>
-                                                setValue(`rules.${index}.operationDirection`, value as 'outbound' | 'inbound', {
-                                                    shouldDirty: true,
-                                                })
-                                            }
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="outbound">Saida</SelectItem>
-                                                <SelectItem value="inbound">Entrada</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label>UF destino</Label>
-                                        <Input maxLength={2} {...register(`rules.${index}.destinationUf` as const)} />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label>Prioridade</Label>
-                                        <Input
-                                            type="number"
-                                            {...register(`rules.${index}.priority` as const, { valueAsNumber: true })}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="mt-3">
-                                    <TaxProfileCfopConfigSelector
-                                        label="CFOP alternativo"
-                                        value={selectedContextCfops[index] || null}
-                                        options={contextCfopOptions[index] || []}
-                                        loading={contextCfopLoading[index] === true}
-                                        onSearch={(query) => void handleContextCfopSearch(index, query)}
-                                        onSelect={(option) => {
-                                            setSelectedContextCfops((current) => ({ ...current, [index]: option }))
-                                            setValue(`rules.${index}.cfopConfigId`, option.configId, { shouldDirty: true })
-                                            setValue(`rules.${index}.cfopReferenceId`, option.referenceId, { shouldDirty: true })
-                                            setValue(`rules.${index}.cfopVersionId`, option.versionId, { shouldDirty: true })
-                                            setValue(`rules.${index}.cfopOverride`, option.code, { shouldDirty: true })
-                                        }}
-                                        onClear={() => {
-                                            setSelectedContextCfops((current) => ({ ...current, [index]: null }))
-                                            setValue(`rules.${index}.cfopConfigId`, undefined, { shouldDirty: true })
-                                            setValue(`rules.${index}.cfopReferenceId`, undefined, { shouldDirty: true })
-                                            setValue(`rules.${index}.cfopVersionId`, undefined, { shouldDirty: true })
-                                            setValue(`rules.${index}.cfopOverride`, undefined, { shouldDirty: true })
-                                        }}
-                                    />
-                                </div>
-
-                                <div className="mt-3 flex justify-between gap-3">
-                                    <p className="text-xs text-muted-foreground">
-                                        O CFOP contextual pode ser refinado por direcao, UF e contribuinte, sem perder o fallback do CFOP principal.
-                                    </p>
-                                    <Button type="button" variant="ghost" size="sm" onClick={() => removeContextualRule(index)}>
-                                        Remover
-                                    </Button>
-                                </div>
-
-                                <input type="hidden" {...register(`rules.${index}.cfopConfigId` as const)} />
-                                <input type="hidden" {...register(`rules.${index}.cfopReferenceId` as const)} />
-                                <input type="hidden" {...register(`rules.${index}.cfopVersionId` as const)} />
-                                <input type="hidden" {...register(`rules.${index}.cfopOverride` as const)} />
-                                <input type="hidden" {...register(`rules.${index}.customerTypeId` as const)} />
-                                <input type="hidden" {...register(`rules.${index}.personType` as const)} />
-                                <input type="hidden" {...register(`rules.${index}.taxpayerIndicator` as const)} />
-                            </div>
-                        ))}
                     </div>
                 </div>
             </section>
@@ -1297,11 +950,7 @@ export function ProductTaxProfileForm({
                     </div>
                 </div>
 
-                {(errors.ncm ||
-                    errors.cest ||
-                    errors.defaultOutputCfop ||
-                    errors.defaultInputCfop ||
-                    errors.ipiCstOut) && (
+                {(errors.ncm || errors.cest || errors.ipiCstOut) && (
                     <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                         Revise os campos fiscais destacados antes de salvar o perfil.
                     </div>
@@ -1314,7 +963,7 @@ export function ProductTaxProfileForm({
                     </div>
                 ) : null}
 
-                {!activeVersions.ncm && !activeVersions.cest && !activeVersions.cfop ? (
+                {!activeVersions.ncm && !activeVersions.cest ? (
                     <div className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700">
                         Ainda nao ha bases fiscais ativas para pelo menos uma das referencias principais. O perfil pode
                         ser salvo, mas ficara dependente de revisao antes do uso em emissao futura.

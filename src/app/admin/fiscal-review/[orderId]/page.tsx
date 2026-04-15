@@ -7,6 +7,10 @@ import {
   recalculateOrderFiscalAction,
   validateOrderFiscalAction,
   emitNFeAction,
+  cancelNFeAction,
+  sendCartaCorrecaoAction,
+  consultFiscalDocumentAction,
+  inutilizeFiscalRangeAction,
   getOrderFiscalDetailsAction,
 } from '../actions'
 
@@ -108,6 +112,17 @@ export default function FiscalReviewPage() {
   const [isPending, startTransition] = useTransition()
   const [emitConfirm, setEmitConfirm] = useState(false)
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<FiscalDocumentRecord | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [correctionTarget, setCorrectionTarget] = useState<FiscalDocumentRecord | null>(null)
+  const [correctionText, setCorrectionText] = useState('')
+  const [inutilizeForm, setInutilizeForm] = useState({
+    modelo: '55' as '55' | '65',
+    serie: '1',
+    numeroInicial: '',
+    numeroFinal: '',
+    justificativa: '',
+  })
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -136,6 +151,7 @@ export default function FiscalReviewPage() {
   const effectiveValidation = calculation?.validation ?? persistedValidation
   const isCalculated = Boolean(calculation || order?.fiscal_calculated_at)
   const canEmit = Boolean(order) && isCalculated && !activeDocument && !isPending
+  const canConsultLatestDocument = Boolean(latestDocument) && !isPending
 
   async function runAction(action: () => Promise<void>) {
     startTransition(() => {
@@ -201,6 +217,103 @@ export default function FiscalReviewPage() {
     })
   }
 
+  async function handleConsultLatestDocument() {
+    if (!latestDocument?.id) return
+
+    await runAction(async () => {
+      setStatusMessage({ type: 'info', text: 'Consultando a situacao atual do documento na SEFAZ...' })
+      const result = await consultFiscalDocumentAction(latestDocument.id)
+      await loadData()
+      if (result.success) {
+        setStatusMessage({ type: 'success', text: 'Consulta do documento concluida com sucesso.' })
+      } else {
+        setStatusMessage({ type: 'error', text: getActionErrorMessage(result.error, 'Falha na consulta do documento fiscal.') })
+      }
+    })
+  }
+
+  async function handleInutilizeRange() {
+    const numeroInicial = Number(inutilizeForm.numeroInicial)
+    const numeroFinal = Number(inutilizeForm.numeroFinal)
+
+    if (!Number.isInteger(numeroInicial) || !Number.isInteger(numeroFinal) || numeroInicial <= 0 || numeroFinal <= 0) {
+      setStatusMessage({ type: 'error', text: 'Informe uma faixa numerica valida para inutilizacao.' })
+      return
+    }
+
+    if (inutilizeForm.justificativa.trim().length < 15) {
+      setStatusMessage({ type: 'error', text: 'A justificativa da inutilizacao deve ter pelo menos 15 caracteres.' })
+      return
+    }
+
+    await runAction(async () => {
+      setStatusMessage({ type: 'info', text: 'Enviando inutilizacao da faixa fiscal para a SEFAZ...' })
+      const result = await inutilizeFiscalRangeAction({
+        modelo: inutilizeForm.modelo,
+        serie: inutilizeForm.serie.trim() || '1',
+        numeroInicial,
+        numeroFinal,
+        justificativa: inutilizeForm.justificativa.trim(),
+      })
+      await loadData()
+      if (result.success) {
+        setStatusMessage({ type: 'success', text: 'Faixa fiscal inutilizada com sucesso.' })
+        setInutilizeForm((current) => ({
+          ...current,
+          numeroInicial: '',
+          numeroFinal: '',
+          justificativa: '',
+        }))
+      } else {
+        setStatusMessage({ type: 'error', text: getActionErrorMessage(result.error, 'Falha na inutilizacao da faixa fiscal.') })
+      }
+    })
+  }
+
+  async function handleCancelDocument() {
+    if (!cancelTarget?.id) return
+
+    if (cancelReason.trim().length < 15) {
+      setStatusMessage({ type: 'error', text: 'A justificativa do cancelamento deve ter pelo menos 15 caracteres.' })
+      return
+    }
+
+    await runAction(async () => {
+      setStatusMessage({ type: 'info', text: 'Enviando cancelamento para a SEFAZ...' })
+      const result = await cancelNFeAction(cancelTarget.id, cancelReason.trim())
+      setCancelTarget(null)
+      setCancelReason('')
+      await loadData()
+      if (result.success) {
+        setStatusMessage({ type: 'success', text: 'Cancelamento registrado com sucesso.' })
+      } else {
+        setStatusMessage({ type: 'error', text: getActionErrorMessage(result.error, 'Falha no cancelamento do documento.') })
+      }
+    })
+  }
+
+  async function handleSendCorrection() {
+    if (!correctionTarget?.id) return
+
+    if (correctionText.trim().length < 15) {
+      setStatusMessage({ type: 'error', text: 'O texto da carta de correcao deve ter pelo menos 15 caracteres.' })
+      return
+    }
+
+    await runAction(async () => {
+      setStatusMessage({ type: 'info', text: 'Enviando carta de correcao para a SEFAZ...' })
+      const result = await sendCartaCorrecaoAction(correctionTarget.id, correctionText.trim())
+      setCorrectionTarget(null)
+      setCorrectionText('')
+      await loadData()
+      if (result.success) {
+        setStatusMessage({ type: 'success', text: 'Carta de correcao registrada com sucesso.' })
+      } else {
+        setStatusMessage({ type: 'error', text: getActionErrorMessage(result.error, 'Falha no envio da carta de correcao.') })
+      }
+    })
+  }
+
   if (loading) {
     return <CenteredState text="Carregando revisao fiscal..." />
   }
@@ -222,7 +335,7 @@ export default function FiscalReviewPage() {
               <h1 className="text-3xl font-semibold text-white">Revisao fiscal do pedido #{formatOrderNumber(order.order_number)}</h1>
               <StatusPill label={getFiscalLabel(order, documents)} tone={getFiscalTone(order, documents)} />
             </div>
-            <p className="text-sm text-slate-400">Loja {order.store?.name || 'Nao informada'} • Criado em {formatDate(order.created_at)}</p>
+            <p className="text-sm text-slate-400">Loja {order.store?.name || 'Nao informada'} - Criado em {formatDate(order.created_at)}</p>
           </div>
           <div className="flex flex-col gap-2">
             <StatusPill label={activeDocument ? 'Documento fiscal ativo' : 'Sem documento ativo'} tone={activeDocument ? 'warning' : 'neutral'} />
@@ -254,6 +367,7 @@ export default function FiscalReviewPage() {
             <ActionButton label="Recalcular e salvar" tone="primary" disabled={isPending} onClick={handleRecalculate} />
             <ActionButton label="Validar" tone="secondary" disabled={isPending} onClick={handleValidate} />
             <ActionButton label="Emitir NF-e" tone="emit" disabled={!canEmit} onClick={() => setEmitConfirm(true)} />
+            <ActionButton label="Consultar documento" tone="secondary" disabled={!canConsultLatestDocument} onClick={handleConsultLatestDocument} />
           </div>
           <p className="text-sm text-slate-400">
             {activeDocument
@@ -262,6 +376,92 @@ export default function FiscalReviewPage() {
                 ? 'Recalcule o pedido antes de emitir para garantir snapshot e validacao atualizados.'
                 : 'Fluxo pronto para emissao, sujeito a certificado e retorno tecnico da SEFAZ.'}
           </p>
+        </div>
+      </Section>
+
+      <Section title="Operacoes SEFAZ complementares" description="Use a consulta para atualizar o status do ultimo documento e a inutilizacao para faixas nao aproveitadas.">
+        <div className="grid gap-4 xl:grid-cols-[1.1fr_1.4fr]">
+          <article className="rounded-3xl border border-slate-700/50 bg-slate-950/60 p-5">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Consulta de documento</p>
+            <h3 className="mt-3 text-xl font-semibold text-white">{latestDocument ? getDocumentLabel(latestDocument) : 'Sem documento para consultar'}</h3>
+            <p className="mt-2 text-sm text-slate-400">
+              {latestDocument
+                ? `Ultimo status conhecido: ${humanizeStatus(latestDocument.document_status)}. Use esta acao para sincronizar o retorno mais recente da SEFAZ.`
+                : 'A consulta so fica disponivel quando existir ao menos um documento fiscal gerado para o pedido.'}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <StatusPill label={latestDocument ? humanizeStatus(latestDocument.document_status) : 'Sem documento'} tone={latestDocument ? documentTone(latestDocument.document_status) : 'neutral'} compact />
+              <StatusPill label={latestDocument?.protocolo_autorizacao ? 'Com protocolo' : 'Sem protocolo'} tone={latestDocument?.protocolo_autorizacao ? 'success' : 'warning'} compact />
+            </div>
+            <div className="mt-5">
+              <ActionButton label="Consultar agora" tone="secondary" disabled={!canConsultLatestDocument} onClick={handleConsultLatestDocument} />
+            </div>
+          </article>
+
+          <article className="rounded-3xl border border-slate-700/50 bg-slate-950/60 p-5">
+            <div className="flex flex-col gap-2">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Inutilizacao de faixa</p>
+              <h3 className="text-xl font-semibold text-white">Reservar formalmente numeros nao utilizados</h3>
+              <p className="text-sm text-slate-400">Preencha modelo, serie, faixa e justificativa. A operacao sera registrada na timeline tecnica.</p>
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              <label className="space-y-2 text-sm">
+                <span className="text-slate-300">Modelo</span>
+                <select
+                  value={inutilizeForm.modelo}
+                  onChange={(event) => setInutilizeForm((current) => ({ ...current, modelo: event.target.value as '55' | '65' }))}
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-slate-100 outline-none transition focus:border-sky-500"
+                >
+                  <option value="55">55 - NF-e</option>
+                  <option value="65">65 - NFC-e</option>
+                </select>
+              </label>
+              <label className="space-y-2 text-sm">
+                <span className="text-slate-300">Serie</span>
+                <input
+                  value={inutilizeForm.serie}
+                  onChange={(event) => setInutilizeForm((current) => ({ ...current, serie: event.target.value }))}
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-slate-100 outline-none transition focus:border-sky-500"
+                  placeholder="1"
+                />
+              </label>
+              <label className="space-y-2 text-sm">
+                <span className="text-slate-300">Numero inicial</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={inutilizeForm.numeroInicial}
+                  onChange={(event) => setInutilizeForm((current) => ({ ...current, numeroInicial: event.target.value }))}
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-slate-100 outline-none transition focus:border-sky-500"
+                  placeholder="1001"
+                />
+              </label>
+              <label className="space-y-2 text-sm">
+                <span className="text-slate-300">Numero final</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={inutilizeForm.numeroFinal}
+                  onChange={(event) => setInutilizeForm((current) => ({ ...current, numeroFinal: event.target.value }))}
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-slate-100 outline-none transition focus:border-sky-500"
+                  placeholder="1005"
+                />
+              </label>
+            </div>
+            <label className="mt-3 block space-y-2 text-sm">
+              <span className="text-slate-300">Justificativa</span>
+              <textarea
+                value={inutilizeForm.justificativa}
+                onChange={(event) => setInutilizeForm((current) => ({ ...current, justificativa: event.target.value }))}
+                className="min-h-[120px] w-full rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-slate-100 outline-none transition focus:border-sky-500"
+                placeholder="Explique por que a faixa precisa ser inutilizada."
+              />
+            </label>
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-slate-400">A justificativa precisa ter pelo menos 15 caracteres e a faixa deve ser sequencial.</p>
+              <ActionButton label="Inutilizar faixa" tone="warning" disabled={isPending} onClick={handleInutilizeRange} />
+            </div>
+          </article>
         </div>
       </Section>
 
@@ -364,6 +564,40 @@ export default function FiscalReviewPage() {
                   <StatusPill label="Processado XML" tone={document.xml_processado_path ? 'success' : 'neutral'} compact />
                   <StatusPill label="DANFE" tone={document.danfe_path ? 'success' : 'neutral'} compact />
                 </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <ActionButton label="Consultar" tone="secondary" compact disabled={isPending} onClick={() => {
+                    void runAction(async () => {
+                      setStatusMessage({ type: 'info', text: `Consultando documento ${getDocumentLabel(document)} na SEFAZ...` })
+                      const result = await consultFiscalDocumentAction(document.id)
+                      await loadData()
+                      if (result.success) {
+                        setStatusMessage({ type: 'success', text: `Consulta concluida para ${getDocumentLabel(document)}.` })
+                      } else {
+                        setStatusMessage({ type: 'error', text: getActionErrorMessage(result.error, 'Falha na consulta do documento.') })
+                      }
+                    })
+                  }} />
+                  <ActionButton
+                    label="Cancelar"
+                    tone="error"
+                    compact
+                    disabled={isPending || document.document_status !== 'authorized'}
+                    onClick={() => {
+                      setCancelTarget(document)
+                      setCancelReason('')
+                    }}
+                  />
+                  <ActionButton
+                    label="Carta de correcao"
+                    tone="warning"
+                    compact
+                    disabled={isPending || !['authorized', 'correction'].includes(document.document_status || '')}
+                    onClick={() => {
+                      setCorrectionTarget(document)
+                      setCorrectionText('')
+                    }}
+                  />
+                </div>
               </article>
             ))
           )}
@@ -399,6 +633,48 @@ export default function FiscalReviewPage() {
             <div className="mt-6 flex justify-end gap-3">
               <ActionButton label="Cancelar" tone="secondary" onClick={() => setEmitConfirm(false)} />
               <ActionButton label="Confirmar emissao" tone="emit" disabled={!canEmit} onClick={handleEmit} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {cancelTarget ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-4" onClick={() => setCancelTarget(null)}>
+          <div className="glass-card w-full max-w-xl rounded-[28px] border border-slate-700/50 p-6" onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-2xl font-semibold text-white">Cancelar documento</h3>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              Informe a justificativa para cancelar {getDocumentLabel(cancelTarget)}. Esta acao sera transmitida para a SEFAZ.
+            </p>
+            <textarea
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+              className="mt-4 min-h-[120px] w-full rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-slate-100 outline-none transition focus:border-rose-500"
+              placeholder="Descreva o motivo do cancelamento."
+            />
+            <div className="mt-6 flex justify-end gap-3">
+              <ActionButton label="Fechar" tone="secondary" onClick={() => setCancelTarget(null)} />
+              <ActionButton label="Confirmar cancelamento" tone="error" disabled={isPending} onClick={handleCancelDocument} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {correctionTarget ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-4" onClick={() => setCorrectionTarget(null)}>
+          <div className="glass-card w-full max-w-xl rounded-[28px] border border-slate-700/50 p-6" onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-2xl font-semibold text-white">Carta de correcao</h3>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              Descreva a correcao para {getDocumentLabel(correctionTarget)}. O texto sera enviado como evento fiscal.
+            </p>
+            <textarea
+              value={correctionText}
+              onChange={(event) => setCorrectionText(event.target.value)}
+              className="mt-4 min-h-[140px] w-full rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-slate-100 outline-none transition focus:border-amber-500"
+              placeholder="Descreva a correcao que precisa constar no evento."
+            />
+            <div className="mt-6 flex justify-end gap-3">
+              <ActionButton label="Fechar" tone="secondary" onClick={() => setCorrectionTarget(null)} />
+              <ActionButton label="Enviar carta" tone="warning" disabled={isPending} onClick={handleSendCorrection} />
             </div>
           </div>
         </div>
@@ -451,8 +727,8 @@ function StatusPill({ label, tone, compact = false }: { label: string; tone: Ton
   return <span className={`inline-flex rounded-full border font-semibold ${size} ${toneClasses(tone)}`}>{label}</span>
 }
 
-function ActionButton({ label, tone, onClick, disabled }: { label: string; tone: Tone; onClick: () => void; disabled?: boolean }) {
-  return <button className={`rounded-2xl px-4 py-3 text-sm font-semibold transition hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${buttonClasses(tone)}`} onClick={onClick} disabled={disabled}>{label}</button>
+function ActionButton({ label, tone, onClick, disabled, compact = false }: { label: string; tone: Tone; onClick: () => void; disabled?: boolean; compact?: boolean }) {
+  return <button className={`rounded-2xl text-sm font-semibold transition hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${compact ? 'px-3 py-2 text-xs' : 'px-4 py-3'} ${buttonClasses(tone)}`} onClick={onClick} disabled={disabled}>{label}</button>
 }
 
 function TotalCard({ label, value, tone, highlight = false }: { label: string; value: number | null; tone?: 'blue' | 'orange' | 'teal' | 'purple' | 'red' | 'amber'; highlight?: boolean }) {
@@ -554,7 +830,7 @@ function formatOrderNumber(orderNumber: number | string | null): string {
 }
 
 function getDocumentLabel(document: FiscalDocumentRecord): string {
-  return `Serie ${document.serie ?? '-'} • Numero ${document.numero_nf ?? '-'}`
+  return `Serie ${document.serie ?? '-'} - Numero ${document.numero_nf ?? '-'}`
 }
 
 function hasDocumentSnapshot(document: FiscalDocumentRecord): boolean {
