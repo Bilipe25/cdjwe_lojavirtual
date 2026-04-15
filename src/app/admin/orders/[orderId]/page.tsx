@@ -1,512 +1,648 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ElementType } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { motion } from 'framer-motion'
-
-// UI Components
-import { Card, CardContent } from '@/components/ui/card'
+import {
+    AlertCircle,
+    ArrowLeft,
+    Building,
+    Clock,
+    CreditCard,
+    FileText,
+    Hash,
+    History,
+    MapPin,
+    Package,
+    Receipt,
+} from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { toast } from 'sonner'
+import { buildOrderStatusAuditNote } from '@/lib/orders/order-communication'
+import { canTransitionOrderStatus } from '@/lib/orders/order-status-transition'
+import type { OrderItem, OrderStatus, SystemSettings } from '@/lib/types'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
-  Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
-} from '@/components/ui/table'
-
-// Icons
-import {
-  ArrowLeft, Building, User, Clock, History, Printer, Loader2,
-  Package, CreditCard, FileText, Hash, ShieldCheck,
-  MapPin, Receipt, Copy, ExternalLink,
-} from 'lucide-react'
-
-// Sub-components
-import { statusConfig } from '../components/OrderFilters'
-import { FiscalSection } from '../components/FiscalSection'
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { statusConfig } from '@/app/admin/orders/components/OrderFilters'
+import { FiscalSection } from '@/app/admin/orders/components/FiscalSection'
+import { AdminOrderActionBar } from '@/app/admin/orders/components/AdminOrderActionBar'
+import { InvoiceOrderModal } from '@/app/admin/financeiro/contas-a-receber/components/InvoiceOrderModal'
 import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
-import type { OrderStatus, OrderItem, SystemSettings } from '@/lib/types'
+import { deleteOrderAction } from '@/app/admin/orders/actions'
+import { useAdminOrderDetail } from '@/app/admin/orders/hooks/use-admin-order-detail'
 
-// ─── Types ────────────────────────────────────────
-
-interface OrderDetail {
-  id: string
-  order_number: string
-  status: OrderStatus
-  total: number
-  subtotal: number
-  discount_amount: number
-  coupon_code?: string | null
-  coupon_discount_type?: 'percentage' | 'fixed' | null
-  coupon_discount_value?: number | null
-  coupon_discount_amount?: number | null
-  created_at: string
-  notes: string | null
-  sales_channel?: 'customer_portal' | 'representative' | null
-  payment_method_name?: string | null
-  payment_method_code?: string | null
-  payment_condition_name?: string | null
-  payment_condition_description?: string | null
-  payment_installments?: number | null
-  payment_discount_percentage?: number | null
-  payment_surcharge_percentage?: number | null
-  store?: { company_name?: string | null; cnpj?: string | null } | null
-  customer_profile?: { full_name?: string | null } | null
-  created_by_profile?: { full_name?: string | null; role?: string | null } | null
-  payment_condition?: {
-    name?: string | null
-    description?: string | null
-    installments?: number | null
-    discount_percentage?: number | null
-    surcharge_percentage?: number | null
-  } | null
-  items?: OrderItem[]
+function formatCurrency(value: number | null | undefined) {
+    return (Number(value || 0)).toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+    })
 }
 
-interface StatusHistoryRecord {
-  id: string
-  status: string
-  created_at: string
-  changed_by: string
-  notes?: string | null
-  profile?: { full_name?: string | null } | null
+function formatDateTime(value: string | null | undefined) {
+    if (!value) return 'Nao informado'
+    return format(new Date(value), "dd 'de' MMMM, yyyy 'as' HH:mm", { locale: ptBR })
 }
 
-// ─── Page ─────────────────────────────────────────
+function SummaryCard({
+    icon: Icon,
+    label,
+    value,
+    tone,
+}: {
+    icon: ElementType
+    label: string
+    value: string
+    tone: string
+}) {
+    return (
+        <Card className="glass-card border-0">
+            <CardContent className="flex items-center gap-3 p-4">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}>
+                    <Icon className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="truncate text-sm font-bold text-foreground">{value}</p>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
+
+function DetailRow({
+    label,
+    value,
+    allowWrap = false,
+}: {
+    label: string
+    value: string
+    allowWrap?: boolean
+}) {
+    return (
+        <div className="flex items-start justify-between gap-3 text-sm">
+            <span className="shrink-0 text-muted-foreground">{label}:</span>
+            <span
+                className={`font-medium text-right ${
+                    allowWrap ? 'whitespace-pre-wrap break-words' : 'truncate'
+                }`}
+            >
+                {value}
+            </span>
+        </div>
+    )
+}
+
+function ItemDescriptor({ item }: { item: OrderItem }) {
+    const descriptors = [item.fabric_name, item.color_name, item.size || item.size_name].filter(Boolean)
+
+    return (
+        <div className="space-y-1">
+            <p className="font-semibold text-slate-900">{item.product_name}</p>
+            <p className="text-xs text-muted-foreground">{descriptors.join(' • ') || 'Sem variacoes registradas'}</p>
+        </div>
+    )
+}
 
 export default function OrderDetailPage() {
-  const params = useParams()
-  const router = useRouter()
-  const orderId = params.orderId as string
+    const params = useParams()
+    const router = useRouter()
+    const orderId = params.orderId as string
 
-  const [order, setOrder] = useState<OrderDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [history, setHistory] = useState<StatusHistoryRecord[]>([])
-  const [loadingHistory, setLoadingHistory] = useState(false)
-  const [isPrinting, setIsPrinting] = useState(false)
-  const [settings, setSettings] = useState<SystemSettings | null>(null)
+    const {
+        order,
+        history,
+        invoice,
+        routeAssignment,
+        fiscalSummary,
+        loading,
+        loadingHistory,
+        loadingMeta,
+        reload,
+    } = useAdminOrderDetail({
+        orderId,
+        enabled: Boolean(orderId),
+    })
 
-  const fetchOrder = useCallback(async () => {
-    setLoading(true)
-    const supabase = createClient()
-    const { data, error } = await supabase
-      .from('orders')
-      .select(`
-        id, order_number, status, total, subtotal, discount_amount,
-        coupon_code, coupon_discount_type, coupon_discount_value, coupon_discount_amount,
-        created_at, notes, sales_channel,
-        payment_method_name, payment_method_code,
-        payment_condition_name, payment_condition_description,
-        payment_installments, payment_discount_percentage, payment_surcharge_percentage,
-        store:stores(company_name, cnpj),
-        customer_profile:profiles!orders_profile_id_fkey(full_name),
-        created_by_profile:profiles!orders_created_by_profile_id_fkey(full_name, role),
-        payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage),
-        items:order_items(*)
-      `)
-      .eq('id', orderId)
-      .single()
+    const [settings, setSettings] = useState<SystemSettings | null>(null)
+    const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+    const [isDeleting, setIsDeleting] = useState(false)
+    const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
 
-    if (error || !data) {
-      toast.error('Pedido não encontrado.')
-      setLoading(false)
-      return
+    useEffect(() => {
+        const loadSettings = async () => {
+            const supabase = createClient()
+            const { data } = await supabase.from('system_settings').select('*').limit(1).single()
+            if (data) setSettings(data)
+        }
+
+        void loadSettings()
+    }, [])
+
+    const customerName =
+        order?.customer_profile?.full_name || order?.profile?.full_name || 'Cliente nao informado'
+    const representativeName =
+        order?.created_by_profile?.full_name ||
+        (order?.sales_channel === 'representative'
+            ? 'Representante nao informado'
+            : 'Portal do cliente')
+    const items = order?.items || []
+    const couponDiscountAmount = Number(order?.coupon_discount_amount || 0)
+    const paymentDiscountAmount = Math.max(0, Number(order?.discount_amount || 0) - couponDiscountAmount)
+    const estimatedDeliveryLabel = order?.estimated_delivery
+        ? format(new Date(order.estimated_delivery), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })
+        : 'Nao informado'
+
+    const paymentStatusLabel = useMemo(() => {
+        switch (order?.payment_status) {
+            case 'paid':
+                return 'Pago'
+            case 'overdue':
+                return 'Em atraso'
+            case 'cancelled':
+                return 'Cancelado'
+            case 'pending':
+                return 'Pendente'
+            default:
+                return 'Nao informado'
+        }
+    }, [order?.payment_status])
+
+    const handlePrint = async () => {
+        if (!order) return
+        await generateOrderReceiptPDF(order, items, settings)
+        toast.success('Comprovante gerado com sucesso.')
     }
 
-    const resolved = data as OrderDetail
+    const handleUpdateStatus = async (nextStatus: OrderStatus) => {
+        if (!order) return
+        if (order.status === nextStatus) return
 
-    // Fallback for empty items
-    if (!Array.isArray(resolved.items) || resolved.items.length === 0) {
-      const { data: fallbackItems } = await supabase
-        .from('order_items')
-        .select('*')
-        .eq('order_id', orderId)
-        .order('created_at')
-      if (fallbackItems) resolved.items = fallbackItems as OrderItem[]
+        if (!canTransitionOrderStatus(order.status, nextStatus)) {
+            toast.error('Transicao de status invalida para este pedido.')
+            return
+        }
+
+        setIsUpdatingStatus(true)
+        try {
+            const supabase = createClient()
+            const { data, error } = await supabase.rpc('admin_update_order_status_atomic', {
+                p_order_id: order.id,
+                p_new_status: nextStatus,
+                p_notes: buildOrderStatusAuditNote(nextStatus),
+            })
+
+            if (error) {
+                toast.error(error.message || 'Erro ao atualizar o pedido.')
+                return
+            }
+
+            const row = Array.isArray(data) ? data[0] : data
+
+            if (row?.changed && row.client_email) {
+                fetch('/api/email/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'order_status',
+                        payload: {
+                            orderId: order.id,
+                            orderNumber: row.order_number || order.order_number,
+                            clientName: row.client_name || customerName,
+                            clientEmail: row.client_email,
+                            newStatus: nextStatus,
+                        },
+                    }),
+                }).catch(() => {})
+            }
+
+            toast.success(`Pedido atualizado para ${statusConfig[nextStatus].label}.`)
+            await reload()
+        } finally {
+            setIsUpdatingStatus(false)
+        }
     }
 
-    setOrder(resolved)
-    setLoading(false)
-  }, [orderId])
+    const handleDelete = async () => {
+        if (!order) return
+        setIsDeleting(true)
+        try {
+            const result = await deleteOrderAction(order.id)
+            if (result.error) {
+                toast.error(result.error)
+                return
+            }
 
-  const fetchHistory = useCallback(async () => {
-    setLoadingHistory(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('order_status_history')
-      .select('id, status, created_at, changed_by, profile:profiles!changed_by(full_name)')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: false })
-
-    if (data) setHistory(data as StatusHistoryRecord[])
-    setLoadingHistory(false)
-  }, [orderId])
-
-  const fetchSettings = async () => {
-    const supabase = createClient()
-    const { data } = await supabase.from('system_settings').select('*').limit(1).single()
-    if (data) setSettings(data)
-  }
-
-  useEffect(() => {
-    fetchOrder()
-    fetchHistory()
-    fetchSettings()
-  }, [fetchOrder, fetchHistory])
-
-  const handlePrint = async () => {
-    if (!order) return
-    setIsPrinting(true)
-    try {
-      await generateOrderReceiptPDF(order, order.items || [], settings)
-      toast.success('PDF gerado!')
-    } finally {
-      setIsPrinting(false)
+            toast.success(
+                'alreadyDeleted' in result && result.alreadyDeleted
+                    ? 'Pedido ja havia sido removido e a tela foi sincronizada.'
+                    : 'Pedido excluido com sucesso.'
+            )
+            router.push('/admin/orders')
+        } finally {
+            setIsDeleting(false)
+            setIsDeleteDialogOpen(false)
+        }
     }
-  }
 
-  const copyChave = (text: string) => {
-    navigator.clipboard.writeText(text)
-    toast.success('Copiado!')
-  }
-
-  // ─── Loading State ──────────────────────────────
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-        </div>
-        <Skeleton className="h-64" />
-      </div>
-    )
-  }
-
-  if (!order) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-muted-foreground">Pedido não encontrado.</p>
-        <Button variant="outline" className="mt-4" onClick={() => router.push('/admin/orders')}>
-          <ArrowLeft className="h-4 w-4 mr-2" /> Voltar aos Pedidos
-        </Button>
-      </div>
-    )
-  }
-
-  const config = statusConfig[order.status]
-  const isRepresentative = order.sales_channel === 'representative'
-  const customerName = order.customer_profile?.full_name || 'N/A'
-  const repName = order.created_by_profile?.full_name || (isRepresentative ? 'N/A' : 'Portal do Cliente')
-  const items = order.items || []
-  const couponDiscount = Number(order.coupon_discount_amount || 0)
-  const paymentDiscount = Math.max(0, Number(order.discount_amount || 0) - couponDiscount)
-
-  // ─── Render ─────────────────────────────────────
-
-  return (
-    <div className="space-y-6 pb-12">
-      {/* ─── Top Bar ─── */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0 rounded-xl h-10 w-10 hover:bg-navy/5"
-            onClick={() => router.push('/admin/orders')}
-          >
-            <ArrowLeft className="h-5 w-5 text-navy" />
-          </Button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-bold font-heading text-gradient-navy truncate">
-                {order.order_number}
-              </h1>
-              <Badge className={`${config.color} border text-xs`}>
-                {config.label}
-              </Badge>
-              <Badge
-                variant="outline"
-                className={`text-xs ${isRepresentative ? 'border-primary/30 bg-primary/5 text-primary' : 'border-emerald-300 bg-emerald-50 text-emerald-700'}`}
-              >
-                {isRepresentative ? 'Representante' : 'Cliente'}
-              </Badge>
+    if (loading) {
+        return (
+            <div className="space-y-6">
+                <Skeleton className="h-10 w-72" />
+                <Skeleton className="h-28 w-full rounded-2xl" />
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    {Array.from({ length: 4 }).map((_, index) => (
+                        <Skeleton key={index} className="h-24 w-full rounded-2xl" />
+                    ))}
+                </div>
+                <Skeleton className="h-96 w-full rounded-2xl" />
             </div>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {format(new Date(order.created_at), "dd 'de' MMMM, yyyy 'às' HH:mm", { locale: ptBR })}
-            </p>
-          </div>
-        </div>
+        )
+    }
 
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 rounded-xl font-bold text-navy border-navy/20 hover:bg-navy/5 h-9"
-            onClick={handlePrint}
-            disabled={isPrinting}
-          >
-            {isPrinting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
-            <span className="hidden sm:inline">Comprovante</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 rounded-xl font-bold text-navy border-navy/20 hover:bg-navy/5 h-9"
-            onClick={() => window.open(`/admin/fiscal-review/${orderId}`, '_blank')}
-          >
-            <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Revisão Fiscal</span>
-          </Button>
-        </div>
-      </motion.div>
+    if (!order) {
+        return (
+            <div className="py-16 text-center">
+                <p className="text-muted-foreground">Pedido nao encontrado.</p>
+                <Button variant="outline" className="mt-4" onClick={() => router.push('/admin/orders')}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Voltar aos pedidos
+                </Button>
+            </div>
+        )
+    }
 
-      {/* ─── Summary Cards Row ─── */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="grid grid-cols-2 md:grid-cols-4 gap-3"
-      >
-        <SummaryCard icon={Package} label="Itens" value={String(items.length)} color="text-blue-600 bg-blue-50" />
-        <SummaryCard icon={CreditCard} label="Subtotal" value={`R$ ${order.subtotal?.toFixed(2)}`} color="text-emerald-600 bg-emerald-50" />
-        <SummaryCard icon={Receipt} label="Desconto" value={`R$ ${order.discount_amount?.toFixed(2)}`} color="text-orange-600 bg-orange-50" />
-        <SummaryCard icon={Hash} label="Total" value={`R$ ${order.total?.toFixed(2)}`} color="text-navy bg-navy/5" bold />
-      </motion.div>
-
-      {/* ─── Tabs Layout ─── */}
-      <Tabs defaultValue="details">
-        <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="details" className="gap-1.5 text-xs sm:text-sm">
-            <Building className="h-3.5 w-3.5" /> Detalhes
-          </TabsTrigger>
-          <TabsTrigger value="items" className="gap-1.5 text-xs sm:text-sm">
-            <Package className="h-3.5 w-3.5" /> Itens
-          </TabsTrigger>
-          <TabsTrigger value="fiscal" className="gap-1.5 text-xs sm:text-sm">
-            <FileText className="h-3.5 w-3.5" /> Fiscal
-          </TabsTrigger>
-          <TabsTrigger value="history" className="gap-1.5 text-xs sm:text-sm">
-            <History className="h-3.5 w-3.5" /> Histórico
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ─── Tab: Items ─── */}
-        <TabsContent value="items">
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/30">
-                      <TableHead className="text-xs font-bold">Produto</TableHead>
-                      <TableHead className="text-xs font-bold">Tecido / Cor</TableHead>
-                      <TableHead className="text-xs font-bold text-center">Tam</TableHead>
-                      <TableHead className="text-xs font-bold text-right">Qtd</TableHead>
-                      <TableHead className="text-xs font-bold text-right">Unit (R$)</TableHead>
-                      <TableHead className="text-xs font-bold text-right">Total (R$)</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {items.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                          Nenhum item encontrado neste pedido.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      items.map((item) => (
-                        <TableRow key={item.id} className="hover:bg-muted/20">
-                          <TableCell>
-                            <span className="font-medium text-navy text-sm">{item.product_name}</span>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1.5">
-                              <Badge variant="secondary" className="font-normal text-[10px]">{item.fabric_name}</Badge>
-                              <span className="text-xs text-muted-foreground">{item.color_name}</span>
+    return (
+        <div className="space-y-6 pb-12">
+            <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col gap-4"
+            >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-3">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-10 w-10 rounded-xl hover:bg-navy/5"
+                                onClick={() => router.push('/admin/orders')}
+                            >
+                                <ArrowLeft className="h-5 w-5 text-navy" />
+                            </Button>
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <h1 className="truncate font-heading text-2xl font-bold text-gradient-navy md:text-3xl">
+                                        {order.order_number}
+                                    </h1>
+                                    <Badge
+                                        variant="outline"
+                                        className={`text-xs ${
+                                            order.sales_channel === 'representative'
+                                                ? 'border-primary/30 bg-primary/5 text-primary'
+                                                : 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                        }`}
+                                    >
+                                        {order.sales_channel === 'representative' ? 'Representante' : 'Cliente'}
+                                    </Badge>
+                                </div>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                    Criado em {formatDateTime(order.created_at)}
+                                </p>
                             </div>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <span className="text-xs font-medium">{item.size || '—'}</span>
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm">{item.quantity}</TableCell>
-                          <TableCell className="text-right font-mono text-sm">{item.unit_price.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-bold text-sm text-gradient-bronze">{item.subtotal.toFixed(2)}</TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Totals Footer */}
-              <div className="border-t bg-muted/10 p-4 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Subtotal ({items.length} itens)</span>
-                  <span className="font-medium">R$ {order.subtotal?.toFixed(2)}</span>
+                        </div>
+                    </div>
                 </div>
-                {couponDiscount > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span>Cupom ({order.coupon_code})</span>
-                    <span>- R$ {couponDiscount.toFixed(2)}</span>
-                  </div>
-                )}
-                {paymentDiscount > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span>Desc. pagamento</span>
-                    <span>- R$ {paymentDiscount.toFixed(2)}</span>
-                  </div>
-                )}
-                <Separator />
-                <div className="flex justify-between items-center pt-1">
-                  <span className="font-bold text-navy">Total</span>
-                  <span className="font-black text-2xl text-gradient-bronze">R$ {order.total?.toFixed(2)}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
-        {/* ─── Tab: Details ─── */}
-        <TabsContent value="details">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Store / Customer */}
-            <Card className="border-0 shadow-sm">
-              <CardContent className="p-5 space-y-4">
-                <h4 className="font-bold text-sm flex items-center gap-2 text-navy">
-                  <Building className="h-4 w-4" /> Dados do Lojista
-                </h4>
-                <div className="space-y-2 text-sm">
-                  <DetailRow label="Razão Social" value={order.store?.company_name || 'N/A'} />
-                  <DetailRow label="CNPJ" value={order.store?.cnpj || 'N/A'} />
-                  <DetailRow label="Cliente" value={customerName} />
-                  <DetailRow label="Origem" value={isRepresentative ? 'Representante' : 'Portal do cliente'} />
-                  <DetailRow label="Representante" value={repName} />
-                </div>
-              </CardContent>
-            </Card>
+                <AdminOrderActionBar
+                    order={order}
+                    invoice={invoice}
+                    routeAssignment={routeAssignment}
+                    fiscalSummary={fiscalSummary}
+                    loadingMeta={loadingMeta}
+                    updatingStatus={isUpdatingStatus}
+                    deleting={isDeleting}
+                    onOpenInvoice={() => setIsInvoiceModalOpen(true)}
+                    onOpenFiscalReview={() => window.open(`/admin/fiscal-review/${order.id}`, '_blank')}
+                    onPrint={handlePrint}
+                    onUpdateStatus={handleUpdateStatus}
+                    onDelete={() => setIsDeleteDialogOpen(true)}
+                />
 
-            {/* Payment */}
-            <OrderPaymentSummaryCard
-              order={order}
-              title="Dados de Pagamento"
-              variant="panel"
+                {invoice ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                        Este pedido ja esta faturado na fatura {invoice.invoice_number || invoice.id}. O
+                        faturamento financeiro segue no modulo Contas a Receber.
+                    </div>
+                ) : null}
+
+                {routeAssignment ? (
+                    <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                        Este pedido esta vinculado a rota{' '}
+                        {routeAssignment.route?.route_number || routeAssignment.route_id}. Operacoes destrutivas
+                        devem ser feitas somente apos remover a parada na logistica.
+                    </div>
+                ) : null}
+            </motion.div>
+
+            <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 }}
+                className="grid grid-cols-2 gap-3 md:grid-cols-4"
+            >
+                <SummaryCard icon={Package} label="Itens" value={String(items.length)} tone="bg-blue-50 text-blue-600" />
+                <SummaryCard
+                    icon={CreditCard}
+                    label="Subtotal"
+                    value={formatCurrency(order.subtotal)}
+                    tone="bg-emerald-50 text-emerald-600"
+                />
+                <SummaryCard
+                    icon={AlertCircle}
+                    label="Desconto"
+                    value={formatCurrency(order.discount_amount)}
+                    tone="bg-amber-50 text-amber-600"
+                />
+                <SummaryCard
+                    icon={Hash}
+                    label="Total"
+                    value={formatCurrency(order.total)}
+                    tone="bg-navy/5 text-navy"
+                />
+            </motion.div>
+
+            <Tabs defaultValue="details" className="space-y-4">
+                <TabsList className="w-full justify-start overflow-x-auto">
+                    <TabsTrigger value="details" className="gap-1.5">
+                        <Building className="h-3.5 w-3.5" />
+                        Detalhes
+                    </TabsTrigger>
+                    <TabsTrigger value="items" className="gap-1.5">
+                        <Package className="h-3.5 w-3.5" />
+                        Itens
+                    </TabsTrigger>
+                    <TabsTrigger value="fiscal" className="gap-1.5">
+                        <FileText className="h-3.5 w-3.5" />
+                        Fiscal
+                    </TabsTrigger>
+                    <TabsTrigger value="history" className="gap-1.5">
+                        <History className="h-3.5 w-3.5" />
+                        Historico
+                    </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="details" className="space-y-4">
+                    <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                        <div className="space-y-4">
+                            <Card className="glass-card border-0">
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="flex items-center gap-2 text-base">
+                                        <Building className="h-4 w-4 text-bronze" />
+                                        Contexto comercial
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <DetailRow label="Empresa" value={order.store?.company_name || 'Nao informada'} />
+                                    <DetailRow label="CNPJ" value={order.store?.cnpj || 'Nao informado'} />
+                                    <DetailRow label="Cliente" value={customerName} />
+                                    <DetailRow label="Canal" value={order.sales_channel === 'representative' ? 'Representante' : 'Portal do cliente'} />
+                                    {order.sales_channel === 'representative' ? (
+                                        <DetailRow label="Representante" value={representativeName} />
+                                    ) : null}
+                                    <DetailRow label="Atualizado em" value={formatDateTime(order.updated_at || order.created_at)} />
+                                </CardContent>
+                            </Card>
+
+                            <Card className="glass-card border-0">
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="flex items-center gap-2 text-base">
+                                        <MapPin className="h-4 w-4 text-bronze" />
+                                        Entrega e observacoes
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <DetailRow label="Entrega estimada" value={estimatedDeliveryLabel} />
+                                    <DetailRow label="Endereco" value={order.shipping_address || 'Nao informado'} allowWrap />
+                                    <Separator />
+                                    <DetailRow label="Observacoes" value={order.notes || 'Sem observacoes registradas'} allowWrap />
+                                </CardContent>
+                            </Card>
+                        </div>
+
+                        <div className="space-y-4">
+                            <OrderPaymentSummaryCard order={order} />
+
+                            <Card className="glass-card border-0">
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="flex items-center gap-2 text-base">
+                                        <Receipt className="h-4 w-4 text-bronze" />
+                                        Visao financeira
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <DetailRow label="Status do pagamento" value={paymentStatusLabel} />
+                                    <DetailRow label="Meio" value={order.payment_method_name || 'Nao informado'} />
+                                    <DetailRow label="Condicao" value={order.payment_condition_name || order.payment_condition?.name || 'Nao informada'} />
+                                    <DetailRow label="Parcelas" value={String(order.payment_installments || order.payment_condition?.installments || 1)} />
+                                    <Separator />
+                                    <DetailRow label="Subtotal" value={formatCurrency(order.subtotal)} />
+                                    <DetailRow label="Desconto via cupom" value={formatCurrency(couponDiscountAmount)} />
+                                    <DetailRow label="Desconto por pagamento" value={formatCurrency(paymentDiscountAmount)} />
+                                    <DetailRow label="Desconto total" value={formatCurrency(order.discount_amount)} />
+                                    <DetailRow label="Total final" value={formatCurrency(order.total)} />
+                                </CardContent>
+                            </Card>
+
+                            <Card className="glass-card border-0">
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="flex items-center gap-2 text-base">
+                                        <Clock className="h-4 w-4 text-bronze" />
+                                        Estado operacional
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-3 text-sm">
+                                    <DetailRow label="Status do pedido" value={statusConfig[order.status].label} />
+                                    <DetailRow label="Faturamento" value={invoice ? `Fatura ${invoice.invoice_number || invoice.id}` : 'Nao faturado'} />
+                                    <DetailRow label="Logistica" value={routeAssignment ? `Em rota ${routeAssignment.route?.route_number || routeAssignment.route_id}` : 'Sem rota ativa'} />
+                                    <DetailRow
+                                        label="Fiscal"
+                                        value={
+                                            fiscalSummary?.numero_nf
+                                                ? `NF ${fiscalSummary.numero_nf}`
+                                                : fiscalSummary?.document_status || 'Sem documento'
+                                        }
+                                    />
+                                </CardContent>
+                            </Card>
+                        </div>
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="items" className="space-y-4">
+                    <Card className="glass-card border-0">
+                        <CardHeader className="pb-3">
+                            <CardTitle className="flex items-center gap-2 text-base">
+                                <Package className="h-4 w-4 text-bronze" />
+                                Itens do pedido
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {items.length === 0 ? (
+                                <div className="rounded-xl border border-dashed border-slate-200 bg-white/70 px-4 py-10 text-center text-sm text-muted-foreground">
+                                    Este pedido nao possui itens registrados.
+                                </div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Produto</TableHead>
+                                                <TableHead className="text-center">Qtd.</TableHead>
+                                                <TableHead className="text-right">Unitario</TableHead>
+                                                <TableHead className="text-right">Subtotal</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {items.map((item) => (
+                                                <TableRow key={item.id}>
+                                                    <TableCell>
+                                                        <ItemDescriptor item={item} />
+                                                    </TableCell>
+                                                    <TableCell className="text-center font-medium">{item.quantity}</TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(item.unit_price)}</TableCell>
+                                                    <TableCell className="text-right font-semibold">
+                                                        {formatCurrency(item.unit_price * item.quantity)}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="fiscal" className="space-y-4">
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        O faturamento financeiro e a emissao fiscal sao fluxos distintos. Use o botao <strong>Faturar</strong>{' '}
+                        no topo para gerar a fatura financeira e esta aba para acompanhar NF-e, DANFE e eventos fiscais.
+                    </div>
+                    <FiscalSection orderId={order.id} orderStatus={order.status} />
+                </TabsContent>
+
+                <TabsContent value="history" className="space-y-4">
+                    <Card className="glass-card border-0">
+                        <CardHeader className="pb-3">
+                            <CardTitle className="flex items-center gap-2 text-base">
+                                <History className="h-4 w-4 text-bronze" />
+                                Historico operacional
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {loadingHistory ? (
+                                <div className="space-y-3">
+                                    {Array.from({ length: 4 }).map((_, index) => (
+                                        <Skeleton key={index} className="h-20 rounded-xl" />
+                                    ))}
+                                </div>
+                            ) : history.length === 0 ? (
+                                <div className="rounded-xl border border-dashed border-slate-200 bg-white/70 px-4 py-10 text-center text-sm text-muted-foreground">
+                                    Nenhum evento de historico foi encontrado para este pedido.
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {history.map((entry) => (
+                                        <div
+                                            key={entry.id}
+                                            className="rounded-xl border border-slate-200/70 bg-white/80 p-4"
+                                        >
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                <div className="space-y-2">
+                                                    <Badge
+                                                        variant="outline"
+                                                        className={`${statusConfig[entry.status as OrderStatus]?.color || 'border-slate-200 bg-slate-50 text-slate-700'} text-xs`}
+                                                    >
+                                                        {statusConfig[entry.status as OrderStatus]?.label || entry.status}
+                                                    </Badge>
+                                                    <p className="text-sm text-slate-700">
+                                                        {entry.notes || 'Atualizacao de status sem observacoes adicionais.'}
+                                                    </p>
+                                                </div>
+                                                <div className="text-sm text-muted-foreground sm:text-right">
+                                                    <p>{entry.profile?.full_name || 'Sistema'}</p>
+                                                    <p>{formatDateTime(entry.created_at)}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
+
+            <InvoiceOrderModal
+                order={{
+                    id: order.id,
+                    order_number: order.order_number,
+                    total: order.total,
+                    payment_method_id: order.payment_method_id,
+                    payment_method_name: order.payment_method_name,
+                    payment_condition_id: order.payment_condition_id,
+                    payment_condition_name: order.payment_condition_name || order.payment_condition?.name || null,
+                    payment_installments: order.payment_installments || order.payment_condition?.installments || null,
+                    store: order.store || null,
+                }}
+                open={isInvoiceModalOpen}
+                onOpenChange={setIsInvoiceModalOpen}
+                onSuccess={() => {
+                    setIsInvoiceModalOpen(false)
+                    void reload()
+                }}
             />
 
-            {/* Notes */}
-            <Card className="border-0 shadow-sm md:col-span-2">
-              <CardContent className="p-5">
-                <h4 className="font-bold text-sm mb-3 text-navy">Observações do Pedido</h4>
-                <div className="bg-amber-50/50 text-amber-900 rounded-xl p-4 border border-amber-100 min-h-[60px] text-sm">
-                  {order.notes
-                    ? <p>{order.notes}</p>
-                    : <p className="text-amber-700/50 italic">Nenhuma observação informada.</p>
-                  }
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* ─── Tab: Fiscal ─── */}
-        <TabsContent value="fiscal">
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-5">
-              <FiscalSection orderId={order.id} orderStatus={order.status} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ─── Tab: History ─── */}
-        <TabsContent value="history">
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-5">
-              <h4 className="font-bold text-sm mb-4 text-navy flex items-center gap-2">
-                <History className="h-4 w-4" /> Trilha de Auditoria
-              </h4>
-
-              {loadingHistory ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-12 w-full" />
-                  <Skeleton className="h-12 w-full" />
-                </div>
-              ) : history.length === 0 ? (
-                <p className="text-sm text-muted-foreground bg-muted/30 p-4 rounded-lg">
-                  Nenhuma transição de status registrada.
-                </p>
-              ) : (
-                <div className="relative border-l-2 border-muted ml-4 pl-6 space-y-5">
-                  {history.map((record) => {
-                    const cnf = statusConfig[record.status as keyof typeof statusConfig]
-                    return (
-                      <div key={record.id} className="relative">
-                        <div className={`absolute -left-[35px] h-4 w-4 rounded-full border-2 border-white shadow-sm ${cnf?.color || 'bg-gray-200'}`} />
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white border rounded-lg p-3 shadow-sm">
-                          <div>
-                            <p className="font-medium text-sm flex items-center gap-2">
-                              {cnf?.label && <Badge variant="outline" className={cnf.color}>{cnf.label}</Badge>}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                              <User className="h-3 w-3" />
-                              {record.profile?.full_name || 'Sistema'}
-                            </p>
-                          </div>
-                          <p className="text-xs font-mono text-muted-foreground flex items-center gap-1 bg-muted/50 px-2 py-1 rounded mt-2 sm:mt-0">
-                            <Clock className="h-3 w-3" />
-                            {format(new Date(record.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR })}
-                          </p>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
-  )
-}
-
-// ─── Sub-Components ─────────────────────────────
-
-function SummaryCard({ icon: Icon, label, value, color, bold }: {
-  icon: React.ElementType; label: string; value: string; color: string; bold?: boolean
-}) {
-  return (
-    <Card className="border-0 shadow-sm">
-      <CardContent className="p-4 flex items-center gap-3">
-        <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
-          <Icon className="h-5 w-5" />
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent className="rounded-2xl border-0 shadow-2xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir pedido?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta acao remove o pedido, seus itens e o historico associado. Se houver fatura
+                            vinculada ou rota ativa, a exclusao sera bloqueada automaticamente.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDelete}
+                            disabled={isDeleting}
+                            className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            {isDeleting ? 'Excluindo...' : 'Excluir pedido'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className={`text-sm truncate ${bold ? 'font-black text-navy' : 'font-bold'}`}>{value}</p>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-2">
-      <span className="text-muted-foreground shrink-0">{label}:</span>
-      <span className="font-medium text-right truncate">{value}</span>
-    </div>
-  )
+    )
 }

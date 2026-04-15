@@ -66,6 +66,7 @@ type AdminOrderListEnrichmentRow = {
     customer_profile?: { full_name?: string | null } | null
     created_by_profile?: { full_name?: string | null; role?: string | null } | null
     items?: Array<{ count?: number | null }>
+    invoices?: Array<{ id: string }>
 }
 
 export default function AdminOrdersPage() {
@@ -107,6 +108,7 @@ export default function AdminOrdersPage() {
                 customerName: string
                 representativeName: string
                 itemCount: number
+                hasInvoice: boolean
             }>()
 
             if (orderIds.length > 0) {
@@ -117,7 +119,8 @@ export default function AdminOrdersPage() {
                         sales_channel,
                         customer_profile:profiles!orders_profile_id_fkey(full_name),
                         created_by_profile:profiles!orders_created_by_profile_id_fkey(full_name, role),
-                        items:order_items(count)
+                        items:order_items(count),
+                        invoices(id)
                     `)
                     .in('id', orderIds)
 
@@ -130,6 +133,7 @@ export default function AdminOrdersPage() {
                             customerName: row.customer_profile?.full_name || '',
                             representativeName: row.created_by_profile?.full_name || '',
                             itemCount: Number(row.items?.[0]?.count || 0),
+                            hasInvoice: Array.isArray(row.invoices) && row.invoices.length > 0,
                         })
                     })
                 }
@@ -189,6 +193,7 @@ export default function AdminOrdersPage() {
                     item_count: itemCount,
                     sales_channel: salesChannel,
                     fiscal_status: fiscalStatusById.get(order.id) || null,
+                    has_invoice: Boolean(enrichment?.hasInvoice),
                 }
             })
             setOrders(mapped)

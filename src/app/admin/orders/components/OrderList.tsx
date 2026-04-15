@@ -15,7 +15,6 @@ import {
     Loader2,
     FileText,
     ShieldCheck,
-    Send
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -43,33 +42,34 @@ import type { OrderStatus } from '@/lib/types'
 import { getAvailableOrderStatusTransitions } from '@/lib/orders/order-status-transition'
 
 export interface OrderWithDetails {
-    id: string;
-    order_number: string;
-    status: OrderStatus;
-    total: number;
-    subtotal: number;
-    discount_amount: number;
-    created_at: string;
-    notes: string | null;
-    store?: { company_name: string; cnpj: string };
-    profile?: { full_name: string };
-    customer_profile?: { full_name: string } | null;
-    created_by_profile?: { full_name: string; role?: string } | null;
-    payment_condition?: { name: string };
-    item_count?: number;
-    sales_channel?: 'customer_portal' | 'representative';
-    fiscal_status?: string | null;
+    id: string
+    order_number: string
+    status: OrderStatus
+    total: number
+    subtotal: number
+    discount_amount: number
+    created_at: string
+    notes: string | null
+    store?: { company_name: string; cnpj: string }
+    profile?: { full_name: string }
+    customer_profile?: { full_name: string } | null
+    created_by_profile?: { full_name: string; role?: string } | null
+    payment_condition?: { name: string }
+    item_count?: number
+    sales_channel?: 'customer_portal' | 'representative'
+    fiscal_status?: string | null
+    has_invoice?: boolean
 }
 
 interface OrderListProps {
-    orders: OrderWithDetails[];
-    loading: boolean;
-    deletingOrderIds: string[];
-    selectedOrders: string[];
-    onToggleSelect: (id: string) => void;
-    onViewDetail?: (order: OrderWithDetails) => void;
-    onUpdateStatus: (id: string, newStatus: OrderStatus) => void;
-    onDelete?: (id: string) => Promise<boolean> | boolean;
+    orders: OrderWithDetails[]
+    loading: boolean
+    deletingOrderIds: string[]
+    selectedOrders: string[]
+    onToggleSelect: (id: string) => void
+    onViewDetail?: (order: OrderWithDetails) => void
+    onUpdateStatus: (id: string, newStatus: OrderStatus) => void
+    onDelete?: (id: string) => Promise<boolean> | boolean
 }
 
 export function OrderList({
@@ -78,9 +78,8 @@ export function OrderList({
     deletingOrderIds,
     selectedOrders,
     onToggleSelect,
-    onViewDetail,
     onUpdateStatus,
-    onDelete
+    onDelete,
 }: OrderListProps) {
     const router = useRouter()
     const [orderToDelete, setOrderToDelete] = React.useState<string | null>(null)
@@ -90,7 +89,7 @@ export function OrderList({
             <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
                     <Card key={i} className="glass-card border-0">
-                        <CardContent className="p-4 flex items-center gap-4">
+                        <CardContent className="flex items-center gap-4 p-4">
                             <Skeleton className="h-6 w-6 rounded" />
                             <Skeleton className="h-10 w-10 rounded-lg" />
                             <div className="flex-1 space-y-2">
@@ -107,13 +106,13 @@ export function OrderList({
 
     if (orders.length === 0) {
         return (
-            <div className="text-center py-16 bg-white/40 rounded-xl border border-white/20">
-                <div className="mx-auto h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4">
+            <div className="rounded-xl border border-white/20 bg-white/40 py-16 text-center">
+                <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
                     <ClipboardList className="h-8 w-8 text-muted-foreground" />
                 </div>
                 <h3 className="text-lg font-semibold">Nenhum pedido encontrado</h3>
-                <p className="text-muted-foreground text-sm mt-1">
-                    Não existem pedidos que correspondam aos filtros atuais.
+                <p className="mt-1 text-sm text-muted-foreground">
+                    Nao existem pedidos que correspondam aos filtros atuais.
                 </p>
             </div>
         )
@@ -122,37 +121,40 @@ export function OrderList({
     return (
         <div className="space-y-3">
             {orders.map((order, i) => {
-                const config = statusConfig[order.status];
-                const isSelected = selectedOrders.includes(order.id);
+                const config = statusConfig[order.status]
+                const isSelected = selectedOrders.includes(order.id)
                 const nextTransitions = getAvailableOrderStatusTransitions(order.status)
                 const itemCount = Number(order.item_count || 0)
                 const isRepresentativeOrder = order.sales_channel === 'representative'
-                const customerName = order.customer_profile?.full_name || order.profile?.full_name || 'Cliente nao informado'
-                const representativeName = order.created_by_profile?.full_name || 'Representante nao informado'
+                const customerName =
+                    order.customer_profile?.full_name || order.profile?.full_name || 'Cliente nao informado'
+                const representativeName =
+                    order.created_by_profile?.full_name || 'Representante nao informado'
                 const isDeleting = deletingOrderIds.includes(order.id)
 
                 return (
-                    <motion.div 
-                        key={order.id} 
-                        initial={{ opacity: 0, y: 10 }} 
-                        animate={{ opacity: 1, y: 0 }} 
+                    <motion.div
+                        key={order.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: Math.min(i * 0.03, 0.3) }}
                     >
-                        <Card 
-                            className={`glass-card border-0 hover:shadow-md transition-all cursor-pointer ${
-                                isSelected ? 'ring-2 ring-bronze bg-bronze/5' : ''
-                            } ${order.status === 'cancelled' ? 'opacity-70 grayscale-[0.5]' : ''}`}
+                        <Card
+                            className={`glass-card cursor-pointer border-0 transition-all hover:shadow-md ${
+                                isSelected ? 'bg-bronze/5 ring-2 ring-bronze' : ''
+                            } ${order.status === 'cancelled' ? 'grayscale-[0.5] opacity-70' : ''}`}
                             onClick={() => router.push(`/admin/orders/${order.id}`)}
                         >
                             <CardContent className="p-0">
-                                <div className="flex flex-col sm:flex-row sm:items-center p-4 gap-4">
-                                    
-                                    {/* Selection & Icon */}
-                                    <div className="flex items-center gap-4 shrink-0">
+                                <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+                                    <div className="flex shrink-0 items-center gap-4">
                                         <button
                                             type="button"
-                                            onClick={(e) => { e.stopPropagation(); onToggleSelect(order.id); }}
-                                            className="h-8 w-8 flex items-center justify-center rounded-full bg-white shadow-sm hover:bg-gray-50 border transition-colors shrink-0"
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                onToggleSelect(order.id)
+                                            }}
+                                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-white shadow-sm transition-colors hover:bg-gray-50"
                                         >
                                             {isSelected ? (
                                                 <CheckSquare className="h-5 w-5 text-bronze" />
@@ -160,15 +162,19 @@ export function OrderList({
                                                 <Square className="h-5 w-5 text-muted-foreground/50" />
                                             )}
                                         </button>
-                                        <div className={`h-10 w-10 flex-shrink-0 rounded-lg flex items-center justify-center ${config.color}`}>
+                                        <div
+                                            className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${config.color}`}
+                                        >
                                             <config.icon className="h-5 w-5" />
                                         </div>
                                     </div>
 
-                                    {/* Order Main Info */}
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex flex-wrap items-center gap-2 mb-1">
-                                            <h3 className="font-bold text-navy truncate" title={order.order_number}>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                                            <h3
+                                                className="truncate font-bold text-navy"
+                                                title={order.order_number}
+                                            >
                                                 {order.order_number}
                                             </h3>
                                             <Badge variant="outline" className={`text-[10px] ${config.color}`}>
@@ -176,128 +182,181 @@ export function OrderList({
                                             </Badge>
                                             <Badge
                                                 variant="outline"
-                                                className={`text-[10px] ${isRepresentativeOrder ? 'border-primary/30 bg-primary/5 text-primary' : 'border-emerald-300 bg-emerald-50 text-emerald-700'}`}
+                                                className={`text-[10px] ${
+                                                    isRepresentativeOrder
+                                                        ? 'border-primary/30 bg-primary/5 text-primary'
+                                                        : 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                                }`}
                                             >
                                                 {isRepresentativeOrder ? 'Canal: Representante' : 'Canal: Cliente'}
                                             </Badge>
-                                            {order.fiscal_status && order.fiscal_status !== 'none' && (
+                                            {order.has_invoice ? (
                                                 <Badge
                                                     variant="outline"
-                                                    className={`text-[10px] gap-1 ${
-                                                        order.fiscal_status === 'authorized' ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                                                        : order.fiscal_status === 'denied' || order.fiscal_status === 'error' ? 'border-red-300 bg-red-50 text-red-700'
-                                                        : order.fiscal_status === 'cancelled' ? 'border-slate-300 bg-slate-100 text-slate-500'
-                                                        : order.fiscal_status === 'correction' ? 'border-orange-300 bg-orange-50 text-orange-700'
-                                                        : 'border-blue-300 bg-blue-50 text-blue-700'
+                                                    className="gap-1 border-emerald-300 bg-emerald-50 text-[10px] text-emerald-700"
+                                                >
+                                                    <FileText className="h-3 w-3" />
+                                                    Faturado
+                                                </Badge>
+                                            ) : null}
+                                            {order.fiscal_status && order.fiscal_status !== 'none' ? (
+                                                <Badge
+                                                    variant="outline"
+                                                    className={`gap-1 text-[10px] ${
+                                                        order.fiscal_status === 'authorized'
+                                                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                                            : order.fiscal_status === 'denied' ||
+                                                                order.fiscal_status === 'error'
+                                                              ? 'border-red-300 bg-red-50 text-red-700'
+                                                              : order.fiscal_status === 'cancelled'
+                                                                ? 'border-slate-300 bg-slate-100 text-slate-500'
+                                                                : order.fiscal_status === 'correction'
+                                                                  ? 'border-orange-300 bg-orange-50 text-orange-700'
+                                                                  : 'border-blue-300 bg-blue-50 text-blue-700'
                                                     }`}
                                                 >
-                                                    {order.fiscal_status === 'authorized' && <ShieldCheck className="h-3 w-3" />}
-                                                    {order.fiscal_status === 'authorized' ? 'NF-e' 
-                                                        : order.fiscal_status === 'denied' ? 'NF-e Rejeitada'
-                                                        : order.fiscal_status === 'cancelled' ? 'NF-e Cancelada'
-                                                        : order.fiscal_status === 'correction' ? 'CC-e'
-                                                        : order.fiscal_status === 'pending' || order.fiscal_status === 'processing' ? 'NF-e Pendente'
-                                                        : 'NF-e'
-                                                    }
+                                                    {order.fiscal_status === 'authorized' ? (
+                                                        <ShieldCheck className="h-3 w-3" />
+                                                    ) : null}
+                                                    {order.fiscal_status === 'authorized'
+                                                        ? 'NF-e'
+                                                        : order.fiscal_status === 'denied'
+                                                          ? 'NF-e Rejeitada'
+                                                          : order.fiscal_status === 'cancelled'
+                                                            ? 'NF-e Cancelada'
+                                                            : order.fiscal_status === 'correction'
+                                                              ? 'CC-e'
+                                                              : order.fiscal_status === 'pending' ||
+                                                                  order.fiscal_status === 'processing'
+                                                                ? 'NF-e Pendente'
+                                                                : 'NF-e'}
                                                 </Badge>
-                                            )}
+                                            ) : null}
                                         </div>
-                                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm text-muted-foreground truncate">
-                                            <span className="font-medium text-slate-700 truncate max-w-[200px]" title={order.store?.company_name}>
-                                                {order.store?.company_name || 'Sem Empresa'}
+
+                                        <div className="flex flex-col gap-1 truncate text-sm text-muted-foreground sm:flex-row sm:items-center sm:gap-2">
+                                            <span
+                                                className="max-w-[200px] truncate font-medium text-slate-700"
+                                                title={order.store?.company_name}
+                                            >
+                                                {order.store?.company_name || 'Sem empresa'}
                                             </span>
                                             <span className="hidden sm:inline">•</span>
-                                            <span className="truncate max-w-[180px]" title={customerName}>
+                                            <span className="max-w-[180px] truncate" title={customerName}>
                                                 Cliente: {customerName}
                                             </span>
-                                            {isRepresentativeOrder && (
+                                            {isRepresentativeOrder ? (
                                                 <>
                                                     <span className="hidden sm:inline">•</span>
-                                                    <span className="truncate max-w-[180px]" title={representativeName}>
+                                                    <span className="max-w-[180px] truncate" title={representativeName}>
                                                         Rep: {representativeName}
                                                     </span>
                                                 </>
-                                            )}
+                                            ) : null}
                                             <span className="hidden sm:inline">•</span>
                                             <span>
-                                                {format(new Date(order.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                                                {format(new Date(order.created_at), 'dd/MM/yyyy HH:mm', {
+                                                    locale: ptBR,
+                                                })}
                                             </span>
                                         </div>
+
                                         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                                            <span className="bg-muted px-1.5 py-0.5 rounded truncate max-w-[150px]">
-                                                {order.payment_condition?.name || 'Condição N/A'}
+                                            <span className="max-w-[150px] truncate rounded bg-muted px-1.5 py-0.5">
+                                                {order.payment_condition?.name || 'Condicao N/A'}
                                             </span>
                                             <span>•</span>
                                             <span>
                                                 {itemCount} {itemCount === 1 ? 'item' : 'itens'}
                                             </span>
-                                            {itemCount === 0 && (
+                                            {itemCount === 0 ? (
                                                 <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive">
                                                     sem itens
                                                 </span>
-                                            )}
+                                            ) : null}
                                         </div>
                                     </div>
 
-                                    {/* Action Group */}
-                                    <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 mt-2 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-0">
+                                    <div className="mt-2 flex shrink-0 items-center justify-between gap-4 border-t pt-2 sm:mt-0 sm:justify-end sm:border-0 sm:pt-0">
                                         <span className="text-lg font-bold text-gradient-bronze">
                                             R$ {order.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                         </span>
                                         <div onClick={(e) => e.stopPropagation()}>
                                             <DropdownMenu>
-                                                <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-navy" />}>
+                                                <DropdownMenuTrigger
+                                                    render={
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-muted-foreground hover:text-navy"
+                                                        />
+                                                    }
+                                                >
                                                     <MoreHorizontal className="h-5 w-5" />
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end" className="w-48">
                                                     <DropdownMenuItem onClick={() => router.push(`/admin/orders/${order.id}`)}>
-                                                        <Eye className="h-4 w-4 mr-2" /> Ver Detalhes
+                                                        <Eye className="mr-2 h-4 w-4" />
+                                                        Ver detalhes
                                                     </DropdownMenuItem>
-                                                    <DropdownMenuItem onClick={() => window.open(`/admin/fiscal-review/${order.id}`, '_blank')}>
-                                                        <FileText className="h-4 w-4 mr-2" /> Revisão Fiscal
+                                                    <DropdownMenuItem
+                                                        onClick={() =>
+                                                            window.open(`/admin/fiscal-review/${order.id}`, '_blank')
+                                                        }
+                                                    >
+                                                        <FileText className="mr-2 h-4 w-4" />
+                                                        Revisao fiscal
                                                     </DropdownMenuItem>
                                                     <DropdownMenuSeparator />
-                                                    
-                                                    {nextTransitions.map((s) => {
-                                                        if (s === 'cancelled') return null
-                                                        const FlowIcon = statusConfig[s].icon
+
+                                                    {nextTransitions.map((status) => {
+                                                        if (status === 'cancelled') return null
+                                                        const FlowIcon = statusConfig[status].icon
                                                         return (
-                                                            <DropdownMenuItem key={s} onClick={() => onUpdateStatus(order.id, s)}>
-                                                                <FlowIcon className="h-4 w-4 mr-2" />
-                                                                Marcar como {statusConfig[s].label}
+                                                            <DropdownMenuItem
+                                                                key={status}
+                                                                onClick={() => onUpdateStatus(order.id, status)}
+                                                            >
+                                                                <FlowIcon className="mr-2 h-4 w-4" />
+                                                                Marcar como {statusConfig[status].label}
                                                             </DropdownMenuItem>
                                                         )
                                                     })}
 
-                                                    {nextTransitions.includes('cancelled') && (
+                                                    {nextTransitions.includes('cancelled') ? (
                                                         <>
                                                             <DropdownMenuSeparator />
-                                                            <DropdownMenuItem 
-                                                                onClick={() => onUpdateStatus(order.id, 'cancelled')} 
+                                                            <DropdownMenuItem
+                                                                onClick={() => onUpdateStatus(order.id, 'cancelled')}
                                                                 className="text-amber-600 focus:bg-amber-50"
                                                             >
-                                                                <XCircle className="h-4 w-4 mr-2" /> Cancelar Pedido
+                                                                <XCircle className="mr-2 h-4 w-4" />
+                                                                Cancelar pedido
                                                             </DropdownMenuItem>
                                                         </>
-                                                    )}
+                                                    ) : null}
 
-                                                    {onDelete && (
+                                                    {onDelete ? (
                                                         <>
                                                             <DropdownMenuSeparator />
-                                                            <DropdownMenuItem 
-                                                                onClick={() => setOrderToDelete(order.id)} 
+                                                            <DropdownMenuItem
+                                                                onClick={() => setOrderToDelete(order.id)}
                                                                 disabled={isDeleting}
                                                                 className="text-destructive focus:bg-destructive/10"
                                                             >
-                                                                {isDeleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />} Excluir Pedido
+                                                                {isDeleting ? (
+                                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                ) : (
+                                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                                )}
+                                                                Excluir pedido
                                                             </DropdownMenuItem>
                                                         </>
-                                                    )}
+                                                    ) : null}
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                         </div>
                                     </div>
-
                                 </div>
                             </CardContent>
                         </Card>
@@ -305,21 +364,23 @@ export function OrderList({
                 )
             })}
 
-            {/* Confirmation Dialog */}
             <AlertDialog open={!!orderToDelete} onOpenChange={(open) => !open && setOrderToDelete(null)}>
                 <AlertDialogContent className="w-[95vw] max-w-md rounded-2xl border-0 shadow-2xl">
                     <AlertDialogHeader>
-                        <div className="mx-auto h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center mb-2">
+                        <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
                             <AlertCircle className="h-6 w-6 text-destructive" />
                         </div>
-                        <AlertDialogTitle className="text-center text-xl">Excluir Pedido?</AlertDialogTitle>
+                        <AlertDialogTitle className="text-center text-xl">Excluir pedido?</AlertDialogTitle>
                         <AlertDialogDescription className="text-center text-balance">
-                            Esta ação é permanente e removerá todos os dados do pedido, itens e histórico de status. Deseja continuar?
+                            Esta acao e permanente e removera todos os dados do pedido, itens e historico de
+                            status. Deseja continuar?
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter className="flex-row gap-3 sm:gap-0 mt-4">
-                        <AlertDialogCancel className="flex-1 mt-0 rounded-xl border-navy/10 hover:bg-navy/5">Cancelar</AlertDialogCancel>
-                        <AlertDialogAction 
+                    <AlertDialogFooter className="mt-4 flex-row gap-3 sm:gap-0">
+                        <AlertDialogCancel className="mt-0 flex-1 rounded-xl border-navy/10 hover:bg-navy/5">
+                            Cancelar
+                        </AlertDialogCancel>
+                        <AlertDialogAction
                             onClick={async () => {
                                 if (orderToDelete) {
                                     const success = await onDelete?.(orderToDelete)
@@ -329,15 +390,15 @@ export function OrderList({
                                 }
                             }}
                             disabled={Boolean(orderToDelete && deletingOrderIds.includes(orderToDelete))}
-                            className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl shadow-lg shadow-destructive/20"
+                            className="flex-1 rounded-xl bg-destructive text-destructive-foreground shadow-lg shadow-destructive/20 hover:bg-destructive/90"
                         >
                             {orderToDelete && deletingOrderIds.includes(orderToDelete) ? (
                                 <>
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                     Excluindo...
                                 </>
                             ) : (
-                                'Excluir Agora'
+                                'Excluir agora'
                             )}
                         </AlertDialogAction>
                     </AlertDialogFooter>
