@@ -284,6 +284,10 @@ export interface ItemTaxBreakdown {
   ncm: string
   cest: string | null
   origin_code: string
+  commercial_unit: string | null
+  tax_unit: string | null
+  ean_gtin: string | null
+  tax_ean_gtin: string | null
 }
 
 // --------------- Document Totals ---------------

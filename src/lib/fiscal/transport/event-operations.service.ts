@@ -14,6 +14,7 @@ import {
   sendSoapRequest,
   parseSefazEventoResponse,
 } from './sefaz-client.service'
+import { parseFiscalDocumentSnapshot } from './fiscal-document-snapshot'
 import type { CancelResult } from './types'
 import { UF_CODES } from './types'
 
@@ -66,15 +67,13 @@ export async function cancelNFe(
       return createCancelError('DOC_INCOMPLETE', 'Documento sem chave de acesso ou protocolo de autorizacao.')
     }
 
-    // 2. Load emitter context for UF
-    const { data: profile } = await supabase
-      .from('company_fiscal_profile')
-      .select('cnpj, fiscal_state')
-      .limit(1)
-      .maybeSingle()
+    const snapshot = parseFiscalDocumentSnapshot(doc.fiscal_payload_jsonb)
+    if (!snapshot) {
+      return createCancelError('DOC_NO_SNAPSHOT', 'Snapshot fiscal imutavel nao encontrado para este documento.')
+    }
 
-    const uf = profile?.fiscal_state?.toUpperCase() || 'SP'
-    const cnpj = (profile?.cnpj || '').replace(/\D/g, '')
+    const uf = snapshot.context.emitter.uf.toUpperCase()
+    const cnpj = (snapshot.context.emitter.cnpj || '').replace(/\D/g, '')
     const ambiente = doc.ambiente === 'producao' ? 'producao' : 'homologacao'
     const tpAmb = ambiente === 'producao' ? 1 : 2
 
@@ -174,6 +173,7 @@ export async function cancelNFe(
         response_summary_jsonb: sefazResult,
         sefaz_status_code: sefazResult.cStat,
         sefaz_message: sefazResult.xMotivo,
+        error_message: isSuccess ? null : sefazResult.xMotivo,
         duration_ms: duration,
         executed_by: userId,
       })
@@ -242,15 +242,13 @@ export async function sendCartaCorrecao(
       return createCancelError('DOC_NO_CHAVE', 'Documento sem chave de acesso.')
     }
 
-    // 2. Load emitter
-    const { data: profile } = await supabase
-      .from('company_fiscal_profile')
-      .select('cnpj, fiscal_state')
-      .limit(1)
-      .maybeSingle()
+    const snapshot = parseFiscalDocumentSnapshot(doc.fiscal_payload_jsonb)
+    if (!snapshot) {
+      return createCancelError('DOC_NO_SNAPSHOT', 'Snapshot fiscal imutavel nao encontrado para este documento.')
+    }
 
-    const uf = profile?.fiscal_state?.toUpperCase() || 'SP'
-    const cnpj = (profile?.cnpj || '').replace(/\D/g, '')
+    const uf = snapshot.context.emitter.uf.toUpperCase()
+    const cnpj = (snapshot.context.emitter.cnpj || '').replace(/\D/g, '')
     const ambiente = doc.ambiente === 'producao' ? 'producao' : 'homologacao'
     const tpAmb = ambiente === 'producao' ? 1 : 2
 
@@ -349,6 +347,7 @@ export async function sendCartaCorrecao(
         response_summary_jsonb: sefazResult,
         sefaz_status_code: sefazResult.cStat,
         sefaz_message: sefazResult.xMotivo,
+        error_message: isSuccess ? null : sefazResult.xMotivo,
         duration_ms: duration,
         executed_by: userId,
       })

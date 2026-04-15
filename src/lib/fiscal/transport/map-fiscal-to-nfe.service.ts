@@ -1,5 +1,5 @@
 // ============================================================
-// Fiscal Transport — Map FiscalDocumentPayload → NFe XML
+// Fiscal Transport - Map FiscalDocumentPayload -> NFe XML
 // Converts Motor Fiscal output to SEFAZ XML structure
 // using fast-xml-parser (pure JS, Vercel-compatible)
 // ============================================================
@@ -11,13 +11,24 @@ import type {
   FiscalDocumentPayload,
   ItemTaxBreakdown,
   DocumentTotals,
-  EmitterContext,
   StoreContext,
-  EnvironmentContext,
 } from '../motor/types'
-import { UF_CODES } from './types'
+import { FRETE_CODES, UF_CODES } from './types'
 
 const NF_NAMESPACE = 'http://www.portalfiscal.inf.br/nfe'
+
+export interface NFePaymentSnapshot {
+  methodCode?: string | null
+  methodName?: string | null
+  installments?: number | null
+  paidAmount?: number | null
+}
+
+export interface NFeBuildOptions {
+  payment?: NFePaymentSnapshot | null
+  freightMode?: string | null
+  additionalInfo?: string | null
+}
 
 /**
  * Maps a FiscalDocumentPayload from the Motor Fiscal to the
@@ -29,22 +40,21 @@ export function mapFiscalPayloadToNFeXml(
   payload: FiscalDocumentPayload,
   documentNumber: number,
   serie: string,
-  modelo: '55' | '65' = '55'
+  modelo: '55' | '65' = '55',
+  options: NFeBuildOptions = {}
 ): { xml: string; chaveAcesso: string; infNFeId: string } {
   const { context: ctx, items, totals } = payload
   const cUF = UF_CODES[ctx.emitter.uf] || 35
   const cNF = generateCNF()
   const nNF = documentNumber
-  const dhEmi = new Date().toISOString().replace('Z', '-03:00') // BRT
+  const dhEmi = new Date().toISOString().replace('Z', '-03:00')
   const tpAmb = ctx.environment.ambiente === 'producao' ? 1 : 2
 
-  // Generate chave de acesso (44 digits)
   const chaveBase = buildChaveBase(cUF, dhEmi, ctx.emitter.cnpj, Number(modelo), Number(serie), nNF, 1, cNF)
   const cDV = calculateMod11(chaveBase)
   const chaveAcesso = `${chaveBase}${cDV}`
   const infNFeId = `NFe${chaveAcesso}`
 
-  // Build IDE
   const ide = {
     cUF,
     cNF,
@@ -54,22 +64,21 @@ export function mapFiscalPayloadToNFeXml(
     nNF,
     dhEmi,
     ...(modelo === '55' ? { dhSaiEnt: dhEmi } : {}),
-    tpNF: 1, // 1 = saída
-    idDest: ctx.emitter.uf === ctx.store.uf ? 1 : 2, // 1=intra, 2=inter
+    tpNF: 1,
+    idDest: ctx.emitter.uf === ctx.store.uf ? 1 : 2,
     cMunFG: Number(ctx.emitter.ibge),
-    tpImp: modelo === '55' ? 1 : 4, // 1=DANFE retrato (55), 4=DANFE NFC-e
-    tpEmis: 1, // 1=normal
+    tpImp: modelo === '55' ? 1 : 4,
+    tpEmis: 1,
     cDV: Number(cDV),
     tpAmb,
-    finNFe: 1, // 1=normal
+    finNFe: 1,
     indFinal: ctx.store.is_consumer_final ? 1 : 0,
-    indPres: modelo === '65' ? 1 : 9, // 1=presencial(65), 9=outros(55)
+    indPres: modelo === '65' ? 1 : 9,
     indIntermed: 0,
     procEmi: 0,
     verProc: payload.motor_version,
   }
 
-  // Build EMIT
   const emit = {
     CNPJ: ctx.emitter.cnpj,
     xNome: tpAmb === 2
@@ -93,7 +102,6 @@ export function mapFiscalPayloadToNFeXml(
     CRT: Number(ctx.emitter.crt),
   }
 
-  // Build DEST
   const isHomolog = tpAmb === 2
   const dest = {
     ...(ctx.store.document_number.length === 14
@@ -119,29 +127,27 @@ export function mapFiscalPayloadToNFeXml(
     ...(ctx.store.ie ? { IE: ctx.store.ie } : {}),
   }
 
-  // Build DET (items)
   const det = items.map((item, index) => ({
     '@_nItem': index + 1,
     prod: buildProd(item),
     imposto: buildImposto(item),
   }))
 
-  // Build TOTAL
-  const total = { ICMSTot: buildICMSTot(totals) }
-
-  // Build TRANSP
-  const transp = { modFrete: 9 } // 9 = sem frete
-
-  // Build PAG
+  const total = { ICMSTot: buildICMSTot(items, totals) }
+  const transp = {
+    modFrete: resolveFreightMode(totals.vFrete, options.freightMode || ctx.environment.modalidade_frete_padrao),
+  }
   const pag = {
     detPag: {
-      indPag: 0, // 0 = à vista
-      tPag: '99', // 99 = Outros
-      vPag: formatDecimal(totals.vNF),
+      indPag: resolvePaymentIndicator(options.payment?.installments),
+      tPag: mapPaymentMethodToNFe(options.payment?.methodCode),
+      ...(shouldIncludePaymentDescription(options.payment?.methodCode)
+        ? { xPag: (options.payment?.methodName || 'Outros').substring(0, 60) }
+        : {}),
+      vPag: formatDecimal(options.payment?.paidAmount ?? totals.vNF),
     },
   }
 
-  // Build infNFe
   const infNFe = {
     '@_versao': '4.00',
     '@_Id': infNFeId,
@@ -152,41 +158,43 @@ export function mapFiscalPayloadToNFeXml(
     total,
     transp,
     pag,
+    ...(options.additionalInfo ? { infAdic: { infCpl: options.additionalInfo.substring(0, 5000) } } : {}),
   }
 
-  // Build XML
   const builder = new XMLBuilder({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
     format: false,
     suppressEmptyNode: true,
-    tagValueProcessor: (tagName: string, tagValue: unknown) => {
+    tagValueProcessor: (_tagName: string, tagValue: unknown) => {
       if (tagValue === null || tagValue === undefined) return ''
       return String(tagValue)
     },
   })
 
   const infNFeXml = builder.build({ infNFe })
-
   return { xml: infNFeXml, chaveAcesso, infNFeId }
 }
 
-// ─── Helper: Build prod node ───────────────────
-
 function buildProd(item: ItemTaxBreakdown) {
+  const cEAN = normalizeGtin(item.ean_gtin)
+  const cEANTrib = normalizeGtin(item.tax_ean_gtin || item.ean_gtin)
+  const uCom = normalizeUnit(item.commercial_unit)
+  const uTrib = normalizeUnit(item.tax_unit || item.commercial_unit)
+
   return {
     cProd: item.product_variant_id.substring(0, 60),
-    cEAN: 'SEM GTIN',
+    cEAN,
     xProd: item.product_name.substring(0, 120),
     NCM: item.ncm,
     ...(item.cest ? { CEST: item.cest } : {}),
     CFOP: Number(item.cfop),
-    uCom: 'UN',
+    uCom,
     qCom: formatDecimal(item.quantity, 4),
     vUnCom: formatDecimal(item.fiscal_unit_value, 10),
     vProd: formatDecimal(item.fiscal_total_value),
-    cEANTrib: 'SEM GTIN',
-    uTrib: 'UN',
+    cEANTrib,
+    uTrib,
     qTrib: formatDecimal(item.quantity, 4),
     vUnTrib: formatDecimal(item.fiscal_unit_value, 10),
     ...(item.fiscal_discount_value > 0 ? { vDesc: formatDecimal(item.fiscal_discount_value) } : {}),
@@ -195,26 +203,22 @@ function buildProd(item: ItemTaxBreakdown) {
   }
 }
 
-// ─── Helper: Build imposto node ─────────────────
-
 function buildImposto(item: ItemTaxBreakdown) {
   const imposto: Record<string, unknown> = {}
 
-  // vTotTrib (Lei 12.741/2012)
   if (item.total_tributos > 0) {
     imposto.vTotTrib = formatDecimal(item.total_tributos)
   }
 
-  // ICMS
   imposto.ICMS = buildIcmsTag(item)
 
-  // PIS
-  imposto.PIS = buildPisTag(item)
+  if (item.icms.has_difal) {
+    imposto.ICMSUFDest = buildIcmsUfDestTag(item)
+  }
 
-  // COFINS
+  imposto.PIS = buildPisTag(item)
   imposto.COFINS = buildCofinsTag(item)
 
-  // IPI (only if applicable)
   if (item.ipi.value > 0 || (item.ipi.cst && item.ipi.cst !== '53')) {
     imposto.IPI = buildIpiTag(item)
   }
@@ -222,17 +226,18 @@ function buildImposto(item: ItemTaxBreakdown) {
   return imposto
 }
 
-// ─── Helper: ICMS tag by CST ──────────────────
-
 function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
   const cst = item.icms.cst || '00'
   const orig = Number(item.origin_code) || 0
+  const fcpSt = buildFcpStFields(item)
 
   switch (cst) {
     case '00':
       return {
         ICMS00: {
-          orig, CST: cst, modBC: 3,
+          orig,
+          CST: cst,
+          modBC: 3,
           vBC: formatDecimal(item.icms.base),
           pICMS: formatDecimal(item.icms.rate),
           vICMS: formatDecimal(item.icms.value),
@@ -241,7 +246,9 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
     case '10':
       return {
         ICMS10: {
-          orig, CST: cst, modBC: 3,
+          orig,
+          CST: cst,
+          modBC: 3,
           vBC: formatDecimal(item.icms.base),
           pICMS: formatDecimal(item.icms.rate),
           vICMS: formatDecimal(item.icms.value),
@@ -250,12 +257,15 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
           vBCST: formatDecimal(item.st.base),
           pICMSST: formatDecimal(item.st.rate),
           vICMSST: formatDecimal(item.st.value),
+          ...fcpSt,
         },
       }
     case '20':
       return {
         ICMS20: {
-          orig, CST: cst, modBC: 3,
+          orig,
+          CST: cst,
+          modBC: 3,
           pRedBC: formatDecimal(item.icms.base_reduction_percent),
           vBC: formatDecimal(item.icms.base),
           pICMS: formatDecimal(item.icms.rate),
@@ -267,11 +277,23 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
     case '50':
       return { ICMS40: { orig, CST: cst } }
     case '60':
-      return { ICMS60: { orig, CST: cst } }
+      return {
+        ICMS60: {
+          orig,
+          CST: cst,
+          ...(item.st.fcp_value > 0 ? {
+            vBCFCPSTRet: formatDecimal(item.st.fcp_base || item.st.base),
+            pFCPSTRet: formatDecimal(item.st.fcp_rate),
+            vFCPSTRet: formatDecimal(item.st.fcp_value),
+          } : {}),
+        },
+      }
     case '70':
       return {
         ICMS70: {
-          orig, CST: cst, modBC: 3,
+          orig,
+          CST: cst,
+          modBC: 3,
           pRedBC: formatDecimal(item.icms.base_reduction_percent),
           vBC: formatDecimal(item.icms.base),
           pICMS: formatDecimal(item.icms.rate),
@@ -280,22 +302,31 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
           vBCST: formatDecimal(item.st.base),
           pICMSST: formatDecimal(item.st.rate),
           vICMSST: formatDecimal(item.st.value),
+          ...fcpSt,
         },
       }
     case '90':
     default:
       return {
         ICMS90: {
-          orig, CST: cst, modBC: 3,
+          orig,
+          CST: cst,
+          modBC: 3,
           vBC: formatDecimal(item.icms.base),
           pICMS: formatDecimal(item.icms.rate),
           vICMS: formatDecimal(item.icms.value),
+          ...(item.st.enabled ? {
+            modBCST: 4,
+            ...(item.st.mva > 0 ? { pMVAST: formatDecimal(item.st.mva) } : {}),
+            vBCST: formatDecimal(item.st.base),
+            pICMSST: formatDecimal(item.st.rate),
+            vICMSST: formatDecimal(item.st.value),
+            ...fcpSt,
+          } : {}),
         },
       }
   }
 }
-
-// ─── Helper: PIS tag by CST ──────────────────
 
 function buildPisTag(item: ItemTaxBreakdown): Record<string, unknown> {
   const cst = item.pis.cst || '01'
@@ -326,8 +357,6 @@ function buildPisTag(item: ItemTaxBreakdown): Record<string, unknown> {
   }
 }
 
-// ─── Helper: COFINS tag by CST ──────────────────
-
 function buildCofinsTag(item: ItemTaxBreakdown): Record<string, unknown> {
   const cst = item.cofins.cst || '01'
   const zeroRatedCsts = ['04', '05', '06', '07', '08', '09']
@@ -357,8 +386,6 @@ function buildCofinsTag(item: ItemTaxBreakdown): Record<string, unknown> {
   }
 }
 
-// ─── Helper: IPI tag ──────────────────
-
 function buildIpiTag(item: ItemTaxBreakdown): Record<string, unknown> {
   const cst = item.ipi.cst || '50'
   const nonTaxedCsts = ['01', '02', '03', '04', '05', '51', '52', '53', '54', '55']
@@ -378,9 +405,12 @@ function buildIpiTag(item: ItemTaxBreakdown): Record<string, unknown> {
   }
 }
 
-// ─── Helper: ICMSTot ──────────────────
+function buildICMSTot(items: ItemTaxBreakdown[], totals: DocumentTotals) {
+  const vFCPST = items.reduce((sum, item) => sum + (item.st.fcp_value || 0), 0)
+  const vFCPUFDest = items.reduce((sum, item) => sum + (item.icms.has_difal ? item.fcp.value : 0), 0)
+  const vICMSUFDest = items.reduce((sum, item) => sum + item.icms.difal_value_destination, 0)
+  const vICMSUFRemet = items.reduce((sum, item) => sum + item.icms.difal_value_origin, 0)
 
-function buildICMSTot(totals: DocumentTotals) {
   return {
     vBC: formatDecimal(totals.vBC),
     vICMS: formatDecimal(totals.vICMS),
@@ -388,7 +418,7 @@ function buildICMSTot(totals: DocumentTotals) {
     vFCP: formatDecimal(totals.vFCP),
     vBCST: formatDecimal(totals.vBCST),
     vST: formatDecimal(totals.vST),
-    vFCPST: '0.00',
+    vFCPST: formatDecimal(vFCPST),
     vFCPSTRet: '0.00',
     vProd: formatDecimal(totals.vProd),
     vFrete: formatDecimal(totals.vFrete),
@@ -402,19 +432,95 @@ function buildICMSTot(totals: DocumentTotals) {
     vOutro: '0.00',
     vNF: formatDecimal(totals.vNF),
     vTotTrib: formatDecimal(totals.vTotTrib),
+    ...(vFCPUFDest > 0 ? { vFCPUFDest: formatDecimal(vFCPUFDest) } : {}),
+    ...(vICMSUFDest > 0 ? { vICMSUFDest: formatDecimal(vICMSUFDest) } : {}),
+    ...(vICMSUFRemet > 0 ? { vICMSUFRemet: formatDecimal(vICMSUFRemet) } : {}),
   }
 }
 
-// ─── Utility Functions ──────────────────
+function buildFcpStFields(item: ItemTaxBreakdown): Record<string, unknown> {
+  if (item.st.fcp_value <= 0) return {}
+
+  return {
+    vBCFCPST: formatDecimal(item.st.fcp_base || item.st.base),
+    pFCPST: formatDecimal(item.st.fcp_rate),
+    vFCPST: formatDecimal(item.st.fcp_value),
+  }
+}
+
+function buildIcmsUfDestTag(item: ItemTaxBreakdown): Record<string, unknown> {
+  const pIcmsInter = item.icms.difal_rate_origin
+  const pIcmsUfDest = item.icms.difal_rate_origin + item.icms.difal_rate_destination
+
+  return {
+    vBCUFDest: formatDecimal(item.icms.difal_base),
+    ...(item.fcp.value > 0 ? {
+      vBCFCPUFDest: formatDecimal(item.fcp.base),
+      pFCPUFDest: formatDecimal(item.fcp.rate),
+      vFCPUFDest: formatDecimal(item.fcp.value),
+    } : {}),
+    pICMSUFDest: formatDecimal(pIcmsUfDest),
+    pICMSInter: formatDecimal(pIcmsInter),
+    pICMSInterPart: '100.00',
+    vICMSUFDest: formatDecimal(item.icms.difal_value_destination),
+    vICMSUFRemet: formatDecimal(item.icms.difal_value_origin),
+  }
+}
 
 function mapIndIEDest(store: StoreContext): number {
   if (store.taxpayer_indicator === 'contributor') return 1
   if (store.taxpayer_indicator === 'exempt') return 2
-  return 9 // 9 = não contribuinte
+  return 9
 }
 
 function formatDecimal(value: number, decimals: number = 2): string {
   return (value || 0).toFixed(decimals)
+}
+
+function normalizeUnit(value: string | null | undefined): string {
+  const unit = (value || '').trim().toUpperCase()
+  return unit ? unit.substring(0, 6) : 'UN'
+}
+
+function normalizeGtin(value: string | null | undefined): string {
+  const digits = (value || '').replace(/\D/g, '')
+  return [8, 12, 13, 14].includes(digits.length) ? digits : 'SEM GTIN'
+}
+
+function resolveFreightMode(totalFreight: number, configuredMode: string | null | undefined): number {
+  if (totalFreight <= 0) return 9
+  const key = (configuredMode || 'sem_frete').trim().toLowerCase()
+  return FRETE_CODES[key] ?? 9
+}
+
+function resolvePaymentIndicator(installments: number | null | undefined): number {
+  return (installments || 1) > 1 ? 1 : 0
+}
+
+function mapPaymentMethodToNFe(methodCode: string | null | undefined): string {
+  const key = (methodCode || '').trim().toLowerCase()
+
+  const mapping: Record<string, string> = {
+    cash: '01',
+    cheque: '02',
+    credit_card: '03',
+    debit_card: '04',
+    store_credit: '05',
+    food_voucher: '10',
+    meal_voucher: '11',
+    gift_voucher: '12',
+    fuel_voucher: '13',
+    boleto: '15',
+    bank_transfer: '16',
+    pix: '17',
+    no_payment: '90',
+  }
+
+  return mapping[key] || '99'
+}
+
+function shouldIncludePaymentDescription(methodCode: string | null | undefined): boolean {
+  return mapPaymentMethodToNFe(methodCode) === '99'
 }
 
 function generateCNF(): string {
@@ -422,8 +528,14 @@ function generateCNF(): string {
 }
 
 function buildChaveBase(
-  cUF: number, dhEmi: string, cnpj: string, mod: number,
-  serie: number, nNF: number, tpEmis: number, cNF: string
+  cUF: number,
+  dhEmi: string,
+  cnpj: string,
+  mod: number,
+  serie: number,
+  nNF: number,
+  tpEmis: number,
+  cNF: string
 ): string {
   const aamm = dhEmi.substring(2, 4) + dhEmi.substring(5, 7)
   return [
@@ -450,8 +562,6 @@ function calculateMod11(chave: string): string {
   return String(digit)
 }
 
-// ─── Build full NFeAutorizacao envelope ──────
-
 export function buildNFeAuthorizationEnvelope(signedXml: string): string {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
@@ -460,6 +570,26 @@ export function buildNFeAuthorizationEnvelope(signedXml: string): string {
     '<indSinc>1</indSinc>',
     signedXml,
     '</enviNFe>',
+  ].join('')
+}
+
+export function buildNFeProcessedXml(
+  signedXml: string,
+  protNFe: Record<string, unknown>
+): string {
+  const builder = new XMLBuilder({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    format: false,
+    suppressEmptyNode: true,
+  })
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    `<nfeProc xmlns="${NF_NAMESPACE}" versao="4.00">`,
+    signedXml,
+    builder.build({ protNFe }),
+    '</nfeProc>',
   ].join('')
 }
 

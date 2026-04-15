@@ -7,15 +7,32 @@ import 'server-only'
 
 // Core emission
 export { emitNFe } from './emit-nfe.service'
+export { consultNFeStatus, inutilizeNFeRange } from './document-operations.service'
 
 // XML mapping
-export { mapFiscalPayloadToNFeXml, buildNFeAuthorizationEnvelope, buildSoapEnvelope } from './map-fiscal-to-nfe.service'
+export {
+  mapFiscalPayloadToNFeXml,
+  buildNFeAuthorizationEnvelope,
+  buildNFeProcessedXml,
+  buildSoapEnvelope,
+} from './map-fiscal-to-nfe.service'
 
 // XML signing
-export { loadCertificate, signNFeXml, signEventXml } from './sign-xml.service'
+export { loadCertificate, signNFeXml, signEventXml, signInutilizacaoXml } from './sign-xml.service'
 
 // SEFAZ SOAP client
-export { getSefazEndpoint, sendSoapRequest, parseSefazAutorizacaoResponse, parseSefazEventoResponse } from './sefaz-client.service'
+export {
+  getSefazEndpoint,
+  sendSoapRequest,
+  buildRetAutorizacaoRequestXml,
+  buildConsultaProtocoloRequestXml,
+  buildInutilizacaoRequestXml,
+  parseSefazAutorizacaoResponse,
+  parseSefazRetAutorizacaoResponse,
+  parseSefazConsultaProtocoloResponse,
+  parseSefazInutilizacaoResponse,
+  parseSefazEventoResponse,
+} from './sefaz-client.service'
 
 // Event operations
 export { cancelNFe, sendCartaCorrecao } from './event-operations.service'
@@ -28,6 +45,7 @@ export type {
   EmissionResult,
   ConsultResult,
   CancelResult,
+  InutilizationResult,
   SefazStatusResult,
   FiscalDocument,
   FiscalEventLog,

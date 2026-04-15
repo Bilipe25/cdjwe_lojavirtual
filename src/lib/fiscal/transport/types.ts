@@ -56,6 +56,19 @@ export interface CancelResult {
   error?: string
 }
 
+export interface InutilizationResult {
+  success: boolean
+  protocolo: string | null
+  dataRecebimento: string | null
+  codigoStatus: number | null
+  motivoStatus: string | null
+  faixaInicial: number
+  faixaFinal: number
+  serie: string
+  justificativa: string
+  error?: string
+}
+
 export interface SefazStatusResult {
   success: boolean
   status: string

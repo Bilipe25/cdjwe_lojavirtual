@@ -10,10 +10,17 @@ import {
   validateOrderForEmission,
   persistOrderFiscalSnapshot,
 } from '@/lib/fiscal/motor'
-import { emitNFe, cancelNFe, sendCartaCorrecao, getSefazEndpoint, sendSoapRequest, generateDanfePdf } from '@/lib/fiscal/transport'
-import type { FiscalDocumentPayload, ValidationResult } from '@/lib/fiscal/motor'
-
-// ─── Calculate (dry-run) ─────────────────────────
+import {
+  emitNFe,
+  cancelNFe,
+  sendCartaCorrecao,
+  consultNFeStatus,
+  inutilizeNFeRange,
+  getSefazEndpoint,
+  sendSoapRequest,
+  generateDanfePdf,
+} from '@/lib/fiscal/transport'
+import type { FiscalDocumentPayload } from '@/lib/fiscal/motor'
 
 export async function calculateOrderFiscalAction(orderId: string) {
   const result = await calculateOrderFiscal(orderId)
@@ -27,8 +34,6 @@ export async function calculateOrderFiscalAction(orderId: string) {
   }
 }
 
-// ─── Recalculate + Persist ──────────────────────
-
 export async function recalculateOrderFiscalAction(orderId: string) {
   const result = await recalculateOrderFiscal(orderId)
   if (!result.success) {
@@ -41,8 +46,6 @@ export async function recalculateOrderFiscalAction(orderId: string) {
   }
 }
 
-// ─── Validate ───────────────────────────────────
-
 export async function validateOrderFiscalAction(orderId: string) {
   const result = await validateOrderForEmission(orderId)
   if (!result.success) {
@@ -52,56 +55,51 @@ export async function validateOrderFiscalAction(orderId: string) {
   return { success: true, data: result.data }
 }
 
-// ─── Emit NF-e ──────────────────────────────────
-
 export async function emitNFeAction(orderId: string, modelo: '55' | '65' = '55') {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
-    return { success: false, error: { code: 'AUTH', message: 'Usuário não autenticado.' } }
+    return { success: false, error: { code: 'AUTH', message: 'Usuario nao autenticado.' } }
   }
 
-  // Validate first
   const validation = await validateOrderForEmission(orderId)
   if (!validation.success || !validation.data.is_valid) {
     return {
       success: false,
       error: {
         code: 'VALIDATION_FAILED',
-        message: 'Pedido não passou na validação fiscal.',
+        message: 'Pedido nao passou na validacao fiscal.',
         details: validation.success ? validation.data : null,
       },
     }
   }
 
-  // Calculate
   const calcResult = await calculateOrderFiscal(orderId)
   if (!calcResult.success) {
     return { success: false, error: calcResult.error }
   }
 
-  // Persist snapshot
-  await persistOrderFiscalSnapshot(orderId, calcResult.data)
+  const persistResult = await persistOrderFiscalSnapshot(orderId, calcResult.data)
+  if (!persistResult.success) {
+    return { success: false, error: persistResult.error }
+  }
 
-  // Emit
   const emitResult = await emitNFe(orderId, calcResult.data, user.id, modelo)
 
   return {
     success: emitResult.success,
     data: emitResult.success ? emitResult : null,
-    error: emitResult.success ? null : { code: 'EMISSION_FAILED', message: emitResult.error || 'Falha na emissão.' },
+    error: emitResult.success ? null : { code: 'EMISSION_FAILED', message: emitResult.error || 'Falha na emissao.' },
   }
 }
-
-// ─── Cancel NF-e ────────────────────────────────
 
 export async function cancelNFeAction(fiscalDocumentId: string, justificativa: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
-    return { success: false, error: { code: 'AUTH', message: 'Usuário não autenticado.' } }
+    return { success: false, error: { code: 'AUTH', message: 'Usuario nao autenticado.' } }
   }
 
   const result = await cancelNFe(fiscalDocumentId, justificativa, user.id)
@@ -113,14 +111,12 @@ export async function cancelNFeAction(fiscalDocumentId: string, justificativa: s
   }
 }
 
-// ─── Carta de Correção ──────────────────────────
-
 export async function sendCartaCorrecaoAction(fiscalDocumentId: string, correcao: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
-    return { success: false, error: { code: 'AUTH', message: 'Usuário não autenticado.' } }
+    return { success: false, error: { code: 'AUTH', message: 'Usuario nao autenticado.' } }
   }
 
   const result = await sendCartaCorrecao(fiscalDocumentId, correcao, user.id)
@@ -128,11 +124,52 @@ export async function sendCartaCorrecaoAction(fiscalDocumentId: string, correcao
   return {
     success: result.success,
     data: result.success ? result : null,
-    error: result.success ? null : { code: 'CORRECTION_FAILED', message: result.error || 'Falha na carta de correção.' },
+    error: result.success ? null : { code: 'CORRECTION_FAILED', message: result.error || 'Falha na carta de correcao.' },
   }
 }
 
-// ─── Check SEFAZ Status ─────────────────────────
+export async function consultFiscalDocumentAction(fiscalDocumentId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { success: false, error: { code: 'AUTH', message: 'Usuario nao autenticado.' } }
+  }
+
+  const result = await consultNFeStatus(fiscalDocumentId, user.id)
+
+  return {
+    success: result.success,
+    data: result.success ? result : null,
+    error: result.success ? null : { code: 'CONSULT_FAILED', message: result.error || 'Falha na consulta da NF-e.' },
+  }
+}
+
+export async function inutilizeFiscalRangeAction(params: {
+  modelo: '55' | '65'
+  serie: string
+  numeroInicial: number
+  numeroFinal: number
+  justificativa: string
+}) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { success: false, error: { code: 'AUTH', message: 'Usuario nao autenticado.' } }
+  }
+
+  const result = await inutilizeNFeRange({
+    ...params,
+    userId: user.id,
+  })
+
+  return {
+    success: result.success,
+    data: result.success ? result : null,
+    error: result.success ? null : { code: 'INUTILIZATION_FAILED', message: result.error || 'Falha na inutilizacao da faixa fiscal.' },
+  }
+}
 
 export async function checkSefazStatusAction() {
   try {
@@ -182,14 +219,12 @@ export async function checkSefazStatusAction() {
   }
 }
 
-// ─── Generate DANFE ─────────────────────────────
-
 export async function generateDanfeAction(fiscalDocumentId: string) {
   try {
     const result = await generateDanfePdf(fiscalDocumentId)
 
     if (!result.success) {
-      return { success: false, error: { code: 'DANFE_FAILED', message: result.error || 'Falha na geração do DANFE.' } }
+      return { success: false, error: { code: 'DANFE_FAILED', message: result.error || 'Falha na geracao do DANFE.' } }
     }
 
     return {
@@ -203,8 +238,6 @@ export async function generateDanfeAction(fiscalDocumentId: string) {
     }
   }
 }
-
-// ─── Get Order Fiscal Details ───────────────────
 
 export async function getOrderFiscalDetailsAction(orderId: string) {
   const supabase = createServiceRoleClient()
@@ -225,10 +258,9 @@ export async function getOrderFiscalDetailsAction(orderId: string) {
     .maybeSingle()
 
   if (orderError || !order) {
-    return { success: false, error: { code: 'ORDER_NOT_FOUND', message: 'Pedido não encontrado.' } }
+    return { success: false, error: { code: 'ORDER_NOT_FOUND', message: 'Pedido nao encontrado.' } }
   }
 
-  // Get order items with fiscal data
   const { data: items } = await supabase
     .from('order_items')
     .select(`
@@ -246,14 +278,12 @@ export async function getOrderFiscalDetailsAction(orderId: string) {
     .eq('order_id', orderId)
     .order('created_at')
 
-  // Get fiscal documents
   const { data: documents } = await supabase
     .from('fiscal_documents')
     .select('*')
     .eq('order_id', orderId)
     .order('created_at', { ascending: false })
 
-  // Get events log
   const { data: events } = await supabase
     .from('fiscal_events_log')
     .select('*')
@@ -272,8 +302,6 @@ export async function getOrderFiscalDetailsAction(orderId: string) {
   }
 }
 
-// ─── Get Fiscal Documents for Order ─────────────
-
 export async function getFiscalDocumentsAction(orderId: string) {
   const supabase = createServiceRoleClient()
 
@@ -290,9 +318,6 @@ export async function getFiscalDocumentsAction(orderId: string) {
   return { success: true, data: data || [] }
 }
 
-// ─── Helpers ─────────────────────────────────────
-
 function serializePayload(payload: FiscalDocumentPayload) {
-  // Ensure all values are serializable (no class instances)
   return JSON.parse(JSON.stringify(payload))
 }

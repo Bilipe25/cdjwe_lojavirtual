@@ -2,17 +2,15 @@ import 'server-only'
 
 import crypto from 'node:crypto'
 
-function getCertificateSecret(): string {
-  const configured =
-    process.env.FISCAL_CERTIFICATE_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    ''
+function getCertificateSecrets(): string[] {
+  const primary = process.env.FISCAL_CERTIFICATE_SECRET || ''
+  const legacy = process.env.FISCAL_CERTIFICATE_SECRET_PREVIOUS || ''
 
-  if (!configured.trim()) {
-    throw new Error('Segredo de certificado nao configurado. Defina FISCAL_CERTIFICATE_SECRET no ambiente.')
+  if (!primary.trim()) {
+    throw new Error('Segredo do certificado nao configurado. Defina FISCAL_CERTIFICATE_SECRET no ambiente.')
   }
 
-  return configured
+  return [primary, legacy].map((value) => value.trim()).filter(Boolean)
 }
 
 function deriveKey(secret: string): Buffer {
@@ -20,7 +18,8 @@ function deriveKey(secret: string): Buffer {
 }
 
 export function encryptCertificatePassword(password: string): string {
-  const key = deriveKey(getCertificateSecret())
+  const [primarySecret] = getCertificateSecrets()
+  const key = deriveKey(primarySecret)
   const iv = crypto.randomBytes(12)
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
   const encrypted = Buffer.concat([cipher.update(password, 'utf8'), cipher.final()])
@@ -35,16 +34,25 @@ export function encryptCertificatePassword(password: string): string {
 
 export function decryptCertificatePassword(payload: string): string {
   const parsed = JSON.parse(payload) as { iv: string; tag: string; content: string }
-  const key = deriveKey(getCertificateSecret())
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(parsed.iv, 'base64'))
-  decipher.setAuthTag(Buffer.from(parsed.tag, 'base64'))
 
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(parsed.content, 'base64')),
-    decipher.final(),
-  ])
+  for (const secret of getCertificateSecrets()) {
+    try {
+      const key = deriveKey(secret)
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(parsed.iv, 'base64'))
+      decipher.setAuthTag(Buffer.from(parsed.tag, 'base64'))
 
-  return decrypted.toString('utf8')
+      const decrypted = Buffer.concat([
+        decipher.update(Buffer.from(parsed.content, 'base64')),
+        decipher.final(),
+      ])
+
+      return decrypted.toString('utf8')
+    } catch {
+      continue
+    }
+  }
+
+  throw new Error('Falha ao descriptografar a senha do certificado com os segredos configurados.')
 }
 
 export function fingerprintFile(file: File): Promise<string> {

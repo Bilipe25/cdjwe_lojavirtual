@@ -8,6 +8,11 @@ import 'server-only'
 
 import PDFDocument from 'pdfkit'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import {
+  getSnapshotAdditionalInfo,
+  parseFiscalDocumentSnapshot,
+  snapshotItemToDanfeItem,
+} from './fiscal-document-snapshot'
 
 interface DanfeData {
   // Emitter
@@ -88,84 +93,48 @@ export async function generateDanfePdf(
       return { success: false, error: 'Documento fiscal nao encontrado.' }
     }
 
-    // 2. Load emitter profile
-    const { data: profile } = await supabase
-      .from('company_fiscal_profile')
-      .select('*')
-      .limit(1)
-      .maybeSingle()
-
-    // 3. Load order and items
-    const { data: order } = await supabase
-      .from('orders')
-      .select('*, store:stores!orders_store_id_fkey(*)')
-      .eq('id', doc.order_id)
-      .maybeSingle()
-
-    const { data: orderItems } = await supabase
-      .from('order_items')
-      .select('*')
-      .eq('order_id', doc.order_id)
-      .order('created_at')
-
-    if (!profile || !order) {
-      return { success: false, error: 'Dados do emitente ou pedido nao encontrados.' }
+    const snapshot = parseFiscalDocumentSnapshot(doc.fiscal_payload_jsonb)
+    if (!snapshot) {
+      return { success: false, error: 'Snapshot fiscal imutavel nao encontrado no documento.' }
     }
 
-    const store = order.store as Record<string, unknown> | null
+    const emitter = snapshot.context.emitter
+    const store = snapshot.context.store
 
-    // 4. Build DANFE data
     const danfeData: DanfeData = {
-      emitterName: profile.razao_social || 'EMPRESA',
-      emitterFantasy: profile.nome_fantasia || null,
-      emitterCnpj: formatCnpj(profile.cnpj || ''),
-      emitterIe: profile.inscricao_estadual || null,
-      emitterAddress: [profile.fiscal_address, profile.fiscal_number]
-        .filter(Boolean).join(', '),
-      emitterCityUf: [profile.fiscal_city, profile.fiscal_state?.toUpperCase()]
-        .filter(Boolean).join(' / '),
-      emitterPhone: profile.fiscal_phone || profile.phone || null,
+      emitterName: emitter.razao_social || 'EMPRESA',
+      emitterFantasy: emitter.nome_fantasia || null,
+      emitterCnpj: formatCnpj(emitter.cnpj || ''),
+      emitterIe: emitter.ie || null,
+      emitterAddress: [emitter.logradouro, emitter.numero].filter(Boolean).join(', '),
+      emitterCityUf: [emitter.cidade, emitter.uf?.toUpperCase()].filter(Boolean).join(' / '),
+      emitterPhone: emitter.telefone || null,
       chaveAcesso: doc.chave_acesso || '',
       numeroNf: doc.numero_nf,
       serie: doc.serie,
       naturezaOperacao: doc.natureza_operacao || 'VENDA DE MERCADORIA',
-      dataEmissao: formatDateBr(doc.emitted_at),
+      dataEmissao: formatDateBr(snapshot.document.emittedAt || doc.emitted_at),
       protocolo: doc.protocolo_autorizacao || null,
       dataAutorizacao: doc.data_autorizacao ? formatDateBr(doc.data_autorizacao) : null,
       ambiente: doc.ambiente === 'producao' ? 'producao' : 'homologacao',
-      destName: (store?.name as string) || (store?.company_name as string) || 'DESTINATARIO',
-      destDocument: formatDocument((store?.cnpj as string) || (store?.document_number as string) || ''),
-      destIe: (store?.state_registration as string) || null,
-      destAddress: [(store?.street as string), (store?.number as string)]
-        .filter(Boolean).join(', '),
-      destCityUf: [(store?.city as string), (store?.state as string)?.toUpperCase()]
-        .filter(Boolean).join(' / '),
-      destPhone: (store?.phone as string) || null,
-      items: (orderItems || []).map((item: Record<string, unknown>) => ({
-        code: String(item.product_variant_id || '').substring(0, 14),
-        description: String(item.product_name || ''),
-        ncm: String(item.fiscal_ncm || ''),
-        cfop: String(item.fiscal_cfop || ''),
-        unit: 'UN',
-        quantity: Number(item.quantity || 0),
-        unitPrice: Number(item.unit_price || 0),
-        totalValue: Number(item.subtotal || 0),
-        icmsBase: Number(item.icms_base || 0),
-        icmsValue: Number(item.icms_value || 0),
-        icmsRate: Number(item.icms_rate || 0),
-        ipiValue: Number(item.ipi_value || 0),
-      })),
-      vProd: Number(doc.valor_produtos || 0),
-      vICMS: Number(doc.valor_icms || 0),
-      vST: Number(doc.valor_st || 0),
-      vPIS: Number(doc.valor_pis || 0),
-      vCOFINS: Number(doc.valor_cofins || 0),
-      vIPI: Number(doc.valor_ipi || 0),
-      vFrete: Number(doc.valor_frete || 0),
-      vDesc: Number(doc.valor_desconto || 0),
-      vNF: Number(doc.valor_total_nota || 0),
-      vTotTrib: 0,
-      additionalInfo: null,
+      destName: store.nome || 'DESTINATARIO',
+      destDocument: formatDocument(store.document_number || ''),
+      destIe: store.ie || null,
+      destAddress: [store.logradouro, store.numero].filter(Boolean).join(', '),
+      destCityUf: [store.cidade, store.uf?.toUpperCase()].filter(Boolean).join(' / '),
+      destPhone: store.telefone || null,
+      items: snapshot.items.map(snapshotItemToDanfeItem),
+      vProd: Number(snapshot.totals.vProd || 0),
+      vICMS: Number(snapshot.totals.vICMS || 0),
+      vST: Number(snapshot.totals.vST || 0),
+      vPIS: Number(snapshot.totals.vPIS || 0),
+      vCOFINS: Number(snapshot.totals.vCOFINS || 0),
+      vIPI: Number(snapshot.totals.vIPI || 0),
+      vFrete: Number(snapshot.totals.vFrete || 0),
+      vDesc: Number(snapshot.totals.vDesc || 0),
+      vNF: Number(snapshot.totals.vNF || 0),
+      vTotTrib: Number(snapshot.totals.vTotTrib || 0),
+      additionalInfo: getSnapshotAdditionalInfo(snapshot),
     }
 
     // 5. Generate PDF

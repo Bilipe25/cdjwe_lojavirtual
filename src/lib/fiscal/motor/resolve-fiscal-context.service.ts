@@ -222,7 +222,6 @@ async function loadEnvironmentContext(): Promise<FiscalCalculationResult<Environ
 
 async function loadOrderItemsContext(
   orderId: string,
-  emitterUf: string,
   storeUf: string
 ): Promise<FiscalCalculationResult<FiscalItemContext[]>> {
   const supabase = createServiceRoleClient()
@@ -256,10 +255,119 @@ async function loadOrderItemsContext(
     return { success: false, error: { code: 'NO_ITEMS', message: 'Pedido nao possui itens.' } }
   }
 
-  const items: FiscalItemContext[] = []
+  const itemRecords = orderItems as Record<string, unknown>[]
+  const productIds = Array.from(new Set(
+    itemRecords
+      .map((item) => ((item.product_variant as Record<string, unknown> | null)?.product as Record<string, unknown> | null)?.id as string | undefined)
+      .filter((value): value is string => Boolean(value))
+  ))
+  const taxProfileIds = Array.from(new Set(
+    itemRecords
+      .map((item) => ((((item.product_variant as Record<string, unknown> | null)?.product as Record<string, unknown> | null)?.tax_profile as Record<string, unknown> | null)?.id as string | undefined))
+      .filter((value): value is string => Boolean(value))
+  ))
 
-  for (let i = 0; i < orderItems.length; i++) {
-    const item = orderItems[i] as Record<string, unknown>
+  const { data: overrides } = productIds.length > 0
+    ? await supabase
+      .from('product_fiscal_overrides')
+      .select('*')
+      .in('product_id', productIds)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+    : { data: [] }
+
+  const overrideMap = new Map<string, Record<string, unknown>>()
+  for (const override of (overrides || []) as Record<string, unknown>[]) {
+    const productId = override.product_id as string | undefined
+    if (productId && !overrideMap.has(productId)) {
+      overrideMap.set(productId, override)
+    }
+  }
+
+  const { data: rules } = taxProfileIds.length > 0
+    ? await supabase
+      .from('product_tax_profile_rules')
+      .select('*')
+      .in('tax_profile_id', taxProfileIds)
+      .eq('is_active', true)
+      .eq('operation_direction', 'outbound')
+      .order('priority', { ascending: false })
+      .order('created_at', { ascending: false })
+    : { data: [] }
+
+  const rulesByProfileId = new Map<string, Record<string, unknown>[]>()
+  for (const rule of (rules || []) as Record<string, unknown>[]) {
+    const taxProfileId = rule.tax_profile_id as string | undefined
+    if (!taxProfileId) continue
+    const bucket = rulesByProfileId.get(taxProfileId) || []
+    bucket.push(rule)
+    rulesByProfileId.set(taxProfileId, bucket)
+  }
+
+  const icmsBaseIds = Array.from(new Set(
+    itemRecords
+      .map((item) => ((((item.product_variant as Record<string, unknown> | null)?.product as Record<string, unknown> | null)?.tax_profile as Record<string, unknown> | null)?.icms_base_id as string | undefined))
+      .filter((value): value is string => Boolean(value))
+  ))
+
+  const [icmsRulesResult, interstateRulesResult, stRulesResult] = icmsBaseIds.length > 0
+    ? await Promise.all([
+      supabase
+        .from('fiscal_icms_rules')
+        .select('*')
+        .in('icms_base_id', icmsBaseIds)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('fiscal_icms_interstate_rules')
+        .select('*')
+        .in('icms_base_id', icmsBaseIds)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('fiscal_icms_st_rules')
+        .select('*')
+        .in('icms_base_id', icmsBaseIds)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false }),
+    ])
+    : [
+      { data: [] },
+      { data: [] },
+      { data: [] },
+    ]
+
+  const icmsRulesByBaseId = new Map<string, Record<string, unknown>[]>()
+  for (const rule of (icmsRulesResult.data || []) as Record<string, unknown>[]) {
+    const baseId = rule.icms_base_id as string | undefined
+    if (!baseId) continue
+    const bucket = icmsRulesByBaseId.get(baseId) || []
+    bucket.push(rule)
+    icmsRulesByBaseId.set(baseId, bucket)
+  }
+
+  const interstateRuleByBaseId = new Map<string, Record<string, unknown>>()
+  for (const rule of (interstateRulesResult.data || []) as Record<string, unknown>[]) {
+    const baseId = rule.icms_base_id as string | undefined
+    if (baseId && !interstateRuleByBaseId.has(baseId)) {
+      interstateRuleByBaseId.set(baseId, rule)
+    }
+  }
+
+  const stRulesByBaseId = new Map<string, Record<string, unknown>[]>()
+  for (const rule of (stRulesResult.data || []) as Record<string, unknown>[]) {
+    const baseId = rule.icms_base_id as string | undefined
+    if (!baseId) continue
+    const bucket = stRulesByBaseId.get(baseId) || []
+    bucket.push(rule)
+    stRulesByBaseId.set(baseId, bucket)
+  }
+
+  const items: FiscalItemContext[] = []
+  const today = new Date().toISOString().slice(0, 10)
+
+  for (let i = 0; i < itemRecords.length; i++) {
+    const item = itemRecords[i]
     const variant = item.product_variant as Record<string, unknown> | null
     const product = variant?.product as Record<string, unknown> | null
     const taxProfile = product?.tax_profile as Record<string, unknown> | null
@@ -286,13 +394,8 @@ async function loadOrderItemsContext(
       }
     }
 
-    // Check for product override
-    const { data: override } = await supabase
-      .from('product_fiscal_overrides')
-      .select('*')
-      .eq('product_id', product?.id as string)
-      .eq('is_active', true)
-      .maybeSingle()
+    const productId = product?.id as string | undefined
+    const override = productId ? overrideMap.get(productId) || null : null
 
     const resolvedProfile: ResolvedTaxProfile = {
       tax_profile_id: taxProfile.id as string,
@@ -326,20 +429,10 @@ async function loadOrderItemsContext(
       is_override: override !== null,
     }
 
-    // Resolve contextual rule
     let appliedRule: ResolvedTaxRule | null = null
-    const { data: rules } = await supabase
-      .from('product_tax_profile_rules')
-      .select('*')
-      .eq('tax_profile_id', resolvedProfile.tax_profile_id)
-      .eq('is_active', true)
-      .eq('operation_direction', 'outbound')
-      .order('priority', { ascending: false })
-      .order('created_at', { ascending: false })
-
-    if (rules && rules.length > 0) {
-      const today = new Date().toISOString().slice(0, 10)
-      const matched = rules.find((r: Record<string, unknown>) => {
+    const profileRules = rulesByProfileId.get(resolvedProfile.tax_profile_id) || []
+    if (profileRules.length > 0) {
+      const matched = profileRules.find((r: Record<string, unknown>) => {
         const destUf = r.destination_uf as string | null
         const effectiveFrom = r.effective_from as string | null
         const effectiveTo = r.effective_to as string | null
@@ -370,16 +463,8 @@ async function loadOrderItemsContext(
     let icmsStRule: IcmsStRule | null = null
 
     if (resolvedProfile.icms_base_id) {
-      // National/state ICMS rule
-      const { data: icmsRules } = await supabase
-        .from('fiscal_icms_rules')
-        .select('*')
-        .eq('icms_base_id', resolvedProfile.icms_base_id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-
-      if (icmsRules && icmsRules.length > 0) {
-        // Prefer state-specific rule, fallback to national (target_uf IS NULL)
+      const icmsRules = icmsRulesByBaseId.get(resolvedProfile.icms_base_id) || []
+      if (icmsRules.length > 0) {
         const stateRule = icmsRules.find((r: Record<string, unknown>) => r.target_uf === storeUf)
         const nationalRule = icmsRules.find((r: Record<string, unknown>) => !r.target_uf)
         const selectedRule = stateRule || nationalRule
@@ -398,15 +483,7 @@ async function loadOrderItemsContext(
         }
       }
 
-      // Interstate rule
-      const { data: interstateRules } = await supabase
-        .from('fiscal_icms_interstate_rules')
-        .select('*')
-        .eq('icms_base_id', resolvedProfile.icms_base_id)
-        .eq('is_active', true)
-        .limit(1)
-        .maybeSingle()
-
+      const interstateRules = interstateRuleByBaseId.get(resolvedProfile.icms_base_id)
       if (interstateRules) {
         icmsInterstateRule = {
           icms_rate: safeNumber(interstateRules.icms_rate),
@@ -415,15 +492,8 @@ async function loadOrderItemsContext(
         }
       }
 
-      // ST rule
-      const { data: stRules } = await supabase
-        .from('fiscal_icms_st_rules')
-        .select('*')
-        .eq('icms_base_id', resolvedProfile.icms_base_id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-
-      if (stRules && stRules.length > 0) {
+      const stRules = stRulesByBaseId.get(resolvedProfile.icms_base_id) || []
+      if (stRules.length > 0) {
         const stateStRule = stRules.find((r: Record<string, unknown>) => r.target_uf === storeUf)
         const nationalStRule = stRules.find((r: Record<string, unknown>) => !r.target_uf)
         const selectedSt = stateStRule || nationalStRule
@@ -478,7 +548,6 @@ export async function resolveFiscalContext(
 
   const itemsResult = await loadOrderItemsContext(
     orderId,
-    emitterResult.data.uf,
     storeResult.data.uf
   )
   if (!itemsResult.success) return itemsResult

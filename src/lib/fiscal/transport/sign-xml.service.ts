@@ -183,3 +183,39 @@ export function signEventXml(
 
   return sig.getSignedXml()
 }
+
+export function signInutilizacaoXml(
+  inutilizacaoXml: string,
+  infInutId: string,
+  certData: CertificateData
+): string {
+  const certBase64 = certData.certificateBase64
+
+  const sig = new SignedXml({
+    privateKey: certData.privateKeyPem,
+    publicCert: certData.certificatePem,
+    signatureAlgorithm: 'http://www.w3.org/2000/09/xmldsig#rsa-sha1',
+    canonicalizationAlgorithm: 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
+    getKeyInfoContent: () =>
+      `<X509Data><X509Certificate>${certBase64}</X509Certificate></X509Data>`,
+  })
+
+  sig.addReference({
+    uri: `#${infInutId}`,
+    transforms: [
+      'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
+      'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
+    ],
+    digestAlgorithm: 'http://www.w3.org/2000/09/xmldsig#sha1',
+  })
+
+  sig.computeSignature(inutilizacaoXml, {
+    prefix: '',
+    location: {
+      reference: `//*[local-name(.)='infInut']`,
+      action: 'after',
+    },
+  })
+
+  return sig.getSignedXml()
+}

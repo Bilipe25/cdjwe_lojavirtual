@@ -1,5 +1,5 @@
 // ============================================================
-// Fiscal Transport — SEFAZ SOAP Client
+// Fiscal Transport - SEFAZ SOAP Client
 // mTLS communication with SEFAZ web services
 // Uses native Node.js https module (Vercel-compatible)
 // ============================================================
@@ -10,9 +10,6 @@ import https from 'node:https'
 import { XMLParser } from 'fast-xml-parser'
 import { loadCertificate } from './sign-xml.service'
 import { buildSoapEnvelope } from './map-fiscal-to-nfe.service'
-import { UF_CODES } from './types'
-
-// ─── SEFAZ Endpoint Configuration ─────────────────
 
 type SefazService =
   | 'NfeAutorizacao'
@@ -22,68 +19,119 @@ type SefazService =
   | 'NfeRecepcaoEvento'
   | 'NfeInutilizacao'
 
-/**
- * SEFAZ autorizadores mapeados por UF.
- * Cada UF pode usar sua própria SEFAZ ou uma SEFAZ Virtual.
- *
- * Referência oficial:
- * https://www.nfe.fazenda.gov.br/portal/webServices.aspx
- */
-const UF_AUTORIZADOR: Record<string, string> = {
-  // SEFAZ própria
-  AM: 'AM', BA: 'BA', GO: 'GO', MG: 'MG', MS: 'MS',
-  MT: 'MT', PE: 'PE', PR: 'PR', RS: 'RS', SP: 'SP',
-  // SEFAZ Virtual Rio Grande do Sul (SVRS)
-  AC: 'SVRS', AL: 'SVRS', AP: 'SVRS', CE: 'SVRS', DF: 'SVRS',
-  ES: 'SVRS', MA: 'SVRS', PA: 'SVRS', PB: 'SVRS', PI: 'SVRS',
-  RJ: 'SVRS', RN: 'SVRS', RO: 'SVRS', RR: 'SVRS', SC: 'SVRS',
-  SE: 'SVRS', TO: 'SVRS',
-}
+type SefazEnvironment = 'producao' | 'homologacao'
 
 interface SefazEndpoints {
   producao: Record<SefazService, string>
   homologacao: Record<SefazService, string>
 }
 
+export interface ParsedAuthorizationResponse {
+  cStat: number
+  xMotivo: string
+  nRec: string | null
+  nProt: string | null
+  dhRecbto: string | null
+  chNFe: string | null
+  digVal: string | null
+  protNFe: Record<string, unknown> | null
+}
+
+export interface ParsedInutilizacaoResponse {
+  cStat: number
+  xMotivo: string
+  nProt: string | null
+  dhRecbto: string | null
+}
+
 /**
- * Endpoints dos autorizadores por ambiente.
- * Cobrindo SVRS + SP (os mais comuns).
+ * Referência oficial:
+ * https://www.nfe.fazenda.gov.br/portal/WebServices.aspx
+ * https://hom.nfe.fazenda.gov.br/portal/webServices.aspx
  */
+const UF_AUTORIZADOR: Record<string, string> = {
+  AM: 'AM',
+  BA: 'BA',
+  GO: 'GO',
+  MG: 'MG',
+  MS: 'MS',
+  MT: 'MT',
+  PE: 'PE',
+  PR: 'PR',
+  RS: 'RS',
+  SP: 'SP',
+  MA: 'SVAN',
+  AC: 'SVRS',
+  AL: 'SVRS',
+  AP: 'SVRS',
+  CE: 'SVRS',
+  DF: 'SVRS',
+  ES: 'SVRS',
+  PA: 'SVRS',
+  PB: 'SVRS',
+  PI: 'SVRS',
+  RJ: 'SVRS',
+  RN: 'SVRS',
+  RO: 'SVRS',
+  RR: 'SVRS',
+  SC: 'SVRS',
+  SE: 'SVRS',
+  TO: 'SVRS',
+}
+
 const ENDPOINTS: Record<string, SefazEndpoints> = {
-  SVRS: {
+  AM: {
     producao: {
-      NfeAutorizacao: 'https://nfe.svrs.rs.gov.br/ws/nfeautorizacao/nfeautorizacao4.asmx',
-      NfeRetAutorizacao: 'https://nfe.svrs.rs.gov.br/ws/nferetautorizacao/nferetautorizacao4.asmx',
-      NfeConsultaProtocolo: 'https://nfe.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx',
-      NfeStatusServico: 'https://nfe.svrs.rs.gov.br/ws/NfeStatusServico/NfeStatusServico4.asmx',
-      NfeRecepcaoEvento: 'https://nfe.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx',
-      NfeInutilizacao: 'https://nfe.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
+      NfeAutorizacao: 'https://nfe.sefaz.am.gov.br/services2/services/NfeAutorizacao4',
+      NfeRetAutorizacao: 'https://nfe.sefaz.am.gov.br/services2/services/NfeRetAutorizacao4',
+      NfeConsultaProtocolo: 'https://nfe.sefaz.am.gov.br/services2/services/NfeConsulta4',
+      NfeStatusServico: 'https://nfe.sefaz.am.gov.br/services2/services/NfeStatusServico4',
+      NfeRecepcaoEvento: 'https://nfe.sefaz.am.gov.br/services2/services/RecepcaoEvento4',
+      NfeInutilizacao: 'https://nfe.sefaz.am.gov.br/services2/services/NfeInutilizacao4',
     },
     homologacao: {
-      NfeAutorizacao: 'https://nfe-homologacao.svrs.rs.gov.br/ws/nfeautorizacao/nfeautorizacao4.asmx',
-      NfeRetAutorizacao: 'https://nfe-homologacao.svrs.rs.gov.br/ws/nferetautorizacao/nferetautorizacao4.asmx',
-      NfeConsultaProtocolo: 'https://nfe-homologacao.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx',
-      NfeStatusServico: 'https://nfe-homologacao.svrs.rs.gov.br/ws/NfeStatusServico/NfeStatusServico4.asmx',
-      NfeRecepcaoEvento: 'https://nfe-homologacao.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx',
-      NfeInutilizacao: 'https://nfe-homologacao.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
+      NfeAutorizacao: 'https://homnfe.sefaz.am.gov.br/services2/services/NfeAutorizacao4',
+      NfeRetAutorizacao: 'https://homnfe.sefaz.am.gov.br/services2/services/NfeRetAutorizacao4',
+      NfeConsultaProtocolo: 'https://homnfe.sefaz.am.gov.br/services2/services/NfeConsulta4',
+      NfeStatusServico: 'https://homnfe.sefaz.am.gov.br/services2/services/NfeStatusServico4',
+      NfeRecepcaoEvento: 'https://homnfe.sefaz.am.gov.br/services2/services/RecepcaoEvento4',
+      NfeInutilizacao: 'https://homnfe.sefaz.am.gov.br/services2/services/NfeInutilizacao4',
     },
   },
-  SP: {
+  BA: {
     producao: {
-      NfeAutorizacao: 'https://nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx',
-      NfeRetAutorizacao: 'https://nfe.fazenda.sp.gov.br/ws/nferetautorizacao4.asmx',
-      NfeConsultaProtocolo: 'https://nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx',
-      NfeStatusServico: 'https://nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx',
-      NfeRecepcaoEvento: 'https://nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx',
-      NfeInutilizacao: 'https://nfe.fazenda.sp.gov.br/ws/nfeinutilizacao4.asmx',
+      NfeAutorizacao: 'https://nfe.sefaz.ba.gov.br/webservices/NFeAutorizacao4/NFeAutorizacao4.asmx',
+      NfeRetAutorizacao: 'https://nfe.sefaz.ba.gov.br/webservices/NFeRetAutorizacao4/NFeRetAutorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://nfe.sefaz.ba.gov.br/webservices/NFeConsultaProtocolo4/NFeConsultaProtocolo4.asmx',
+      NfeStatusServico: 'https://nfe.sefaz.ba.gov.br/webservices/NFeStatusServico4/NFeStatusServico4.asmx',
+      NfeRecepcaoEvento: 'https://nfe.sefaz.ba.gov.br/webservices/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx',
+      NfeInutilizacao: 'https://nfe.sefaz.ba.gov.br/webservices/NFeInutilizacao4/NFeInutilizacao4.asmx',
     },
     homologacao: {
-      NfeAutorizacao: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx',
-      NfeRetAutorizacao: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nferetautorizacao4.asmx',
-      NfeConsultaProtocolo: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx',
-      NfeStatusServico: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx',
-      NfeRecepcaoEvento: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx',
-      NfeInutilizacao: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeinutilizacao4.asmx',
+      NfeAutorizacao: 'https://hnfe.sefaz.ba.gov.br/webservices/NFeAutorizacao4/NFeAutorizacao4.asmx',
+      NfeRetAutorizacao: 'https://hnfe.sefaz.ba.gov.br/webservices/NFeRetAutorizacao4/NFeRetAutorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://hnfe.sefaz.ba.gov.br/webservices/NFeConsultaProtocolo4/NFeConsultaProtocolo4.asmx',
+      NfeStatusServico: 'https://hnfe.sefaz.ba.gov.br/webservices/NFeStatusServico4/NFeStatusServico4.asmx',
+      NfeRecepcaoEvento: 'https://hnfe.sefaz.ba.gov.br/webservices/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx',
+      NfeInutilizacao: 'https://hnfe.sefaz.ba.gov.br/webservices/NFeInutilizacao4/NFeInutilizacao4.asmx',
+    },
+  },
+  GO: {
+    producao: {
+      NfeAutorizacao: 'https://nfe.sefaz.go.gov.br/nfe/services/NFeAutorizacao4?wsdl',
+      NfeRetAutorizacao: 'https://nfe.sefaz.go.gov.br/nfe/services/NFeRetAutorizacao4?wsdl',
+      NfeConsultaProtocolo: 'https://nfe.sefaz.go.gov.br/nfe/services/NFeConsultaProtocolo4?wsdl',
+      NfeStatusServico: 'https://nfe.sefaz.go.gov.br/nfe/services/NFeStatusServico4?wsdl',
+      NfeRecepcaoEvento: 'https://nfe.sefaz.go.gov.br/nfe/services/NFeRecepcaoEvento4?wsdl',
+      NfeInutilizacao: 'https://nfe.sefaz.go.gov.br/nfe/services/NFeInutilizacao4?wsdl',
+    },
+    homologacao: {
+      NfeAutorizacao: 'https://homolog.sefaz.go.gov.br/nfe/services/NFeAutorizacao4?wsdl',
+      NfeRetAutorizacao: 'https://homolog.sefaz.go.gov.br/nfe/services/NFeRetAutorizacao4?wsdl',
+      NfeConsultaProtocolo: 'https://homolog.sefaz.go.gov.br/nfe/services/NFeConsultaProtocolo4?wsdl',
+      NfeStatusServico: 'https://homolog.sefaz.go.gov.br/nfe/services/NFeStatusServico4?wsdl',
+      NfeRecepcaoEvento: 'https://homolog.sefaz.go.gov.br/nfe/services/NFeRecepcaoEvento4?wsdl',
+      NfeInutilizacao: 'https://homolog.sefaz.go.gov.br/nfe/services/NFeInutilizacao4?wsdl',
     },
   },
   MG: {
@@ -104,32 +152,175 @@ const ENDPOINTS: Record<string, SefazEndpoints> = {
       NfeInutilizacao: 'https://hnfe.fazenda.mg.gov.br/nfe2/services/NFeInutilizacao4',
     },
   },
+  MS: {
+    producao: {
+      NfeAutorizacao: 'https://nfe.sefaz.ms.gov.br/ws/NFeAutorizacao4',
+      NfeRetAutorizacao: 'https://nfe.sefaz.ms.gov.br/ws/NFeRetAutorizacao4',
+      NfeConsultaProtocolo: 'https://nfe.sefaz.ms.gov.br/ws/NFeConsultaProtocolo4',
+      NfeStatusServico: 'https://nfe.sefaz.ms.gov.br/ws/NFeStatusServico4',
+      NfeRecepcaoEvento: 'https://nfe.sefaz.ms.gov.br/ws/NFeRecepcaoEvento4',
+      NfeInutilizacao: 'https://nfe.sefaz.ms.gov.br/ws/NFeInutilizacao4',
+    },
+    homologacao: {
+      NfeAutorizacao: 'https://hom.nfe.sefaz.ms.gov.br/ws/NFeAutorizacao4',
+      NfeRetAutorizacao: 'https://hom.nfe.sefaz.ms.gov.br/ws/NFeRetAutorizacao4',
+      NfeConsultaProtocolo: 'https://hom.nfe.sefaz.ms.gov.br/ws/NFeConsultaProtocolo4',
+      NfeStatusServico: 'https://hom.nfe.sefaz.ms.gov.br/ws/NFeStatusServico4',
+      NfeRecepcaoEvento: 'https://hom.nfe.sefaz.ms.gov.br/ws/NFeRecepcaoEvento4',
+      NfeInutilizacao: 'https://hom.nfe.sefaz.ms.gov.br/ws/NFeInutilizacao4',
+    },
+  },
+  MT: {
+    producao: {
+      NfeAutorizacao: 'https://nfe.sefaz.mt.gov.br/nfews/v2/services/NfeAutorizacao4?wsdl',
+      NfeRetAutorizacao: 'https://nfe.sefaz.mt.gov.br/nfews/v2/services/NfeRetAutorizacao4?wsdl',
+      NfeConsultaProtocolo: 'https://nfe.sefaz.mt.gov.br/nfews/v2/services/NfeConsulta4?wsdl',
+      NfeStatusServico: 'https://nfe.sefaz.mt.gov.br/nfews/v2/services/NfeStatusServico4?wsdl',
+      NfeRecepcaoEvento: 'https://nfe.sefaz.mt.gov.br/nfews/v2/services/RecepcaoEvento4?wsdl',
+      NfeInutilizacao: 'https://nfe.sefaz.mt.gov.br/nfews/v2/services/NfeInutilizacao4?wsdl',
+    },
+    homologacao: {
+      NfeAutorizacao: 'https://homologacao.sefaz.mt.gov.br/nfews/v2/services/NfeAutorizacao4?wsdl',
+      NfeRetAutorizacao: 'https://homologacao.sefaz.mt.gov.br/nfews/v2/services/NfeRetAutorizacao4?wsdl',
+      NfeConsultaProtocolo: 'https://homologacao.sefaz.mt.gov.br/nfews/v2/services/NfeConsulta4?wsdl',
+      NfeStatusServico: 'https://homologacao.sefaz.mt.gov.br/nfews/v2/services/NfeStatusServico4?wsdl',
+      NfeRecepcaoEvento: 'https://homologacao.sefaz.mt.gov.br/nfews/v2/services/RecepcaoEvento4?wsdl',
+      NfeInutilizacao: 'https://homologacao.sefaz.mt.gov.br/nfews/v2/services/NfeInutilizacao4?wsdl',
+    },
+  },
+  PE: {
+    producao: {
+      NfeAutorizacao: 'https://nfe.sefaz.pe.gov.br/nfe-service/services/NFeAutorizacao4',
+      NfeRetAutorizacao: 'https://nfe.sefaz.pe.gov.br/nfe-service/services/NFeRetAutorizacao4',
+      NfeConsultaProtocolo: 'https://nfe.sefaz.pe.gov.br/nfe-service/services/NFeConsultaProtocolo4',
+      NfeStatusServico: 'https://nfe.sefaz.pe.gov.br/nfe-service/services/NFeStatusServico4',
+      NfeRecepcaoEvento: 'https://nfe.sefaz.pe.gov.br/nfe-service/services/NFeRecepcaoEvento4',
+      NfeInutilizacao: 'https://nfe.sefaz.pe.gov.br/nfe-service/services/NFeInutilizacao4',
+    },
+    homologacao: {
+      NfeAutorizacao: 'https://nfehomolog.sefaz.pe.gov.br/nfe-service/services/NFeAutorizacao4?wsdl',
+      NfeRetAutorizacao: 'https://nfehomolog.sefaz.pe.gov.br/nfe-service/services/NFeRetAutorizacao4?wsdl',
+      NfeConsultaProtocolo: 'https://nfehomolog.sefaz.pe.gov.br/nfe-service/services/NFeConsultaProtocolo4?wsdl',
+      NfeStatusServico: 'https://nfehomolog.sefaz.pe.gov.br/nfe-service/services/NFeStatusServico4?wsdl',
+      NfeRecepcaoEvento: 'https://nfehomolog.sefaz.pe.gov.br/nfe-service/services/NFeRecepcaoEvento4?wsdl',
+      NfeInutilizacao: 'https://nfehomolog.sefaz.pe.gov.br/nfe-service/services/NFeInutilizacao4?wsdl',
+    },
+  },
+  PR: {
+    producao: {
+      NfeAutorizacao: 'https://nfe.sefa.pr.gov.br/nfe/NFeAutorizacao4?wsdl',
+      NfeRetAutorizacao: 'https://nfe.sefa.pr.gov.br/nfe/NFeRetAutorizacao4?wsdl',
+      NfeConsultaProtocolo: 'https://nfe.sefa.pr.gov.br/nfe/NFeConsultaProtocolo4?wsdl',
+      NfeStatusServico: 'https://nfe.sefa.pr.gov.br/nfe/NFeStatusServico4?wsdl',
+      NfeRecepcaoEvento: 'https://nfe.sefa.pr.gov.br/nfe/NFeRecepcaoEvento4?wsdl',
+      NfeInutilizacao: 'https://nfe.sefa.pr.gov.br/nfe/NFeInutilizacao4?wsdl',
+    },
+    homologacao: {
+      NfeAutorizacao: 'https://homologacao.nfe.sefa.pr.gov.br/nfe/NFeAutorizacao4?wsdl',
+      NfeRetAutorizacao: 'https://homologacao.nfe.sefa.pr.gov.br/nfe/NFeRetAutorizacao4?wsdl',
+      NfeConsultaProtocolo: 'https://homologacao.nfe.sefa.pr.gov.br/nfe/NFeConsultaProtocolo4?wsdl',
+      NfeStatusServico: 'https://homologacao.nfe.sefa.pr.gov.br/nfe/NFeStatusServico4?wsdl',
+      NfeRecepcaoEvento: 'https://homologacao.nfe.sefa.pr.gov.br/nfe/NFeRecepcaoEvento4?wsdl',
+      NfeInutilizacao: 'https://homologacao.nfe.sefa.pr.gov.br/nfe/NFeInutilizacao4?wsdl',
+    },
+  },
+  RS: {
+    producao: {
+      NfeAutorizacao: 'https://nfe.sefazrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
+      NfeRetAutorizacao: 'https://nfe.sefazrs.rs.gov.br/ws/NfeRetAutorizacao/NFeRetAutorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://nfe.sefazrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx',
+      NfeStatusServico: 'https://nfe.sefazrs.rs.gov.br/ws/NfeStatusServico/NFeStatusServico4.asmx',
+      NfeRecepcaoEvento: 'https://nfe.sefazrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx',
+      NfeInutilizacao: 'https://nfe.sefazrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
+    },
+    homologacao: {
+      NfeAutorizacao: 'https://nfe-homologacao.sefazrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
+      NfeRetAutorizacao: 'https://nfe-homologacao.sefazrs.rs.gov.br/ws/NfeRetAutorizacao/NFeRetAutorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://nfe-homologacao.sefazrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx',
+      NfeStatusServico: 'https://nfe-homologacao.sefazrs.rs.gov.br/ws/NfeStatusServico/NFeStatusServico4.asmx',
+      NfeRecepcaoEvento: 'https://nfe-homologacao.sefazrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx',
+      NfeInutilizacao: 'https://nfe-homologacao.sefazrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
+    },
+  },
+  SP: {
+    producao: {
+      NfeAutorizacao: 'https://nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx',
+      NfeRetAutorizacao: 'https://nfe.fazenda.sp.gov.br/ws/nferetautorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx',
+      NfeStatusServico: 'https://nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx',
+      NfeRecepcaoEvento: 'https://nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx',
+      NfeInutilizacao: 'https://nfe.fazenda.sp.gov.br/ws/nfeinutilizacao4.asmx',
+    },
+    homologacao: {
+      NfeAutorizacao: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx',
+      NfeRetAutorizacao: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nferetautorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx',
+      NfeStatusServico: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx',
+      NfeRecepcaoEvento: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx',
+      NfeInutilizacao: 'https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeinutilizacao4.asmx',
+    },
+  },
+  SVAN: {
+    producao: {
+      NfeAutorizacao: 'https://www.sefazvirtual.fazenda.gov.br/NFeAutorizacao4/NFeAutorizacao4.asmx',
+      NfeRetAutorizacao: 'https://www.sefazvirtual.fazenda.gov.br/NFeRetAutorizacao4/NFeRetAutorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://www.sefazvirtual.fazenda.gov.br/NFeConsultaProtocolo4/NFeConsultaProtocolo4.asmx',
+      NfeStatusServico: 'https://www.sefazvirtual.fazenda.gov.br/NFeStatusServico4/NFeStatusServico4.asmx',
+      NfeRecepcaoEvento: 'https://www.sefazvirtual.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx',
+      NfeInutilizacao: 'https://www.sefazvirtual.fazenda.gov.br/NFeInutilizacao4/NFeInutilizacao4.asmx',
+    },
+    homologacao: {
+      NfeAutorizacao: 'https://hom.sefazvirtual.fazenda.gov.br/NFeAutorizacao4/NFeAutorizacao4.asmx',
+      NfeRetAutorizacao: 'https://hom.sefazvirtual.fazenda.gov.br/NFeRetAutorizacao4/NFeRetAutorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://hom.sefazvirtual.fazenda.gov.br/NFeConsultaProtocolo4/NFeConsultaProtocolo4.asmx',
+      NfeStatusServico: 'https://hom.sefazvirtual.fazenda.gov.br/NFeStatusServico4/NFeStatusServico4.asmx',
+      NfeRecepcaoEvento: 'https://hom.sefazvirtual.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx',
+      NfeInutilizacao: 'https://hom.sefazvirtual.fazenda.gov.br/NFeInutilizacao4/NFeInutilizacao4.asmx',
+    },
+  },
+  SVRS: {
+    producao: {
+      NfeAutorizacao: 'https://nfe.svrs.rs.gov.br/ws/nfeautorizacao/nfeautorizacao4.asmx',
+      NfeRetAutorizacao: 'https://nfe.svrs.rs.gov.br/ws/nferetautorizacao/nferetautorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://nfe.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx',
+      NfeStatusServico: 'https://nfe.svrs.rs.gov.br/ws/NfeStatusServico/NFeStatusServico4.asmx',
+      NfeRecepcaoEvento: 'https://nfe.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx',
+      NfeInutilizacao: 'https://nfe.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
+    },
+    homologacao: {
+      NfeAutorizacao: 'https://nfe-homologacao.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
+      NfeRetAutorizacao: 'https://nfe-homologacao.svrs.rs.gov.br/ws/NfeRetAutorizacao/NFeRetAutorizacao4.asmx',
+      NfeConsultaProtocolo: 'https://nfe-homologacao.svrs.rs.gov.br/ws/NfeConsulta/NFeConsulta4.asmx',
+      NfeStatusServico: 'https://nfe-homologacao.svrs.rs.gov.br/ws/NfeStatusServico/NFeStatusServico4.asmx',
+      NfeRecepcaoEvento: 'https://nfe-homologacao.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx',
+      NfeInutilizacao: 'https://nfe-homologacao.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
+    },
+  },
 }
 
-/**
- * Gets the SEFAZ web service URL for a given UF, ambiente, and service.
- */
 export function getSefazEndpoint(
   uf: string,
-  ambiente: 'producao' | 'homologacao',
+  ambiente: SefazEnvironment,
   service: SefazService
 ): string {
-  const autorizador = UF_AUTORIZADOR[uf]
+  const normalizedUf = (uf || '').trim().toUpperCase()
+  const autorizador = UF_AUTORIZADOR[normalizedUf]
   if (!autorizador) {
-    throw new Error(`UF "${uf}" nao possui autorizador mapeado. Contate o suporte.`)
+    throw new Error(`UF "${normalizedUf}" nao possui autorizador mapeado.`)
   }
 
   const endpoints = ENDPOINTS[autorizador]
   if (!endpoints) {
-    // Fallback to SVRS for unmapped autorizadores
-    const svrs = ENDPOINTS['SVRS']
-    return svrs[ambiente][service]
+    throw new Error(`Autorizador "${autorizador}" nao possui endpoints configurados.`)
   }
 
-  return endpoints[ambiente][service]
-}
+  const endpoint = endpoints[ambiente]?.[service]
+  if (!endpoint) {
+    throw new Error(`Servico "${service}" nao configurado para autorizador "${autorizador}" em ${ambiente}.`)
+  }
 
-// ─── SOAP Client ──────────────────────────────────
+  return endpoint
+}
 
 interface SoapResponse {
   statusCode: number
@@ -137,36 +328,24 @@ interface SoapResponse {
   parsed: Record<string, unknown>
 }
 
-/**
- * Sends a SOAP request to a SEFAZ web service with mTLS.
- *
- * Uses the A1 certificate (PEM key + cert) for mutual TLS authentication.
- *
- * @param url - SEFAZ web service URL
- * @param content - XML content (already signed)
- * @param serviceName - SEFAZ service name (e.g., 'NfeAutorizacao4')
- */
 export async function sendSoapRequest(
   url: string,
   content: string,
   serviceName: string
 ): Promise<SoapResponse> {
   const certData = await loadCertificate()
-
   const soapBody = buildSoapEnvelope(content, serviceName)
-
   const parsedUrl = new URL(url)
 
   const options: https.RequestOptions = {
     hostname: parsedUrl.hostname,
     port: 443,
-    path: parsedUrl.pathname,
+    path: `${parsedUrl.pathname}${parsedUrl.search}`,
     method: 'POST',
     headers: {
       'Content-Type': 'application/soap+xml; charset=utf-8',
       'Content-Length': Buffer.byteLength(soapBody, 'utf-8'),
     },
-    // mTLS: client certificate authentication
     key: certData.privateKeyPem,
     cert: certData.certificatePem,
     rejectUnauthorized: true,
@@ -190,7 +369,7 @@ export async function sendSoapRequest(
         try {
           parsed = parser.parse(body)
         } catch {
-          // If XML parsing fails, return raw body
+          // Keep raw body even if parsing fails.
         }
 
         resolve({
@@ -201,10 +380,7 @@ export async function sendSoapRequest(
       })
     })
 
-    req.on('error', (err) => {
-      reject(new Error(`SEFAZ SOAP error: ${err.message}`))
-    })
-
+    req.on('error', (err) => reject(new Error(`SEFAZ SOAP error: ${err.message}`)))
     req.on('timeout', () => {
       req.destroy()
       reject(new Error('SEFAZ SOAP timeout (30s). Tente novamente.'))
@@ -215,47 +391,89 @@ export async function sendSoapRequest(
   })
 }
 
-// ─── Parse SEFAZ Response ─────────────────────────
+export function buildRetAutorizacaoRequestXml(tpAmb: 1 | 2, receiptNumber: string): string {
+  return [
+    '<consReciNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">',
+    `<tpAmb>${tpAmb}</tpAmb>`,
+    `<nRec>${receiptNumber}</nRec>`,
+    '</consReciNFe>',
+  ].join('')
+}
 
-export function parseSefazAutorizacaoResponse(parsed: Record<string, unknown>): {
-  cStat: number
-  xMotivo: string
-  nProt: string | null
-  dhRecbto: string | null
-  chNFe: string | null
-  digVal: string | null
-} {
-  // Response structure: Envelope > Body > nfeResultMsg > retEnviNFe > protNFe > infProt
-  const body = extractNested(parsed, 'Envelope', 'Body') as Record<string, unknown>
-  const result = extractNested(body, 'nfeAutorizacaoLoteResult', 'retEnviNFe')
-    || extractNested(body, 'nfeResultMsg', 'retEnviNFe')
-    || body
+export function buildConsultaProtocoloRequestXml(tpAmb: 1 | 2, chaveAcesso: string): string {
+  return [
+    '<consSitNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">',
+    `<tpAmb>${tpAmb}</tpAmb>`,
+    '<xServ>CONSULTAR</xServ>',
+    `<chNFe>${chaveAcesso}</chNFe>`,
+    '</consSitNFe>',
+  ].join('')
+}
 
-  const retEnviNFe = result as Record<string, unknown>
-  const protNFe = retEnviNFe?.protNFe as Record<string, unknown>
-  const infProt = (protNFe?.infProt || retEnviNFe?.infProt) as Record<string, unknown>
-
-  if (!infProt) {
-    // Try batch response
-    const cStat = Number(retEnviNFe?.cStat || 0)
-    return {
-      cStat,
-      xMotivo: String(retEnviNFe?.xMotivo || 'Resposta SEFAZ sem protNFe'),
-      nProt: null,
-      dhRecbto: null,
-      chNFe: null,
-      digVal: null,
-    }
-  }
+export function buildInutilizacaoRequestXml(params: {
+  tpAmb: 1 | 2
+  cUF: number
+  ano: string
+  cnpj: string
+  modelo: '55' | '65'
+  serie: string
+  numeroInicial: number
+  numeroFinal: number
+  justificativa: string
+}): { xml: string; infInutId: string } {
+  const numeroInicial = String(params.numeroInicial).padStart(9, '0')
+  const numeroFinal = String(params.numeroFinal).padStart(9, '0')
+  const infInutId = `ID${params.cUF}${params.ano}${params.cnpj}${params.modelo}${String(params.serie).padStart(3, '0')}${numeroInicial}${numeroFinal}`
 
   return {
-    cStat: Number(infProt.cStat || 0),
-    xMotivo: String(infProt.xMotivo || ''),
-    nProt: String(infProt.nProt || '') || null,
-    dhRecbto: String(infProt.dhRecbto || '') || null,
-    chNFe: String(infProt.chNFe || '') || null,
-    digVal: String(infProt.digVal || '') || null,
+    infInutId,
+    xml: [
+      '<inutNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">',
+      `<infInut Id="${infInutId}">`,
+      `<tpAmb>${params.tpAmb}</tpAmb>`,
+      `<xServ>INUTILIZAR</xServ>`,
+      `<cUF>${params.cUF}</cUF>`,
+      `<ano>${params.ano}</ano>`,
+      `<CNPJ>${params.cnpj}</CNPJ>`,
+      `<mod>${params.modelo}</mod>`,
+      `<serie>${params.serie}</serie>`,
+      `<nNFIni>${params.numeroInicial}</nNFIni>`,
+      `<nNFFin>${params.numeroFinal}</nNFFin>`,
+      `<xJust>${escapeXml(params.justificativa.substring(0, 255))}</xJust>`,
+      '</infInut>',
+      '</inutNFe>',
+    ].join(''),
   }
+}
+
+export function parseSefazAutorizacaoResponse(parsed: Record<string, unknown>): ParsedAuthorizationResponse {
+  const body = extractNested(parsed, 'Envelope', 'Body') as Record<string, unknown>
+  const retEnviNFe = (extractNested(body, 'nfeAutorizacaoLoteResult', 'retEnviNFe')
+    || extractNested(body, 'nfeAutorizacaoResult', 'retEnviNFe')
+    || extractNested(body, 'nfeResultMsg', 'retEnviNFe')
+    || body) as Record<string, unknown>
+
+  return parseProtocolEnvelope(retEnviNFe)
+}
+
+export function parseSefazRetAutorizacaoResponse(parsed: Record<string, unknown>): ParsedAuthorizationResponse {
+  const body = extractNested(parsed, 'Envelope', 'Body') as Record<string, unknown>
+  const retConsReciNFe = (extractNested(body, 'nfeRetAutorizacaoLoteResult', 'retConsReciNFe')
+    || extractNested(body, 'nfeRetAutorizacaoResult', 'retConsReciNFe')
+    || extractNested(body, 'nfeResultMsg', 'retConsReciNFe')
+    || body) as Record<string, unknown>
+
+  return parseProtocolEnvelope(retConsReciNFe)
+}
+
+export function parseSefazConsultaProtocoloResponse(parsed: Record<string, unknown>): ParsedAuthorizationResponse {
+  const body = extractNested(parsed, 'Envelope', 'Body') as Record<string, unknown>
+  const retConsSitNFe = (extractNested(body, 'nfeConsultaNFResult', 'retConsSitNFe')
+    || extractNested(body, 'nfeConsultaProtocoloResult', 'retConsSitNFe')
+    || extractNested(body, 'nfeResultMsg', 'retConsSitNFe')
+    || body) as Record<string, unknown>
+
+  return parseProtocolEnvelope(retConsSitNFe)
 }
 
 export function parseSefazEventoResponse(parsed: Record<string, unknown>): {
@@ -290,7 +508,50 @@ export function parseSefazEventoResponse(parsed: Record<string, unknown>): {
   }
 }
 
-// ─── Utility ──────────────────────────────────────
+export function parseSefazInutilizacaoResponse(parsed: Record<string, unknown>): ParsedInutilizacaoResponse {
+  const body = extractNested(parsed, 'Envelope', 'Body') as Record<string, unknown>
+  const retInutNFe = (extractNested(body, 'nfeInutilizacaoNFResult', 'retInutNFe')
+    || extractNested(body, 'nfeInutilizacaoResult', 'retInutNFe')
+    || extractNested(body, 'nfeResultMsg', 'retInutNFe')
+    || body) as Record<string, unknown>
+  const infInut = (retInutNFe.infInut || retInutNFe) as Record<string, unknown>
+
+  return {
+    cStat: Number(infInut.cStat || retInutNFe.cStat || 0),
+    xMotivo: String(infInut.xMotivo || retInutNFe.xMotivo || ''),
+    nProt: String(infInut.nProt || '') || null,
+    dhRecbto: String(infInut.dhRecbto || '') || null,
+  }
+}
+
+function parseProtocolEnvelope(result: Record<string, unknown>): ParsedAuthorizationResponse {
+  const protocolNode = extractProtocolNode(result)
+  const infProt = extractInfProt(result)
+
+  return {
+    cStat: Number((infProt?.cStat || result?.cStat || 0) as number),
+    xMotivo: String(infProt?.xMotivo || result?.xMotivo || ''),
+    nRec: String(result?.nRec || '') || null,
+    nProt: String(infProt?.nProt || '') || null,
+    dhRecbto: String(infProt?.dhRecbto || '') || null,
+    chNFe: String(infProt?.chNFe || '') || null,
+    digVal: String(infProt?.digVal || '') || null,
+    protNFe: protocolNode,
+  }
+}
+
+function extractProtocolNode(result: Record<string, unknown>): Record<string, unknown> | null {
+  const protNFe = result?.protNFe as Record<string, unknown> | undefined
+  if (protNFe && typeof protNFe === 'object') return protNFe
+  return null
+}
+
+function extractInfProt(result: Record<string, unknown>): Record<string, unknown> | null {
+  const protNFe = extractProtocolNode(result)
+  const infProt = (protNFe?.infProt || result?.infProt) as Record<string, unknown> | undefined
+  if (infProt && typeof infProt === 'object') return infProt
+  return null
+}
 
 function extractNested(obj: unknown, ...keys: string[]): unknown {
   let current: unknown = obj
@@ -302,4 +563,13 @@ function extractNested(obj: unknown, ...keys: string[]): unknown {
     }
   }
   return current
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
 }

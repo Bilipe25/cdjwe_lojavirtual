@@ -1,7 +1,6 @@
 // ============================================================
-// Fiscal Transport — NF-e Emission Service
-// Complete flow: XML generation → signing → SEFAZ submission
-// Pure JS transport (Vercel-compatible)
+// Fiscal Transport - NF-e Emission Service
+// Complete flow: XML generation -> signing -> SEFAZ submission
 // ============================================================
 
 import 'server-only'
@@ -10,30 +9,52 @@ import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import {
   mapFiscalPayloadToNFeXml,
   buildNFeAuthorizationEnvelope,
+  buildNFeProcessedXml,
 } from './map-fiscal-to-nfe.service'
+import { buildFiscalDocumentSnapshot } from './fiscal-document-snapshot'
 import { loadCertificate, signNFeXml } from './sign-xml.service'
 import {
+  buildConsultaProtocoloRequestXml,
+  buildRetAutorizacaoRequestXml,
   getSefazEndpoint,
-  sendSoapRequest,
   parseSefazAutorizacaoResponse,
+  parseSefazConsultaProtocoloResponse,
+  parseSefazRetAutorizacaoResponse,
+  sendSoapRequest,
 } from './sefaz-client.service'
 import type { FiscalDocumentPayload } from '../motor/types'
 import type { EmissionResult } from './types'
 
 const NF_NAMESPACE = 'http://www.portalfiscal.inf.br/nfe'
+const AUTHORIZED_STATUS_CODES = new Set([100, 150])
+const PROCESSING_STATUS_CODES = new Set([103, 105])
+const RET_AUTORIZATION_ATTEMPTS = 5
+const RET_AUTORIZATION_DELAY_MS = 1500
 
-/**
- * Emits an NF-e for the given order:
- *
- * 1. Get next NF-e number
- * 2. Map FiscalDocumentPayload → XML (infNFe)
- * 3. Sign XML with A1 certificate (RSA-SHA1)
- * 4. Wrap in enviNFe envelope
- * 5. Submit to SEFAZ via SOAP/mTLS
- * 6. Parse SEFAZ response
- * 7. Persist result to fiscal_documents + fiscal_events_log
- * 8. Store XMLs in Supabase Storage
- */
+interface EmissionReservationRow {
+  reserved: boolean
+  environment_id: string | null
+  ambiente: 'homologacao' | 'producao' | null
+  serie: string | null
+  numero: number | null
+  existing_document_id: string | null
+  existing_document_status: string | null
+  existing_chave_acesso: string | null
+  existing_protocolo: string | null
+  existing_data_autorizacao: string | null
+  existing_codigo_status: number | null
+  existing_motivo_status: string | null
+  existing_xml_processado_path: string | null
+}
+
+interface OrderFiscalEmissionData {
+  payment_method_code: string | null
+  payment_method_name: string | null
+  payment_installments: number | null
+  notes: string | null
+  shipping_address: string | null
+}
+
 export async function emitNFe(
   orderId: string,
   payload: FiscalDocumentPayload,
@@ -44,70 +65,98 @@ export async function emitNFe(
   const startTime = Date.now()
 
   try {
-    // 1. Get next NF-e number and serie
-    const { data: envConfig, error: envError } = await supabase
-      .from('company_fiscal_environment')
-      .select('*')
-      .limit(1)
-      .maybeSingle()
-
-    if (envError || !envConfig) {
-      return createErrorResult('ENV_NOT_CONFIGURED', 'Ambiente fiscal nao configurado.')
+    const certData = await loadCertificate()
+    const orderData = await loadOrderFiscalEmissionData(supabase, orderId)
+    if (!orderData) {
+      return createErrorResult('ORDER_NOT_FOUND', 'Pedido nao encontrado para emissao fiscal.')
     }
 
-    const serie = modelo === '55'
-      ? envConfig.serie_nfe || envConfig.serie_padrao_nfe
-      : envConfig.serie_nfce
-    const nextNumber = modelo === '55'
-      ? envConfig.proximo_numero_nfe
-      : envConfig.proximo_numero_nfce
-
-    if (!serie || !nextNumber || nextNumber <= 0) {
-      return createErrorResult('SEQUENCE_ERROR', `Serie/numero ${modelo === '55' ? 'NF-e' : 'NFC-e'} nao configurado.`)
+    const reservation = await reserveEmission(supabase, orderId, modelo)
+    if (!reservation) {
+      return createErrorResult('SEQUENCE_ERROR', 'Falha ao reservar numero fiscal para o pedido.')
     }
 
-    // 2. Map to XML (unsigned infNFe)
+    if (!reservation.reserved) {
+      return buildExistingEmissionResult(reservation)
+    }
+
+    if (!reservation.serie || !reservation.numero || !reservation.ambiente) {
+      return createErrorResult('SEQUENCE_ERROR', 'Serie/numero fiscal nao retornados pela reserva de emissao.')
+    }
+
     const { xml: infNFeXml, chaveAcesso, infNFeId } = mapFiscalPayloadToNFeXml(
-      payload, nextNumber, serie, modelo
+      payload,
+      reservation.numero,
+      reservation.serie,
+      modelo,
+      {
+        payment: {
+          methodCode: orderData.payment_method_code,
+          methodName: orderData.payment_method_name,
+          installments: orderData.payment_installments,
+          paidAmount: payload.totals.vNF,
+        },
+        freightMode: payload.context.environment.modalidade_frete_padrao,
+        additionalInfo: buildAdditionalInfo(orderData),
+      }
     )
 
-    // Wrap in <NFe> element
     const nfeXmlUnsigned = `<NFe xmlns="${NF_NAMESPACE}">${infNFeXml}</NFe>`
 
-    // 3. Sign XML with A1 certificate
     let signedNFeXml: string
-    let certLoaded = false
     try {
-      const certData = await loadCertificate()
       signedNFeXml = signNFeXml(nfeXmlUnsigned, infNFeId, certData)
-      certLoaded = true
-    } catch (certErr) {
-      // If certificate not available, store unsigned XML
-      console.warn('[fiscal:emit] Certificate not available, storing unsigned XML:', certErr)
-      signedNFeXml = nfeXmlUnsigned
+    } catch (signErr) {
+      return createErrorResult(
+        'SIGNATURE_REQUIRED',
+        `Falha ao assinar o XML da NF-e: ${signErr instanceof Error ? signErr.message : String(signErr)}`
+      )
     }
 
-    // 4. Build enviNFe envelope
     const envelopeXml = buildNFeAuthorizationEnvelope(signedNFeXml)
+    const ambiente = reservation.ambiente
 
-    // 5. Create fiscal_documents record (status: processing)
-    const ambiente = payload.context.environment.ambiente as 'homologacao' | 'producao'
+    const emittedAt = new Date().toISOString()
+    const snapshot = buildFiscalDocumentSnapshot({
+      payload,
+      order: {
+        orderId,
+        paymentMethodCode: orderData.payment_method_code,
+        paymentMethodName: orderData.payment_method_name,
+        paymentInstallments: orderData.payment_installments,
+        notes: orderData.notes,
+        shippingAddress: orderData.shipping_address,
+        total: payload.totals.vNF,
+      },
+      document: {
+        modelo,
+        numero: reservation.numero,
+        serie: reservation.serie,
+        chaveAcesso,
+        naturezaOperacao: payload.context.environment.natureza_operacao || 'VENDA DE MERCADORIA',
+        ambiente,
+        emittedAt,
+        emittedBy: userId,
+        protocolo: null,
+        dataAutorizacao: null,
+        codigoStatus: null,
+        motivoStatus: null,
+        digestValue: null,
+      },
+    })
+
     const { data: fiscalDoc, error: docError } = await supabase
       .from('fiscal_documents')
       .insert({
         order_id: orderId,
         document_model: modelo,
-        document_status: certLoaded ? 'processing' : 'pending',
+        document_status: 'processing',
         chave_acesso: chaveAcesso,
-        numero_nf: nextNumber,
-        serie,
+        numero_nf: reservation.numero,
+        serie: reservation.serie,
         natureza_operacao: payload.context.environment.natureza_operacao || 'VENDA DE MERCADORIA',
         motor_version: payload.motor_version,
-        fiscal_payload_jsonb: {
-          totals: payload.totals,
-          item_count: payload.items.length,
-          validation: payload.validation,
-        },
+        fiscal_payload_jsonb: snapshot,
         valor_produtos: payload.totals.vProd,
         valor_total_nota: payload.totals.vNF,
         valor_icms: payload.totals.vICMS,
@@ -119,16 +168,19 @@ export async function emitNFe(
         valor_desconto: payload.totals.vDesc,
         ambiente,
         emitted_by: userId,
-        emitted_at: new Date().toISOString(),
+        emitted_at: emittedAt,
       })
       .select('id')
       .single()
 
     if (docError || !fiscalDoc) {
+      if (isUniqueActiveEmissionViolation(docError?.message)) {
+        const existing = await loadExistingActiveEmission(supabase, orderId, modelo)
+        if (existing) return buildExistingEmissionResult(existing)
+      }
       return createErrorResult('DOC_INSERT_FAILED', `Erro ao criar documento fiscal: ${docError?.message}`)
     }
 
-    // 6. Store envio XML in Supabase Storage
     const xmlEnvioPath = `${orderId}/${fiscalDoc.id}/envio.xml`
     await supabase.storage
       .from('fiscal-xml')
@@ -139,131 +191,319 @@ export async function emitNFe(
       .update({ xml_envio_path: xmlEnvioPath })
       .eq('id', fiscalDoc.id)
 
-    // 7. Submit to SEFAZ (only if certificate was loaded)
-    let sefazResult: ReturnType<typeof parseSefazAutorizacaoResponse> | null = null
+    let finalResponseXml = ''
+    let finalResult = null as ReturnType<typeof parseSefazAutorizacaoResponse> | null
 
-    if (certLoaded) {
-      try {
-        const emitterUf = payload.context.emitter.uf
-        const endpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeAutorizacao')
-        const soapResponse = await sendSoapRequest(endpoint, envelopeXml, 'NFeAutorizacao4')
+    try {
+      const tpAmb = ambiente === 'producao' ? 1 : 2
+      const emitterUf = payload.context.emitter.uf
+      const responseXmlParts: string[] = []
 
-        // Store retorno XML
-        const xmlRetornoPath = `${orderId}/${fiscalDoc.id}/retorno.xml`
-        await supabase.storage
-          .from('fiscal-xml')
-          .upload(xmlRetornoPath, soapResponse.body, { contentType: 'application/xml', upsert: true })
+      const authorizationEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeAutorizacao')
+      const authorizationSoapResponse = await sendSoapRequest(authorizationEndpoint, envelopeXml, 'NFeAutorizacao4')
+      responseXmlParts.push(`<!-- autorizacao -->\n${authorizationSoapResponse.body}`)
 
-        await supabase
-          .from('fiscal_documents')
-          .update({ xml_retorno_path: xmlRetornoPath })
-          .eq('id', fiscalDoc.id)
+      finalResult = parseSefazAutorizacaoResponse(authorizationSoapResponse.parsed)
 
-        sefazResult = parseSefazAutorizacaoResponse(soapResponse.parsed)
+      if (PROCESSING_STATUS_CODES.has(finalResult.cStat) && finalResult.nRec) {
+        const retEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeRetAutorizacao')
+        const receiptNumber = finalResult.nRec
+        for (let attempt = 0; attempt < RET_AUTORIZATION_ATTEMPTS; attempt++) {
+          await wait(RET_AUTORIZATION_DELAY_MS)
+          const retXml = buildRetAutorizacaoRequestXml(tpAmb, receiptNumber)
+          const retResponse = await sendSoapRequest(retEndpoint, retXml, 'NFeRetAutorizacao4')
+          responseXmlParts.push(`<!-- ret-autorizacao tentativa ${attempt + 1} -->\n${retResponse.body}`)
+          finalResult = parseSefazRetAutorizacaoResponse(retResponse.parsed)
 
-        // Status 100 = Autorizado uso da NF-e
-        const isAuthorized = sefazResult.cStat === 100
-
-        // Update fiscal_documents with SEFAZ result
-        await supabase
-          .from('fiscal_documents')
-          .update({
-            document_status: isAuthorized ? 'authorized' : 'denied',
-            protocolo_autorizacao: sefazResult.nProt,
-            data_autorizacao: sefazResult.dhRecbto,
-            codigo_status: sefazResult.cStat,
-            motivo_status: sefazResult.xMotivo,
-            digest_value: sefazResult.digVal,
-          })
-          .eq('id', fiscalDoc.id)
-      } catch (soapErr) {
-        const soapError = soapErr instanceof Error ? soapErr.message : String(soapErr)
-        console.error('[fiscal:emit] SEFAZ SOAP error:', soapError)
-
-        await supabase
-          .from('fiscal_documents')
-          .update({
-            document_status: 'error',
-            motivo_status: `SOAP Error: ${soapError}`,
-          })
-          .eq('id', fiscalDoc.id)
-
-        sefazResult = {
-          cStat: 0,
-          xMotivo: soapError,
-          nProt: null,
-          dhRecbto: null,
-          chNFe: null,
-          digVal: null,
+          if (!PROCESSING_STATUS_CODES.has(finalResult.cStat) || finalResult.protNFe) {
+            break
+          }
         }
       }
-    }
 
-    // 8. Increment next number
-    const numberField = modelo === '55' ? 'proximo_numero_nfe' : 'proximo_numero_nfce'
-    await supabase
-      .from('company_fiscal_environment')
-      .update({ [numberField]: nextNumber + 1 })
-      .eq('id', envConfig.id)
+      if ((!AUTHORIZED_STATUS_CODES.has(finalResult.cStat) || !finalResult.protNFe) && chaveAcesso) {
+        const consultEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeConsultaProtocolo')
+        const consultXml = buildConsultaProtocoloRequestXml(tpAmb, chaveAcesso)
+        const consultResponse = await sendSoapRequest(consultEndpoint, consultXml, 'NFeConsultaProtocolo4')
+        responseXmlParts.push(`<!-- consulta-protocolo -->\n${consultResponse.body}`)
 
-    // 9. Log event
-    const duration = Date.now() - startTime
-    const eventStatus = sefazResult
-      ? (sefazResult.cStat === 100 ? 'success' : 'failure')
-      : 'warning'
+        const consultResult = parseSefazConsultaProtocoloResponse(consultResponse.parsed)
+        if (consultResult.protNFe || AUTHORIZED_STATUS_CODES.has(consultResult.cStat)) {
+          finalResult = consultResult
+        }
+      }
 
-    await supabase
-      .from('fiscal_events_log')
-      .insert({
-        fiscal_document_id: fiscalDoc.id,
-        order_id: orderId,
-        event_type: 'authorization',
-        event_status: eventStatus,
-        request_summary_jsonb: {
-          chave_acesso: chaveAcesso,
-          numero_nf: nextNumber,
-          serie,
-          modelo,
-          ambiente,
-          motor_version: payload.motor_version,
-          cert_loaded: certLoaded,
-        },
-        response_summary_jsonb: sefazResult || {
-          note: 'Certificado nao disponivel. XML gerado e armazenado sem assinatura.',
-        },
-        sefaz_status_code: sefazResult?.cStat || null,
-        sefaz_message: sefazResult?.xMotivo || 'XML pendente de submissao',
-        duration_ms: duration,
-        executed_by: userId,
+      finalResponseXml = responseXmlParts.join('\n\n')
+    } catch (soapErr) {
+      const soapError = soapErr instanceof Error ? soapErr.message : String(soapErr)
+      console.error('[fiscal:emit] SEFAZ SOAP error:', soapError)
+
+      await supabase
+        .from('fiscal_documents')
+        .update({
+          document_status: 'error',
+          motivo_status: `SOAP Error: ${soapError}`,
+        })
+        .eq('id', fiscalDoc.id)
+
+      await logFiscalEvent(supabase, {
+        fiscalDocumentId: fiscalDoc.id,
+        orderId,
+        chaveAcesso,
+        numero: reservation.numero,
+        serie: reservation.serie,
+        modelo,
+        ambiente,
+        motorVersion: payload.motor_version,
+        eventStatus: 'failure',
+        responseSummary: { error: soapError },
+        sefazStatusCode: null,
+        sefazMessage: soapError,
+        durationMs: Date.now() - startTime,
+        executedBy: userId,
       })
 
-    // 10. Update order
+      return createErrorResult('SEFAZ_TRANSPORT_ERROR', soapError)
+    }
+
+    const xmlRetornoPath = `${orderId}/${fiscalDoc.id}/retorno.xml`
+    await supabase.storage
+      .from('fiscal-xml')
+      .upload(xmlRetornoPath, finalResponseXml, { contentType: 'application/xml', upsert: true })
+
+    const isAuthorized = finalResult ? AUTHORIZED_STATUS_CODES.has(finalResult.cStat) : false
+    const isStillProcessing = finalResult ? PROCESSING_STATUS_CODES.has(finalResult.cStat) : false
+
+    let xmlProcessadoPath: string | null = null
+    let xmlProcessado: string | null = null
+
+    if (isAuthorized && finalResult?.protNFe) {
+      xmlProcessado = buildNFeProcessedXml(signedNFeXml, finalResult.protNFe)
+      xmlProcessadoPath = `${orderId}/${fiscalDoc.id}/processado.xml`
+
+      await supabase.storage
+        .from('fiscal-xml')
+        .upload(xmlProcessadoPath, xmlProcessado, { contentType: 'application/xml', upsert: true })
+    }
+
+    snapshot.document.protocolo = finalResult?.nProt || null
+    snapshot.document.dataAutorizacao = finalResult?.dhRecbto || null
+    snapshot.document.codigoStatus = finalResult?.cStat || null
+    snapshot.document.motivoStatus = finalResult?.xMotivo || null
+    snapshot.document.digestValue = finalResult?.digVal || null
+
+    await supabase
+      .from('fiscal_documents')
+      .update({
+        document_status: isAuthorized ? 'authorized' : (isStillProcessing ? 'processing' : 'denied'),
+        protocolo_autorizacao: finalResult?.nProt || null,
+        data_autorizacao: finalResult?.dhRecbto || null,
+        codigo_status: finalResult?.cStat || null,
+        motivo_status: finalResult?.xMotivo || null,
+        digest_value: finalResult?.digVal || null,
+        fiscal_payload_jsonb: snapshot,
+        xml_retorno_path: xmlRetornoPath,
+        xml_processado_path: xmlProcessadoPath,
+      })
+      .eq('id', fiscalDoc.id)
+
+    const eventStatus = isAuthorized ? 'success' : (isStillProcessing ? 'warning' : 'failure')
+    await logFiscalEvent(supabase, {
+      fiscalDocumentId: fiscalDoc.id,
+      orderId,
+      chaveAcesso,
+      numero: reservation.numero,
+      serie: reservation.serie,
+      modelo,
+      ambiente,
+      motorVersion: payload.motor_version,
+      eventStatus,
+      responseSummary: finalResult,
+      sefazStatusCode: finalResult?.cStat || null,
+      sefazMessage: finalResult?.xMotivo || (isStillProcessing ? 'Lote recebido e ainda em processamento.' : 'Falha na autorizacao.'),
+      durationMs: Date.now() - startTime,
+      executedBy: userId,
+    })
+
     await supabase
       .from('orders')
       .update({
-        fiscal_ready: true,
+        fiscal_ready: isAuthorized || payload.validation.is_valid,
         fiscal_snapshot: {
           last_document_id: fiscalDoc.id,
           last_chave_acesso: chaveAcesso,
           last_emitted_at: new Date().toISOString(),
-          last_status: sefazResult ? (sefazResult.cStat === 100 ? 'authorized' : 'denied') : 'pending',
+          last_status: isAuthorized ? 'authorized' : (isStillProcessing ? 'processing' : 'denied'),
+          last_codigo_status: finalResult?.cStat || null,
+          last_motivo_status: finalResult?.xMotivo || null,
         },
       })
       .eq('id', orderId)
 
     return {
-      success: sefazResult ? sefazResult.cStat === 100 : true,
+      success: isAuthorized,
       chaveAcesso,
-      protocolo: sefazResult?.nProt || null,
-      dataAutorizacao: sefazResult?.dhRecbto || null,
-      codigoStatus: sefazResult?.cStat || null,
-      motivoStatus: sefazResult?.xMotivo || 'XML gerado. ' + (certLoaded ? 'Submetido ao SEFAZ.' : 'Pendente assinatura e submissao.'),
-      xmlProcessado: null,
+      protocolo: finalResult?.nProt || null,
+      dataAutorizacao: finalResult?.dhRecbto || null,
+      codigoStatus: finalResult?.cStat || null,
+      motivoStatus: finalResult?.xMotivo || (isStillProcessing ? 'Lote recebido pela SEFAZ e ainda em processamento.' : 'Falha na autorizacao.'),
+      xmlProcessado,
+      error: isAuthorized ? undefined : (isStillProcessing ? 'Emissao ainda em processamento na SEFAZ.' : finalResult?.xMotivo || 'Falha na emissao.'),
     }
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err))
     return createErrorResult('EMISSION_ERROR', error.message)
   }
+}
+
+async function loadOrderFiscalEmissionData(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  orderId: string
+): Promise<OrderFiscalEmissionData | null> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('payment_method_code, payment_method_name, payment_installments, notes, shipping_address')
+    .eq('id', orderId)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  return {
+    payment_method_code: data.payment_method_code ?? null,
+    payment_method_name: data.payment_method_name ?? null,
+    payment_installments: data.payment_installments ?? null,
+    notes: data.notes ?? null,
+    shipping_address: data.shipping_address ?? null,
+  }
+}
+
+async function reserveEmission(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  orderId: string,
+  modelo: '55' | '65'
+): Promise<EmissionReservationRow | null> {
+  const { data, error } = await supabase.rpc('reserve_fiscal_document_emission', {
+    p_order_id: orderId,
+    p_document_model: modelo,
+  })
+
+  if (error || !Array.isArray(data) || data.length === 0) {
+    return null
+  }
+
+  return data[0] as EmissionReservationRow
+}
+
+async function loadExistingActiveEmission(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  orderId: string,
+  modelo: '55' | '65'
+): Promise<EmissionReservationRow | null> {
+  const { data, error } = await supabase
+    .from('fiscal_documents')
+    .select('id, document_status, chave_acesso, protocolo_autorizacao, data_autorizacao, codigo_status, motivo_status, xml_processado_path, ambiente, serie, numero_nf')
+    .eq('order_id', orderId)
+    .eq('document_model', modelo)
+    .in('document_status', ['pending', 'processing', 'authorized'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  return {
+    reserved: false,
+    environment_id: null,
+    ambiente: data.ambiente,
+    serie: data.serie,
+    numero: data.numero_nf,
+    existing_document_id: data.id,
+    existing_document_status: data.document_status,
+    existing_chave_acesso: data.chave_acesso,
+    existing_protocolo: data.protocolo_autorizacao,
+    existing_data_autorizacao: data.data_autorizacao,
+    existing_codigo_status: data.codigo_status,
+    existing_motivo_status: data.motivo_status,
+    existing_xml_processado_path: data.xml_processado_path,
+  }
+}
+
+async function logFiscalEvent(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  params: {
+    fiscalDocumentId: string
+    orderId: string
+    chaveAcesso: string
+    numero: number
+    serie: string
+    modelo: '55' | '65'
+    ambiente: 'homologacao' | 'producao'
+    motorVersion: string
+    eventStatus: 'success' | 'failure' | 'warning'
+    responseSummary: unknown
+    sefazStatusCode: number | null
+    sefazMessage: string | null
+    durationMs: number
+    executedBy: string
+  }
+) {
+  await supabase
+    .from('fiscal_events_log')
+    .insert({
+      fiscal_document_id: params.fiscalDocumentId,
+      order_id: params.orderId,
+      event_type: 'authorization',
+      event_status: params.eventStatus,
+      request_summary_jsonb: {
+        chave_acesso: params.chaveAcesso,
+        numero_nf: params.numero,
+        serie: params.serie,
+        modelo: params.modelo,
+        ambiente: params.ambiente,
+        motor_version: params.motorVersion,
+      },
+      response_summary_jsonb: params.responseSummary as Record<string, unknown> | null,
+      sefaz_status_code: params.sefazStatusCode,
+      sefaz_message: params.sefazMessage,
+      duration_ms: params.durationMs,
+      executed_by: params.executedBy,
+    })
+}
+
+function buildExistingEmissionResult(existing: EmissionReservationRow): EmissionResult {
+  const status = existing.existing_document_status || 'processing'
+  const isAuthorized = status === 'authorized'
+
+  return {
+    success: isAuthorized,
+    chaveAcesso: existing.existing_chave_acesso,
+    protocolo: existing.existing_protocolo,
+    dataAutorizacao: existing.existing_data_autorizacao,
+    codigoStatus: existing.existing_codigo_status,
+    motivoStatus: existing.existing_motivo_status || (
+      isAuthorized
+        ? 'Pedido ja possui documento fiscal autorizado.'
+        : `Ja existe uma emissao fiscal em andamento para este pedido (${status}).`
+    ),
+    xmlProcessado: null,
+    error: isAuthorized ? undefined : `Pedido ja possui uma emissao fiscal ativa com status "${status}".`,
+  }
+}
+
+function buildAdditionalInfo(orderData: OrderFiscalEmissionData): string | null {
+  const parts = [orderData.notes, orderData.shipping_address ? `Endereco de entrega: ${orderData.shipping_address}` : null]
+    .map((value) => (value || '').trim())
+    .filter(Boolean)
+
+  return parts.length > 0 ? parts.join(' | ') : null
+}
+
+function isUniqueActiveEmissionViolation(message: string | undefined): boolean {
+  return (message || '').toLowerCase().includes('uq_fiscal_documents_active_order_model')
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function createErrorResult(code: string, message: string): EmissionResult {

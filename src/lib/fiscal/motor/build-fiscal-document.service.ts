@@ -115,6 +115,10 @@ export function buildFiscalDocument(
       ncm: item.tax_profile.ncm,
       cest: item.tax_profile.cest,
       origin_code: item.tax_profile.origin_code,
+      commercial_unit: item.tax_profile.commercial_unit,
+      tax_unit: item.tax_profile.tax_unit,
+      ean_gtin: item.tax_profile.ean_gtin,
+      tax_ean_gtin: item.tax_profile.tax_ean_gtin,
     })
   }
 
