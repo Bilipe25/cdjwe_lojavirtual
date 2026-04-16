@@ -49,6 +49,24 @@ interface ProductFormModalProps {
         version: number
         products_count: number
         updated_at: string
+        origin_code?: string | null
+        commercial_unit?: string | null
+        tax_unit?: string | null
+        fiscal_type?: string | null
+        item_type?: string | null
+        pis_cst?: string | null
+        cofins_cst?: string | null
+        ipi_cst_out?: string | null
+        has_substitution_tax?: boolean
+        requires_cest?: boolean
+        has_ipi?: boolean
+        internal_fiscal_code?: string | null
+        default_fiscal_description?: string | null
+        icms_base_code?: string | null
+        icms_base_name?: string | null
+        ibscbs_base_code?: string | null
+        ibscbs_base_name?: string | null
+        ibscbs_version_label?: string | null
     }>;
     editingProduct: ProductWithDetails | null;
     saving: boolean;
@@ -64,6 +82,46 @@ interface ProductFormModalProps {
 }
 
 type ActiveTab = 'info' | 'fiscal' | 'fabrics';
+
+const fiscalTypeLabels: Record<string, string> = {
+    goods: 'Mercadoria',
+    service: 'Servico',
+}
+
+const itemTypeLabels: Record<string, string> = {
+    goods: 'Mercadoria',
+    raw_material: 'Materia-prima',
+    packaging: 'Embalagem',
+    finished_product: 'Produto acabado',
+    intermediate_product: 'Produto intermediario',
+    service: 'Servico',
+    asset: 'Ativo imobilizado',
+    use_and_consumption: 'Uso e consumo',
+}
+
+const originLabels: Record<string, string> = {
+    '0': 'Nacional',
+    '1': 'Importacao direta',
+    '2': 'Importacao adquirida no mercado interno',
+    '3': 'Nacional com conteudo de importacao superior a 40%',
+    '4': 'Nacional produzida conforme PPB',
+    '5': 'Nacional com conteudo de importacao ate 40%',
+    '6': 'Importacao direta sem similar nacional',
+    '7': 'Importacao adquirida no mercado interno sem similar nacional',
+    '8': 'Nacional com conteudo de importacao superior a 70%',
+}
+
+function formatTaxProfileLabel(
+    profile: ProductFormModalProps['taxProfiles'][number] | null | undefined
+): string {
+    if (!profile) return 'Selecione um perfil tributario'
+    return `${profile.code} - ${profile.name}`
+}
+
+function formatDictionaryLabel(value: string | null | undefined, dictionary: Record<string, string>): string | null {
+    if (!value) return null
+    return dictionary[value] ? `${value} - ${dictionary[value]}` : value
+}
 
 export function ProductFormModal({
     isOpen,
@@ -331,6 +389,37 @@ export function ProductFormModal({
     const defaultSizeOptionName =
         sizeOptionsValue.find((option) => option?.is_default)?.name || sizeOptionsValue[0]?.name || null;
     const selectedTaxProfile = taxProfiles.find((profile) => profile.id === taxProfileIdValue) || null;
+    const selectedTaxProfileLabel = formatTaxProfileLabel(selectedTaxProfile);
+    const profileMetaItems = selectedTaxProfile
+        ? [
+              { label: 'Origem', value: formatDictionaryLabel(selectedTaxProfile.origin_code, originLabels) },
+              { label: 'Unidade comercial', value: selectedTaxProfile.commercial_unit },
+              { label: 'Unidade tributavel', value: selectedTaxProfile.tax_unit },
+              { label: 'Tipo fiscal', value: formatDictionaryLabel(selectedTaxProfile.fiscal_type, fiscalTypeLabels) },
+              { label: 'Tipo de item', value: formatDictionaryLabel(selectedTaxProfile.item_type, itemTypeLabels) },
+              { label: 'PIS CST', value: selectedTaxProfile.pis_cst },
+              { label: 'COFINS CST', value: selectedTaxProfile.cofins_cst },
+              { label: 'IPI CST saida', value: selectedTaxProfile.ipi_cst_out },
+              { label: 'Base ICMS', value: selectedTaxProfile.icms_base_code || selectedTaxProfile.icms_base_name },
+              {
+                  label: 'Base IBS/CBS',
+                  value:
+                      selectedTaxProfile.ibscbs_base_code || selectedTaxProfile.ibscbs_base_name
+                          ? [selectedTaxProfile.ibscbs_base_code, selectedTaxProfile.ibscbs_base_name]
+                                .filter(Boolean)
+                                .join(' - ')
+                          : null,
+              },
+          ].filter((item): item is { label: string; value: string } => Boolean(item.value))
+        : [];
+    const profileFlags = selectedTaxProfile
+        ? [
+              selectedTaxProfile.has_substitution_tax ? 'Substituicao tributaria' : null,
+              selectedTaxProfile.requires_cest ? 'Exige CEST' : null,
+              selectedTaxProfile.has_ipi ? 'Possui IPI' : null,
+              selectedTaxProfile.ibscbs_version_label ? `IBS/CBS ${selectedTaxProfile.ibscbs_version_label}` : null,
+          ].filter((value): value is string => Boolean(value))
+        : [];
 
     const tabs: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
         { id: 'info', label: 'Informacoes', icon: <Info className="h-3.5 w-3.5" /> },
@@ -664,19 +753,24 @@ export function ProductFormModal({
                                             }}
                                         >
                                             <SelectTrigger className="bg-white/80">
-                                                <SelectValue placeholder="Selecione um perfil tributario" />
+                                                <span
+                                                    data-slot="select-value"
+                                                    className={!selectedTaxProfile ? 'text-muted-foreground' : undefined}
+                                                >
+                                                    {selectedTaxProfile ? selectedTaxProfileLabel : 'Selecione um perfil tributario'}
+                                                </span>
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="__none__">Sem perfil vinculado</SelectItem>
                                                 {taxProfiles.map((profile) => (
                                                     <SelectItem key={profile.id} value={profile.id}>
-                                                        {profile.name} ({profile.code})
+                                                        {formatTaxProfileLabel(profile)}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
                                         <p className="text-[11px] text-muted-foreground">
-                                            O produto herda NCM, CEST, CFOP e flags fiscais a partir do perfil selecionado.
+                                            O produto herda classificacao fiscal, bases tributarias e regras operacionais a partir do perfil selecionado.
                                         </p>
                                     </div>
                                     <div className="flex items-end">
@@ -737,6 +831,45 @@ export function ProductFormModal({
                                             </p>
                                         </div>
                                     </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 text-xs">
+                                        {profileMetaItems.map((item) => (
+                                            <div
+                                                key={item.label}
+                                                className="rounded-lg border border-emerald-200/80 bg-white/70 px-3 py-2"
+                                            >
+                                                <p className="text-muted-foreground uppercase tracking-wide">{item.label}</p>
+                                                <p className="font-semibold text-emerald-900">{item.value}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {profileFlags.length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {profileFlags.map((flag) => (
+                                                <span
+                                                    key={flag}
+                                                    className="rounded-full border border-emerald-300 bg-white/80 px-2.5 py-1 text-[11px] font-medium text-emerald-800"
+                                                >
+                                                    {flag}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {selectedTaxProfile.default_fiscal_description && (
+                                        <div className="rounded-lg border border-emerald-200/80 bg-white/70 px-3 py-2 text-xs">
+                                            <p className="text-muted-foreground uppercase tracking-wide">Descricao fiscal padrao</p>
+                                            <p className="mt-1 font-medium text-emerald-900">
+                                                {selectedTaxProfile.default_fiscal_description}
+                                            </p>
+                                        </div>
+                                    )}
+                                    {selectedTaxProfile.internal_fiscal_code && (
+                                        <div className="rounded-lg border border-emerald-200/80 bg-white/70 px-3 py-2 text-xs">
+                                            <p className="text-muted-foreground uppercase tracking-wide">Codigo fiscal interno</p>
+                                            <p className="mt-1 font-medium text-emerald-900">
+                                                {selectedTaxProfile.internal_fiscal_code}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

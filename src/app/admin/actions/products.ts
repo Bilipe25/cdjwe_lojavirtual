@@ -130,6 +130,19 @@ export interface ProductTaxProfileListItem {
     version: number
     products_count: number
     updated_at: string
+    origin_code?: string | null
+    commercial_unit?: string | null
+    tax_unit?: string | null
+    fiscal_type?: string | null
+    item_type?: string | null
+    pis_cst?: string | null
+    cofins_cst?: string | null
+    ipi_cst_out?: string | null
+    has_substitution_tax?: boolean
+    requires_cest?: boolean
+    has_ipi?: boolean
+    internal_fiscal_code?: string | null
+    default_fiscal_description?: string | null
     reference_mode?: 'manual' | 'base-backed' | 'mixed'
     has_outdated_references?: boolean
     outdated_reference_types?: string[]
@@ -695,6 +708,16 @@ function isAmbiguousProductIdReferenceError(error: unknown): boolean {
     return message.includes('column reference "product_id" is ambiguous')
 }
 
+function isAmbiguousProductDomainRpcError(error: unknown): boolean {
+    const message = getErrorMessage(error, '').toLowerCase()
+    if (!message) return false
+
+    return (
+        message.includes('admin_upsert_product_domain') &&
+        (message.includes('is not unique') || message.includes('could not choose the best candidate function'))
+    )
+}
+
 function isMissingRelationError(error: unknown, relationName: string): boolean {
     const message = getErrorMessage(error, '').toLowerCase()
     return message.includes('relation') && message.includes(relationName.toLowerCase())
@@ -1070,7 +1093,8 @@ export async function upsertProductDomainAction(
         if (error) {
             if (
                 isMissingRpcFunctionError(error, 'admin_upsert_product_domain') ||
-                isAmbiguousProductIdReferenceError(error)
+                isAmbiguousProductIdReferenceError(error) ||
+                isAmbiguousProductDomainRpcError(error)
             ) {
                 row = await upsertProductDomainFallback(input)
                 usedFallback = true
@@ -1367,7 +1391,7 @@ export async function listProductTaxProfilesAction(params?: {
             adminSupabase
                 .from('product_tax_profiles')
                 .select(
-                    'id, ncm_reference_id, ncm_version_id, tipi_reference_id, tipi_version_id, cest_reference_id, cest_version_id, default_output_cfop_reference_id, default_output_cfop_version_id, default_input_cfop_reference_id, default_input_cfop_version_id, icms_base_id, ibscbs_base_id, ibscbs_version_id'
+                    'id, ncm_reference_id, ncm_version_id, tipi_reference_id, tipi_version_id, cest_reference_id, cest_version_id, default_output_cfop_reference_id, default_output_cfop_version_id, default_input_cfop_reference_id, default_input_cfop_version_id, icms_base_id, ibscbs_base_id, ibscbs_version_id, origin_code, commercial_unit, tax_unit, fiscal_type, item_type, pis_cst, cofins_cst, ipi_cst_out, has_substitution_tax, requires_cest, has_ipi, internal_fiscal_code, default_fiscal_description'
                 ),
             adminSupabase
                 .from('fiscal_reference_versions')
@@ -1513,6 +1537,20 @@ export async function listProductTaxProfilesAction(params?: {
 
             return {
                 ...item,
+                origin_code: typeof refs.origin_code === 'string' ? refs.origin_code : null,
+                commercial_unit: typeof refs.commercial_unit === 'string' ? refs.commercial_unit : null,
+                tax_unit: typeof refs.tax_unit === 'string' ? refs.tax_unit : null,
+                fiscal_type: typeof refs.fiscal_type === 'string' ? refs.fiscal_type : null,
+                item_type: typeof refs.item_type === 'string' ? refs.item_type : null,
+                pis_cst: typeof refs.pis_cst === 'string' ? refs.pis_cst : null,
+                cofins_cst: typeof refs.cofins_cst === 'string' ? refs.cofins_cst : null,
+                ipi_cst_out: typeof refs.ipi_cst_out === 'string' ? refs.ipi_cst_out : null,
+                has_substitution_tax: refs.has_substitution_tax === true,
+                requires_cest: refs.requires_cest === true,
+                has_ipi: refs.has_ipi === true,
+                internal_fiscal_code: typeof refs.internal_fiscal_code === 'string' ? refs.internal_fiscal_code : null,
+                default_fiscal_description:
+                    typeof refs.default_fiscal_description === 'string' ? refs.default_fiscal_description : null,
                 reference_mode: inferReferenceMode({
                     ncm: item.ncm,
                     cest: item.cest,
