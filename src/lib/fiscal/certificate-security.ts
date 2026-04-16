@@ -2,15 +2,24 @@ import 'server-only'
 
 import crypto from 'node:crypto'
 
-function getCertificateSecrets(): string[] {
+function getPrimaryCertificateSecret(): string {
   const primary = process.env.FISCAL_CERTIFICATE_SECRET || ''
-  const legacy = process.env.FISCAL_CERTIFICATE_SECRET_PREVIOUS || ''
 
   if (!primary.trim()) {
     throw new Error('Segredo do certificado nao configurado. Defina FISCAL_CERTIFICATE_SECRET no ambiente.')
   }
 
-  return [primary, legacy].map((value) => value.trim()).filter(Boolean)
+  return primary.trim()
+}
+
+function getCertificateSecretsForDecrypt(): string[] {
+  const primary = getPrimaryCertificateSecret()
+  const legacy = process.env.FISCAL_CERTIFICATE_SECRET_PREVIOUS || ''
+  const legacyServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+
+  return Array.from(
+    new Set([primary, legacy, legacyServiceRole].map((value) => value.trim()).filter(Boolean))
+  )
 }
 
 function deriveKey(secret: string): Buffer {
@@ -18,7 +27,7 @@ function deriveKey(secret: string): Buffer {
 }
 
 export function encryptCertificatePassword(password: string): string {
-  const [primarySecret] = getCertificateSecrets()
+  const primarySecret = getPrimaryCertificateSecret()
   const key = deriveKey(primarySecret)
   const iv = crypto.randomBytes(12)
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
@@ -35,7 +44,7 @@ export function encryptCertificatePassword(password: string): string {
 export function decryptCertificatePassword(payload: string): string {
   const parsed = JSON.parse(payload) as { iv: string; tag: string; content: string }
 
-  for (const secret of getCertificateSecrets()) {
+  for (const secret of getCertificateSecretsForDecrypt()) {
     try {
       const key = deriveKey(secret)
       const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(parsed.iv, 'base64'))

@@ -6,13 +6,21 @@
 
 import 'server-only'
 
+import fs from 'node:fs'
+import path from 'node:path'
 import PDFDocument from 'pdfkit'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import type { FiscalDocumentPayload } from '../motor/types'
 import {
+  buildFiscalDocumentSnapshot,
   getSnapshotAdditionalInfo,
   parseFiscalDocumentSnapshot,
   snapshotItemToDanfeItem,
 } from './fiscal-document-snapshot'
+
+const DANFE_FONT_REGULAR = fs.readFileSync(
+  path.join(process.cwd(), 'node_modules', 'pdfmake', 'fonts', 'Roboto', 'Roboto-Regular.ttf')
+)
 
 interface DanfeData {
   // Emitter
@@ -54,6 +62,7 @@ interface DanfeData {
   vTotTrib: number
   // Additional
   additionalInfo: string | null
+  preview: boolean
 }
 
 interface DanfeItem {
@@ -98,17 +107,7 @@ export async function generateDanfePdf(
       return { success: false, error: 'Snapshot fiscal imutavel nao encontrado no documento.' }
     }
 
-    const emitter = snapshot.context.emitter
-    const store = snapshot.context.store
-
-    const danfeData: DanfeData = {
-      emitterName: emitter.razao_social || 'EMPRESA',
-      emitterFantasy: emitter.nome_fantasia || null,
-      emitterCnpj: formatCnpj(emitter.cnpj || ''),
-      emitterIe: emitter.ie || null,
-      emitterAddress: [emitter.logradouro, emitter.numero].filter(Boolean).join(', '),
-      emitterCityUf: [emitter.cidade, emitter.uf?.toUpperCase()].filter(Boolean).join(' / '),
-      emitterPhone: emitter.telefone || null,
+    const danfeData = buildDanfeDataFromSnapshot(snapshot, {
       chaveAcesso: doc.chave_acesso || '',
       numeroNf: doc.numero_nf,
       serie: doc.serie,
@@ -117,25 +116,8 @@ export async function generateDanfePdf(
       protocolo: doc.protocolo_autorizacao || null,
       dataAutorizacao: doc.data_autorizacao ? formatDateBr(doc.data_autorizacao) : null,
       ambiente: doc.ambiente === 'producao' ? 'producao' : 'homologacao',
-      destName: store.nome || 'DESTINATARIO',
-      destDocument: formatDocument(store.document_number || ''),
-      destIe: store.ie || null,
-      destAddress: [store.logradouro, store.numero].filter(Boolean).join(', '),
-      destCityUf: [store.cidade, store.uf?.toUpperCase()].filter(Boolean).join(' / '),
-      destPhone: store.telefone || null,
-      items: snapshot.items.map(snapshotItemToDanfeItem),
-      vProd: Number(snapshot.totals.vProd || 0),
-      vICMS: Number(snapshot.totals.vICMS || 0),
-      vST: Number(snapshot.totals.vST || 0),
-      vPIS: Number(snapshot.totals.vPIS || 0),
-      vCOFINS: Number(snapshot.totals.vCOFINS || 0),
-      vIPI: Number(snapshot.totals.vIPI || 0),
-      vFrete: Number(snapshot.totals.vFrete || 0),
-      vDesc: Number(snapshot.totals.vDesc || 0),
-      vNF: Number(snapshot.totals.vNF || 0),
-      vTotTrib: Number(snapshot.totals.vTotTrib || 0),
-      additionalInfo: getSnapshotAdditionalInfo(snapshot),
-    }
+      preview: false,
+    })
 
     // 5. Generate PDF
     const pdfBuffer = await buildDanfePdf(danfeData)
@@ -170,6 +152,132 @@ export async function generateDanfePdf(
   }
 }
 
+export async function generateDanfePreviewPdf(
+  orderId: string,
+  payload: FiscalDocumentPayload,
+  modelo: '55' | '65' = '55'
+): Promise<{ success: boolean; pdfBuffer?: Buffer; error?: string }> {
+  const supabase = createServiceRoleClient()
+
+  try {
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('id, order_number, payment_method_code, payment_method_name, payment_installments, notes, shipping_address')
+      .eq('id', orderId)
+      .maybeSingle()
+
+    if (error || !order) {
+      return { success: false, error: 'Pedido nao encontrado para preview da DANFE.' }
+    }
+
+    const environment = payload.context.environment
+    const emittedAt = new Date().toISOString()
+    const numero = modelo === '65' ? environment.proximo_numero_nfce : environment.proximo_numero_nfe
+    const serie = modelo === '65' ? environment.serie_nfce : environment.serie_nfe
+
+    const snapshot = buildFiscalDocumentSnapshot({
+      payload,
+      order: {
+        orderId,
+        orderNumber: order.order_number ?? null,
+        paymentMethodCode: order.payment_method_code ?? null,
+        paymentMethodName: order.payment_method_name ?? null,
+        paymentInstallments: order.payment_installments ?? null,
+        notes: order.notes ?? null,
+        shippingAddress: order.shipping_address ?? null,
+        total: payload.totals.vNF,
+      },
+      document: {
+        modelo,
+        numero,
+        serie,
+        chaveAcesso: '0'.repeat(44),
+        naturezaOperacao: environment.natureza_operacao || 'VENDA DE MERCADORIA',
+        ambiente: environment.ambiente === 'producao' ? 'producao' : 'homologacao',
+        emittedAt,
+        emittedBy: null,
+        protocolo: null,
+        dataAutorizacao: null,
+        codigoStatus: null,
+        motivoStatus: 'Preview de DANFE sem valor fiscal.',
+        digestValue: null,
+      },
+    })
+
+    const danfeData = buildDanfeDataFromSnapshot(snapshot, {
+      chaveAcesso: 'PREVIEW DANFE SEM VALOR FISCAL',
+      numeroNf: numero,
+      serie,
+      naturezaOperacao: environment.natureza_operacao || 'VENDA DE MERCADORIA',
+      dataEmissao: formatDateBr(emittedAt),
+      protocolo: null,
+      dataAutorizacao: null,
+      ambiente: environment.ambiente === 'producao' ? 'producao' : 'homologacao',
+      preview: true,
+    })
+
+    const pdfBuffer = await buildDanfePdf(danfeData)
+    return { success: true, pdfBuffer }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+function buildDanfeDataFromSnapshot(
+  snapshot: NonNullable<ReturnType<typeof parseFiscalDocumentSnapshot>>,
+  overrides: {
+    chaveAcesso: string
+    numeroNf: number
+    serie: string
+    naturezaOperacao: string
+    dataEmissao: string
+    protocolo: string | null
+    dataAutorizacao: string | null
+    ambiente: 'homologacao' | 'producao'
+    preview: boolean
+  }
+): DanfeData {
+  const emitter = snapshot.context.emitter
+  const store = snapshot.context.store
+
+  return {
+    emitterName: emitter.razao_social || 'EMPRESA',
+    emitterFantasy: emitter.nome_fantasia || null,
+    emitterCnpj: formatCnpj(emitter.cnpj || ''),
+    emitterIe: emitter.ie || null,
+    emitterAddress: [emitter.logradouro, emitter.numero].filter(Boolean).join(', '),
+    emitterCityUf: [emitter.cidade, emitter.uf?.toUpperCase()].filter(Boolean).join(' / '),
+    emitterPhone: emitter.telefone || null,
+    chaveAcesso: overrides.chaveAcesso,
+    numeroNf: overrides.numeroNf,
+    serie: overrides.serie,
+    naturezaOperacao: overrides.naturezaOperacao,
+    dataEmissao: overrides.dataEmissao,
+    protocolo: overrides.protocolo,
+    dataAutorizacao: overrides.dataAutorizacao,
+    ambiente: overrides.ambiente,
+    destName: store.nome || 'DESTINATARIO',
+    destDocument: formatDocument(store.document_number || ''),
+    destIe: store.ie || null,
+    destAddress: [store.logradouro, store.numero].filter(Boolean).join(', '),
+    destCityUf: [store.cidade, store.uf?.toUpperCase()].filter(Boolean).join(' / '),
+    destPhone: store.telefone || null,
+    items: snapshot.items.map(snapshotItemToDanfeItem),
+    vProd: Number(snapshot.totals.vProd || 0),
+    vICMS: Number(snapshot.totals.vICMS || 0),
+    vST: Number(snapshot.totals.vST || 0),
+    vPIS: Number(snapshot.totals.vPIS || 0),
+    vCOFINS: Number(snapshot.totals.vCOFINS || 0),
+    vIPI: Number(snapshot.totals.vIPI || 0),
+    vFrete: Number(snapshot.totals.vFrete || 0),
+    vDesc: Number(snapshot.totals.vDesc || 0),
+    vNF: Number(snapshot.totals.vNF || 0),
+    vTotTrib: Number(snapshot.totals.vTotTrib || 0),
+    additionalInfo: getSnapshotAdditionalInfo(snapshot),
+    preview: overrides.preview,
+  }
+}
+
 // ─── PDF Builder ──────────────────────────────────
 
 function buildDanfePdf(data: DanfeData): Promise<Buffer> {
@@ -178,9 +286,10 @@ function buildDanfePdf(data: DanfeData): Promise<Buffer> {
       const doc = new PDFDocument({
         size: 'A4',
         margins: { top: 20, bottom: 20, left: 20, right: 20 },
+        font: DANFE_FONT_REGULAR as unknown as string,
         info: {
-          Title: `DANFE - NF-e ${data.numeroNf}`,
-          Subject: `Nota Fiscal Eletronica ${data.numeroNf}`,
+          Title: data.preview ? `Preview DANFE - NF-e ${data.numeroNf}` : `DANFE - NF-e ${data.numeroNf}`,
+          Subject: data.preview ? `Preview de DANFE ${data.numeroNf}` : `Nota Fiscal Eletronica ${data.numeroNf}`,
           Author: data.emitterName,
           Creator: 'CDJWE Sistema Fiscal',
         },
@@ -190,16 +299,23 @@ function buildDanfePdf(data: DanfeData): Promise<Buffer> {
       doc.on('data', (chunk: Buffer) => chunks.push(chunk))
       doc.on('end', () => resolve(Buffer.concat(chunks)))
       doc.on('error', reject)
+      doc.font(DANFE_FONT_REGULAR)
 
       const pw = 555 // page width minus margins
       const x0 = 20  // left margin
       let y = 20      // current y position
 
       // ─── Homologação Banner ───
-      if (data.ambiente === 'homologacao') {
+      const bannerText = data.preview
+        ? 'PREVIEW DE DANFE - SEM VALOR FISCAL'
+        : data.ambiente === 'homologacao'
+          ? 'SEM VALOR FISCAL - EMITIDO EM AMBIENTE DE HOMOLOGACAO'
+          : null
+
+      if (bannerText) {
         doc.save()
         doc.fontSize(10).fillColor('#cc0000')
-           .text('SEM VALOR FISCAL - EMITIDO EM AMBIENTE DE HOMOLOGACAO',
+           .text(bannerText,
            x0, y, { width: pw, align: 'center' })
         doc.restore()
         y += 18
@@ -241,7 +357,7 @@ function buildDanfePdf(data: DanfeData): Promise<Buffer> {
       doc.fontSize(6)
          .text('PROTOCOLO DE AUTORIZAÇÃO', x0 + 405, y + 46, { width: 150, align: 'center' })
       doc.fontSize(7)
-         .text(data.protocolo || 'Pendente', x0 + 405, y + 58, { width: 150, align: 'center' })
+         .text(data.preview ? 'Preview sem autorizacao' : (data.protocolo || 'Pendente'), x0 + 405, y + 58, { width: 150, align: 'center' })
       if (data.dataAutorizacao) {
         doc.fontSize(6).text(data.dataAutorizacao, x0 + 405, y + 68, { width: 150, align: 'center' })
       }

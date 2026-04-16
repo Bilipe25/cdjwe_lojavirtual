@@ -29,6 +29,7 @@ import {
   Ban,
   FileWarning,
   AlertTriangle,
+  Eye,
 } from 'lucide-react'
 import {
   emitNFeAction,
@@ -232,6 +233,10 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
     }
   }
 
+  const handleDanfePreview = (modelo: '55' | '65' = '55') => {
+    window.open(`/api/fiscal/danfe-preview/order/${orderId}?modelo=${modelo}`, '_blank', 'noopener,noreferrer')
+  }
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -264,11 +269,22 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
               Nenhuma NF-e vinculada a este pedido
             </p>
             <p className="mb-4 text-xs text-slate-400">
-              Emita uma nota fiscal para gerar o documento auxiliar (DANFE).
+              Gere um preview sem valor fiscal para conferencia ou emita a nota para produzir a DANFE oficial.
             </p>
 
-            {canEmit && (
-              <div className="flex items-center justify-center gap-3">
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2 rounded-xl border-slate-300 bg-white font-bold text-slate-700 hover:bg-slate-50"
+                onClick={() => handleDanfePreview('55')}
+              >
+                <Eye className="h-4 w-4" />
+                Preview DANFE
+              </Button>
+
+              {canEmit && (
+                <>
                 <Button
                   size="sm"
                   className="gap-2 rounded-xl bg-emerald-600 font-bold text-white shadow-lg shadow-emerald-200 hover:bg-emerald-700"
@@ -288,8 +304,13 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
                   <Send className="h-4 w-4" />
                   Emitir NFC-e
                 </Button>
-              </div>
-            )}
+                </>
+              )}
+            </div>
+
+            <p className="mt-3 text-[11px] text-slate-500">
+              O preview abre um DANFE de conferencia sem valor fiscal e sem autorizacao da SEFAZ.
+            </p>
 
             {!canEmit && orderStatus === 'pending' && (
               <p className="mt-2 text-xs text-amber-600">
