@@ -8,7 +8,7 @@ import type { FiscalContext, FiscalItemContext } from './types'
 
 interface CfopResolution {
   cfop: string
-  source: 'rule_override' | 'profile_default' | 'geographic_inference'
+  source: 'item_override' | 'order_global' | 'rule_override' | 'profile_default' | 'geographic_inference'
   is_internal: boolean
   is_interstate: boolean
 }
@@ -60,7 +60,27 @@ function resolveItemCfop(
   const geo = inferCfopFamily(ctx.emitter.uf, ctx.store.uf)
   const operationDirection = ctx.operation_direction
 
-  // 1. Check rule override
+  // 1. Explicit item override on the order
+  if (item.cfop_override_code) {
+    return {
+      cfop: item.cfop_override_code,
+      source: 'item_override',
+      is_internal: geo.is_internal,
+      is_interstate: geo.is_interstate,
+    }
+  }
+
+  // 2. Global order CFOP
+  if (ctx.operation.cfop_global_code) {
+    return {
+      cfop: ctx.operation.cfop_global_code,
+      source: 'order_global',
+      is_internal: geo.is_internal,
+      is_interstate: geo.is_interstate,
+    }
+  }
+
+  // 3. Check rule override
   if (item.applied_rule?.cfop_override) {
     const adapted = adaptCfopToGeography(item.applied_rule.cfop_override, geo.prefix)
     return {
@@ -71,7 +91,7 @@ function resolveItemCfop(
     }
   }
 
-  // 2. Check tax profile default CFOP
+  // 4. Check tax profile default CFOP
   const defaultCfop = operationDirection === 'inbound'
     ? item.tax_profile.default_input_cfop
     : item.tax_profile.default_output_cfop
@@ -86,7 +106,7 @@ function resolveItemCfop(
     }
   }
 
-  // 3. Geographic inference fallback
+  // 5. Geographic inference fallback
   // Default: 5102/6102 for regular sale with resale
   const baseCfop = geo.is_internal ? '5102' : '6102'
   return {

@@ -8,9 +8,12 @@ import 'server-only'
 
 import { XMLBuilder } from 'fast-xml-parser'
 import type {
-  FiscalDocumentPayload,
-  ItemTaxBreakdown,
   DocumentTotals,
+  FiscalDocumentPayload,
+  FiscalOperationContext,
+  FiscalTransportContext,
+  FiscalVolumeContext,
+  ItemTaxBreakdown,
   StoreContext,
 } from '../motor/types'
 import { FRETE_CODES, UF_CODES } from './types'
@@ -28,14 +31,9 @@ export interface NFeBuildOptions {
   payment?: NFePaymentSnapshot | null
   freightMode?: string | null
   additionalInfo?: string | null
+  orderNumber?: string | null
 }
 
-/**
- * Maps a FiscalDocumentPayload from the Motor Fiscal to the
- * XML structure expected by SEFAZ NFeAutorizacao web service.
- *
- * Returns the unsigned infNFe XML string (signing happens later).
- */
 export function mapFiscalPayloadToNFeXml(
   payload: FiscalDocumentPayload,
   documentNumber: number,
@@ -58,29 +56,32 @@ export function mapFiscalPayloadToNFeXml(
   const ide = {
     cUF,
     cNF,
-    natOp: normalizeNFeText(ctx.environment.natureza_operacao || 'VENDA DE MERCADORIA', 60),
+    natOp: normalizeNFeText(
+      ctx.operation.natureza_operacao_descricao || ctx.environment.natureza_operacao || 'VENDA DE MERCADORIA',
+      60
+    ),
     mod: Number(modelo),
     serie: Number(serie),
     nNF,
     dhEmi,
     ...(modelo === '55' ? { dhSaiEnt: dhEmi } : {}),
-    tpNF: 1,
-    idDest: ctx.emitter.uf === ctx.store.uf ? 1 : 2,
+    tpNF: ctx.operation_direction === 'inbound' ? 0 : 1,
+    idDest: resolveDestinationIndicator(ctx.store, ctx.emitter.uf),
     cMunFG: Number(ctx.emitter.ibge),
     tpImp: modelo === '55' ? 1 : 4,
     tpEmis: 1,
     cDV: Number(cDV),
     tpAmb,
-    finNFe: 1,
-    indFinal: ctx.store.is_consumer_final ? 1 : 0,
-    indPres: modelo === '65' ? 1 : 9,
+    finNFe: mapFinalidadeNFe(ctx.operation),
+    indFinal: ctx.operation.consumidor_final ? 1 : 0,
+    indPres: mapBuyerPresence(ctx.operation, modelo),
     indIntermed: 0,
     procEmi: 0,
     verProc: payload.motor_version,
   }
 
   const emit = {
-    CNPJ: ctx.emitter.cnpj,
+    CNPJ: normalizeDigitsOnly(ctx.emitter.cnpj),
     xNome: tpAmb === 2
       ? 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL'
       : normalizeNFeText(ctx.emitter.razao_social, 60),
@@ -93,10 +94,10 @@ export function mapFiscalPayloadToNFeXml(
       cMun: Number(ctx.emitter.ibge),
       xMun: normalizeNFeText(ctx.emitter.cidade, 60),
       UF: ctx.emitter.uf,
-      CEP: ctx.emitter.cep?.replace(/\D/g, ''),
+      ...(normalizeDigitsOnly(ctx.emitter.cep) ? { CEP: normalizeDigitsOnly(ctx.emitter.cep) } : {}),
       cPais: 1058,
       xPais: 'BRASIL',
-      ...(ctx.emitter.telefone ? { fone: ctx.emitter.telefone.replace(/\D/g, '') } : {}),
+      ...(normalizeDigitsOnly(ctx.emitter.telefone) ? { fone: normalizeDigitsOnly(ctx.emitter.telefone) } : {}),
     },
     IE: normalizeStateRegistration(ctx.emitter.ie),
     CRT: Number(ctx.emitter.crt),
@@ -118,10 +119,10 @@ export function mapFiscalPayloadToNFeXml(
       cMun: Number(ctx.store.ibge),
       xMun: normalizeNFeText(ctx.store.cidade, 60),
       UF: ctx.store.uf,
-      CEP: ctx.store.cep?.replace(/\D/g, ''),
+      ...(normalizeDigitsOnly(ctx.store.cep) ? { CEP: normalizeDigitsOnly(ctx.store.cep) } : {}),
       cPais: 1058,
       xPais: 'BRASIL',
-      ...(ctx.store.telefone ? { fone: ctx.store.telefone.replace(/\D/g, '') } : {}),
+      ...(normalizeDigitsOnly(ctx.store.telefone) ? { fone: normalizeDigitsOnly(ctx.store.telefone) } : {}),
     },
     indIEDest: mapIndIEDest(ctx.store),
     ...(normalizeStateRegistration(ctx.store.ie) ? { IE: normalizeStateRegistration(ctx.store.ie) } : {}),
@@ -134,19 +135,19 @@ export function mapFiscalPayloadToNFeXml(
   }))
 
   const total = { ICMSTot: buildICMSTot(items, totals) }
-  const transp = {
-    modFrete: resolveFreightMode(totals.vFrete, options.freightMode || ctx.environment.modalidade_frete_padrao),
-  }
+  const transp = buildTransportTag(ctx.transport, ctx.volumes, totals, options)
   const pag = {
     detPag: {
       indPag: resolvePaymentIndicator(options.payment?.installments),
       tPag: mapPaymentMethodToNFe(options.payment?.methodCode),
       ...(shouldIncludePaymentDescription(options.payment?.methodCode)
-        ? { xPag: (options.payment?.methodName || 'Outros').substring(0, 60) }
+        ? { xPag: normalizeNFeText(options.payment?.methodName || 'Outros', 60) }
         : {}),
       vPag: formatDecimal(options.payment?.paidAmount ?? totals.vNF),
     },
   }
+
+  const additionalInfo = buildAdditionalInfoTag(payload, totals, options)
 
   const infNFe = {
     '@_versao': '4.00',
@@ -158,7 +159,7 @@ export function mapFiscalPayloadToNFeXml(
     total,
     transp,
     pag,
-    ...(options.additionalInfo ? { infAdic: { infCpl: options.additionalInfo.substring(0, 5000) } } : {}),
+    ...(additionalInfo ? { infAdic: { infCpl: additionalInfo } } : {}),
   }
 
   const builder = new XMLBuilder({
@@ -199,6 +200,8 @@ function buildProd(item: ItemTaxBreakdown) {
     vUnTrib: formatDecimal(item.fiscal_unit_value, 10),
     ...(item.fiscal_discount_value > 0 ? { vDesc: formatDecimal(item.fiscal_discount_value) } : {}),
     ...(item.fiscal_freight_value > 0 ? { vFrete: formatDecimal(item.fiscal_freight_value) } : {}),
+    ...(item.fiscal_insurance_value > 0 ? { vSeg: formatDecimal(item.fiscal_insurance_value) } : {}),
+    ...(item.fiscal_other_expenses_value > 0 ? { vOutro: formatDecimal(item.fiscal_other_expenses_value) } : {}),
     indTot: 1,
   }
 }
@@ -285,11 +288,13 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
         ICMS60: {
           orig,
           CST: cst,
-          ...(item.st.fcp_value > 0 ? {
-            vBCFCPSTRet: formatDecimal(item.st.fcp_base || item.st.base),
-            pFCPSTRet: formatDecimal(item.st.fcp_rate),
-            vFCPSTRet: formatDecimal(item.st.fcp_value),
-          } : {}),
+          ...(item.st.fcp_value > 0
+            ? {
+              vBCFCPSTRet: formatDecimal(item.st.fcp_base || item.st.base),
+              pFCPSTRet: formatDecimal(item.st.fcp_rate),
+              vFCPSTRet: formatDecimal(item.st.fcp_value),
+            }
+            : {}),
         },
       }
     case '70':
@@ -321,14 +326,16 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
           pICMS: formatDecimal(item.icms.rate),
           vICMS: formatDecimal(item.icms.value),
           ...ownFcp,
-          ...(item.st.enabled ? {
-            modBCST: 4,
-            ...(item.st.mva > 0 ? { pMVAST: formatDecimal(item.st.mva) } : {}),
-            vBCST: formatDecimal(item.st.base),
-            pICMSST: formatDecimal(item.st.rate),
-            vICMSST: formatDecimal(item.st.value),
-            ...fcpSt,
-          } : {}),
+          ...(item.st.enabled
+            ? {
+              modBCST: 4,
+              ...(item.st.mva > 0 ? { pMVAST: formatDecimal(item.st.mva) } : {}),
+              vBCST: formatDecimal(item.st.base),
+              pICMSST: formatDecimal(item.st.rate),
+              vICMSST: formatDecimal(item.st.value),
+              ...fcpSt,
+            }
+            : {}),
         },
       }
   }
@@ -450,20 +457,67 @@ function buildICMSTot(items: ItemTaxBreakdown[], totals: DocumentTotals) {
     vFCPSTRet: '0.00',
     vProd: formatDecimal(totals.vProd),
     vFrete: formatDecimal(totals.vFrete),
-    vSeg: '0.00',
+    vSeg: formatDecimal(totals.vSeg),
     vDesc: formatDecimal(totals.vDesc),
     vII: '0.00',
     vIPI: formatDecimal(totals.vIPI),
     vIPIDevol: '0.00',
     vPIS: formatDecimal(totals.vPIS),
     vCOFINS: formatDecimal(totals.vCOFINS),
-    vOutro: '0.00',
+    vOutro: formatDecimal(totals.vOutro),
     vNF: formatDecimal(totals.vNF),
     vTotTrib: formatDecimal(totals.vTotTrib),
     ...(vFCPUFDest > 0 ? { vFCPUFDest: formatDecimal(vFCPUFDest) } : {}),
     ...(vICMSUFDest > 0 ? { vICMSUFDest: formatDecimal(vICMSUFDest) } : {}),
     ...(vICMSUFRemet > 0 ? { vICMSUFRemet: formatDecimal(vICMSUFRemet) } : {}),
   }
+}
+
+function buildTransportTag(
+  transport: FiscalTransportContext,
+  volumes: FiscalVolumeContext[],
+  totals: DocumentTotals,
+  options: NFeBuildOptions
+): Record<string, unknown> {
+  return {
+    modFrete: resolveFreightMode(totals.vFrete, options.freightMode || transport.freight_mode),
+    ...(transport.transporter_name || transport.transporter_document
+      ? {
+        transporta: {
+          ...(transport.transporter_name ? { xNome: normalizeNFeText(transport.transporter_name, 60) } : {}),
+          ...buildTransporterDocumentTag(transport.transporter_document),
+        },
+      }
+      : {}),
+    ...(transport.vehicle_plate || transport.vehicle_uf || transport.antt_code
+      ? {
+        veicTransp: {
+          ...(transport.vehicle_plate ? { placa: normalizeNFeText(transport.vehicle_plate.toUpperCase(), 7) } : {}),
+          ...(transport.vehicle_uf ? { UF: transport.vehicle_uf.toUpperCase().substring(0, 2) } : {}),
+          ...(transport.antt_code ? { RNTC: normalizeDigitsOnly(transport.antt_code).substring(0, 20) } : {}),
+        },
+      }
+      : {}),
+    ...(volumes.length > 0
+      ? {
+        vol: volumes.map((volume) => ({
+          qVol: String(volume.quantity || 0),
+          ...(volume.species ? { esp: normalizeNFeText(volume.species, 60) } : {}),
+          ...(volume.brand ? { marca: normalizeNFeText(volume.brand, 60) } : {}),
+          ...(volume.numbering ? { nVol: normalizeNFeText(volume.numbering, 60) } : {}),
+          ...(typeof volume.gross_weight === 'number' ? { pesoB: formatDecimal(volume.gross_weight, 3) } : {}),
+          ...(typeof volume.net_weight === 'number' ? { pesoL: formatDecimal(volume.net_weight, 3) } : {}),
+        })),
+      }
+      : {}),
+  }
+}
+
+function buildTransporterDocumentTag(document: string | null | undefined): Record<string, unknown> {
+  const digits = normalizeDigitsOnly(document)
+  if (digits.length === 14) return { CNPJ: digits }
+  if (digits.length === 11) return { CPF: digits }
+  return {}
 }
 
 function buildFcpStFields(item: ItemTaxBreakdown): Record<string, unknown> {
@@ -491,17 +545,76 @@ function buildIcmsUfDestTag(item: ItemTaxBreakdown): Record<string, unknown> {
 
   return {
     vBCUFDest: formatDecimal(item.icms.difal_base),
-    ...(item.fcp.value > 0 ? {
-      vBCFCPUFDest: formatDecimal(item.fcp.base),
-      pFCPUFDest: formatDecimal(item.fcp.rate),
-      vFCPUFDest: formatDecimal(item.fcp.value),
-    } : {}),
+    ...(item.fcp.value > 0
+      ? {
+        vBCFCPUFDest: formatDecimal(item.fcp.base),
+        pFCPUFDest: formatDecimal(item.fcp.rate),
+        vFCPUFDest: formatDecimal(item.fcp.value),
+      }
+      : {}),
     pICMSUFDest: formatDecimal(pIcmsUfDest),
     pICMSInter: formatDecimal(pIcmsInter),
     pICMSInterPart: '100.00',
     vICMSUFDest: formatDecimal(item.icms.difal_value_destination),
     vICMSUFRemet: formatDecimal(item.icms.difal_value_origin),
   }
+}
+
+function buildAdditionalInfoTag(
+  payload: FiscalDocumentPayload,
+  totals: DocumentTotals,
+  options: NFeBuildOptions
+): string | null {
+  const parts: string[] = []
+
+  if (options.orderNumber?.trim()) {
+    parts.push(`Pedido vinculado: ${options.orderNumber.trim()}`)
+  }
+
+  if (options.payment?.methodName || options.payment?.installments) {
+    const paymentSummary = [
+      options.payment?.methodName || null,
+      options.payment?.installments && options.payment.installments > 1
+        ? `${options.payment.installments} parcelas`
+        : null,
+    ].filter(Boolean).join(' - ')
+
+    if (paymentSummary) {
+      parts.push(`Condicao de pagamento: ${paymentSummary}`)
+    }
+  }
+
+  if (payload.context.transport.delivery_form && payload.context.transport.delivery_form !== 'nao_informado') {
+    parts.push(`Forma de entrega: ${humanizeDeliveryForm(payload.context.transport.delivery_form)}`)
+  }
+
+  if (totals.vTotTrib > 0) {
+    parts.push(`Total aproximado de tributos (Lei 12.741): R$ ${formatDecimal(totals.vTotTrib)}`)
+  }
+
+  if (totals.vFrete > 0) {
+    parts.push(`Frete: R$ ${formatDecimal(totals.vFrete)}`)
+  }
+
+  if (totals.vSeg > 0) {
+    parts.push(`Seguro: R$ ${formatDecimal(totals.vSeg)}`)
+  }
+
+  if (totals.vOutro > 0) {
+    parts.push(`Outras despesas: R$ ${formatDecimal(totals.vOutro)}`)
+  }
+
+  if (options.additionalInfo?.trim()) {
+    parts.push(options.additionalInfo.trim())
+  }
+
+  if (parts.length === 0) return null
+  return normalizeNFeText(parts.join(' | '), 5000)
+}
+
+function resolveDestinationIndicator(store: StoreContext, emitterUf: string): number {
+  if (store.country_code && store.country_code !== '1058') return 3
+  return emitterUf === store.uf ? 1 : 2
 }
 
 function mapIndIEDest(store: StoreContext): number {
@@ -538,8 +651,12 @@ function normalizeNFeText(value: string | null | undefined, maxLength: number): 
 }
 
 function normalizeGtin(value: string | null | undefined): string {
-  const digits = (value || '').replace(/\D/g, '')
+  const digits = normalizeDigitsOnly(value)
   return [8, 12, 13, 14].includes(digits.length) ? digits : 'SEM GTIN'
+}
+
+function normalizeDigitsOnly(value: string | null | undefined): string {
+  return (value || '').replace(/\D/g, '')
 }
 
 function resolveFreightMode(totalFreight: number, configuredMode: string | null | undefined): number {
@@ -578,6 +695,58 @@ function shouldIncludePaymentDescription(methodCode: string | null | undefined):
   return mapPaymentMethodToNFe(methodCode) === '99'
 }
 
+function mapFinalidadeNFe(operation: FiscalOperationContext): number {
+  switch (operation.finalidade_nfe) {
+    case 'complementar':
+      return 2
+    case 'ajuste':
+      return 3
+    case 'devolucao':
+      return 4
+    case 'normal':
+    default:
+      return 1
+  }
+}
+
+function mapBuyerPresence(operation: FiscalOperationContext, modelo: '55' | '65'): number {
+  if (modelo === '65' && operation.presenca_comprador === 'nao_se_aplica') {
+    return 1
+  }
+
+  switch (operation.presenca_comprador) {
+    case 'presencial':
+      return 1
+    case 'internet':
+      return 2
+    case 'teleatendimento':
+      return 3
+    case 'entrega_domicilio':
+      return 4
+    case 'presencial_fora_estabelecimento':
+      return 5
+    case 'outros':
+      return 9
+    case 'nao_se_aplica':
+    default:
+      return 0
+  }
+}
+
+function humanizeDeliveryForm(value: FiscalTransportContext['delivery_form']): string {
+  const labels: Record<FiscalTransportContext['delivery_form'], string> = {
+    nao_informado: 'Nao informado',
+    retirada: 'Retirada',
+    transportadora: 'Transportadora',
+    frota_propria: 'Frota propria',
+    correios: 'Correios',
+    entrega_expressa: 'Entrega expressa',
+    balcao: 'Balcao',
+  }
+
+  return labels[value] || 'Nao informado'
+}
+
 function generateCNF(): string {
   return String(Math.floor(Math.random() * 100000000)).padStart(8, '0')
 }
@@ -613,7 +782,7 @@ function buildChaveBase(
   return [
     String(cUF).padStart(2, '0'),
     aamm,
-    cnpj.padStart(14, '0'),
+    normalizeDigitsOnly(cnpj).padStart(14, '0'),
     String(mod).padStart(2, '0'),
     String(serie).padStart(3, '0'),
     String(nNF).padStart(9, '0'),

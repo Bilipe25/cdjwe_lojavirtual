@@ -79,7 +79,25 @@ export function parseFiscalDocumentSnapshot(value: unknown): FiscalDocumentSnaps
 export function getSnapshotAdditionalInfo(snapshot: FiscalDocumentSnapshot | null): string | null {
   if (!snapshot) return null
 
-  const parts = [snapshot.order.notes, snapshot.order.shippingAddress ? `Endereco de entrega: ${snapshot.order.shippingAddress}` : null]
+  const paymentSummary = [
+    snapshot.order.paymentMethodName,
+    snapshot.order.paymentInstallments && snapshot.order.paymentInstallments > 1
+      ? `${snapshot.order.paymentInstallments} parcelas`
+      : null,
+  ].filter(Boolean).join(' - ')
+
+  const parts = [
+    snapshot.order.orderNumber ? `Pedido: ${snapshot.order.orderNumber}` : null,
+    paymentSummary ? `Pagamento: ${paymentSummary}` : null,
+    snapshot.context.operation.natureza_operacao_descricao
+      ? `Natureza: ${snapshot.context.operation.natureza_operacao_descricao}`
+      : null,
+    snapshot.totals.vTotTrib > 0
+      ? `Tributos aproximados (Lei 12.741): R$ ${Number(snapshot.totals.vTotTrib || 0).toFixed(2)}`
+      : null,
+    snapshot.order.notes,
+    snapshot.order.shippingAddress ? `Endereco de entrega: ${snapshot.order.shippingAddress}` : null,
+  ]
     .map((value) => (value || '').trim())
     .filter(Boolean)
 

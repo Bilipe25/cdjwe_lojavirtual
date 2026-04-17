@@ -49,6 +49,7 @@ interface EmissionReservationRow {
 }
 
 interface OrderFiscalEmissionData {
+  order_number: string | null
   payment_method_code: string | null
   payment_method_name: string | null
   payment_installments: number | null
@@ -106,8 +107,9 @@ export async function emitNFe(
           installments: orderData.payment_installments,
           paidAmount: payload.totals.vNF,
         },
-        freightMode: payload.context.environment.modalidade_frete_padrao,
-        additionalInfo: buildAdditionalInfo(orderData),
+        freightMode: payload.context.transport.freight_mode,
+        additionalInfo: buildAdditionalInfo(orderData, payload),
+        orderNumber: orderData.order_number,
       }
     )
 
@@ -131,6 +133,7 @@ export async function emitNFe(
       payload,
       order: {
         orderId,
+        orderNumber: orderData.order_number,
         paymentMethodCode: orderData.payment_method_code,
         paymentMethodName: orderData.payment_method_name,
         paymentInstallments: orderData.payment_installments,
@@ -143,7 +146,9 @@ export async function emitNFe(
         numero: reservation.numero,
         serie: reservation.serie,
         chaveAcesso,
-        naturezaOperacao: payload.context.environment.natureza_operacao || 'VENDA DE MERCADORIA',
+        naturezaOperacao: payload.context.operation.natureza_operacao_descricao
+          || payload.context.environment.natureza_operacao
+          || 'VENDA DE MERCADORIA',
         ambiente,
         emittedAt,
         emittedBy: userId,
@@ -164,7 +169,9 @@ export async function emitNFe(
         chave_acesso: chaveAcesso,
         numero_nf: reservation.numero,
         serie: reservation.serie,
-        natureza_operacao: payload.context.environment.natureza_operacao || 'VENDA DE MERCADORIA',
+        natureza_operacao: payload.context.operation.natureza_operacao_descricao
+          || payload.context.environment.natureza_operacao
+          || 'VENDA DE MERCADORIA',
         motor_version: payload.motor_version,
         fiscal_payload_jsonb: snapshot,
         valor_produtos: payload.totals.vProd,
@@ -384,13 +391,14 @@ async function loadOrderFiscalEmissionData(
 ): Promise<OrderFiscalEmissionData | null> {
   const { data, error } = await supabase
     .from('orders')
-    .select('payment_method_code, payment_method_name, payment_installments, notes, shipping_address')
+    .select('order_number, payment_method_code, payment_method_name, payment_installments, notes, shipping_address')
     .eq('id', orderId)
     .maybeSingle()
 
   if (error || !data) return null
 
   return {
+    order_number: data.order_number ?? null,
     payment_method_code: data.payment_method_code ?? null,
     payment_method_name: data.payment_method_name ?? null,
     payment_installments: data.payment_installments ?? null,
@@ -525,8 +533,21 @@ function buildExistingEmissionResult(existing: EmissionReservationRow): Emission
   }
 }
 
-function buildAdditionalInfo(orderData: OrderFiscalEmissionData): string | null {
-  const parts = [orderData.notes, orderData.shipping_address ? `Endereco de entrega: ${orderData.shipping_address}` : null]
+function buildAdditionalInfo(orderData: OrderFiscalEmissionData, payload: FiscalDocumentPayload): string | null {
+  const paymentSummary = [
+    orderData.payment_method_name,
+    orderData.payment_installments && orderData.payment_installments > 1
+      ? `${orderData.payment_installments} parcelas`
+      : null,
+  ].filter(Boolean).join(' - ')
+
+  const parts = [
+    orderData.order_number ? `Pedido: ${orderData.order_number}` : null,
+    paymentSummary ? `Pagamento: ${paymentSummary}` : null,
+    payload.totals.vTotTrib > 0 ? `Tributos aprox.: R$ ${payload.totals.vTotTrib.toFixed(2)}` : null,
+    orderData.notes,
+    orderData.shipping_address ? `Endereco de entrega: ${orderData.shipping_address}` : null,
+  ]
     .map((value) => (value || '').trim())
     .filter(Boolean)
 

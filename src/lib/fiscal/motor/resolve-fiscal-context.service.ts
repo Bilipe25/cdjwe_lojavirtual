@@ -12,6 +12,9 @@ import type {
   EnvironmentContext,
   FiscalItemContext,
   FiscalContext,
+  FiscalOperationContext,
+  FiscalTransportContext,
+  FiscalVolumeContext,
   ResolvedTaxProfile,
   ResolvedTaxRule,
   IcmsResolvedRule,
@@ -20,6 +23,7 @@ import type {
   FiscalCalculationResult,
 } from './types'
 import { safeNumber } from './types'
+import { inferOperationDirectionFromCfop } from '@/lib/fiscal/order-fiscal-workspace'
 
 function digitsOnly(value: string | null | undefined): string {
   return (value || '').replace(/\D/g, '')
@@ -36,6 +40,11 @@ function normalizeText(value: string | null | undefined): string {
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = normalizeText(value)
   return normalized || null
+}
+
+function sanitizeCfopCode(value: string | null | undefined): string | null {
+  const digits = digitsOnly(value).slice(0, 4)
+  return /^\d{4}$/.test(digits) ? digits : null
 }
 
 function normalizeStateRegistration(value: string | null | undefined): string | null {
@@ -309,6 +318,7 @@ async function loadOrderItemsContext(
       quantity,
       unit_price,
       subtotal,
+      cfop_override_code,
       tax_profile_id,
       product_variant:product_variants(
         product_id,
@@ -593,6 +603,7 @@ async function loadOrderItemsContext(
       quantity: safeNumber(item.quantity, 1),
       unit_price: safeNumber(item.unit_price),
       subtotal: safeNumber(item.subtotal),
+      cfop_override_code: sanitizeCfopCode(item.cfop_override_code as string | undefined),
       tax_profile: resolvedProfile,
       applied_rule: appliedRule,
       icms_rule: icmsRule,
@@ -602,6 +613,192 @@ async function loadOrderItemsContext(
   }
 
   return { success: true, data: items }
+}
+
+interface OrderFiscalDraftContext {
+  operation: FiscalOperationContext
+  transport: FiscalTransportContext
+  volumes: FiscalVolumeContext[]
+  operationDirection: 'outbound' | 'inbound'
+}
+
+function sanitizeNaturezaSnapshot(
+  value: unknown,
+  fallbackDescription: string,
+  fallbackDirection: 'outbound' | 'inbound'
+): FiscalOperationContext['natureza_operacao_descricao'] extends string ? {
+  id: string | null
+  descricao: string
+  tipo_operacao: 'outbound' | 'inbound'
+  aplica_st: boolean
+  aplica_difal: boolean
+  aplica_devolucao: boolean
+  source: 'catalog' | 'cfop_fallback' | 'environment_default' | 'manual'
+} : never {
+  const candidate = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const descricao = normalizeOptionalText(candidate.descricao as string | undefined) || fallbackDescription
+  const tipo_operacao = candidate.tipo_operacao === 'inbound' ? 'inbound' : fallbackDirection
+  const source =
+    candidate.source === 'catalog'
+      ? 'catalog'
+      : candidate.source === 'cfop_fallback'
+        ? 'cfop_fallback'
+        : candidate.source === 'environment_default'
+          ? 'environment_default'
+          : 'manual'
+
+  return {
+    id: normalizeOptionalText(candidate.id as string | undefined),
+    descricao,
+    tipo_operacao,
+    aplica_st: candidate.aplica_st === true,
+    aplica_difal: candidate.aplica_difal === true,
+    aplica_devolucao: candidate.aplica_devolucao === true,
+    source,
+  }
+}
+
+async function loadOrderFiscalDraftContext(
+  orderId: string,
+  environment: EnvironmentContext,
+  store: StoreContext,
+  fallbackOperationDirection: 'outbound' | 'inbound'
+): Promise<FiscalCalculationResult<OrderFiscalDraftContext>> {
+  const supabase = createServiceRoleClient()
+
+  const { data: settings, error: settingsError } = await supabase
+    .from('order_fiscal_settings')
+    .select('*')
+    .eq('order_id', orderId)
+    .maybeSingle()
+
+  if (settingsError) {
+    return {
+      success: false,
+      error: {
+        code: 'ORDER_FISCAL_SETTINGS_LOAD_FAILED',
+        message: settingsError.message,
+      },
+    }
+  }
+
+  const settingsRecord = settings as Record<string, unknown> | null
+  const settingsId = normalizeOptionalText(settingsRecord?.id as string | undefined)
+  let volumeRows: Array<Record<string, unknown>> = []
+
+  if (settingsId) {
+    const { data: rawVolumeRows, error: volumesError } = await supabase
+      .from('order_fiscal_volumes')
+      .select('quantity, species, brand, numbering, gross_weight, net_weight, sort_order')
+      .eq('order_fiscal_settings_id', settingsId)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
+
+    if (volumesError) {
+      return {
+        success: false,
+        error: {
+          code: 'ORDER_FISCAL_VOLUMES_LOAD_FAILED',
+          message: volumesError.message,
+        },
+      }
+    }
+
+    volumeRows = (rawVolumeRows || []) as Array<Record<string, unknown>>
+  }
+
+  const cfopGlobalCode = sanitizeCfopCode(settingsRecord?.cfop_global_code as string | undefined)
+  const inferredDirection = cfopGlobalCode ? inferOperationDirectionFromCfop(cfopGlobalCode) : fallbackOperationDirection
+  const operationDirection =
+    settingsRecord?.operation_direction === 'inbound'
+      ? 'inbound'
+      : settingsRecord?.operation_direction === 'outbound'
+        ? 'outbound'
+        : inferredDirection
+
+  const naturezaSnapshot = sanitizeNaturezaSnapshot(
+    settingsRecord?.natureza_operacao_snapshot,
+    environment.natureza_operacao || 'Venda de mercadoria',
+    operationDirection
+  )
+
+  const operation: FiscalOperationContext = {
+    cfop_global_code: cfopGlobalCode,
+    natureza_operacao_id: normalizeOptionalText(settingsRecord?.natureza_operacao_id as string | undefined),
+    natureza_operacao_descricao: naturezaSnapshot.descricao,
+    natureza_operacao_source: naturezaSnapshot.source,
+    finalidade_nfe:
+      settingsRecord?.finalidade_nfe === 'complementar'
+        ? 'complementar'
+        : settingsRecord?.finalidade_nfe === 'ajuste'
+          ? 'ajuste'
+          : settingsRecord?.finalidade_nfe === 'devolucao'
+            ? 'devolucao'
+            : 'normal',
+    presenca_comprador:
+      settingsRecord?.presenca_comprador === 'nao_se_aplica'
+        ? 'nao_se_aplica'
+        : settingsRecord?.presenca_comprador === 'presencial'
+          ? 'presencial'
+          : settingsRecord?.presenca_comprador === 'teleatendimento'
+            ? 'teleatendimento'
+            : settingsRecord?.presenca_comprador === 'entrega_domicilio'
+              ? 'entrega_domicilio'
+              : settingsRecord?.presenca_comprador === 'presencial_fora_estabelecimento'
+                ? 'presencial_fora_estabelecimento'
+                : settingsRecord?.presenca_comprador === 'outros'
+                  ? 'outros'
+                  : 'internet',
+    consumidor_final: settingsRecord?.consumidor_final === true || (!settingsRecord && store.is_consumer_final),
+  }
+
+  const transport: FiscalTransportContext = {
+    freight_mode: (
+      ['emitente', 'destinatario', 'terceiros', 'proprio_remetente', 'proprio_destinatario', 'sem_frete'].includes(
+        String(settingsRecord?.freight_mode || '')
+      )
+        ? String(settingsRecord?.freight_mode)
+        : environment.modalidade_frete_padrao || 'sem_frete'
+    ) as FiscalTransportContext['freight_mode'],
+    delivery_form: (
+      ['nao_informado', 'retirada', 'transportadora', 'frota_propria', 'correios', 'entrega_expressa', 'balcao'].includes(
+        String(settingsRecord?.delivery_form || '')
+      )
+        ? String(settingsRecord?.delivery_form)
+        : 'nao_informado'
+    ) as FiscalTransportContext['delivery_form'],
+    transporter_name: normalizeOptionalText(settingsRecord?.transporter_name as string | undefined),
+    transporter_document: digitsOnly(settingsRecord?.transporter_document as string | undefined) || null,
+    vehicle_plate: normalizeOptionalText(settingsRecord?.vehicle_plate as string | undefined)?.toUpperCase() || null,
+    vehicle_uf: normalizeOptionalText(settingsRecord?.vehicle_uf as string | undefined)?.toUpperCase() || null,
+    antt_code: normalizeOptionalText(settingsRecord?.antt_code as string | undefined),
+    freight_value: safeNumber(settingsRecord?.freight_value),
+    insurance_value: safeNumber(settingsRecord?.insurance_value),
+    other_expenses_value: safeNumber(settingsRecord?.other_expenses_value),
+  }
+
+  const volumes: FiscalVolumeContext[] = ((volumeRows || []) as Array<Record<string, unknown>>)
+    .map((row) => ({
+      quantity: Math.max(1, safeNumber(row.quantity, 1)),
+      species: normalizeText(row.species as string | undefined),
+      brand: normalizeOptionalText(row.brand as string | undefined),
+      numbering: normalizeOptionalText(row.numbering as string | undefined),
+      gross_weight: row.gross_weight === null || row.gross_weight === undefined ? null : safeNumber(row.gross_weight),
+      net_weight: row.net_weight === null || row.net_weight === undefined ? null : safeNumber(row.net_weight),
+      sort_order: safeNumber(row.sort_order, 0),
+    }))
+    .filter((row) => row.species.length > 0)
+    .sort((left, right) => left.sort_order - right.sort_order)
+
+  return {
+    success: true,
+    data: {
+      operation,
+      transport,
+      volumes,
+      operationDirection,
+    },
+  }
 }
 
 // --------------- Public API ---------------
@@ -620,6 +817,14 @@ export async function resolveFiscalContext(
   const envResult = await loadEnvironmentContext()
   if (!envResult.success) return envResult
 
+  const draftResult = await loadOrderFiscalDraftContext(
+    orderId,
+    envResult.data,
+    storeResult.data,
+    operationDirection
+  )
+  if (!draftResult.success) return draftResult
+
   const itemsResult = await loadOrderItemsContext(
     orderId,
     storeResult.data.uf
@@ -630,11 +835,17 @@ export async function resolveFiscalContext(
     success: true,
     data: {
       emitter: emitterResult.data,
-      store: storeResult.data,
+      store: {
+        ...storeResult.data,
+        is_consumer_final: draftResult.data.operation.consumidor_final,
+      },
       environment: envResult.data,
+      operation: draftResult.data.operation,
+      transport: draftResult.data.transport,
+      volumes: draftResult.data.volumes,
       items: itemsResult.data,
       operation_date: new Date().toISOString().slice(0, 10),
-      operation_direction: operationDirection,
+      operation_direction: draftResult.data.operationDirection,
     },
   }
 }

@@ -40,11 +40,15 @@ export function buildFiscalDocument(
   // 1. Resolve CFOPs
   const cfopMap = resolveAllCfops(ctx)
 
-  // 2. Distribute freight and discount
+  // 2. Distribute freight, insurance, other expenses and discount
   const freightDistribution = distributeFreight(ctx.items, totalFreight)
+  const insuranceDistribution = distributeFreight(ctx.items, ctx.transport.insurance_value)
+  const otherExpensesDistribution = distributeFreight(ctx.items, ctx.transport.other_expenses_value)
   const discountDistribution = distributeDiscount(ctx.items, totalDiscount)
 
   const freightMap = new Map(freightDistribution.map((f) => [f.order_item_id, f.freight_value]))
+  const insuranceMap = new Map(insuranceDistribution.map((f) => [f.order_item_id, f.freight_value]))
+  const otherExpensesMap = new Map(otherExpensesDistribution.map((f) => [f.order_item_id, f.freight_value]))
   const discountMap = new Map(discountDistribution.map((d) => [d.order_item_id, d.discount_value]))
 
   // 3. Calculate taxes for each item
@@ -55,6 +59,8 @@ export function buildFiscalDocument(
     const cfop = cfopResolution?.cfop || '5102'
 
     const itemFreight = freightMap.get(item.order_item_id) || 0
+    const itemInsurance = insuranceMap.get(item.order_item_id) || 0
+    const itemOtherExpenses = otherExpensesMap.get(item.order_item_id) || 0
     const itemDiscount = discountMap.get(item.order_item_id) || 0
 
     // IPI first (needed for ST base calculation)
@@ -98,10 +104,13 @@ export function buildFiscalDocument(
       product_name: item.product_name,
       quantity: item.quantity,
       cfop,
+      cfop_source: cfopResolution?.source || 'geographic_inference',
       fiscal_unit_value: fiscalUnitValue,
       fiscal_total_value: fiscalTotalValue,
       fiscal_discount_value: itemDiscount,
       fiscal_freight_value: itemFreight,
+      fiscal_insurance_value: itemInsurance,
+      fiscal_other_expenses_value: itemOtherExpenses,
       icms,
       fcp,
       st,
@@ -123,7 +132,14 @@ export function buildFiscalDocument(
   }
 
   // 4. Compute document totals
-  const totals = computeTotals(itemBreakdowns, totalFreight, totalDiscount)
+  const totals = computeTotals(
+    itemBreakdowns,
+    totalFreight,
+    ctx.transport.insurance_value,
+    ctx.transport.other_expenses_value,
+    totalDiscount,
+    ctx.volumes
+  )
 
   // 5. Run validation
   const validation = validateFiscalDocument(ctx, itemBreakdowns, totals)
@@ -145,7 +161,10 @@ export function buildFiscalDocument(
 function computeTotals(
   items: ItemTaxBreakdown[],
   totalFreight: number,
-  totalDiscount: number
+  totalInsurance: number,
+  totalOtherExpenses: number,
+  totalDiscount: number,
+  volumes: FiscalContext['volumes']
 ): DocumentTotals {
   let vProd = 0
   let vBC = 0
@@ -172,8 +191,12 @@ function computeTotals(
   }
 
   // vNF = vProd + vST + vFrete + vIPI - vDesc
-  // (seguro and outras despesas not implemented yet)
-  const vNF = roundFiscal(vProd + vST + totalFreight + vIPI - totalDiscount)
+  const vSeg = roundFiscal(totalInsurance)
+  const vOutro = roundFiscal(totalOtherExpenses)
+  const volumeCount = volumes.reduce((sum, volume) => sum + (volume.quantity || 0), 0)
+  const totalGrossWeight = roundFiscal(volumes.reduce((sum, volume) => sum + (volume.gross_weight || 0), 0), 3)
+  const totalNetWeight = roundFiscal(volumes.reduce((sum, volume) => sum + (volume.net_weight || 0), 0), 3)
+  const vNF = roundFiscal(vProd + vST + totalFreight + vSeg + vOutro + vIPI - totalDiscount)
 
   return {
     vProd: roundFiscal(vProd),
@@ -187,8 +210,13 @@ function computeTotals(
     vIPI: roundFiscal(vIPI),
     vDesc: roundFiscal(totalDiscount),
     vFrete: roundFiscal(totalFreight),
+    vSeg,
+    vOutro,
     vTotTrib: roundFiscal(vTotTrib),
     vNF,
     item_count: items.length,
+    volume_count: volumeCount,
+    total_gross_weight: totalGrossWeight,
+    total_net_weight: totalNetWeight,
   }
 }

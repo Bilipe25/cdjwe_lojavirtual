@@ -38,6 +38,7 @@ import {
   generateDanfeAction,
   getFiscalEmissionEnvironmentAction,
 } from '@/app/admin/fiscal-review/actions'
+import { OrderFiscalWorkspaceTabs } from '@/app/admin/orders/components/OrderFiscalWorkspaceTabs'
 
 interface FiscalDoc {
   id: string
@@ -451,6 +452,7 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
 
   return (
     <>
+      <OrderFiscalWorkspaceTabs orderId={orderId}>
       <div className="space-y-3">
         <h4 className="flex items-center gap-2 text-lg font-bold text-navy">
           <FileText className="h-5 w-5" />
@@ -749,6 +751,7 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
           </div>
         )}
       </div>
+      </OrderFiscalWorkspaceTabs>
 
       <Dialog open={emitModal !== null} onOpenChange={(open) => !open && setEmitModal(null)}>
         <DialogContent className="max-w-md rounded-2xl border-0 shadow-2xl">

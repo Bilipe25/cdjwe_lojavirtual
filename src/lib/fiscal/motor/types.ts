@@ -83,6 +83,61 @@ export interface EnvironmentContext {
   proximo_numero_nfce: number
 }
 
+// --------------- Order Fiscal Operation / Transport / Volumes ---------------
+
+export interface FiscalOperationContext {
+  cfop_global_code: string | null
+  natureza_operacao_id: string | null
+  natureza_operacao_descricao: string
+  natureza_operacao_source: 'catalog' | 'cfop_fallback' | 'environment_default' | 'manual'
+  finalidade_nfe: 'normal' | 'complementar' | 'ajuste' | 'devolucao'
+  presenca_comprador:
+    | 'nao_se_aplica'
+    | 'presencial'
+    | 'internet'
+    | 'teleatendimento'
+    | 'entrega_domicilio'
+    | 'presencial_fora_estabelecimento'
+    | 'outros'
+  consumidor_final: boolean
+}
+
+export interface FiscalTransportContext {
+  freight_mode:
+    | 'emitente'
+    | 'destinatario'
+    | 'terceiros'
+    | 'proprio_remetente'
+    | 'proprio_destinatario'
+    | 'sem_frete'
+  delivery_form:
+    | 'nao_informado'
+    | 'retirada'
+    | 'transportadora'
+    | 'frota_propria'
+    | 'correios'
+    | 'entrega_expressa'
+    | 'balcao'
+  transporter_name: string | null
+  transporter_document: string | null
+  vehicle_plate: string | null
+  vehicle_uf: string | null
+  antt_code: string | null
+  freight_value: number
+  insurance_value: number
+  other_expenses_value: number
+}
+
+export interface FiscalVolumeContext {
+  quantity: number
+  species: string
+  brand: string | null
+  numbering: string | null
+  gross_weight: number | null
+  net_weight: number | null
+  sort_order: number
+}
+
 // --------------- Resolved Tax Profile ---------------
 
 export interface ResolvedTaxProfile {
@@ -178,6 +233,7 @@ export interface FiscalItemContext {
   quantity: number
   unit_price: number
   subtotal: number
+  cfop_override_code: string | null
   // Resolved
   tax_profile: ResolvedTaxProfile
   applied_rule: ResolvedTaxRule | null
@@ -193,6 +249,9 @@ export interface FiscalContext {
   emitter: EmitterContext
   store: StoreContext
   environment: EnvironmentContext
+  operation: FiscalOperationContext
+  transport: FiscalTransportContext
+  volumes: FiscalVolumeContext[]
   items: FiscalItemContext[]
   operation_date: string
   operation_direction: 'outbound' | 'inbound'
@@ -263,11 +322,14 @@ export interface ItemTaxBreakdown {
   product_name: string
   quantity: number
   cfop: string
+  cfop_source: 'item_override' | 'order_global' | 'rule_override' | 'profile_default' | 'geographic_inference'
   // Fiscal values
   fiscal_unit_value: number
   fiscal_total_value: number
   fiscal_discount_value: number
   fiscal_freight_value: number
+  fiscal_insurance_value: number
+  fiscal_other_expenses_value: number
   // Tax breakdowns
   icms: IcmsBreakdown
   fcp: FcpBreakdown
@@ -304,9 +366,14 @@ export interface DocumentTotals {
   vIPI: number
   vDesc: number
   vFrete: number
+  vSeg: number
+  vOutro: number
   vTotTrib: number
   vNF: number
   item_count: number
+  volume_count: number
+  total_gross_weight: number
+  total_net_weight: number
 }
 
 // --------------- Validation ---------------

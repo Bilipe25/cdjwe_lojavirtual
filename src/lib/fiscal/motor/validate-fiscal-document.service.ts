@@ -198,6 +198,24 @@ export function validateFiscalDocument(
     })
   }
 
+  if (!ctx.operation.natureza_operacao_descricao || ctx.operation.natureza_operacao_descricao.trim().length < 3) {
+    errors.push({
+      field: 'operation.natureza_operacao_descricao',
+      code: 'OPERATION_MISSING_NATUREZA',
+      message: 'Natureza da operacao fiscal nao informada.',
+      severity: 'error',
+    })
+  }
+
+  if (ctx.operation.cfop_global_code && !/^\d{4}$/.test(ctx.operation.cfop_global_code)) {
+    errors.push({
+      field: 'operation.cfop_global_code',
+      code: 'OPERATION_INVALID_CFOP_GLOBAL',
+      message: 'CFOP global do pedido invalido.',
+      severity: 'error',
+    })
+  }
+
   // ─── Item validations ──────────────────────────
 
   if (items.length === 0) {
@@ -230,6 +248,16 @@ export function validateFiscalDocument(
         code: 'ITEM_INVALID_CFOP',
         message: `Item "${item.product_name}": CFOP invalido (${item.cfop || 'vazio'}).`,
         severity: 'error',
+        item_index: i,
+      })
+    }
+
+    if (ctx.operation.cfop_global_code && item.cfop_source !== 'item_override' && item.cfop !== ctx.operation.cfop_global_code) {
+      warnings.push({
+        field: `items[${i}].cfop`,
+        code: 'ITEM_CFOP_GLOBAL_DIVERGENCE',
+        message: `Item "${item.product_name}": CFOP efetivo difere do CFOP global configurado para o pedido.`,
+        severity: 'warning',
         item_index: i,
       })
     }
@@ -281,6 +309,103 @@ export function validateFiscalDocument(
 
   // ─── Totals validations ─────────────────────────
 
+  if (ctx.transport.freight_value > 0 && ctx.transport.freight_mode === 'sem_frete') {
+    errors.push({
+      field: 'transport.freight_mode',
+      code: 'TRANSPORT_MODE_INCOMPATIBLE',
+      message: 'Modalidade do frete esta como "sem frete", mas existe valor de frete informado.',
+      severity: 'error',
+    })
+  }
+
+  if (ctx.transport.transporter_document && ctx.transport.transporter_document.length < 11) {
+    errors.push({
+      field: 'transport.transporter_document',
+      code: 'TRANSPORT_INVALID_DOCUMENT',
+      message: 'Documento do transportador invalido.',
+      severity: 'error',
+    })
+  }
+
+  if (ctx.transport.freight_mode !== 'sem_frete' && ctx.transport.freight_value <= 0) {
+    warnings.push({
+      field: 'transport.freight_value',
+      code: 'TRANSPORT_ZERO_FREIGHT_VALUE',
+      message: 'Existe modalidade de frete informada, mas o valor do frete esta zerado.',
+      severity: 'warning',
+    })
+  }
+
+  if (ctx.transport.vehicle_uf && ctx.transport.vehicle_uf.length !== 2) {
+    errors.push({
+      field: 'transport.vehicle_uf',
+      code: 'TRANSPORT_INVALID_VEHICLE_UF',
+      message: 'UF do veiculo invalida.',
+      severity: 'error',
+    })
+  }
+
+  if (ctx.transport.freight_mode === 'terceiros' && !ctx.transport.transporter_name) {
+    warnings.push({
+      field: 'transport.transporter_name',
+      code: 'TRANSPORT_MISSING_NAME',
+      message: 'Frete por terceiros configurado sem nome da transportadora.',
+      severity: 'warning',
+    })
+  }
+
+  for (let volumeIndex = 0; volumeIndex < ctx.volumes.length; volumeIndex++) {
+    const volume = ctx.volumes[volumeIndex]
+    if (!volume.species || volume.species.trim().length < 2) {
+      errors.push({
+        field: `volumes[${volumeIndex}].species`,
+        code: 'VOLUME_MISSING_SPECIES',
+        message: `Volume ${volumeIndex + 1}: especie nao informada.`,
+        severity: 'error',
+      })
+    }
+
+    if (volume.quantity <= 0) {
+      errors.push({
+        field: `volumes[${volumeIndex}].quantity`,
+        code: 'VOLUME_INVALID_QUANTITY',
+        message: `Volume ${volumeIndex + 1}: quantidade invalida.`,
+        severity: 'error',
+      })
+    }
+
+    if (volume.gross_weight !== null && volume.gross_weight < 0) {
+      errors.push({
+        field: `volumes[${volumeIndex}].gross_weight`,
+        code: 'VOLUME_INVALID_GROSS_WEIGHT',
+        message: `Volume ${volumeIndex + 1}: peso bruto invalido.`,
+        severity: 'error',
+      })
+    }
+
+    if (volume.net_weight !== null && volume.net_weight < 0) {
+      errors.push({
+        field: `volumes[${volumeIndex}].net_weight`,
+        code: 'VOLUME_INVALID_NET_WEIGHT',
+        message: `Volume ${volumeIndex + 1}: peso liquido invalido.`,
+        severity: 'error',
+      })
+    }
+
+    if (
+      volume.gross_weight !== null &&
+      volume.net_weight !== null &&
+      volume.net_weight > volume.gross_weight
+    ) {
+      warnings.push({
+        field: `volumes[${volumeIndex}]`,
+        code: 'VOLUME_NET_GT_GROSS',
+        message: `Volume ${volumeIndex + 1}: peso liquido maior que o peso bruto.`,
+        severity: 'warning',
+      })
+    }
+  }
+
   if (totals.vNF <= 0) {
     errors.push({
       field: 'totals.vNF',
@@ -297,6 +422,16 @@ export function validateFiscalDocument(
       field: 'totals.vProd',
       code: 'TOTALS_PROD_MISMATCH',
       message: `Soma dos itens (${sumProd.toFixed(2)}) diverge do total de produtos (${totals.vProd.toFixed(2)}).`,
+      severity: 'warning',
+    })
+  }
+
+  const totalVolumes = ctx.volumes.reduce((sum, volume) => sum + volume.quantity, 0)
+  if (totalVolumes !== totals.volume_count) {
+    warnings.push({
+      field: 'totals.volume_count',
+      code: 'TOTALS_VOLUME_MISMATCH',
+      message: `Somatorio dos volumes (${totalVolumes}) diverge do total consolidado (${totals.volume_count}).`,
       severity: 'warning',
     })
   }

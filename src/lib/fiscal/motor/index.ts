@@ -98,11 +98,30 @@ export async function calculateOrderFiscal(
   // Total discount = order discount + coupon discount
   const totalDiscount = (Number(order.discount_amount) || 0) + (Number(order.coupon_discount_amount) || 0)
 
-  // Freight: not yet tracked separately; use 0 for now
-  const totalFreight = 0
+  const { data: fiscalSettings } = await supabase
+    .from('order_fiscal_settings')
+    .select('freight_value, insurance_value, other_expenses_value')
+    .eq('order_id', orderId)
+    .maybeSingle()
+
+  const totalFreight = Number(fiscalSettings?.freight_value) || 0
+  const totalInsurance = Number(fiscalSettings?.insurance_value) || 0
+  const totalOtherExpenses = Number(fiscalSettings?.other_expenses_value) || 0
 
   // Build fiscal document
-  const payload = buildFiscalDocument(contextResult.data, totalFreight, totalDiscount)
+  const payload = buildFiscalDocument(
+    {
+      ...contextResult.data,
+      transport: {
+        ...contextResult.data.transport,
+        freight_value: totalFreight,
+        insurance_value: totalInsurance,
+        other_expenses_value: totalOtherExpenses,
+      },
+    },
+    totalFreight,
+    totalDiscount
+  )
 
   return { success: true, data: payload }
 }
@@ -166,13 +185,17 @@ export async function persistOrderFiscalSnapshot(
         ipi_value: item.ipi.value,
         // Total tributos
         total_tributos: item.total_tributos,
+        effective_cfop_code: item.cfop,
+        cfop_source: item.cfop_source,
         // Context
         tax_profile_id: item.tax_profile_id,
         tax_profile_version: item.tax_profile_version,
         fiscal_context: {
-          cfop_source: 'motor',
+          cfop_source: item.cfop_source,
           motor_version: payload.motor_version,
           calculated_at: payload.calculated_at,
+          operation: payload.context.operation,
+          transport: payload.context.transport,
         },
         fiscal_payload: {
           icms: item.icms,
@@ -182,6 +205,10 @@ export async function persistOrderFiscalSnapshot(
           cofins: item.cofins,
           ipi: item.ipi,
           ibscbs: item.ibscbs,
+          totals: {
+            insurance: item.fiscal_insurance_value,
+            other_expenses: item.fiscal_other_expenses_value,
+          },
         },
       })
       .eq('id', item.order_item_id)
@@ -220,6 +247,9 @@ export async function persistOrderFiscalSnapshot(
         store_uf: payload.context.store.uf,
         ambiente: payload.context.environment.ambiente,
         item_count: payload.items.length,
+        operation: payload.context.operation,
+        transport: payload.context.transport,
+        volumes: payload.context.volumes,
       },
       fiscal_ready: payload.validation.is_valid,
     })

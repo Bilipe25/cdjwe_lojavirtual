@@ -523,6 +523,107 @@ export type OrderStatus =
 
 export type PaymentStatus = 'pending' | 'paid' | 'overdue' | 'cancelled'
 
+export type NaturezaOperacaoDirection = 'outbound' | 'inbound'
+export type OrderFiscalOperationPurpose = 'normal' | 'complementar' | 'ajuste' | 'devolucao'
+export type OrderFiscalBuyerPresence =
+  | 'nao_se_aplica'
+  | 'presencial'
+  | 'internet'
+  | 'teleatendimento'
+  | 'entrega_domicilio'
+  | 'presencial_fora_estabelecimento'
+  | 'outros'
+export type OrderFiscalFreightMode =
+  | 'emitente'
+  | 'destinatario'
+  | 'terceiros'
+  | 'proprio_remetente'
+  | 'proprio_destinatario'
+  | 'sem_frete'
+export type OrderFiscalDeliveryForm =
+  | 'nao_informado'
+  | 'retirada'
+  | 'transportadora'
+  | 'frota_propria'
+  | 'correios'
+  | 'entrega_expressa'
+  | 'balcao'
+export type OrderFiscalCfopSource =
+  | 'item_override'
+  | 'order_global'
+  | 'rule_override'
+  | 'profile_default'
+  | 'geographic_inference'
+
+export interface NaturezaOperacao {
+  id: string
+  descricao: string
+  tipo_operacao: NaturezaOperacaoDirection
+  aplica_st: boolean
+  aplica_difal: boolean
+  aplica_devolucao: boolean
+  is_active: boolean
+  sort_order: number
+  cfop_codes?: string[]
+  created_at?: string
+  updated_at?: string
+}
+
+export interface OrderFiscalNaturezaSnapshot {
+  id: string | null
+  descricao: string
+  tipo_operacao: NaturezaOperacaoDirection
+  aplica_st: boolean
+  aplica_difal: boolean
+  aplica_devolucao: boolean
+  source: 'catalog' | 'cfop_fallback' | 'environment_default' | 'manual'
+}
+
+export interface OrderFiscalSettings {
+  id: string
+  order_id: string
+  cfop_global_code: string | null
+  natureza_operacao_id: string | null
+  natureza_operacao_snapshot: OrderFiscalNaturezaSnapshot | Record<string, unknown> | null
+  operation_direction: NaturezaOperacaoDirection
+  finalidade_nfe: OrderFiscalOperationPurpose
+  presenca_comprador: OrderFiscalBuyerPresence
+  consumidor_final: boolean
+  freight_mode: OrderFiscalFreightMode
+  delivery_form: OrderFiscalDeliveryForm
+  transporter_name: string | null
+  transporter_document: string | null
+  vehicle_plate: string | null
+  vehicle_uf: string | null
+  antt_code: string | null
+  freight_value: number
+  insurance_value: number
+  other_expenses_value: number
+  last_recalculated_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface OrderFiscalVolume {
+  id: string
+  order_fiscal_settings_id: string
+  quantity: number
+  species: string
+  brand: string | null
+  numbering: string | null
+  gross_weight: number | null
+  net_weight: number | null
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface OrderFiscalWorkspace {
+  settings: OrderFiscalSettings | null
+  volumes: OrderFiscalVolume[]
+  naturezas: NaturezaOperacao[]
+}
+
 export interface Order {
   id: string
   order_number: string
@@ -572,6 +673,8 @@ export interface Order {
   payment_condition?: PaymentCondition
   payment_method_condition?: PaymentMethodCondition
   payment_rule?: PriceTablePaymentRule
+  fiscal_settings?: OrderFiscalSettings | null
+  fiscal_volumes?: OrderFiscalVolume[]
 }
 
 export interface OrderItem {
@@ -596,6 +699,9 @@ export interface OrderItem {
   fiscal_cest?: string | null
   fiscal_origin_code?: string | null
   fiscal_cfop?: string | null
+  cfop_override_code?: string | null
+  effective_cfop_code?: string | null
+  cfop_source?: OrderFiscalCfopSource | null
   fiscal_context?: Record<string, unknown> | null
   fiscal_payload?: Record<string, unknown> | null
   // Motor Fiscal — tax calculation columns (migration 097)
