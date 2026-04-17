@@ -10,6 +10,24 @@ import {
 } from '@/lib/fiscal/certificate-security'
 import { parseA1CertificateFromBuffer } from '@/lib/fiscal/certificate-parser'
 
+function formatCertificateSecretActionError(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback
+
+  if (error.message.includes('Segredo do certificado nao configurado')) {
+    return 'FISCAL_CERTIFICATE_SECRET nao esta configurado no ambiente. Defina essa variavel antes de salvar a senha operacional do certificado.'
+  }
+
+  if (error.message.includes('segredos configurados')) {
+    return 'Nao foi possivel ler a senha operacional armazenada com os segredos atuais. Verifique FISCAL_CERTIFICATE_SECRET ou informe novamente a senha do certificado.'
+  }
+
+  if (error.message.includes('formato criptografado esperado')) {
+    return 'A senha operacional armazenada do certificado esta em formato invalido. Informe novamente a senha do certificado e salve.'
+  }
+
+  return error.message || fallback
+}
+
 function normalizeCertificateStatus(input: {
   certificate_storage_path?: string | null
   valid_to?: string | null
@@ -30,9 +48,20 @@ function normalizeCertificateStatus(input: {
 function sanitizeCertificateRecord(record: Record<string, unknown> | null): CompanyCertificateConfig | null {
   if (!record) return null
 
+  const hasEncryptedPassword = Boolean(record.certificate_password_encrypted)
+  const hasLegacyPasswordHash = !hasEncryptedPassword && Boolean(record.certificate_password_hash)
+  const currentValidationNotes =
+    typeof record.validation_notes === 'string' && record.validation_notes.trim()
+      ? record.validation_notes.trim()
+      : null
+  const legacyPasswordNote = hasLegacyPasswordHash
+    ? 'A senha operacional armazenada esta em formato legado. Informe novamente a senha do certificado e salve para concluir a migracao.'
+    : null
+
   return {
     ...(record as unknown as CompanyCertificateConfig),
-    has_stored_password: Boolean(record.certificate_password_encrypted),
+    has_stored_password: hasEncryptedPassword,
+    validation_notes: [currentValidationNotes, legacyPasswordNote].filter(Boolean).join(' '),
     certificate_password_encrypted: undefined,
   }
 }
@@ -100,20 +129,47 @@ export async function saveCertificateAction(
   }
 
   const current = (existing.data as Record<string, unknown> | null) || null
+  const hasLegacyPasswordHash =
+    typeof current?.certificate_password_hash === 'string' && current.certificate_password_hash.trim().length > 0
   const normalizedPath = input.certificate_storage_path || null
   const rawPassword = input.certificate_password?.trim() || null
-  const decryptedStoredPassword =
-    !rawPassword && typeof current?.certificate_password_encrypted === 'string'
-      ? decryptCertificatePassword(current.certificate_password_encrypted)
-      : null
+  let decryptedStoredPassword: string | null = null
+  if (!rawPassword && typeof current?.certificate_password_encrypted === 'string') {
+    try {
+      decryptedStoredPassword = decryptCertificatePassword(current.certificate_password_encrypted)
+    } catch (error) {
+      return {
+        data: null,
+        error: formatCertificateSecretActionError(
+          error,
+          'Nao foi possivel ler a senha operacional armazenada do certificado.'
+        ),
+      }
+    }
+  }
   const operationalPassword = rawPassword || decryptedStoredPassword
-  const encryptedPassword =
-    rawPassword
-      ? encryptCertificatePassword(rawPassword)
-      : (current?.certificate_password_encrypted as string | null) || null
+  let encryptedPassword = (current?.certificate_password_encrypted as string | null) || null
+  if (rawPassword) {
+    try {
+      encryptedPassword = encryptCertificatePassword(rawPassword)
+    } catch (error) {
+      return {
+        data: null,
+        error: formatCertificateSecretActionError(
+          error,
+          'Nao foi possivel proteger a senha operacional do certificado.'
+        ),
+      }
+    }
+  }
 
   if (normalizedPath && !encryptedPassword) {
-    return { data: null, error: 'Informe a senha do certificado para concluir o cadastro operacional.' }
+    return {
+      data: null,
+      error: hasLegacyPasswordHash
+        ? 'A senha operacional do certificado esta em formato legado. Informe novamente a senha do certificado e salve para concluir a migracao.'
+        : 'Informe a senha do certificado para concluir o cadastro operacional.',
+    }
   }
 
   let parsedMetadata:

@@ -25,6 +25,10 @@ function digitsOnly(value: string | null | undefined): string {
   return (value || '').replace(/\D/g, '')
 }
 
+function hasMeaningfulText(value: string | null | undefined, minLength: number = 1): boolean {
+  return (value || '').trim().length >= minLength
+}
+
 // --------------- Load Emitter ---------------
 
 async function loadEmitterContext(): Promise<FiscalCalculationResult<EmitterContext>> {
@@ -57,8 +61,21 @@ async function loadEmitterContext(): Promise<FiscalCalculationResult<EmitterCont
     return { success: false, error: { code: 'EMITTER_INVALID_CNPJ', message: 'CNPJ do emitente invalido.' } }
   }
 
-  if (!profile.fiscal_state || !profile.fiscal_municipality_code_ibge) {
-    return { success: false, error: { code: 'EMITTER_INCOMPLETE_ADDRESS', message: 'Endereco fiscal do emitente incompleto (UF ou IBGE).' } }
+  const missingEmitterAddressFields: string[] = []
+  if (!profile.fiscal_state) missingEmitterAddressFields.push('UF')
+  if (!profile.fiscal_municipality_code_ibge) missingEmitterAddressFields.push('codigo IBGE')
+  if (!hasMeaningfulText(profile.fiscal_address, 2)) missingEmitterAddressFields.push('logradouro')
+  if (!hasMeaningfulText(profile.fiscal_neighborhood, 2)) missingEmitterAddressFields.push('bairro')
+  if (!hasMeaningfulText(profile.fiscal_city, 2)) missingEmitterAddressFields.push('cidade')
+
+  if (missingEmitterAddressFields.length > 0) {
+    return {
+      success: false,
+      error: {
+        code: 'EMITTER_INCOMPLETE_ADDRESS',
+        message: `Endereco fiscal do emitente incompleto: ${missingEmitterAddressFields.join(', ')}.`,
+      },
+    }
   }
 
   if (!profile.crt || !['1', '2', '3'].includes(profile.crt)) {
@@ -139,9 +156,36 @@ async function loadStoreContext(storeId: string): Promise<FiscalCalculationResul
 
   const uf = (address?.state || store.state || '').toUpperCase()
   const ibge = (address?.municipality_code || '').replace(/\D/g, '')
+  const missingStoreAddressFields: string[] = []
 
   if (!uf || uf.length !== 2) {
-    return { success: false, error: { code: 'STORE_MISSING_UF', message: `UF do destinatario (loja ${storeId}) nao informada.` } }
+    missingStoreAddressFields.push('UF')
+  }
+
+  if (!ibge) {
+    missingStoreAddressFields.push('codigo IBGE')
+  }
+
+  if (!hasMeaningfulText(address?.street as string | undefined, 2)) {
+    missingStoreAddressFields.push('logradouro')
+  }
+
+  if (!hasMeaningfulText(address?.neighborhood as string | undefined, 2)) {
+    missingStoreAddressFields.push('bairro')
+  }
+
+  if (!hasMeaningfulText(address?.city as string | undefined, 2)) {
+    missingStoreAddressFields.push('cidade')
+  }
+
+  if (missingStoreAddressFields.length > 0) {
+    return {
+      success: false,
+      error: {
+        code: 'STORE_INCOMPLETE_ADDRESS',
+        message: `Endereco fiscal do destinatario incompleto: ${missingStoreAddressFields.join(', ')}.`,
+      },
+    }
   }
 
   const documentType = fiscalData?.document_type || store.document_type || 'CNPJ'

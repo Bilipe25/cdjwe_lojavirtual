@@ -70,6 +70,33 @@ export function validateFiscalDocument(
     })
   }
 
+  if (!ctx.emitter.logradouro || ctx.emitter.logradouro.trim().length < 2) {
+    errors.push({
+      field: 'emitter.logradouro',
+      code: 'EMITTER_MISSING_LOGRADOURO',
+      message: 'Logradouro fiscal do emitente nao informado.',
+      severity: 'error',
+    })
+  }
+
+  if (!ctx.emitter.bairro || ctx.emitter.bairro.trim().length < 2) {
+    errors.push({
+      field: 'emitter.bairro',
+      code: 'EMITTER_MISSING_BAIRRO',
+      message: 'Bairro fiscal do emitente nao informado.',
+      severity: 'error',
+    })
+  }
+
+  if (!ctx.emitter.cidade || ctx.emitter.cidade.trim().length < 2) {
+    errors.push({
+      field: 'emitter.cidade',
+      code: 'EMITTER_MISSING_CIDADE',
+      message: 'Cidade fiscal do emitente nao informada.',
+      severity: 'error',
+    })
+  }
+
   // ─── Store (Destinatário) validations ─────────────
 
   if (!ctx.store.document_number || ctx.store.document_number.length < 11) {
@@ -105,6 +132,33 @@ export function validateFiscalDocument(
       code: 'STORE_CONTRIBUTOR_NO_IE',
       message: 'Destinatario marcado como contribuinte mas sem IE informada.',
       severity: 'warning',
+    })
+  }
+
+  if (!ctx.store.logradouro || ctx.store.logradouro.trim().length < 2) {
+    errors.push({
+      field: 'store.logradouro',
+      code: 'STORE_MISSING_LOGRADOURO',
+      message: 'Logradouro do destinatario nao informado.',
+      severity: 'error',
+    })
+  }
+
+  if (!ctx.store.bairro || ctx.store.bairro.trim().length < 2) {
+    errors.push({
+      field: 'store.bairro',
+      code: 'STORE_MISSING_BAIRRO',
+      message: 'Bairro do destinatario nao informado.',
+      severity: 'error',
+    })
+  }
+
+  if (!ctx.store.cidade || ctx.store.cidade.trim().length < 2) {
+    errors.push({
+      field: 'store.cidade',
+      code: 'STORE_MISSING_CIDADE',
+      message: 'Cidade do destinatario nao informada.',
+      severity: 'error',
     })
   }
 

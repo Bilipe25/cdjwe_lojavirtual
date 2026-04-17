@@ -47,7 +47,7 @@ export function mapFiscalPayloadToNFeXml(
   const cUF = UF_CODES[ctx.emitter.uf] || 35
   const cNF = generateCNF()
   const nNF = documentNumber
-  const dhEmi = new Date().toISOString().replace('Z', '-03:00')
+  const dhEmi = formatSefazDateTime(new Date())
   const tpAmb = ctx.environment.ambiente === 'producao' ? 1 : 2
 
   const chaveBase = buildChaveBase(cUF, dhEmi, ctx.emitter.cnpj, Number(modelo), Number(serie), nNF, 1, cNF)
@@ -527,6 +527,23 @@ function generateCNF(): string {
   return String(Math.floor(Math.random() * 100000000)).padStart(8, '0')
 }
 
+function formatSefazDateTime(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+
+  const offsetMinutes = -date.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const absoluteOffset = Math.abs(offsetMinutes)
+  const offsetHours = String(Math.floor(absoluteOffset / 60)).padStart(2, '0')
+  const offsetRemainingMinutes = String(absoluteOffset % 60).padStart(2, '0')
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offsetHours}:${offsetRemainingMinutes}`
+}
+
 function buildChaveBase(
   cUF: number,
   dhEmi: string,
@@ -564,7 +581,6 @@ function calculateMod11(chave: string): string {
 
 export function buildNFeAuthorizationEnvelope(signedXml: string): string {
   return [
-    '<?xml version="1.0" encoding="UTF-8"?>',
     `<enviNFe xmlns="${NF_NAMESPACE}" versao="4.00">`,
     '<idLote>1</idLote>',
     '<indSinc>1</indSinc>',

@@ -10,11 +10,15 @@ import 'server-only'
 import { SignedXml } from 'xml-crypto'
 import forge from 'node-forge'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
-import { decryptCertificatePassword } from '../certificate-security'
+import {
+  decryptCertificatePassword,
+  isEncryptedCertificatePasswordPayload,
+} from '../certificate-security'
 
 interface CertificateData {
   privateKeyPem: string
   certificatePem: string
+  certificateChainPem: string
   certificateBase64: string // X509 DER base64 (without headers)
 }
 
@@ -55,16 +59,52 @@ export async function loadCertificate(): Promise<CertificateData> {
   }
 
   // 3. Decrypt password
-  const encryptedPassword = certConfig.certificate_password_encrypted || certConfig.certificate_password_hash
+  const encryptedPassword =
+    typeof certConfig.certificate_password_encrypted === 'string'
+      ? certConfig.certificate_password_encrypted.trim()
+      : ''
+  const legacyPasswordHash =
+    typeof certConfig.certificate_password_hash === 'string'
+      ? certConfig.certificate_password_hash.trim()
+      : ''
+
   if (!encryptedPassword) {
-    throw new Error('Senha do certificado nao encontrada.')
+    if (legacyPasswordHash) {
+      throw new Error(
+        'A senha operacional do certificado esta em formato legado. Abra Configuracoes > Certificado Digital, informe novamente a senha do certificado e salve para concluir a migracao.'
+      )
+    }
+
+    throw new Error(
+      'Senha do certificado nao encontrada. Abra Configuracoes > Certificado Digital e informe a senha operacional.'
+    )
+  }
+
+  if (!isEncryptedCertificatePasswordPayload(encryptedPassword)) {
+    throw new Error(
+      'A senha operacional armazenada do certificado esta em formato invalido. Abra Configuracoes > Certificado Digital, informe novamente a senha e salve.'
+    )
   }
 
   let password: string
   try {
     password = decryptCertificatePassword(encryptedPassword)
-  } catch {
-    throw new Error('Falha ao descriptografar a senha do certificado. Verifique FISCAL_CERTIFICATE_SECRET.')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+
+    if (message.includes('Segredo do certificado nao configurado')) {
+      throw new Error('FISCAL_CERTIFICATE_SECRET nao esta configurado no ambiente.')
+    }
+
+    if (message.includes('segredos configurados')) {
+      throw new Error(
+        'Falha ao descriptografar a senha do certificado. Verifique FISCAL_CERTIFICATE_SECRET ou salve novamente a senha em Configuracoes > Certificado Digital.'
+      )
+    }
+
+    throw new Error(
+      'Falha ao ler a senha operacional do certificado. Abra Configuracoes > Certificado Digital, informe novamente a senha e salve.'
+    )
   }
 
   // 4. Convert PFX → PEM using node-forge
@@ -88,14 +128,23 @@ export async function loadCertificate(): Promise<CertificateData> {
     throw new Error('Certificado X509 nao encontrado no PFX.')
   }
 
-  const cert = certBag[0].cert
+  const certChain = certBag
+    .map((entry) => entry?.cert)
+    .filter((entry): entry is forge.pki.Certificate => Boolean(entry))
+
+  if (certChain.length === 0) {
+    throw new Error('Nenhum certificado X509 valido foi encontrado no PFX.')
+  }
+
+  const cert = certChain[0]
   const certificatePem = forge.pki.certificateToPem(cert)
+  const certificateChainPem = certChain.map((entry) => forge.pki.certificateToPem(entry)).join('\n')
 
   // Extract base64 DER (for X509Certificate tag in signed XML)
   const certDer = forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes()
   const certificateBase64 = forge.util.encode64(certDer)
 
-  return { privateKeyPem, certificatePem, certificateBase64 }
+  return { privateKeyPem, certificatePem, certificateChainPem, certificateBase64 }
 }
 
 /**
@@ -126,6 +175,7 @@ export function signNFeXml(
 
   // Reference to infNFe element by its Id
   sig.addReference({
+    xpath: "//*[local-name(.)='infNFe']",
     uri: `#${infNFeId}`,
     transforms: [
       'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
@@ -137,7 +187,7 @@ export function signNFeXml(
   sig.computeSignature(nfeXml, {
     prefix: '',
     location: {
-      reference: `//*[local-name(.)='infNFe']`,
+      reference: "//*[local-name()='infNFe']",
       action: 'after',
     },
   })
@@ -165,6 +215,7 @@ export function signEventXml(
   })
 
   sig.addReference({
+    xpath: "//*[local-name(.)='infEvento']",
     uri: `#${eventId}`,
     transforms: [
       'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
@@ -176,7 +227,7 @@ export function signEventXml(
   sig.computeSignature(eventXml, {
     prefix: '',
     location: {
-      reference: `//*[local-name(.)='infEvento']`,
+      reference: "//*[local-name()='infEvento']",
       action: 'after',
     },
   })
@@ -201,6 +252,7 @@ export function signInutilizacaoXml(
   })
 
   sig.addReference({
+    xpath: "//*[local-name(.)='infInut']",
     uri: `#${infInutId}`,
     transforms: [
       'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
@@ -212,7 +264,7 @@ export function signInutilizacaoXml(
   sig.computeSignature(inutilizacaoXml, {
     prefix: '',
     location: {
-      reference: `//*[local-name(.)='infInut']`,
+      reference: "//*[local-name()='infInut']",
       action: 'after',
     },
   })

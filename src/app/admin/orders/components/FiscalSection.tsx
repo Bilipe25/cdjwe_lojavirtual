@@ -36,6 +36,7 @@ import {
   cancelNFeAction,
   sendCartaCorrecaoAction,
   generateDanfeAction,
+  getFiscalEmissionEnvironmentAction,
 } from '@/app/admin/fiscal-review/actions'
 
 interface FiscalDoc {
@@ -56,6 +57,16 @@ interface FiscalDoc {
   correction_count: number | null
   danfe_path: string | null
   valor_total_nota: number | null
+}
+
+interface FiscalOperationalEnvironment {
+  ambiente: 'homologacao' | 'producao'
+  emissaoAtiva: boolean
+  tipoEmissao: string
+  seriePadraoNfe: string | null
+  proximoNumeroNfe: number | null
+  serieNfce: string | null
+  proximoNumeroNfce: number | null
 }
 
 type FiscalStatus =
@@ -82,24 +93,124 @@ const FISCAL_STATUS_CONFIG: Record<
   error: { label: 'Erro', color: 'bg-red-50 text-red-700 border-red-200', icon: ShieldX },
 }
 
+const REEMITTABLE_DOCUMENT_STATUSES = new Set(['denied', 'cancelled', 'error'])
+
 interface FiscalSectionProps {
   orderId: string
   orderStatus: string
 }
 
+function humanizeFiscalSchemaError(message: string) {
+  const normalized = message.trim()
+  const lower = normalized.toLowerCase()
+
+  const schemaMappings: Array<{ pattern: RegExp; replacement: string }> = [
+    {
+      pattern: /emit\/enderemit\/xlgr/i,
+      replacement: 'Endereco fiscal do emitente: logradouro nao informado ou invalido.',
+    },
+    {
+      pattern: /emit\/enderemit\/xbairro/i,
+      replacement: 'Endereco fiscal do emitente: bairro nao informado ou invalido.',
+    },
+    {
+      pattern: /emit\/enderemit\/xmun/i,
+      replacement: 'Endereco fiscal do emitente: cidade nao informada ou invalida.',
+    },
+    {
+      pattern: /emit\/enderemit\/cmun/i,
+      replacement: 'Endereco fiscal do emitente: codigo IBGE do municipio nao informado ou invalido.',
+    },
+    {
+      pattern: /emit\/enderemit\/uf/i,
+      replacement: 'Endereco fiscal do emitente: UF nao informada ou invalida.',
+    },
+    {
+      pattern: /emit\/enderemit\/cep/i,
+      replacement: 'Endereco fiscal do emitente: CEP invalido.',
+    },
+    {
+      pattern: /dest\/enderdest\/xlgr/i,
+      replacement: 'Endereco fiscal do destinatario: logradouro nao informado ou invalido.',
+    },
+    {
+      pattern: /dest\/enderdest\/xbairro/i,
+      replacement: 'Endereco fiscal do destinatario: bairro nao informado ou invalido.',
+    },
+    {
+      pattern: /dest\/enderdest\/xmun/i,
+      replacement: 'Endereco fiscal do destinatario: cidade nao informada ou invalida.',
+    },
+    {
+      pattern: /dest\/enderdest\/cmun/i,
+      replacement: 'Endereco fiscal do destinatario: codigo IBGE do municipio nao informado ou invalido.',
+    },
+    {
+      pattern: /dest\/enderdest\/uf/i,
+      replacement: 'Endereco fiscal do destinatario: UF nao informada ou invalida.',
+    },
+    {
+      pattern: /dest\/enderdest\/cep/i,
+      replacement: 'Endereco fiscal do destinatario: CEP invalido.',
+    },
+  ]
+
+  for (const mapping of schemaMappings) {
+    if (mapping.pattern.test(lower)) {
+      return mapping.replacement
+    }
+  }
+
+  return normalized
+}
+
 function getActionErrorMessage(error: unknown, fallback: string) {
   if (typeof error === 'object' && error !== null && 'message' in error) {
     const message = error.message
-    if (typeof message === 'string' && message.trim()) return message
+    if (typeof message === 'string' && message.trim()) return humanizeFiscalSchemaError(message)
   }
 
-  if (typeof error === 'string' && error.trim()) return error
+  if (typeof error === 'object' && error !== null && 'details' in error) {
+    const details = error.details
+    if (details && typeof details === 'object' && 'motivoStatus' in details) {
+      const motivoStatus = details.motivoStatus
+      if (typeof motivoStatus === 'string' && motivoStatus.trim()) {
+        return humanizeFiscalSchemaError(motivoStatus)
+      }
+    }
+  }
+
+  if (typeof error === 'string' && error.trim()) return humanizeFiscalSchemaError(error)
 
   return fallback
 }
 
+function getActionErrorDescription(error: unknown) {
+  if (!error || typeof error !== 'object' || !('details' in error)) return undefined
+
+  const details = error.details
+  if (!details || typeof details !== 'object') return undefined
+
+  const parts: string[] = []
+
+  if ('codigoStatus' in details && typeof details.codigoStatus === 'number') {
+    parts.push(`SEFAZ cStat ${details.codigoStatus}`)
+  }
+
+  if ('ambiente' in details && typeof details.ambiente === 'string') {
+    parts.push(`Ambiente ${details.ambiente === 'producao' ? 'producao' : 'homologacao'}`)
+  }
+
+  if ('modelo' in details && typeof details.modelo === 'string') {
+    parts.push(details.modelo === '65' ? 'Modelo NFC-e' : 'Modelo NF-e')
+  }
+
+  return parts.length > 0 ? parts.join(' | ') : undefined
+}
+
 export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
   const [fiscalDoc, setFiscalDoc] = useState<FiscalDoc | null>(null)
+  const [operationalEnvironment, setOperationalEnvironment] = useState<FiscalOperationalEnvironment | null>(null)
   const [loading, setLoading] = useState(true)
   const [emitting, setEmitting] = useState(false)
   const [generatingDanfe, setGeneratingDanfe] = useState(false)
@@ -113,21 +224,31 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
   const loadFiscalDoc = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
-    const { data, error } = await supabase
-      .from('fiscal_documents')
-      .select('*')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const [{ data, error }, envResult] = await Promise.all([
+      supabase
+        .from('fiscal_documents')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      getFiscalEmissionEnvironmentAction(),
+    ])
 
-    if (!error && data) {
-      setFiscalDoc(data as FiscalDoc)
-    } else {
-      setFiscalDoc(null)
-    }
+    const nextFiscalDoc = !error && data ? (data as FiscalDoc) : null
+    const nextOperationalEnvironment = envResult.success && envResult.data
+      ? (envResult.data as FiscalOperationalEnvironment)
+      : null
+
+    setFiscalDoc(nextFiscalDoc)
+    setOperationalEnvironment(nextOperationalEnvironment)
 
     setLoading(false)
+
+    return {
+      fiscalDoc: nextFiscalDoc,
+      operationalEnvironment: nextOperationalEnvironment,
+    }
   }, [orderId])
 
   useEffect(() => {
@@ -140,26 +261,67 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
 
   const config = FISCAL_STATUS_CONFIG[status] || FISCAL_STATUS_CONFIG.none
   const StatusIcon = config.icon
+  const emissionToastId = `order-fiscal-emission-${orderId}`
 
   const handleEmit = async (modelo: '55' | '65') => {
     setEmitting(true)
     setEmitModal(null)
-    toast.info(modelo === '55' ? 'Emitindo NF-e...' : 'Emitindo NFC-e...', { duration: 10000 })
+    toast.dismiss(emissionToastId)
+    toast.info(modelo === '55' ? 'Emitindo NF-e...' : 'Emitindo NFC-e...', {
+      id: emissionToastId,
+      duration: Infinity,
+    })
 
     try {
       const result = await emitNFeAction(orderId, modelo)
       if (result.success) {
+        const refreshed = await loadFiscalDoc()
+        const ambiente = result.data?.ambiente === 'producao' ? 'produção' : 'homologação'
         toast.success('Documento fiscal processado com sucesso!', {
-          description: result.data?.chaveAcesso
-            ? `Chave: ${result.data.chaveAcesso.substring(0, 20)}...`
-            : undefined,
+          id: emissionToastId,
+          description: [
+            result.data?.chaveAcesso
+              ? `Chave: ${result.data.chaveAcesso.substring(0, 20)}...`
+              : refreshed.fiscalDoc?.chave_acesso
+                ? `Chave: ${refreshed.fiscalDoc.chave_acesso.substring(0, 20)}...`
+                : null,
+            `Ambiente: ${ambiente}`,
+          ].filter(Boolean).join(' | '),
         })
-        await loadFiscalDoc()
       } else {
-        toast.error(getActionErrorMessage(result.error, 'Erro na emissao.'))
+        const refreshed = await loadFiscalDoc()
+        const resultErrorDetails =
+          result.error && typeof result.error === 'object' && 'details' in result.error
+            ? result.error.details
+            : undefined
+        const refreshedErrorMessage = refreshed.fiscalDoc?.motivo_status?.trim()
+        const message = getActionErrorMessage(
+          refreshedErrorMessage
+            ? { message: refreshedErrorMessage, details: resultErrorDetails }
+            : result.error,
+          'Erro na emissao.'
+        )
+
+        const refreshedDescription = [
+          getActionErrorDescription(result.error),
+          refreshed.fiscalDoc?.numero_nf ? `Ultima tentativa: NF-e ${refreshed.fiscalDoc.numero_nf}` : null,
+          refreshed.fiscalDoc?.document_status ? `Status ${refreshed.fiscalDoc.document_status}` : null,
+        ].filter(Boolean).join(' | ')
+
+        const compactMessage = message.length > 96 ? 'Falha na emissao fiscal.' : message
+        const combinedDescription = [message, refreshedDescription]
+          .filter(Boolean)
+          .join(' | ')
+
+        toast.error(compactMessage, {
+          id: emissionToastId,
+          description: combinedDescription || undefined,
+        })
       }
     } catch {
-      toast.error('Erro inesperado ao emitir documento fiscal.')
+      toast.error('Erro inesperado ao emitir documento fiscal.', {
+        id: emissionToastId,
+      })
     } finally {
       setEmitting(false)
     }
@@ -237,6 +399,14 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
     window.open(`/api/fiscal/danfe-preview/order/${orderId}?modelo=${modelo}`, '_blank', 'noopener,noreferrer')
   }
 
+  const handleOpenFiscalReview = () => {
+    const targetUrl = fiscalDoc?.id
+      ? `/admin/fiscal-review/documentos/${fiscalDoc.id}`
+      : `/admin/fiscal-review/${orderId}`
+
+    window.open(targetUrl, '_blank', 'noopener,noreferrer')
+  }
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -247,10 +417,13 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
   }
 
   const canEmit = !fiscalDoc && !['cancelled', 'pending'].includes(orderStatus)
+  const canReEmit = Boolean(fiscalDoc?.document_status && REEMITTABLE_DOCUMENT_STATUSES.has(fiscalDoc.document_status))
   const canCancel = fiscalDoc?.document_status === 'authorized'
   const canCorrect = ['authorized', 'correction'].includes(fiscalDoc?.document_status || '')
   const canDanfe = ['authorized', 'correction', 'pending', 'processing'].includes(fiscalDoc?.document_status || '')
-  const isHomologacao = fiscalDoc?.ambiente === 'homologacao'
+  const effectiveEnvironment = fiscalDoc?.ambiente || operationalEnvironment?.ambiente || null
+  const isHomologacao = effectiveEnvironment === 'homologacao'
+  const isProduction = effectiveEnvironment === 'producao'
 
   return (
     <>
@@ -271,6 +444,43 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
             <p className="mb-4 text-xs text-slate-400">
               Gere um preview sem valor fiscal para conferencia ou emita a nota para produzir a DANFE oficial.
             </p>
+
+            {operationalEnvironment && (
+              <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={operationalEnvironment.ambiente === 'producao'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : 'border-amber-200 bg-amber-50 text-amber-700'}
+                >
+                  Ambiente atual: {operationalEnvironment.ambiente === 'producao' ? 'Produção' : 'Homologação'}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className={operationalEnvironment.emissaoAtiva
+                    ? 'border-blue-200 bg-blue-50 text-blue-700'
+                    : 'border-slate-200 bg-slate-100 text-slate-600'}
+                >
+                  {operationalEnvironment.emissaoAtiva ? 'Emissão ativa' : 'Emissão inativa'}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="border-slate-200 bg-white text-slate-600"
+                >
+                  Tipo: {operationalEnvironment.tipoEmissao || 'normal'}
+                </Badge>
+              </div>
+            )}
+
+            {operationalEnvironment && (
+              <p className={`mb-4 text-xs ${isHomologacao ? 'text-amber-700' : 'text-slate-500'}`}>
+                {isHomologacao
+                  ? 'A próxima emissão será enviada em homologação e, se autorizada, ficará marcada como sem valor fiscal.'
+                  : isProduction
+                    ? 'A próxima emissão será enviada em produção com validade jurídica, se a SEFAZ autorizar.'
+                    : 'O ambiente operacional atual será usado na próxima emissão fiscal.'}
+              </p>
+            )}
 
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Button
@@ -318,6 +528,13 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
                 Pedido com status &quot;Pendente&quot; nao permite emissao fiscal.
               </p>
             )}
+
+            {!operationalEnvironment && (
+              <p className="mt-2 text-xs text-amber-600">
+                <AlertTriangle className="mr-1 inline h-3 w-3" />
+                Não foi possível carregar o ambiente operacional da emissão para este pedido.
+              </p>
+            )}
           </div>
         )}
 
@@ -327,6 +544,27 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
               <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800">
                 <AlertTriangle className="h-3.5 w-3.5" />
                 SEM VALOR FISCAL - Emitido em ambiente de homologacao
+              </div>
+            )}
+
+            {['denied', 'error'].includes(fiscalDoc.document_status || '') && fiscalDoc.motivo_status && (
+              <div className="border-b border-red-200 bg-red-50 px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-red-700">
+                      Motivo da ultima rejeicao
+                    </p>
+                    <p className="mt-1 text-sm font-medium leading-6 text-red-800">
+                      {humanizeFiscalSchemaError(fiscalDoc.motivo_status)}
+                    </p>
+                    {typeof fiscalDoc.codigo_status === 'number' && (
+                      <p className="mt-1 text-xs text-red-700/80">
+                        SEFAZ cStat {fiscalDoc.codigo_status}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -402,6 +640,31 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
             <Separator />
 
             <div className="flex flex-wrap gap-2 p-4">
+              {canReEmit ? (
+                <>
+                  <Button
+                    size="sm"
+                    className="gap-2 rounded-lg bg-emerald-600 text-xs font-bold text-white shadow-lg shadow-emerald-200 hover:bg-emerald-700"
+                    onClick={() => setEmitModal('55')}
+                    disabled={emitting}
+                  >
+                    {emitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    Emitir novamente NF-e
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-2 rounded-lg border-emerald-200 text-xs font-bold text-emerald-700 hover:bg-emerald-50"
+                    onClick={() => setEmitModal('65')}
+                    disabled={emitting}
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    Emitir novamente NFC-e
+                  </Button>
+                </>
+              ) : null}
+
               {canDanfe && (
                 <Button
                   size="sm"
@@ -447,12 +710,18 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
                 size="sm"
                 variant="ghost"
                 className="ml-auto gap-2 rounded-lg text-xs font-bold text-navy"
-                onClick={() => window.open(`/admin/fiscal-review/${orderId}`, '_blank')}
+                onClick={handleOpenFiscalReview}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
-                Revisao Fiscal
+                {fiscalDoc ? 'Abrir nota fiscal' : 'Revisao Fiscal'}
               </Button>
             </div>
+
+            {canReEmit ? (
+              <div className="border-t border-slate-200/80 px-4 py-3 text-xs text-slate-500">
+                Este documento teve encerramento sem autorizacao final. Voce pode emitir novamente usando a mesma base fiscal atual do pedido.
+              </div>
+            ) : null}
           </div>
         )}
       </div>

@@ -17,6 +17,7 @@ import {
   buildConsultaProtocoloRequestXml,
   buildRetAutorizacaoRequestXml,
   getSefazEndpoint,
+  type ParsedAuthorizationResponse,
   parseSefazAutorizacaoResponse,
   parseSefazConsultaProtocoloResponse,
   parseSefazRetAutorizacaoResponse,
@@ -55,6 +56,11 @@ interface OrderFiscalEmissionData {
   shipping_address: string | null
 }
 
+interface EmissionReservationResponse {
+  row: EmissionReservationRow | null
+  errorMessage: string | null
+}
+
 export async function emitNFe(
   orderId: string,
   payload: FiscalDocumentPayload,
@@ -71,10 +77,14 @@ export async function emitNFe(
       return createErrorResult('ORDER_NOT_FOUND', 'Pedido nao encontrado para emissao fiscal.')
     }
 
-    const reservation = await reserveEmission(supabase, orderId, modelo)
-    if (!reservation) {
-      return createErrorResult('SEQUENCE_ERROR', 'Falha ao reservar numero fiscal para o pedido.')
+    const reservationResult = await reserveEmission(supabase, orderId, modelo)
+    if (!reservationResult.row) {
+      return createErrorResult(
+        'SEQUENCE_ERROR',
+        reservationResult.errorMessage || 'Falha ao reservar numero fiscal para o pedido.'
+      )
     }
+    const reservation = reservationResult.row
 
     if (!reservation.reserved) {
       return buildExistingEmissionResult(reservation)
@@ -203,7 +213,11 @@ export async function emitNFe(
       const authorizationSoapResponse = await sendSoapRequest(authorizationEndpoint, envelopeXml, 'NFeAutorizacao4')
       responseXmlParts.push(`<!-- autorizacao -->\n${authorizationSoapResponse.body}`)
 
-      finalResult = parseSefazAutorizacaoResponse(authorizationSoapResponse.parsed)
+      finalResult = hydrateAuthorizationResult(
+        parseSefazAutorizacaoResponse(authorizationSoapResponse.parsed),
+        authorizationSoapResponse.body,
+        authorizationSoapResponse.statusCode
+      )
 
       if (PROCESSING_STATUS_CODES.has(finalResult.cStat) && finalResult.nRec) {
         const retEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeRetAutorizacao')
@@ -213,7 +227,11 @@ export async function emitNFe(
           const retXml = buildRetAutorizacaoRequestXml(tpAmb, receiptNumber)
           const retResponse = await sendSoapRequest(retEndpoint, retXml, 'NFeRetAutorizacao4')
           responseXmlParts.push(`<!-- ret-autorizacao tentativa ${attempt + 1} -->\n${retResponse.body}`)
-          finalResult = parseSefazRetAutorizacaoResponse(retResponse.parsed)
+          finalResult = hydrateAuthorizationResult(
+            parseSefazRetAutorizacaoResponse(retResponse.parsed),
+            retResponse.body,
+            retResponse.statusCode
+          )
 
           if (!PROCESSING_STATUS_CODES.has(finalResult.cStat) || finalResult.protNFe) {
             break
@@ -227,7 +245,11 @@ export async function emitNFe(
         const consultResponse = await sendSoapRequest(consultEndpoint, consultXml, 'NFeConsultaProtocolo4')
         responseXmlParts.push(`<!-- consulta-protocolo -->\n${consultResponse.body}`)
 
-        const consultResult = parseSefazConsultaProtocoloResponse(consultResponse.parsed)
+        const consultResult = hydrateAuthorizationResult(
+          parseSefazConsultaProtocoloResponse(consultResponse.parsed),
+          consultResponse.body,
+          consultResponse.statusCode
+        )
         if (consultResult.protNFe || AUTHORIZED_STATUS_CODES.has(consultResult.cStat)) {
           finalResult = consultResult
         }
@@ -381,17 +403,30 @@ async function reserveEmission(
   supabase: ReturnType<typeof createServiceRoleClient>,
   orderId: string,
   modelo: '55' | '65'
-): Promise<EmissionReservationRow | null> {
+): Promise<EmissionReservationResponse> {
   const { data, error } = await supabase.rpc('reserve_fiscal_document_emission', {
     p_order_id: orderId,
     p_document_model: modelo,
   })
 
-  if (error || !Array.isArray(data) || data.length === 0) {
-    return null
+  if (error) {
+    return {
+      row: null,
+      errorMessage: formatEmissionReservationError(error.message),
+    }
   }
 
-  return data[0] as EmissionReservationRow
+  if (!Array.isArray(data) || data.length === 0) {
+    return {
+      row: null,
+      errorMessage: 'A reserva fiscal nao retornou serie e numero. Verifique o ambiente de emissao.',
+    }
+  }
+
+  return {
+    row: data[0] as EmissionReservationRow,
+    errorMessage: null,
+  }
 }
 
 async function loadExistingActiveEmission(
@@ -502,8 +537,93 @@ function isUniqueActiveEmissionViolation(message: string | undefined): boolean {
   return (message || '').toLowerCase().includes('uq_fiscal_documents_active_order_model')
 }
 
+function formatEmissionReservationError(message: string | undefined): string {
+  const normalized = (message || '').toLowerCase()
+
+  if (
+    normalized.includes('reserve_fiscal_document_emission') &&
+    normalized.includes('does not exist')
+  ) {
+    return 'A funcao de reserva fiscal nao esta disponivel no banco. Aplique as migrations fiscais mais recentes, incluindo a correcao da reserva de numeracao.'
+  }
+
+  if (normalized.includes('serie/numero nf-e nao configurados')) {
+    return 'Serie ou proximo numero da NF-e nao configurados no ambiente fiscal.'
+  }
+
+  if (normalized.includes('serie/numero nfc-e nao configurados')) {
+    return 'Serie ou proximo numero da NFC-e nao configurados no ambiente fiscal.'
+  }
+
+  if (normalized.includes('ambiente fiscal nao configurado')) {
+    return 'Ambiente fiscal da empresa nao foi configurado.'
+  }
+
+  if (
+    normalized.includes('serie_nfe') ||
+    normalized.includes('proximo_numero_nfce') ||
+    normalized.includes('company_fiscal_environment')
+  ) {
+    return 'A estrutura de numeracao fiscal do banco esta desatualizada. Aplique a migration de correcao da reserva fiscal.'
+  }
+
+  return message || 'Falha ao reservar numero fiscal para o pedido.'
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function hydrateAuthorizationResult(
+  result: ParsedAuthorizationResponse,
+  rawBody: string,
+  statusCode: number
+): ParsedAuthorizationResponse {
+  if (result.xMotivo?.trim()) return result
+
+  const fallbackMessage = extractSefazMessageFromBody(rawBody)
+    || (statusCode >= 400 ? `Resposta SOAP HTTP ${statusCode} sem motivo legivel.` : null)
+    || 'Resposta da SEFAZ sem motivo legivel.'
+
+  return {
+    ...result,
+    xMotivo: fallbackMessage,
+  }
+}
+
+function extractSefazMessageFromBody(rawBody: string): string | null {
+  const patterns = [
+    /<xMotivo>\s*([\s\S]*?)\s*<\/xMotivo>/i,
+    /<faultstring>\s*([\s\S]*?)\s*<\/faultstring>/i,
+    /<Text\b[^>]*>\s*([\s\S]*?)\s*<\/Text>/i,
+    /<reason>\s*([\s\S]*?)\s*<\/reason>/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = rawBody.match(pattern)
+    const normalized = normalizeSoapMessage(match?.[1])
+    if (normalized) return normalized
+  }
+
+  return null
+}
+
+function normalizeSoapMessage(value: string | undefined): string | null {
+  if (!value) return null
+
+  const normalized = value
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!normalized || normalized === '0') return null
+  return normalized
 }
 
 function createErrorResult(code: string, message: string): EmissionResult {

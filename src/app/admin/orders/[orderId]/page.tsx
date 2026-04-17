@@ -341,7 +341,13 @@ export default function OrderDetailPage() {
                     updatingStatus={isUpdatingStatus}
                     deleting={isDeleting}
                     onOpenInvoice={() => setIsInvoiceModalOpen(true)}
-                    onOpenFiscalReview={() => window.open(`/admin/fiscal-review/${order.id}`, '_blank')}
+                    onOpenFiscalReview={() => {
+                        const targetUrl = fiscalSummary?.id
+                            ? `/admin/fiscal-review/documentos/${fiscalSummary.id}`
+                            : `/admin/fiscal-review/${order.id}`
+
+                        window.open(targetUrl, '_blank', 'noopener,noreferrer')
+                    }}
                     onPrint={handlePrint}
                     onUpdateStatus={handleUpdateStatus}
                     onDelete={() => setIsDeleteDialogOpen(true)}

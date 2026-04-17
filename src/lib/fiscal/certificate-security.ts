@@ -2,6 +2,12 @@ import 'server-only'
 
 import crypto from 'node:crypto'
 
+interface EncryptedCertificatePasswordPayload {
+  iv: string
+  tag: string
+  content: string
+}
+
 function getPrimaryCertificateSecret(): string {
   const primary = process.env.FISCAL_CERTIFICATE_SECRET || ''
 
@@ -26,6 +32,34 @@ function deriveKey(secret: string): Buffer {
   return crypto.createHash('sha256').update(secret).digest()
 }
 
+function parseEncryptedCertificatePasswordPayload(payload: string): EncryptedCertificatePasswordPayload | null {
+  if (!payload.trim()) return null
+
+  try {
+    const parsed = JSON.parse(payload) as Partial<EncryptedCertificatePasswordPayload>
+
+    if (
+      typeof parsed.iv === 'string' &&
+      typeof parsed.tag === 'string' &&
+      typeof parsed.content === 'string'
+    ) {
+      return {
+        iv: parsed.iv,
+        tag: parsed.tag,
+        content: parsed.content,
+      }
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
+export function isEncryptedCertificatePasswordPayload(payload: string): boolean {
+  return parseEncryptedCertificatePasswordPayload(payload) !== null
+}
+
 export function encryptCertificatePassword(password: string): string {
   const primarySecret = getPrimaryCertificateSecret()
   const key = deriveKey(primarySecret)
@@ -42,7 +76,11 @@ export function encryptCertificatePassword(password: string): string {
 }
 
 export function decryptCertificatePassword(payload: string): string {
-  const parsed = JSON.parse(payload) as { iv: string; tag: string; content: string }
+  const parsed = parseEncryptedCertificatePasswordPayload(payload)
+
+  if (!parsed) {
+    throw new Error('A senha do certificado nao esta no formato criptografado esperado.')
+  }
 
   for (const secret of getCertificateSecretsForDecrypt()) {
     try {

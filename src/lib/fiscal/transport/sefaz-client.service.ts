@@ -7,6 +7,7 @@
 import 'server-only'
 
 import https from 'node:https'
+import fs from 'node:fs'
 import { XMLParser } from 'fast-xml-parser'
 import { loadCertificate } from './sign-xml.service'
 import { buildSoapEnvelope } from './map-fiscal-to-nfe.service'
@@ -328,6 +329,44 @@ interface SoapResponse {
   parsed: Record<string, unknown>
 }
 
+function loadSefazCaBundle(): Buffer[] | undefined {
+  const certificates: Buffer[] = []
+
+  const inlinePem = process.env.FISCAL_SEFAZ_CA_BUNDLE_PEM?.trim()
+  if (inlinePem) {
+    certificates.push(Buffer.from(inlinePem.replace(/\\n/g, '\n'), 'utf-8'))
+  }
+
+  const filePath = process.env.FISCAL_SEFAZ_CA_BUNDLE_PATH?.trim()
+  if (filePath) {
+    certificates.push(fs.readFileSync(filePath))
+  }
+
+  return certificates.length > 0 ? certificates : undefined
+}
+
+function shouldAllowInsecureTls(url: URL): boolean {
+  const allowInsecure = process.env.FISCAL_SEFAZ_TLS_ALLOW_INSECURE_HOMOLOGATION?.trim().toLowerCase() === 'true'
+  if (!allowInsecure) return false
+
+  return /homolog|hom\./i.test(url.hostname)
+}
+
+function formatSefazTlsError(message: string): string {
+  const normalized = message.toLowerCase()
+
+  if (
+    normalized.includes('unable to get local issuer certificate') ||
+    normalized.includes('self signed certificate') ||
+    normalized.includes('self-signed certificate in certificate chain') ||
+    normalized.includes('unable to verify the first certificate')
+  ) {
+    return 'SEFAZ SOAP TLS error: nao foi possivel validar a cadeia do certificado do endpoint da SEFAZ. Configure FISCAL_SEFAZ_CA_BUNDLE_PATH ou FISCAL_SEFAZ_CA_BUNDLE_PEM. Em homologacao apenas, voce tambem pode usar FISCAL_SEFAZ_TLS_ALLOW_INSECURE_HOMOLOGATION=true para diagnostico local.'
+  }
+
+  return `SEFAZ SOAP error: ${message}`
+}
+
 export async function sendSoapRequest(
   url: string,
   content: string,
@@ -336,6 +375,8 @@ export async function sendSoapRequest(
   const certData = await loadCertificate()
   const soapBody = buildSoapEnvelope(content, serviceName)
   const parsedUrl = new URL(url)
+  const caBundle = loadSefazCaBundle()
+  const allowInsecureTls = shouldAllowInsecureTls(parsedUrl)
 
   const options: https.RequestOptions = {
     hostname: parsedUrl.hostname,
@@ -347,8 +388,10 @@ export async function sendSoapRequest(
       'Content-Length': Buffer.byteLength(soapBody, 'utf-8'),
     },
     key: certData.privateKeyPem,
-    cert: certData.certificatePem,
-    rejectUnauthorized: true,
+    cert: certData.certificateChainPem,
+    ca: caBundle,
+    servername: parsedUrl.hostname,
+    rejectUnauthorized: !allowInsecureTls,
     timeout: 30000,
   }
 
@@ -380,7 +423,7 @@ export async function sendSoapRequest(
       })
     })
 
-    req.on('error', (err) => reject(new Error(`SEFAZ SOAP error: ${err.message}`)))
+    req.on('error', (err) => reject(new Error(formatSefazTlsError(err.message))))
     req.on('timeout', () => {
       req.destroy()
       reject(new Error('SEFAZ SOAP timeout (30s). Tente novamente.'))
@@ -447,33 +490,54 @@ export function buildInutilizacaoRequestXml(params: {
 }
 
 export function parseSefazAutorizacaoResponse(parsed: Record<string, unknown>): ParsedAuthorizationResponse {
-  const body = extractNested(parsed, 'Envelope', 'Body') as Record<string, unknown>
-  const retEnviNFe = (extractNested(body, 'nfeAutorizacaoLoteResult', 'retEnviNFe')
+  const body = extractSoapBody(parsed)
+  const fault = extractSoapFault(body)
+  const detailResult = fault ? extractAuthorizationResultFromFault(fault) : undefined
+  const retEnviNFe = (detailResult
+    || extractNested(body, 'nfeAutorizacaoLoteResult', 'retEnviNFe')
     || extractNested(body, 'nfeAutorizacaoResult', 'retEnviNFe')
     || extractNested(body, 'nfeResultMsg', 'retEnviNFe')
+    || extractNested(body, 'retEnviNFe')
+    || extractNested(body, 'nfeAutorizacaoLoteResult')
+    || extractNested(body, 'nfeAutorizacaoResult')
+    || extractNested(body, 'nfeResultMsg')
     || body) as Record<string, unknown>
 
-  return parseProtocolEnvelope(retEnviNFe)
+  return parseProtocolEnvelope(retEnviNFe, fault)
 }
 
 export function parseSefazRetAutorizacaoResponse(parsed: Record<string, unknown>): ParsedAuthorizationResponse {
-  const body = extractNested(parsed, 'Envelope', 'Body') as Record<string, unknown>
-  const retConsReciNFe = (extractNested(body, 'nfeRetAutorizacaoLoteResult', 'retConsReciNFe')
+  const body = extractSoapBody(parsed)
+  const fault = extractSoapFault(body)
+  const detailResult = fault ? extractRetAutorizacaoResultFromFault(fault) : undefined
+  const retConsReciNFe = (detailResult
+    || extractNested(body, 'nfeRetAutorizacaoLoteResult', 'retConsReciNFe')
     || extractNested(body, 'nfeRetAutorizacaoResult', 'retConsReciNFe')
     || extractNested(body, 'nfeResultMsg', 'retConsReciNFe')
+    || extractNested(body, 'retConsReciNFe')
+    || extractNested(body, 'nfeRetAutorizacaoLoteResult')
+    || extractNested(body, 'nfeRetAutorizacaoResult')
+    || extractNested(body, 'nfeResultMsg')
     || body) as Record<string, unknown>
 
-  return parseProtocolEnvelope(retConsReciNFe)
+  return parseProtocolEnvelope(retConsReciNFe, fault)
 }
 
 export function parseSefazConsultaProtocoloResponse(parsed: Record<string, unknown>): ParsedAuthorizationResponse {
-  const body = extractNested(parsed, 'Envelope', 'Body') as Record<string, unknown>
-  const retConsSitNFe = (extractNested(body, 'nfeConsultaNFResult', 'retConsSitNFe')
+  const body = extractSoapBody(parsed)
+  const fault = extractSoapFault(body)
+  const detailResult = fault ? extractConsultaResultFromFault(fault) : undefined
+  const retConsSitNFe = (detailResult
+    || extractNested(body, 'nfeConsultaNFResult', 'retConsSitNFe')
     || extractNested(body, 'nfeConsultaProtocoloResult', 'retConsSitNFe')
     || extractNested(body, 'nfeResultMsg', 'retConsSitNFe')
+    || extractNested(body, 'retConsSitNFe')
+    || extractNested(body, 'nfeConsultaNFResult')
+    || extractNested(body, 'nfeConsultaProtocoloResult')
+    || extractNested(body, 'nfeResultMsg')
     || body) as Record<string, unknown>
 
-  return parseProtocolEnvelope(retConsSitNFe)
+  return parseProtocolEnvelope(retConsSitNFe, fault)
 }
 
 export function parseSefazEventoResponse(parsed: Record<string, unknown>): {
@@ -524,20 +588,94 @@ export function parseSefazInutilizacaoResponse(parsed: Record<string, unknown>):
   }
 }
 
-function parseProtocolEnvelope(result: Record<string, unknown>): ParsedAuthorizationResponse {
+function parseProtocolEnvelope(
+  result: Record<string, unknown>,
+  fault?: SoapFault | null
+): ParsedAuthorizationResponse {
   const protocolNode = extractProtocolNode(result)
   const infProt = extractInfProt(result)
+  const cStat = coerceNumber(infProt?.cStat) ?? coerceNumber(result?.cStat) ?? coerceNumber(fault?.detailStatus) ?? 0
+  const xMotivo = coerceString(infProt?.xMotivo)
+    || coerceString(result?.xMotivo)
+    || coerceString(fault?.detailMessage)
+    || coerceString(fault?.message)
+    || ''
 
   return {
-    cStat: Number((infProt?.cStat || result?.cStat || 0) as number),
-    xMotivo: String(infProt?.xMotivo || result?.xMotivo || ''),
-    nRec: String(result?.nRec || '') || null,
-    nProt: String(infProt?.nProt || '') || null,
-    dhRecbto: String(infProt?.dhRecbto || '') || null,
-    chNFe: String(infProt?.chNFe || '') || null,
-    digVal: String(infProt?.digVal || '') || null,
+    cStat,
+    xMotivo,
+    nRec: coerceString(result?.nRec),
+    nProt: coerceString(infProt?.nProt),
+    dhRecbto: coerceString(infProt?.dhRecbto),
+    chNFe: coerceString(infProt?.chNFe),
+    digVal: coerceString(infProt?.digVal),
     protNFe: protocolNode,
   }
+}
+
+interface SoapFault {
+  code: string | null
+  message: string | null
+  detailStatus: number | null
+  detailMessage: string | null
+  detailNode: Record<string, unknown> | null
+}
+
+function extractSoapBody(parsed: Record<string, unknown>): Record<string, unknown> {
+  return (extractNested(parsed, 'Envelope', 'Body') || parsed) as Record<string, unknown>
+}
+
+function extractSoapFault(body: Record<string, unknown>): SoapFault | null {
+  const faultNode = (extractNested(body, 'Fault') || extractNested(body, 'fault')) as Record<string, unknown> | undefined
+  if (!faultNode || typeof faultNode !== 'object') return null
+
+  const detailNode = (extractNested(faultNode, 'Detail')
+    || extractNested(faultNode, 'detail')) as Record<string, unknown> | undefined
+
+  return {
+    code: coerceString(extractNested(faultNode, 'Code', 'Value'))
+      || coerceString(faultNode.faultcode),
+    message: coerceString(extractNested(faultNode, 'Reason', 'Text'))
+      || coerceString(faultNode.faultstring),
+    detailStatus: coerceNumber(extractNested(detailNode, 'retEnviNFe', 'cStat'))
+      ?? coerceNumber(extractNested(detailNode, 'retConsReciNFe', 'cStat'))
+      ?? coerceNumber(extractNested(detailNode, 'retConsSitNFe', 'cStat'))
+      ?? coerceNumber(extractNested(detailNode, 'cStat')),
+    detailMessage: coerceString(extractNested(detailNode, 'retEnviNFe', 'xMotivo'))
+      || coerceString(extractNested(detailNode, 'retConsReciNFe', 'xMotivo'))
+      || coerceString(extractNested(detailNode, 'retConsSitNFe', 'xMotivo'))
+      || coerceString(extractNested(detailNode, 'xMotivo'))
+      || coerceString(extractNested(detailNode, 'faultstring'))
+      || null,
+    detailNode: detailNode && typeof detailNode === 'object' ? detailNode : null,
+  }
+}
+
+function extractAuthorizationResultFromFault(fault: SoapFault): Record<string, unknown> | undefined {
+  return (extractNested(fault.detailNode, 'nfeResultMsg', 'retEnviNFe')
+    || extractNested(fault.detailNode, 'retEnviNFe')
+    || extractNested(fault.detailNode, 'nfeAutorizacaoLoteResult', 'retEnviNFe')
+    || extractNested(fault.detailNode, 'nfeAutorizacaoResult', 'retEnviNFe')
+    || extractNested(fault.detailNode, 'nfeResultMsg')
+    || fault.detailNode) as Record<string, unknown> | undefined
+}
+
+function extractRetAutorizacaoResultFromFault(fault: SoapFault): Record<string, unknown> | undefined {
+  return (extractNested(fault.detailNode, 'nfeResultMsg', 'retConsReciNFe')
+    || extractNested(fault.detailNode, 'retConsReciNFe')
+    || extractNested(fault.detailNode, 'nfeRetAutorizacaoLoteResult', 'retConsReciNFe')
+    || extractNested(fault.detailNode, 'nfeRetAutorizacaoResult', 'retConsReciNFe')
+    || extractNested(fault.detailNode, 'nfeResultMsg')
+    || fault.detailNode) as Record<string, unknown> | undefined
+}
+
+function extractConsultaResultFromFault(fault: SoapFault): Record<string, unknown> | undefined {
+  return (extractNested(fault.detailNode, 'nfeResultMsg', 'retConsSitNFe')
+    || extractNested(fault.detailNode, 'retConsSitNFe')
+    || extractNested(fault.detailNode, 'nfeConsultaNFResult', 'retConsSitNFe')
+    || extractNested(fault.detailNode, 'nfeConsultaProtocoloResult', 'retConsSitNFe')
+    || extractNested(fault.detailNode, 'nfeResultMsg')
+    || fault.detailNode) as Record<string, unknown> | undefined
 }
 
 function extractProtocolNode(result: Record<string, unknown>): Record<string, unknown> | null {
@@ -563,6 +701,42 @@ function extractNested(obj: unknown, ...keys: string[]): unknown {
     }
   }
   return current
+}
+
+function coerceString(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+    return normalized && normalized !== '0' ? normalized : null
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : null
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const normalized = coerceString(item)
+      if (normalized) return normalized
+    }
+  }
+
+  if (value && typeof value === 'object') {
+    const text = extractNested(value, '#text')
+    return coerceString(text)
+  }
+
+  return null
+}
+
+function coerceNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+    if (!normalized) return null
+    const asNumber = Number(normalized)
+    return Number.isFinite(asNumber) ? asNumber : null
+  }
+  return null
 }
 
 function escapeXml(value: string): string {

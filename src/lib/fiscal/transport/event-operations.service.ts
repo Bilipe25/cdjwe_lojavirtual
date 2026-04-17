@@ -80,7 +80,7 @@ export async function cancelNFe(
     // 3. Build cancellation event XML
     const sequenciaEvento = 1
     const eventId = `ID110111${doc.chave_acesso}${String(sequenciaEvento).padStart(2, '0')}`
-    const dhEvento = new Date().toISOString().replace('Z', '-03:00')
+    const dhEvento = formatSefazDateTime(new Date())
 
     const eventObj = {
       evento: {
@@ -255,7 +255,7 @@ export async function sendCartaCorrecao(
     // 3. Build CC-e event
     const nSeqEvento = doc.correction_count + 1
     const eventId = `ID110110${doc.chave_acesso}${String(nSeqEvento).padStart(2, '0')}`
-    const dhEvento = new Date().toISOString().replace('Z', '-03:00')
+    const dhEvento = formatSefazDateTime(new Date())
 
     const condUso = 'A Carta de Correcao e disciplinada pelo paragrafo 1o-A do art. 7o do Convenio S/N, de 15 de dezembro de 1970 e pode ser utilizada para regularizacao de erro ocorrido na emissao de documento fiscal, desde que o erro nao esteja relacionado com: I - as variaveis que determinam o valor do imposto tais como: base de calculo, aliquota, diferenca de preco, quantidade, valor da operacao ou da prestacao; II - a correcao de dados cadastrais que implique mudanca do remetente ou do destinatario; III - a data de emissao ou de saida.'
 
@@ -375,4 +375,21 @@ function createCancelError(code: string, message: string): CancelResult {
     motivoStatus: `[${code}] ${message}`,
     error: message,
   }
+}
+
+function formatSefazDateTime(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+
+  const offsetMinutes = -date.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const absoluteOffset = Math.abs(offsetMinutes)
+  const offsetHours = String(Math.floor(absoluteOffset / 60)).padStart(2, '0')
+  const offsetRemainingMinutes = String(absoluteOffset % 60).padStart(2, '0')
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offsetHours}:${offsetRemainingMinutes}`
 }

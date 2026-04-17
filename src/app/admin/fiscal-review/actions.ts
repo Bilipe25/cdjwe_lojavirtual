@@ -72,11 +72,15 @@ export async function emitNFeAction(orderId: string, modelo: '55' | '65' = '55')
 
   const validation = await validateOrderForEmission(orderId)
   if (!validation.success || !validation.data.is_valid) {
+    const primaryValidationMessage = validation.success
+      ? validation.data.errors[0]?.message || validation.data.warnings[0]?.message || 'Pedido nao passou na validacao fiscal.'
+      : 'Pedido nao passou na validacao fiscal.'
+
     return {
       success: false,
       error: {
         code: 'VALIDATION_FAILED',
-        message: 'Pedido nao passou na validacao fiscal.',
+        message: primaryValidationMessage,
         details: validation.success ? validation.data : null,
       },
     }
@@ -93,11 +97,127 @@ export async function emitNFeAction(orderId: string, modelo: '55' | '65' = '55')
   }
 
   const emitResult = await emitNFe(orderId, calcResult.data, user.id, modelo)
+  const ambiente = calcResult.data.context.environment.ambiente
+  const latestFailureContext = emitResult.success
+    ? null
+    : await getLatestEmissionFailureContext(orderId, modelo)
+
+  const emissionFailureMessage = emitResult.success
+    ? null
+    : (
+      latestFailureContext?.message
+      || latestFailureContext?.motivoStatus
+      || emitResult.error?.trim()
+      || emitResult.motivoStatus?.trim()
+      || (emitResult.codigoStatus ? `SEFAZ retornou cStat ${emitResult.codigoStatus}.` : null)
+      || 'Falha na emissao.'
+    )
 
   return {
     success: emitResult.success,
-    data: emitResult.success ? emitResult : null,
-    error: emitResult.success ? null : { code: 'EMISSION_FAILED', message: emitResult.error || 'Falha na emissao.' },
+    data: emitResult.success
+      ? {
+        ...emitResult,
+        ambiente,
+        modelo,
+      }
+      : null,
+    error: emitResult.success
+      ? null
+      : {
+        code: 'EMISSION_FAILED',
+        message: emissionFailureMessage,
+        details: {
+          codigoStatus: latestFailureContext?.codigoStatus ?? emitResult.codigoStatus,
+          motivoStatus: latestFailureContext?.motivoStatus ?? emitResult.motivoStatus,
+          ambiente,
+          modelo,
+          numeroNf: latestFailureContext?.numeroNf ?? null,
+          documentStatus: latestFailureContext?.documentStatus ?? null,
+        },
+      },
+  }
+}
+
+export async function getFiscalEmissionEnvironmentAction() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { success: false, error: { code: 'AUTH', message: 'Usuario nao autenticado.' } }
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (!profile || !['admin', 'manager'].includes(String(profile.role || ''))) {
+    return { success: false, error: { code: 'FORBIDDEN', message: 'Acesso negado.' } }
+  }
+
+  const serviceRole = createServiceRoleClient()
+  const { data, error } = await serviceRole
+    .from('company_fiscal_environment')
+    .select('ambiente, emissao_ativa, tipo_emissao, serie_padrao_nfe, proximo_numero_nfe, serie_nfce, proximo_numero_nfce')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    return { success: false, error: { code: 'ENVIRONMENT_LOAD_FAILED', message: error.message } }
+  }
+
+  return {
+    success: true,
+    data: data
+      ? {
+        ambiente: data.ambiente === 'producao' ? 'producao' : 'homologacao',
+        emissaoAtiva: data.emissao_ativa === true,
+        tipoEmissao: String(data.tipo_emissao || 'normal'),
+        seriePadraoNfe: data.serie_padrao_nfe ? String(data.serie_padrao_nfe) : null,
+        proximoNumeroNfe: typeof data.proximo_numero_nfe === 'number' ? data.proximo_numero_nfe : null,
+        serieNfce: data.serie_nfce ? String(data.serie_nfce) : null,
+        proximoNumeroNfce: typeof data.proximo_numero_nfce === 'number' ? data.proximo_numero_nfce : null,
+      }
+      : null,
+  }
+}
+
+async function getLatestEmissionFailureContext(orderId: string, modelo: '55' | '65') {
+  const serviceRole = createServiceRoleClient()
+
+  const [{ data: latestDocument }, { data: latestEvent }] = await Promise.all([
+    serviceRole
+      .from('fiscal_documents')
+      .select('id, numero_nf, document_status, codigo_status, motivo_status, created_at')
+      .eq('order_id', orderId)
+      .eq('document_model', modelo)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    serviceRole
+      .from('fiscal_events_log')
+      .select('sefaz_status_code, sefaz_message, error_message, executed_at')
+      .eq('order_id', orderId)
+      .eq('event_type', 'authorization')
+      .order('executed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  const motivoStatus = stringifyNullable(latestDocument?.motivo_status)
+  const eventErrorMessage = stringifyNullable(latestEvent?.error_message)
+  const eventSefazMessage = stringifyNullable(latestEvent?.sefaz_message)
+  const latestMessage = motivoStatus || eventErrorMessage || eventSefazMessage || null
+
+  return {
+    numeroNf: numberOrNull(latestDocument?.numero_nf),
+    documentStatus: stringifyNullable(latestDocument?.document_status),
+    codigoStatus: numberOrNull(latestDocument?.codigo_status) ?? numberOrNull(latestEvent?.sefaz_status_code),
+    motivoStatus,
+    message: latestMessage,
   }
 }
 
