@@ -427,6 +427,11 @@ export default function AdminSettingsPage() {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                <div className="rounded-2xl border border-blue-200/70 bg-blue-50/70 px-4 py-3 text-sm text-blue-900">
+                                    <span className="font-semibold">Importante:</span> os dados desta aba são institucionais e comerciais do projeto.
+                                    A emissão de NF-e usa o cadastro de <span className="font-semibold">Configurações &gt; Documentos fiscais &gt; Dados do emitente</span>,
+                                    incluindo endereço fiscal, município IBGE e identificadores do emissor.
+                                </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="space-y-2 sm:col-span-2">
                                         <Label>

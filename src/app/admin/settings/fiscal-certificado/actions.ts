@@ -83,7 +83,8 @@ export async function loadCertificateAction(): Promise<{ data: CompanyCertificat
   const { data, error } = await supabase
     .from('company_certificate_config')
     .select('*')
-    .order('created_at', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
@@ -122,7 +123,13 @@ export async function saveCertificateAction(
   const supabase = await createClient()
   const existing = input.id
     ? await supabase.from('company_certificate_config').select('*').eq('id', input.id).maybeSingle()
-    : { data: null, error: null }
+    : await supabase
+      .from('company_certificate_config')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
   if (existing.error) {
     return { data: null, error: `Erro ao carregar o certificado atual: ${existing.error.message}` }
@@ -276,8 +283,10 @@ export async function saveCertificateAction(
     last_validated_at: normalizedPath && parsedMetadata ? new Date().toISOString() : null,
   }
 
-  if (input.id) {
-    const { error } = await supabase.from('company_certificate_config').update(data).eq('id', input.id)
+  const targetCertificateId = input.id || (current?.id as string | undefined) || null
+
+  if (targetCertificateId) {
+    const { error } = await supabase.from('company_certificate_config').update(data).eq('id', targetCertificateId)
     if (error) {
       return { data: null, error: `Erro ao salvar certificado digital: ${error.message}` }
     }
@@ -288,11 +297,12 @@ export async function saveCertificateAction(
     }
   }
 
-  const saved = input.id
-    ? await supabase.from('company_certificate_config').select('*').eq('id', input.id).maybeSingle()
+  const saved = targetCertificateId
+    ? await supabase.from('company_certificate_config').select('*').eq('id', targetCertificateId).maybeSingle()
     : await supabase
         .from('company_certificate_config')
         .select('*')
+        .order('updated_at', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()

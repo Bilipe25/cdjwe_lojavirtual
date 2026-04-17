@@ -22,6 +22,8 @@ export function validateFiscalDocument(
 ): ValidationResult {
   const errors: ValidationError[] = []
   const warnings: ValidationError[] = []
+  const emitterIeDigits = (ctx.emitter.ie || '').replace(/\D/g, '')
+  const storeIeDigits = (ctx.store.ie || '').replace(/\D/g, '')
 
   // ─── Emitter validations ─────────────────────────
 
@@ -43,7 +45,7 @@ export function validateFiscalDocument(
     })
   }
 
-  if (!ctx.emitter.ibge || ctx.emitter.ibge.length < 7) {
+  if (!ctx.emitter.ibge || ctx.emitter.ibge.length < 7 || ctx.emitter.ibge === '0000000') {
     errors.push({
       field: 'emitter.ibge',
       code: 'EMITTER_MISSING_IBGE',
@@ -67,6 +69,13 @@ export function validateFiscalDocument(
       code: 'EMITTER_MISSING_IE',
       message: 'IE do emitente nao informada. Pode ser bloqueante para NF-e.',
       severity: 'warning',
+    })
+  } else if (ctx.emitter.ie !== 'ISENTO' && emitterIeDigits.length < 2) {
+    errors.push({
+      field: 'emitter.ie',
+      code: 'EMITTER_INVALID_IE',
+      message: 'Inscricao estadual do emitente invalida.',
+      severity: 'error',
     })
   }
 
@@ -117,12 +126,12 @@ export function validateFiscalDocument(
     })
   }
 
-  if (!ctx.store.ibge || ctx.store.ibge === '0000000') {
-    warnings.push({
+  if (!ctx.store.ibge || ctx.store.ibge.length < 7 || ctx.store.ibge === '0000000') {
+    errors.push({
       field: 'store.ibge',
       code: 'STORE_MISSING_IBGE',
       message: 'Codigo IBGE do municipio do destinatario nao informado. Obrigatorio para NF-e.',
-      severity: 'warning',
+      severity: 'error',
     })
   }
 
@@ -132,6 +141,13 @@ export function validateFiscalDocument(
       code: 'STORE_CONTRIBUTOR_NO_IE',
       message: 'Destinatario marcado como contribuinte mas sem IE informada.',
       severity: 'warning',
+    })
+  } else if (ctx.store.ie && ctx.store.ie !== 'ISENTO' && storeIeDigits.length < 2) {
+    errors.push({
+      field: 'store.ie',
+      code: 'STORE_INVALID_IE',
+      message: 'Inscricao estadual do destinatario invalida.',
+      severity: 'error',
     })
   }
 

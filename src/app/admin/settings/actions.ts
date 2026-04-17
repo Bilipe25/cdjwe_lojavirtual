@@ -30,7 +30,8 @@ async function getOrCreateSettingsRow(): Promise<{ data: SystemSettings | null; 
     const { data, error } = await supabase
         .from('system_settings')
         .select('*')
-        .order('created_at', { ascending: true })
+        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
 
@@ -150,7 +151,8 @@ export async function saveSettingsAction(input: SaveSettingsInput): Promise<{ er
         const { data: existing } = await supabase
             .from('system_settings')
             .select('id')
-            .order('created_at', { ascending: true })
+            .order('updated_at', { ascending: false })
+            .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle()
 

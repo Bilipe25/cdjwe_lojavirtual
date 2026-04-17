@@ -9,7 +9,8 @@ export async function loadFiscalEnvironmentAction(): Promise<{ data: CompanyFisc
   const { data, error } = await supabase
     .from('company_fiscal_environment')
     .select('*')
-    .order('created_at', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
@@ -27,29 +28,23 @@ interface SaveFiscalEnvironmentInput {
   proximo_numero_nfe: number
   tipo_emissao: string
   emissao_ativa: boolean
-  // NF-e extended
   max_itens_por_nota: number
   ultima_nota_nfe: number
-  // NFC-e
   serie_nfce: string
   nota_inicial_nfce: number
   ultima_nota_nfce: number
   csc_id_nfce: string | null
   csc_numero_nfce: string | null
-  // Reference code
   codigo_referencia_nota: string
-  // Taxes & freight
   desconto_impostos_prazo: boolean
   bloquear_retorno_parcial_remessa: boolean
   icms_base_pis_cofins: boolean
   frete_base_icms: boolean
   modalidade_frete_padrao: string
-  // JSONB
   parametros_jsonb: Record<string, unknown>
 }
 
 export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentInput): Promise<{ error: string | null }> {
-  // ── Basic validations ───────────────────────────────────────────
   if (!input.ambiente || !['homologacao', 'producao'].includes(input.ambiente)) {
     return { error: 'Ambiente deve ser "homologação" ou "produção".' }
   }
@@ -66,7 +61,6 @@ export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentIn
     return { error: 'Número máximo de itens deve ficar entre 1 e 990.' }
   }
 
-  // ── NFC-e validations ──────────────────────────────────────────
   if (!/^\d{1,3}$/.test(input.serie_nfce)) {
     return { error: 'Série da NFC-e deve ter entre 1 e 3 dígitos numéricos.' }
   }
@@ -75,26 +69,22 @@ export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentIn
     return { error: 'Nota inicial da NFC-e deve ser no mínimo 1.' }
   }
 
-  // CSC fields: both must be filled or both empty
   const hasCSCId = Boolean(input.csc_id_nfce?.trim())
   const hasCSCNum = Boolean(input.csc_numero_nfce?.trim())
   if (hasCSCId !== hasCSCNum) {
     return { error: 'CSC Identificador e CSC Número devem ser preenchidos juntos.' }
   }
 
-  // ── Reference code validation ──────────────────────────────────
   const validRefCodes = ['codigo_barras', 'codigo_fabricante', 'codigo_erp', 'codigo_interno']
   if (!validRefCodes.includes(input.codigo_referencia_nota)) {
     return { error: 'Código de referência na nota inválido.' }
   }
 
-  // ── Freight modality validation ────────────────────────────────
   const validFreightModes = ['emitente', 'destinatario', 'terceiros', 'proprio_remetente', 'proprio_destinatario', 'sem_frete']
   if (!validFreightModes.includes(input.modalidade_frete_padrao)) {
     return { error: 'Modalidade de frete inválida.' }
   }
 
-  // ── Readiness gate for production / active emission ────────────
   if (input.emissao_ativa || input.ambiente === 'producao') {
     const readiness = await evaluateCompanyFiscalReadiness()
     const blockers = readiness.items
@@ -110,8 +100,20 @@ export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentIn
     }
   }
 
-  // ── Persist ────────────────────────────────────────────────────
   const supabase = await createClient()
+  const existingEnvironment = input.id
+    ? { data: { id: input.id }, error: null }
+    : await supabase
+      .from('company_fiscal_environment')
+      .select('id')
+      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+  if (existingEnvironment.error) {
+    return { error: `Erro ao localizar ambiente de emissão atual: ${existingEnvironment.error.message}` }
+  }
 
   const data = {
     ambiente: input.ambiente,
@@ -135,8 +137,10 @@ export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentIn
     parametros_jsonb: input.parametros_jsonb,
   }
 
-  if (input.id) {
-    const { error } = await supabase.from('company_fiscal_environment').update(data).eq('id', input.id)
+  const targetEnvironmentId = existingEnvironment.data?.id || null
+
+  if (targetEnvironmentId) {
+    const { error } = await supabase.from('company_fiscal_environment').update(data).eq('id', targetEnvironmentId)
     if (error) {
       return { error: `Erro ao salvar ambiente de emissão: ${error.message}` }
     }

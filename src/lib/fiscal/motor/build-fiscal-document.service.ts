@@ -164,7 +164,7 @@ function computeTotals(
     vICMS += item.icms.value
     vBCST += item.st.base
     vST += item.st.value
-    vFCP += item.fcp.value + item.st.fcp_value
+    vFCP += item.fcp.value
     vPIS += item.pis.value
     vCOFINS += item.cofins.value
     vIPI += item.ipi.value

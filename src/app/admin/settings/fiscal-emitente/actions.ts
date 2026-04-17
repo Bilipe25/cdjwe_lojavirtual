@@ -7,6 +7,11 @@ function digitsOnly(value: string | null | undefined): string {
     return (value || '').replace(/\D/g, '')
 }
 
+function cleanText(value: string | null | undefined): string | null {
+    const normalized = (value || '').trim()
+    return normalized || null
+}
+
 function isValidCnpj(value: string | null | undefined): boolean {
     const cnpj = digitsOnly(value)
     if (!cnpj || cnpj.length !== 14) return false
@@ -25,14 +30,30 @@ function isValidCnpj(value: string | null | undefined): boolean {
     return cnpj === `${base12}${digit1}${digit2}`
 }
 
-export async function loadFiscalProfileAction(): Promise<{ data: CompanyFiscalProfile | null; error: string | null }> {
+async function loadCurrentFiscalProfileRecord() {
     const supabase = await createClient()
-    const { data, error } = await supabase
+    return supabase
         .from('company_fiscal_profile')
         .select('*')
-        .order('created_at', { ascending: true })
+        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
+}
+
+async function loadCurrentSystemSettingsRecord() {
+    const supabase = await createClient()
+    return supabase
+        .from('system_settings')
+        .select('id')
+        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+}
+
+export async function loadFiscalProfileAction(): Promise<{ data: CompanyFiscalProfile | null; error: string | null }> {
+    const { data, error } = await loadCurrentFiscalProfileRecord()
 
     if (error) {
         return { data: null, error: `Erro ao carregar dados do emitente: ${error.message}` }
@@ -124,32 +145,39 @@ export async function saveFiscalProfileAction(input: SaveFiscalProfileInput): Pr
     }
 
     const supabase = await createClient()
+    const currentProfile = input.id ? null : await loadCurrentFiscalProfileRecord()
+
+    if (currentProfile && currentProfile.error) {
+        return { error: `Erro ao localizar cadastro atual do emitente: ${currentProfile.error.message}` }
+    }
 
     const data = {
         razao_social: input.razao_social.trim(),
-        nome_fantasia: input.nome_fantasia || null,
+        nome_fantasia: cleanText(input.nome_fantasia),
         cnpj: cnpjDigits,
-        inscricao_estadual: input.inscricao_estadual || null,
-        inscricao_municipal: input.inscricao_municipal || null,
-        regime_tributario: input.regime_tributario || null,
-        crt: input.crt || null,
-        cnae_principal: input.cnae_principal || null,
+        inscricao_estadual: cleanText(input.inscricao_estadual),
+        inscricao_municipal: cleanText(input.inscricao_municipal),
+        regime_tributario: cleanText(input.regime_tributario),
+        crt: cleanText(input.crt),
+        cnae_principal: cleanText(input.cnae_principal),
         indicador_contribuinte: input.indicador_contribuinte || 'contributor',
-        fiscal_email: input.fiscal_email || null,
-        fiscal_phone: input.fiscal_phone || null,
-        fiscal_address: input.fiscal_address || null,
-        fiscal_number: input.fiscal_number || null,
-        fiscal_complement: input.fiscal_complement || null,
-        fiscal_neighborhood: input.fiscal_neighborhood || null,
-        fiscal_city: input.fiscal_city || null,
-        fiscal_state: input.fiscal_state || null,
-        fiscal_zip_code: input.fiscal_zip_code || null,
-        fiscal_municipality_code_ibge: input.fiscal_municipality_code_ibge || null,
-        fiscal_country_code: input.fiscal_country_code || '1058',
+        fiscal_email: cleanText(input.fiscal_email),
+        fiscal_phone: cleanText(input.fiscal_phone),
+        fiscal_address: cleanText(input.fiscal_address),
+        fiscal_number: cleanText(input.fiscal_number),
+        fiscal_complement: cleanText(input.fiscal_complement),
+        fiscal_neighborhood: cleanText(input.fiscal_neighborhood),
+        fiscal_city: cleanText(input.fiscal_city),
+        fiscal_state: cleanText(input.fiscal_state)?.toUpperCase() || null,
+        fiscal_zip_code: cleanText(input.fiscal_zip_code),
+        fiscal_municipality_code_ibge: cleanText(input.fiscal_municipality_code_ibge),
+        fiscal_country_code: cleanText(input.fiscal_country_code) || '1058',
     }
 
-    if (input.id) {
-        const { error } = await supabase.from('company_fiscal_profile').update(data).eq('id', input.id)
+    const targetProfileId = input.id || currentProfile?.data?.id || null
+
+    if (targetProfileId) {
+        const { error } = await supabase.from('company_fiscal_profile').update(data).eq('id', targetProfileId)
         if (error) {
             return { error: `Erro ao salvar dados do emitente: ${error.message}` }
         }
@@ -160,12 +188,7 @@ export async function saveFiscalProfileAction(input: SaveFiscalProfileInput): Pr
         }
     }
 
-    const { data: settings } = await supabase
-        .from('system_settings')
-        .select('id')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle()
+    const { data: settings } = await loadCurrentSystemSettingsRecord()
 
     if (settings?.id) {
         await supabase

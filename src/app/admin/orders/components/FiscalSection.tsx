@@ -130,6 +130,10 @@ function humanizeFiscalSchemaError(message: string) {
       replacement: 'Endereco fiscal do emitente: CEP invalido.',
     },
     {
+      pattern: /emit\/ie/i,
+      replacement: 'Emitente: inscricao estadual nao informada ou invalida.',
+    },
+    {
       pattern: /dest\/enderdest\/xlgr/i,
       replacement: 'Endereco fiscal do destinatario: logradouro nao informado ou invalido.',
     },
@@ -152,6 +156,26 @@ function humanizeFiscalSchemaError(message: string) {
     {
       pattern: /dest\/enderdest\/cep/i,
       replacement: 'Endereco fiscal do destinatario: CEP invalido.',
+    },
+    {
+      pattern: /dest\/ie/i,
+      replacement: 'Destinatario: inscricao estadual nao informada ou invalida.',
+    },
+    {
+      pattern: /cofins\/cofinsoutr\/cst/i,
+      replacement: 'COFINS CST incompatível com o grupo XML gerado para o item.',
+    },
+    {
+      pattern: /pis\/pisoutr\/cst/i,
+      replacement: 'PIS CST incompatível com o grupo XML gerado para o item.',
+    },
+    {
+      pattern: /imposto\/ipi\//i,
+      replacement: 'IPI do item incompatível com a ordem ou estrutura XML gerada.',
+    },
+    {
+      pattern: /icms\/icms00\/vbcfcp/i,
+      replacement: 'FCP do item foi gerado com campo incompatível para o grupo ICMS00.',
     },
   ]
 

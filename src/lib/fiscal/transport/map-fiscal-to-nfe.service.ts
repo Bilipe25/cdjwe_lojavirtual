@@ -58,7 +58,7 @@ export function mapFiscalPayloadToNFeXml(
   const ide = {
     cUF,
     cNF,
-    natOp: ctx.environment.natureza_operacao || 'VENDA DE MERCADORIA',
+    natOp: normalizeNFeText(ctx.environment.natureza_operacao || 'VENDA DE MERCADORIA', 60),
     mod: Number(modelo),
     serie: Number(serie),
     nNF,
@@ -83,22 +83,22 @@ export function mapFiscalPayloadToNFeXml(
     CNPJ: ctx.emitter.cnpj,
     xNome: tpAmb === 2
       ? 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL'
-      : ctx.emitter.razao_social,
-    ...(ctx.emitter.nome_fantasia ? { xFant: ctx.emitter.nome_fantasia } : {}),
+      : normalizeNFeText(ctx.emitter.razao_social, 60),
+    ...(ctx.emitter.nome_fantasia ? { xFant: normalizeNFeText(ctx.emitter.nome_fantasia, 60) } : {}),
     enderEmit: {
-      xLgr: ctx.emitter.logradouro,
-      nro: ctx.emitter.numero,
-      ...(ctx.emitter.complemento ? { xCpl: ctx.emitter.complemento } : {}),
-      xBairro: ctx.emitter.bairro,
+      xLgr: normalizeNFeText(ctx.emitter.logradouro, 60),
+      nro: normalizeNFeText(ctx.emitter.numero, 60),
+      ...(ctx.emitter.complemento ? { xCpl: normalizeNFeText(ctx.emitter.complemento, 60) } : {}),
+      xBairro: normalizeNFeText(ctx.emitter.bairro, 60),
       cMun: Number(ctx.emitter.ibge),
-      xMun: ctx.emitter.cidade,
+      xMun: normalizeNFeText(ctx.emitter.cidade, 60),
       UF: ctx.emitter.uf,
       CEP: ctx.emitter.cep?.replace(/\D/g, ''),
       cPais: 1058,
       xPais: 'BRASIL',
       ...(ctx.emitter.telefone ? { fone: ctx.emitter.telefone.replace(/\D/g, '') } : {}),
     },
-    IE: ctx.emitter.ie,
+    IE: normalizeStateRegistration(ctx.emitter.ie),
     CRT: Number(ctx.emitter.crt),
   }
 
@@ -109,14 +109,14 @@ export function mapFiscalPayloadToNFeXml(
       : { CPF: ctx.store.document_number }),
     xNome: isHomolog
       ? 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL'
-      : ctx.store.nome,
+      : normalizeNFeText(ctx.store.nome, 60),
     enderDest: {
-      xLgr: ctx.store.logradouro,
-      nro: ctx.store.numero,
-      ...(ctx.store.complemento ? { xCpl: ctx.store.complemento } : {}),
-      xBairro: ctx.store.bairro,
+      xLgr: normalizeNFeText(ctx.store.logradouro, 60),
+      nro: normalizeNFeText(ctx.store.numero, 60),
+      ...(ctx.store.complemento ? { xCpl: normalizeNFeText(ctx.store.complemento, 60) } : {}),
+      xBairro: normalizeNFeText(ctx.store.bairro, 60),
       cMun: Number(ctx.store.ibge),
-      xMun: ctx.store.cidade,
+      xMun: normalizeNFeText(ctx.store.cidade, 60),
       UF: ctx.store.uf,
       CEP: ctx.store.cep?.replace(/\D/g, ''),
       cPais: 1058,
@@ -124,7 +124,7 @@ export function mapFiscalPayloadToNFeXml(
       ...(ctx.store.telefone ? { fone: ctx.store.telefone.replace(/\D/g, '') } : {}),
     },
     indIEDest: mapIndIEDest(ctx.store),
-    ...(ctx.store.ie ? { IE: ctx.store.ie } : {}),
+    ...(normalizeStateRegistration(ctx.store.ie) ? { IE: normalizeStateRegistration(ctx.store.ie) } : {}),
   }
 
   const det = items.map((item, index) => ({
@@ -216,12 +216,12 @@ function buildImposto(item: ItemTaxBreakdown) {
     imposto.ICMSUFDest = buildIcmsUfDestTag(item)
   }
 
-  imposto.PIS = buildPisTag(item)
-  imposto.COFINS = buildCofinsTag(item)
-
   if (item.ipi.value > 0 || (item.ipi.cst && item.ipi.cst !== '53')) {
     imposto.IPI = buildIpiTag(item)
   }
+
+  imposto.PIS = buildPisTag(item)
+  imposto.COFINS = buildCofinsTag(item)
 
   return imposto
 }
@@ -229,6 +229,7 @@ function buildImposto(item: ItemTaxBreakdown) {
 function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
   const cst = item.icms.cst || '00'
   const orig = Number(item.origin_code) || 0
+  const ownFcp = buildOwnFcpFields(item)
   const fcpSt = buildFcpStFields(item)
 
   switch (cst) {
@@ -241,6 +242,7 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
           vBC: formatDecimal(item.icms.base),
           pICMS: formatDecimal(item.icms.rate),
           vICMS: formatDecimal(item.icms.value),
+          ...ownFcp,
         },
       }
     case '10':
@@ -257,6 +259,7 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
           vBCST: formatDecimal(item.st.base),
           pICMSST: formatDecimal(item.st.rate),
           vICMSST: formatDecimal(item.st.value),
+          ...ownFcp,
           ...fcpSt,
         },
       }
@@ -270,6 +273,7 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
           vBC: formatDecimal(item.icms.base),
           pICMS: formatDecimal(item.icms.rate),
           vICMS: formatDecimal(item.icms.value),
+          ...ownFcp,
         },
       }
     case '40':
@@ -302,6 +306,7 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
           vBCST: formatDecimal(item.st.base),
           pICMSST: formatDecimal(item.st.rate),
           vICMSST: formatDecimal(item.st.value),
+          ...ownFcp,
           ...fcpSt,
         },
       }
@@ -315,6 +320,7 @@ function buildIcmsTag(item: ItemTaxBreakdown): Record<string, unknown> {
           vBC: formatDecimal(item.icms.base),
           pICMS: formatDecimal(item.icms.rate),
           vICMS: formatDecimal(item.icms.value),
+          ...ownFcp,
           ...(item.st.enabled ? {
             modBCST: 4,
             ...(item.st.mva > 0 ? { pMVAST: formatDecimal(item.st.mva) } : {}),
@@ -347,6 +353,17 @@ function buildPisTag(item: ItemTaxBreakdown): Record<string, unknown> {
     }
   }
 
+  if (cst === '03') {
+    return {
+      PISQtde: {
+        CST: cst,
+        qBCProd: formatDecimal(item.quantity, 4),
+        vAliqProd: formatDecimal(item.pis.rate, 4),
+        vPIS: formatDecimal(item.pis.value),
+      },
+    }
+  }
+
   return {
     PISOutr: {
       CST: cst,
@@ -371,6 +388,17 @@ function buildCofinsTag(item: ItemTaxBreakdown): Record<string, unknown> {
         CST: cst,
         vBC: formatDecimal(item.cofins.base),
         pCOFINS: formatDecimal(item.cofins.rate, 4),
+        vCOFINS: formatDecimal(item.cofins.value),
+      },
+    }
+  }
+
+  if (cst === '03') {
+    return {
+      COFINSQtde: {
+        CST: cst,
+        qBCProd: formatDecimal(item.quantity, 4),
+        vAliqProd: formatDecimal(item.cofins.rate, 4),
         vCOFINS: formatDecimal(item.cofins.value),
       },
     }
@@ -448,6 +476,15 @@ function buildFcpStFields(item: ItemTaxBreakdown): Record<string, unknown> {
   }
 }
 
+function buildOwnFcpFields(item: ItemTaxBreakdown): Record<string, unknown> {
+  if (item.fcp.value <= 0) return {}
+
+  return {
+    pFCP: formatDecimal(item.fcp.rate),
+    vFCP: formatDecimal(item.fcp.value),
+  }
+}
+
 function buildIcmsUfDestTag(item: ItemTaxBreakdown): Record<string, unknown> {
   const pIcmsInter = item.icms.difal_rate_origin
   const pIcmsUfDest = item.icms.difal_rate_origin + item.icms.difal_rate_destination
@@ -480,6 +517,24 @@ function formatDecimal(value: number, decimals: number = 2): string {
 function normalizeUnit(value: string | null | undefined): string {
   const unit = (value || '').trim().toUpperCase()
   return unit ? unit.substring(0, 6) : 'UN'
+}
+
+function normalizeStateRegistration(value: string | null | undefined): string | null {
+  const normalized = (value || '').trim()
+  if (!normalized) return null
+  if (normalized.toUpperCase() === 'ISENTO') return 'ISENTO'
+  const digits = normalized.replace(/\D/g, '')
+  return digits || null
+}
+
+function normalizeNFeText(value: string | null | undefined, maxLength: number): string {
+  const normalized = (value || '')
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return normalized.substring(0, maxLength)
 }
 
 function normalizeGtin(value: string | null | undefined): string {

@@ -29,6 +29,28 @@ function hasMeaningfulText(value: string | null | undefined, minLength: number =
   return (value || '').trim().length >= minLength
 }
 
+function normalizeText(value: string | null | undefined): string {
+  return (value || '').trim()
+}
+
+function normalizeOptionalText(value: string | null | undefined): string | null {
+  const normalized = normalizeText(value)
+  return normalized || null
+}
+
+function normalizeStateRegistration(value: string | null | undefined): string | null {
+  const normalized = normalizeText(value)
+  if (!normalized) return null
+  if (normalized.toUpperCase() === 'ISENTO') return 'ISENTO'
+  const digits = digitsOnly(normalized)
+  return digits || null
+}
+
+function isValidIbgeCode(value: string | null | undefined): boolean {
+  const digits = digitsOnly(value)
+  return /^\d{7}$/.test(digits) && digits !== '0000000'
+}
+
 // --------------- Load Emitter ---------------
 
 async function loadEmitterContext(): Promise<FiscalCalculationResult<EmitterContext>> {
@@ -37,7 +59,8 @@ async function loadEmitterContext(): Promise<FiscalCalculationResult<EmitterCont
   const { data: profile, error: profileError } = await supabase
     .from('company_fiscal_profile')
     .select('*')
-    .order('created_at', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
@@ -63,7 +86,7 @@ async function loadEmitterContext(): Promise<FiscalCalculationResult<EmitterCont
 
   const missingEmitterAddressFields: string[] = []
   if (!profile.fiscal_state) missingEmitterAddressFields.push('UF')
-  if (!profile.fiscal_municipality_code_ibge) missingEmitterAddressFields.push('codigo IBGE')
+  if (!isValidIbgeCode(profile.fiscal_municipality_code_ibge)) missingEmitterAddressFields.push('codigo IBGE')
   if (!hasMeaningfulText(profile.fiscal_address, 2)) missingEmitterAddressFields.push('logradouro')
   if (!hasMeaningfulText(profile.fiscal_neighborhood, 2)) missingEmitterAddressFields.push('bairro')
   if (!hasMeaningfulText(profile.fiscal_city, 2)) missingEmitterAddressFields.push('cidade')
@@ -93,23 +116,23 @@ async function loadEmitterContext(): Promise<FiscalCalculationResult<EmitterCont
     success: true,
     data: {
       cnpj,
-      ie: profile.inscricao_estadual || null,
-      im: profile.inscricao_municipal || null,
+      ie: normalizeStateRegistration(profile.inscricao_estadual),
+      im: normalizeOptionalText(profile.inscricao_municipal),
       crt: profile.crt as '1' | '2' | '3',
       regime: regimeMap[profile.regime_tributario] || 'lucro_presumido',
-      cnae: profile.cnae_principal || null,
-      uf: profile.fiscal_state.toUpperCase(),
-      ibge: profile.fiscal_municipality_code_ibge,
+      cnae: normalizeOptionalText(profile.cnae_principal),
+      uf: normalizeText(profile.fiscal_state).toUpperCase(),
+      ibge: digitsOnly(profile.fiscal_municipality_code_ibge),
       country_code: profile.fiscal_country_code || '1058',
-      razao_social: profile.razao_social || '',
-      nome_fantasia: profile.nome_fantasia || null,
-      logradouro: profile.fiscal_address || '',
-      numero: profile.fiscal_number || 'S/N',
-      complemento: profile.fiscal_complement || null,
-      bairro: profile.fiscal_neighborhood || '',
-      cidade: profile.fiscal_city || '',
-      cep: profile.fiscal_zip_code || null,
-      telefone: profile.fiscal_phone || profile.phone || null,
+      razao_social: normalizeText(profile.razao_social),
+      nome_fantasia: normalizeOptionalText(profile.nome_fantasia),
+      logradouro: normalizeText(profile.fiscal_address),
+      numero: normalizeText(profile.fiscal_number) || 'S/N',
+      complemento: normalizeOptionalText(profile.fiscal_complement),
+      bairro: normalizeText(profile.fiscal_neighborhood),
+      cidade: normalizeText(profile.fiscal_city),
+      cep: normalizeOptionalText(profile.fiscal_zip_code),
+      telefone: normalizeOptionalText(profile.fiscal_phone || profile.phone),
       aliquota_pis: safeNumber(federalConfig?.aliquota_pis, 0.65),
       aliquota_cofins: safeNumber(federalConfig?.aliquota_cofins, 3.0),
       credito_presumido_icms: federalConfig?.credito_presumido_icms === true,
@@ -154,27 +177,33 @@ async function loadStoreContext(storeId: string): Promise<FiscalCalculationResul
   const mainAddress = addresses.find((a: Record<string, unknown>) => a.is_main === true) || addresses[0] || null
   const address = fiscalAddress || mainAddress
 
-  const uf = (address?.state || store.state || '').toUpperCase()
-  const ibge = (address?.municipality_code || '').replace(/\D/g, '')
+  const resolvedStreet = normalizeText(
+    (address?.street as string | undefined)
+    || (address?.address as string | undefined)
+  )
+  const resolvedNeighborhood = normalizeText(address?.neighborhood as string | undefined)
+  const resolvedCity = normalizeText(address?.city as string | undefined)
+  const uf = normalizeText((address?.state as string | undefined) || (store.state as string | undefined)).toUpperCase()
+  const ibge = digitsOnly(address?.municipality_code as string | undefined)
   const missingStoreAddressFields: string[] = []
 
   if (!uf || uf.length !== 2) {
     missingStoreAddressFields.push('UF')
   }
 
-  if (!ibge) {
+  if (!isValidIbgeCode(ibge)) {
     missingStoreAddressFields.push('codigo IBGE')
   }
 
-  if (!hasMeaningfulText(address?.street as string | undefined, 2)) {
+  if (!hasMeaningfulText(resolvedStreet, 2)) {
     missingStoreAddressFields.push('logradouro')
   }
 
-  if (!hasMeaningfulText(address?.neighborhood as string | undefined, 2)) {
+  if (!hasMeaningfulText(resolvedNeighborhood, 2)) {
     missingStoreAddressFields.push('bairro')
   }
 
-  if (!hasMeaningfulText(address?.city as string | undefined, 2)) {
+  if (!hasMeaningfulText(resolvedCity, 2)) {
     missingStoreAddressFields.push('cidade')
   }
 
@@ -203,21 +232,21 @@ async function loadStoreContext(storeId: string): Promise<FiscalCalculationResul
       document_number: digitsOnly(fiscalData?.document_number || store.document_number || store.cnpj),
       person_type: personType as 'individual' | 'legal_entity',
       taxpayer_indicator: taxpayerIndicator as 'contributor' | 'non_contributor' | 'exempt',
-      ie: fiscalData?.state_registration || store.state_registration || null,
-      im: fiscalData?.municipal_registration || null,
+      ie: normalizeStateRegistration((fiscalData?.state_registration as string | undefined) || (store.state_registration as string | undefined)),
+      im: normalizeOptionalText(fiscalData?.municipal_registration as string | undefined),
       uf,
-      ibge: ibge || '0000000',
+      ibge,
       country_code: (address?.country_code || '1058').replace(/\D/g, ''),
       is_consumer_final: isConsumerFinal,
       fiscal_email: fiscalData?.fiscal_email || store.email || null,
-      nome: store.name || store.company_name || '',
-      logradouro: (address?.street as string) || '',
-      numero: (address?.number as string) || 'S/N',
-      complemento: (address?.complement as string) || null,
-      bairro: (address?.neighborhood as string) || '',
-      cidade: (address?.city as string) || '',
-      cep: (address?.zip_code as string) || null,
-      telefone: store.phone || null,
+      nome: normalizeText((store.name as string | undefined) || (store.company_name as string | undefined)),
+      logradouro: resolvedStreet,
+      numero: normalizeText(address?.number as string | undefined) || 'S/N',
+      complemento: normalizeOptionalText(address?.complement as string | undefined),
+      bairro: resolvedNeighborhood,
+      cidade: resolvedCity,
+      cep: normalizeOptionalText(address?.zip_code as string | undefined),
+      telefone: normalizeOptionalText(store.phone),
     },
   }
 }
@@ -230,7 +259,8 @@ async function loadEnvironmentContext(): Promise<FiscalCalculationResult<Environ
   const { data: env, error: envError } = await supabase
     .from('company_fiscal_environment')
     .select('*')
-    .order('created_at', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
