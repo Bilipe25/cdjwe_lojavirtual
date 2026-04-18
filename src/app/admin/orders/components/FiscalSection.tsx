@@ -38,7 +38,7 @@ import {
   generateDanfeAction,
   getFiscalEmissionEnvironmentAction,
 } from '@/app/admin/fiscal-review/actions'
-import { OrderFiscalWorkspaceTabs } from '@/app/admin/orders/components/OrderFiscalWorkspaceTabs'
+import { OrderFiscalWorkspaceTabs, useOrderFiscalWorkspace } from '@/app/admin/orders/components/OrderFiscalWorkspaceTabs'
 
 interface FiscalDoc {
   id: string
@@ -233,7 +233,8 @@ function getActionErrorDescription(error: unknown) {
   return parts.length > 0 ? parts.join(' | ') : undefined
 }
 
-export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
+function FiscalSectionContent({ orderId, orderStatus }: FiscalSectionProps) {
+  const workspace = useOrderFiscalWorkspace()
   const [fiscalDoc, setFiscalDoc] = useState<FiscalDoc | null>(null)
   const [operationalEnvironment, setOperationalEnvironment] = useState<FiscalOperationalEnvironment | null>(null)
   const [loading, setLoading] = useState(true)
@@ -288,7 +289,27 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
   const StatusIcon = config.icon
   const emissionToastId = `order-fiscal-emission-${orderId}`
 
+  const ensureSavedWorkspace = useCallback(async () => {
+    if (!workspace?.isDirty) return true
+
+    toast.info('Salvando draft fiscal antes de continuar...')
+    const saved = await workspace.saveDraft()
+    if (!saved) {
+      toast.error('Nao foi possivel salvar o draft fiscal atual. Revise volumes, transporte e CFOP antes de continuar.')
+      return false
+    }
+
+    await loadFiscalDoc()
+    return true
+  }, [workspace, loadFiscalDoc])
+
   const handleEmit = async (modelo: '55' | '65') => {
+    const ready = await ensureSavedWorkspace()
+    if (!ready) {
+      setEmitModal(null)
+      return
+    }
+
     setEmitting(true)
     setEmitModal(null)
     toast.dismiss(emissionToastId)
@@ -420,7 +441,10 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
     }
   }
 
-  const handleDanfePreview = (modelo: '55' | '65' = '55') => {
+  const handleDanfePreview = async (modelo: '55' | '65' = '55') => {
+    const ready = await ensureSavedWorkspace()
+    if (!ready) return
+
     window.open(`/api/fiscal/danfe-preview/order/${orderId}?modelo=${modelo}`, '_blank', 'noopener,noreferrer')
   }
 
@@ -452,12 +476,17 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
 
   return (
     <>
-      <OrderFiscalWorkspaceTabs orderId={orderId}>
       <div className="space-y-3">
         <h4 className="flex items-center gap-2 text-lg font-bold text-navy">
           <FileText className="h-5 w-5" />
           Nota Fiscal Eletronica
         </h4>
+
+        {workspace?.isDirty ? (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            Existem alteracoes fiscais pendentes neste pedido. O preview da DANFE e a emissao vao salvar o draft atual automaticamente antes de continuar.
+          </div>
+        ) : null}
 
         {!fiscalDoc && (
           <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
@@ -751,8 +780,6 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
           </div>
         )}
       </div>
-      </OrderFiscalWorkspaceTabs>
-
       <Dialog open={emitModal !== null} onOpenChange={(open) => !open && setEmitModal(null)}>
         <DialogContent className="max-w-md rounded-2xl border-0 shadow-2xl">
           <DialogHeader>
@@ -858,6 +885,14 @@ export function FiscalSection({ orderId, orderStatus }: FiscalSectionProps) {
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+export function FiscalSection(props: FiscalSectionProps) {
+  return (
+    <OrderFiscalWorkspaceTabs orderId={props.orderId}>
+      <FiscalSectionContent {...props} />
+    </OrderFiscalWorkspaceTabs>
   )
 }
 

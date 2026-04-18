@@ -120,6 +120,10 @@ export interface FiscalTransportContext {
     | 'balcao'
   transporter_name: string | null
   transporter_document: string | null
+  transporter_address: string | null
+  transporter_city: string | null
+  transporter_state: string | null
+  transporter_ie: string | null
   vehicle_plate: string | null
   vehicle_uf: string | null
   antt_code: string | null
@@ -230,6 +234,10 @@ export interface FiscalItemContext {
   order_item_id: string
   product_variant_id: string
   product_name: string
+  fabric_name: string | null
+  color_name: string | null
+  size: string | null
+  size_name: string | null
   quantity: number
   unit_price: number
   subtotal: number
@@ -320,6 +328,10 @@ export interface ItemTaxBreakdown {
   order_item_id: string
   product_variant_id: string
   product_name: string
+  fabric_name: string | null
+  color_name: string | null
+  size: string | null
+  size_name: string | null
   quantity: number
   cfop: string
   cfop_source: 'item_override' | 'order_global' | 'rule_override' | 'profile_default' | 'geographic_inference'
@@ -350,6 +362,10 @@ export interface ItemTaxBreakdown {
   tax_unit: string | null
   ean_gtin: string | null
   tax_ean_gtin: string | null
+  cst_icms: string
+  aliquota_icms: number
+  aliquota_ipi: number
+  inf_ad_prod: string | null
 }
 
 // --------------- Document Totals ---------------

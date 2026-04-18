@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
@@ -33,7 +33,8 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { FiscalAutocompleteField } from '@/app/admin/fiscal-bases/components/FiscalAutocompleteField'
-import { searchFiscalCfopEntriesAction, type FiscalSearchOption } from '@/app/admin/actions/fiscal-bases'
+import type { FiscalSearchOption } from '@/app/admin/actions/fiscal-bases'
+import { searchCfopConfigOptionsAction } from '@/app/admin/actions/cfop-configs'
 import {
   getOrderFiscalWorkspaceAction,
   recalculateOrderFiscalWorkspaceAction,
@@ -50,8 +51,18 @@ import type {
   OrderFiscalDeliveryForm,
   OrderFiscalFreightMode,
   OrderFiscalOperationPurpose,
-  OrderFiscalVolume,
 } from '@/lib/types'
+
+interface OrderFiscalWorkspaceContextValue {
+  isDirty: boolean
+  saveDraft: () => Promise<boolean>
+}
+
+const OrderFiscalWorkspaceContext = createContext<OrderFiscalWorkspaceContextValue | null>(null)
+
+export function useOrderFiscalWorkspace() {
+  return useContext(OrderFiscalWorkspaceContext)
+}
 
 const PURPOSE_OPTIONS: Array<{ value: OrderFiscalOperationPurpose; label: string }> = [
   { value: 'normal', label: 'Normal' },
@@ -114,6 +125,10 @@ interface FiscalWorkspaceFormState {
   deliveryForm: OrderFiscalDeliveryForm
   transporterName: string
   transporterDocument: string
+  transporterAddress: string
+  transporterCity: string
+  transporterState: string
+  transporterIe: string
   vehiclePlate: string
   vehicleUf: string
   anttCode: string
@@ -126,6 +141,28 @@ interface FiscalWorkspaceFormState {
 
 function normalizeDigits(value: string) {
   return value.replace(/\D/g, '')
+}
+
+function normalizeCfopCode(value?: string | null) {
+  const digits = normalizeDigits(String(value || '')).slice(0, 4)
+  return /^\d{4}$/.test(digits) ? digits : ''
+}
+
+function getCfopSourceLabel(value?: string | null) {
+  switch (value) {
+    case 'item_override':
+      return 'override por item'
+    case 'order_global':
+      return 'cfop global'
+    case 'rule_override':
+      return 'regra fiscal'
+    case 'profile_default':
+      return 'perfil tributario'
+    case 'geographic_inference':
+      return 'inferencia geografica'
+    default:
+      return 'pending'
+  }
 }
 
 function toCurrencyString(value: number) {
@@ -157,6 +194,29 @@ function getNaturezaSnapshotDescription(value: Record<string, unknown> | null | 
   return typeof descricao === 'string' && descricao.trim().length > 0 ? descricao.trim() : null
 }
 
+function getPreviewItemCfop(item: ItemDraft, globalCfopCode?: string | null) {
+  const overrideCode = normalizeCfopCode(item.cfopOverrideCodeInput || item.cfopOverrideCode)
+  if (overrideCode) {
+    return {
+      code: overrideCode,
+      source: 'item_override',
+    } as const
+  }
+
+  const globalCode = normalizeCfopCode(globalCfopCode)
+  if (globalCode) {
+    return {
+      code: globalCode,
+      source: 'order_global',
+    } as const
+  }
+
+  return {
+    code: normalizeCfopCode(item.effectiveCfopCode),
+    source: item.cfopSource || 'pending',
+  } as const
+}
+
 function buildFormState(workspace: OrderFiscalWorkspacePayload): FiscalWorkspaceFormState {
   return {
     cfopGlobalCode: workspace.settings.cfopGlobalCode || '',
@@ -169,6 +229,10 @@ function buildFormState(workspace: OrderFiscalWorkspacePayload): FiscalWorkspace
     deliveryForm: workspace.settings.deliveryForm,
     transporterName: workspace.settings.transporterName || '',
     transporterDocument: workspace.settings.transporterDocument || '',
+    transporterAddress: workspace.settings.transporterAddress || '',
+    transporterCity: workspace.settings.transporterCity || '',
+    transporterState: workspace.settings.transporterState || '',
+    transporterIe: workspace.settings.transporterIe || '',
     vehiclePlate: workspace.settings.vehiclePlate || '',
     vehicleUf: workspace.settings.vehicleUf || '',
     anttCode: workspace.settings.anttCode || '',
@@ -251,8 +315,8 @@ export function OrderFiscalWorkspaceTabs({
   const [recalculating, setRecalculating] = useState(false)
   const [cfopOptions, setCfopOptions] = useState<FiscalSearchOption[]>([])
   const [cfopSearchLoading, setCfopSearchLoading] = useState(false)
-  const [selectedCfopOption, setSelectedCfopOption] = useState<FiscalSearchOption | null>(null)
   const [activeTab, setActiveTab] = useState('general')
+  const [isDirty, setIsDirty] = useState(false)
 
   const loadWorkspace = useCallback(async () => {
     setWorkspaceLoading(true)
@@ -265,33 +329,28 @@ export function OrderFiscalWorkspaceTabs({
 
     setWorkspace(result.data)
     setForm(buildFormState(result.data))
+    setIsDirty(false)
     setWorkspaceLoading(false)
   }, [orderId])
 
   useEffect(() => {
-    loadWorkspace()
+    startTransition(() => {
+      void loadWorkspace()
+    })
   }, [loadWorkspace])
 
   useEffect(() => {
-    if (!form?.cfopGlobalCode) {
-      setSelectedCfopOption(null)
-      return
-    }
+    if (!form?.cfopGlobalCode) return
 
     let cancelled = false
-    setCfopSearchLoading(true)
 
-    void searchFiscalCfopEntriesAction({
+    void searchCfopConfigOptionsAction({
       query: form.cfopGlobalCode,
-      direction: form.operationDirection === 'inbound' ? 'inbound' : 'outbound',
+      operationDirection: form.operationDirection === 'inbound' ? 'inbound' : 'outbound',
       limit: 10,
     }).then((result) => {
       if (cancelled || !result.success) return
-      const options = result.data || []
-      setCfopOptions(options)
-      setSelectedCfopOption(options.find((option) => option.code === form.cfopGlobalCode) || null)
-    }).finally(() => {
-      if (!cancelled) setCfopSearchLoading(false)
+      setCfopOptions(result.data || [])
     })
 
     return () => {
@@ -299,18 +358,34 @@ export function OrderFiscalWorkspaceTabs({
     }
   }, [form?.cfopGlobalCode, form?.operationDirection])
 
-  const natureCatalog = workspace?.naturezaCatalog || []
+  const natureCatalog = useMemo(() => workspace?.naturezaCatalog || [], [workspace?.naturezaCatalog])
   const calculation = workspace?.calculation || null
   const selectedNatureza = useMemo(
     () => natureCatalog.find((natureza) => natureza.id === form?.naturezaOperacaoId) || null,
     [natureCatalog, form?.naturezaOperacaoId]
   )
+  const selectedCfopOption = (() => {
+    if (!form?.cfopGlobalCode) return null
+    const matchedOption = cfopOptions.find((option) => option.code === form.cfopGlobalCode)
+    if (matchedOption) return matchedOption
+
+    return {
+      id: `selected-${form.cfopGlobalCode}`,
+      versionId: '',
+      versionLabel: '',
+      code: form.cfopGlobalCode,
+      description: 'CFOP selecionado',
+      secondaryText: null,
+    } satisfies FiscalSearchOption
+  })()
 
   const handleFieldChange = <K extends keyof FiscalWorkspaceFormState>(field: K, value: FiscalWorkspaceFormState[K]) => {
+    setIsDirty(true)
     setForm((current) => (current ? { ...current, [field]: value } : current))
   }
 
   const handleVolumeChange = (volumeId: string, field: keyof VolumeDraft, value: string | number) => {
+    setIsDirty(true)
     setForm((current) => {
       if (!current) return current
       return {
@@ -326,6 +401,7 @@ export function OrderFiscalWorkspaceTabs({
 
   const handleItemOverrideChange = (orderItemId: string, value: string) => {
     const normalized = normalizeDigits(value).slice(0, 4)
+    setIsDirty(true)
     setForm((current) => {
       if (!current) return current
       return {
@@ -341,9 +417,9 @@ export function OrderFiscalWorkspaceTabs({
 
   const handleSearchCfop = async (query: string) => {
     setCfopSearchLoading(true)
-    const result = await searchFiscalCfopEntriesAction({
+    const result = await searchCfopConfigOptionsAction({
       query,
-      direction: form?.operationDirection === 'inbound' ? 'inbound' : 'outbound',
+      operationDirection: form?.operationDirection === 'inbound' ? 'inbound' : 'outbound',
       limit: 12,
     })
 
@@ -354,7 +430,7 @@ export function OrderFiscalWorkspaceTabs({
   }
 
   const handleSelectCfop = async (option: FiscalSearchOption) => {
-    setSelectedCfopOption(option)
+    setIsDirty(true)
     setForm((current) => current ? { ...current, cfopGlobalCode: option.code } : current)
 
     const suggestion = await suggestOrderFiscalNaturezaAction({
@@ -372,8 +448,8 @@ export function OrderFiscalWorkspaceTabs({
     }
   }
 
-  const saveWorkspace = async () => {
-    if (!form) return
+  const saveWorkspace = useCallback(async () => {
+    if (!form) return false
     setSaving(true)
 
     const payload: SaveOrderFiscalWorkspaceInput = {
@@ -388,6 +464,10 @@ export function OrderFiscalWorkspaceTabs({
       deliveryForm: form.deliveryForm,
       transporterName: form.transporterName,
       transporterDocument: form.transporterDocument,
+      transporterAddress: form.transporterAddress,
+      transporterCity: form.transporterCity,
+      transporterState: form.transporterState,
+      transporterIe: form.transporterIe,
       vehiclePlate: form.vehiclePlate,
       vehicleUf: form.vehicleUf,
       anttCode: form.anttCode,
@@ -413,14 +493,18 @@ export function OrderFiscalWorkspaceTabs({
     if (!result.success || !result.data) {
       toast.error(result.error || 'Falha ao salvar o draft fiscal do pedido.')
       setSaving(false)
-      return
+      return false
     }
 
     setWorkspace(result.data)
     setForm(buildFormState(result.data))
-    toast.success('Workspace fiscal do pedido salvo e recalculado.')
+    setIsDirty(false)
+    toast.success('Workspace fiscal do pedido salvo e recalculado.', {
+      description: `${result.data.volumes.length} volume(s) persistido(s) no draft fiscal.`,
+    })
     setSaving(false)
-  }
+    return true
+  }, [form, orderId])
 
   const recalculateWorkspace = async () => {
     setRecalculating(true)
@@ -433,13 +517,19 @@ export function OrderFiscalWorkspaceTabs({
 
     setWorkspace(result.data)
     setForm(buildFormState(result.data))
+    setIsDirty(false)
     toast.success('Impostos recalculados com a configuracao fiscal atual do pedido.')
     setRecalculating(false)
   }
 
   const canRender = !workspaceLoading && workspace && form
+  const workspaceContextValue = useMemo<OrderFiscalWorkspaceContextValue>(() => ({
+    isDirty,
+    saveDraft: saveWorkspace,
+  }), [isDirty, saveWorkspace])
 
   return (
+    <OrderFiscalWorkspaceContext.Provider value={workspaceContextValue}>
     <div className="space-y-4">
       <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -547,7 +637,7 @@ export function OrderFiscalWorkspaceTabs({
                       onSearch={handleSearchCfop}
                       onSelect={handleSelectCfop}
                       onClear={() => {
-                        setSelectedCfopOption(null)
+                        setCfopOptions([])
                         handleFieldChange('cfopGlobalCode', '')
                       }}
                     />
@@ -688,30 +778,36 @@ export function OrderFiscalWorkspaceTabs({
                   </TableHeader>
                   <TableBody>
                     {form.items.map((item) => (
-                      <TableRow key={item.orderItemId}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium text-slate-900">{item.productName}</p>
-                            <p className="text-xs text-muted-foreground">Qtd. {item.quantity}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{item.ncm || '-'}</TableCell>
-                        <TableCell className="font-mono text-xs">{item.effectiveCfopCode || form.cfopGlobalCode || '-'}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
-                            {item.cfopSource || 'pending'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            value={item.cfopOverrideCodeInput}
-                            onChange={(event) => handleItemOverrideChange(item.orderItemId, event.target.value)}
-                            placeholder="Ex.: 5102"
-                            maxLength={4}
-                            className="w-28 font-mono"
-                          />
-                        </TableCell>
-                      </TableRow>
+                      (() => {
+                        const previewCfop = getPreviewItemCfop(item, form.cfopGlobalCode)
+
+                        return (
+                          <TableRow key={item.orderItemId}>
+                            <TableCell>
+                              <div>
+                                <p className="font-medium text-slate-900">{item.productName}</p>
+                                <p className="text-xs text-muted-foreground">Qtd. {item.quantity}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">{item.ncm || '-'}</TableCell>
+                            <TableCell className="font-mono text-xs">{previewCfop.code || '-'}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                                {getCfopSourceLabel(previewCfop.source)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                value={item.cfopOverrideCodeInput}
+                                onChange={(event) => handleItemOverrideChange(item.orderItemId, event.target.value)}
+                                placeholder="Ex.: 5102"
+                                maxLength={4}
+                                className="w-28 font-mono"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })()
                     ))}
                   </TableBody>
                 </Table>
@@ -837,6 +933,22 @@ export function OrderFiscalWorkspaceTabs({
                   <Input value={form.transporterDocument} onChange={(event) => handleFieldChange('transporterDocument', normalizeDigits(event.target.value))} />
                 </div>
                 <div className="space-y-1.5">
+                  <Label>Endereco do transportador</Label>
+                  <Input value={form.transporterAddress} onChange={(event) => handleFieldChange('transporterAddress', event.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Municipio do transportador</Label>
+                  <Input value={form.transporterCity} onChange={(event) => handleFieldChange('transporterCity', event.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>UF do transportador</Label>
+                  <Input value={form.transporterState} maxLength={2} onChange={(event) => handleFieldChange('transporterState', event.target.value.toUpperCase())} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>IE do transportador</Label>
+                  <Input value={form.transporterIe} onChange={(event) => handleFieldChange('transporterIe', event.target.value)} />
+                </div>
+                <div className="space-y-1.5">
                   <Label>Placa do veiculo</Label>
                   <Input value={form.vehiclePlate} onChange={(event) => handleFieldChange('vehiclePlate', event.target.value.toUpperCase())} />
                 </div>
@@ -880,10 +992,13 @@ export function OrderFiscalWorkspaceTabs({
                 <Button
                   variant="outline"
                   className="gap-2 rounded-xl"
-                  onClick={() => setForm((current) => current ? {
-                    ...current,
-                    volumes: [...current.volumes, emptyVolumeDraft(current.volumes.length)],
-                  } : current)}
+                  onClick={() => {
+                    setIsDirty(true)
+                    setForm((current) => current ? {
+                      ...current,
+                      volumes: [...current.volumes, emptyVolumeDraft(current.volumes.length)],
+                    } : current)
+                  }}
                 >
                   <Plus className="h-4 w-4" />
                   Adicionar volume
@@ -904,10 +1019,13 @@ export function OrderFiscalWorkspaceTabs({
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 rounded-xl text-red-600 hover:bg-red-50 hover:text-red-700"
-                          onClick={() => setForm((current) => current ? {
-                            ...current,
-                            volumes: current.volumes.filter((entry) => entry.id !== volume.id),
-                          } : current)}
+                          onClick={() => {
+                            setIsDirty(true)
+                            setForm((current) => current ? {
+                              ...current,
+                              volumes: current.volumes.filter((entry) => entry.id !== volume.id),
+                            } : current)
+                          }}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -964,5 +1082,6 @@ export function OrderFiscalWorkspaceTabs({
         </Tabs>
       )}
     </div>
+    </OrderFiscalWorkspaceContext.Provider>
   )
 }

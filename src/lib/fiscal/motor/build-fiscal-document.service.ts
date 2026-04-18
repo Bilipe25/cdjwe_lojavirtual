@@ -21,6 +21,28 @@ import { distributeFreight } from './calculate-freight.service'
 import { distributeDiscount } from './calculate-discount.service'
 import { validateFiscalDocument } from './validate-fiscal-document.service'
 
+function buildItemAdditionalInfo(item: ItemTaxBreakdown): string | null {
+  const parts: string[] = []
+
+  if (item.cest) {
+    parts.push(`CEST ${item.cest}`)
+  }
+
+  if (item.fcp.value > 0) {
+    parts.push(`FCP proprio: p ${item.fcp.rate.toFixed(2)}% v ${item.fcp.value.toFixed(2)}`)
+  }
+
+  if (item.st.fcp_value > 0) {
+    parts.push(`FCP-ST: p ${item.st.fcp_rate.toFixed(2)}% v ${item.st.fcp_value.toFixed(2)}`)
+  }
+
+  if (item.ipi.value > 0) {
+    parts.push(`IPI: CST ${item.ipi.cst} p ${item.ipi.rate.toFixed(2)}% v ${item.ipi.value.toFixed(2)}`)
+  }
+
+  return parts.length > 0 ? parts.join(' | ') : null
+}
+
 /**
  * Builds the complete FiscalDocumentPayload from a resolved FiscalContext.
  *
@@ -102,6 +124,10 @@ export function buildFiscalDocument(
       order_item_id: item.order_item_id,
       product_variant_id: item.product_variant_id,
       product_name: item.product_name,
+      fabric_name: item.fabric_name,
+      color_name: item.color_name,
+      size: item.size,
+      size_name: item.size_name,
       quantity: item.quantity,
       cfop,
       cfop_source: cfopResolution?.source || 'geographic_inference',
@@ -128,7 +154,15 @@ export function buildFiscalDocument(
       tax_unit: item.tax_profile.tax_unit,
       ean_gtin: item.tax_profile.ean_gtin,
       tax_ean_gtin: item.tax_profile.tax_ean_gtin,
+      cst_icms: icms.cst,
+      aliquota_icms: icms.rate,
+      aliquota_ipi: ipi.rate,
+      inf_ad_prod: null,
     })
+  }
+
+  for (const item of itemBreakdowns) {
+    item.inf_ad_prod = buildItemAdditionalInfo(item)
   }
 
   // 4. Compute document totals

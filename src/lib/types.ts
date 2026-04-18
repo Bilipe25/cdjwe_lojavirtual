@@ -593,6 +593,10 @@ export interface OrderFiscalSettings {
   delivery_form: OrderFiscalDeliveryForm
   transporter_name: string | null
   transporter_document: string | null
+  transporter_address: string | null
+  transporter_city: string | null
+  transporter_state: string | null
+  transporter_ie: string | null
   vehicle_plate: string | null
   vehicle_uf: string | null
   antt_code: string | null

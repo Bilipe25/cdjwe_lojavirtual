@@ -71,6 +71,10 @@ export interface OrderFiscalWorkspacePayload {
     deliveryForm: OrderFiscalDeliveryForm
     transporterName: string | null
     transporterDocument: string | null
+    transporterAddress: string | null
+    transporterCity: string | null
+    transporterState: string | null
+    transporterIe: string | null
     vehiclePlate: string | null
     vehicleUf: string | null
     anttCode: string | null
@@ -97,6 +101,10 @@ export interface SaveOrderFiscalWorkspaceInput {
   deliveryForm?: OrderFiscalDeliveryForm
   transporterName?: string | null
   transporterDocument?: string | null
+  transporterAddress?: string | null
+  transporterCity?: string | null
+  transporterState?: string | null
+  transporterIe?: string | null
   vehiclePlate?: string | null
   vehicleUf?: string | null
   anttCode?: string | null
@@ -304,6 +312,10 @@ async function buildWorkspacePayload(orderId: string): Promise<OrderFiscalWorksp
           : 'nao_informado',
       transporterName: sanitizeText(settingsRecord?.transporter_name as string | undefined),
       transporterDocument: sanitizeText(settingsRecord?.transporter_document as string | undefined),
+      transporterAddress: sanitizeText(settingsRecord?.transporter_address as string | undefined),
+      transporterCity: sanitizeText(settingsRecord?.transporter_city as string | undefined),
+      transporterState: sanitizeUpperText(settingsRecord?.transporter_state as string | undefined),
+      transporterIe: sanitizeText(settingsRecord?.transporter_ie as string | undefined),
       vehiclePlate: sanitizeUpperText(settingsRecord?.vehicle_plate as string | undefined),
       vehicleUf: sanitizeUpperText(settingsRecord?.vehicle_uf as string | undefined),
       anttCode: sanitizeText(settingsRecord?.antt_code as string | undefined),
@@ -380,6 +392,10 @@ export async function saveOrderFiscalWorkspaceAction(input: SaveOrderFiscalWorks
       delivery_form: input.deliveryForm || 'nao_informado',
       transporter_name: sanitizeText(input.transporterName),
       transporter_document: sanitizeDigits(input.transporterDocument),
+      transporter_address: sanitizeText(input.transporterAddress),
+      transporter_city: sanitizeText(input.transporterCity),
+      transporter_state: sanitizeUpperText(input.transporterState),
+      transporter_ie: sanitizeText(input.transporterIe),
       vehicle_plate: sanitizeUpperText(input.vehiclePlate),
       vehicle_uf: sanitizeUpperText(input.vehicleUf),
       antt_code: sanitizeText(input.anttCode),

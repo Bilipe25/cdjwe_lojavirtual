@@ -132,6 +132,7 @@ export function mapFiscalPayloadToNFeXml(
     '@_nItem': index + 1,
     prod: buildProd(item),
     imposto: buildImposto(item),
+    ...(item.inf_ad_prod ? { infAdProd: normalizeNFeText(item.inf_ad_prod, 500) } : {}),
   }))
 
   const total = { ICMSTot: buildICMSTot(items, totals) }
@@ -486,6 +487,10 @@ function buildTransportTag(
         transporta: {
           ...(transport.transporter_name ? { xNome: normalizeNFeText(transport.transporter_name, 60) } : {}),
           ...buildTransporterDocumentTag(transport.transporter_document),
+          ...(transport.transporter_address ? { xEnder: normalizeNFeText(transport.transporter_address, 60) } : {}),
+          ...(transport.transporter_city ? { xMun: normalizeNFeText(transport.transporter_city, 60) } : {}),
+          ...(transport.transporter_state ? { UF: transport.transporter_state.toUpperCase().substring(0, 2) } : {}),
+          ...(normalizeStateRegistration(transport.transporter_ie) ? { IE: normalizeStateRegistration(transport.transporter_ie) } : {}),
         },
       }
       : {}),

@@ -1981,24 +1981,40 @@ export async function searchFiscalCfopEntriesAction(params: {
 }): Promise<{ success: boolean; data?: FiscalSearchOption[]; error?: string }> {
     try {
         await ensureAdminAccess()
-        const version = await resolveVersionId('cfop', params.versionId, { allowNull: true })
+        const version = await resolveVersionId('cfop', params.versionId, { allowNull: true, allowLatestFallback: true })
         if (!version) return { success: true, data: [] }
         const adminSupabase = createServiceRoleClient()
-        let query = adminSupabase
-            .from('fiscal_cfop_entries')
-            .select('*')
-            .eq('version_id', version.id)
-            .order('code', { ascending: true })
-            .limit(Math.max(1, Math.min(20, params.limit || 10)))
-
-        if (params.direction && params.direction !== 'both') {
-            query = query.in('operation_direction', [params.direction, 'both'])
-        }
+        const limit = Math.max(1, Math.min(20, params.limit || 10))
         const search = sanitizeText(params.query)
-        if (search) query = query.or(`code.ilike.%${search}%,description.ilike.%${search}%`)
 
-        const { data, error } = await query
+        const runQuery = async (direction?: 'outbound' | 'inbound' | 'both' | null) => {
+            let queryBuilder = adminSupabase
+                .from('fiscal_cfop_entries')
+                .select('*')
+                .eq('version_id', version.id)
+                .order('code', { ascending: true })
+                .limit(limit)
+
+            if (direction && direction !== 'both') {
+                queryBuilder = queryBuilder.in('operation_direction', [direction, 'both'])
+            }
+
+            if (search) {
+                queryBuilder = queryBuilder.or(`code.ilike.%${search}%,description.ilike.%${search}%`)
+            }
+
+            return queryBuilder
+        }
+
+        let { data, error } = await runQuery(params.direction)
         if (error) throw error
+
+        if ((data || []).length === 0 && params.direction && params.direction !== 'both') {
+            const fallbackResult = await runQuery('both')
+            data = fallbackResult.data
+            error = fallbackResult.error
+            if (error) throw error
+        }
 
         return {
             success: true,
