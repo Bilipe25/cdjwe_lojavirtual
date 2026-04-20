@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Textarea } from '@/components/ui/textarea'
 import { FiscalAutocompleteField } from '@/app/admin/fiscal-bases/components/FiscalAutocompleteField'
 import type { FiscalSearchOption } from '@/app/admin/actions/fiscal-bases'
 import { searchCfopConfigOptionsAction } from '@/app/admin/actions/cfop-configs'
@@ -45,6 +46,7 @@ import {
   type OrderFiscalWorkspacePayload,
   type SaveOrderFiscalWorkspaceInput,
 } from '@/app/admin/orders/fiscal-actions'
+import { getPreviewBlockingMessage } from '@/lib/fiscal/preview-validation'
 import type {
   NaturezaOperacaoDirection,
   OrderFiscalBuyerPresence,
@@ -56,6 +58,7 @@ import type {
 interface OrderFiscalWorkspaceContextValue {
   isDirty: boolean
   saveDraft: () => Promise<boolean>
+  previewBlockingMessage: string | null
 }
 
 const OrderFiscalWorkspaceContext = createContext<OrderFiscalWorkspaceContextValue | null>(null)
@@ -121,6 +124,7 @@ interface FiscalWorkspaceFormState {
   finalidadeNfe: OrderFiscalOperationPurpose
   presencaComprador: OrderFiscalBuyerPresence
   consumidorFinal: boolean
+  fiscalObservation: string
   freightMode: OrderFiscalFreightMode
   deliveryForm: OrderFiscalDeliveryForm
   transporterName: string
@@ -225,6 +229,7 @@ function buildFormState(workspace: OrderFiscalWorkspacePayload): FiscalWorkspace
     finalidadeNfe: workspace.settings.finalidadeNfe,
     presencaComprador: workspace.settings.presencaComprador,
     consumidorFinal: workspace.settings.consumidorFinal,
+    fiscalObservation: workspace.settings.fiscalObservation || '',
     freightMode: workspace.settings.freightMode,
     deliveryForm: workspace.settings.deliveryForm,
     transporterName: workspace.settings.transporterName || '',
@@ -460,6 +465,7 @@ export function OrderFiscalWorkspaceTabs({
       finalidadeNfe: form.finalidadeNfe,
       presencaComprador: form.presencaComprador,
       consumidorFinal: form.consumidorFinal,
+      fiscalObservation: form.fiscalObservation,
       freightMode: form.freightMode,
       deliveryForm: form.deliveryForm,
       transporterName: form.transporterName,
@@ -526,7 +532,8 @@ export function OrderFiscalWorkspaceTabs({
   const workspaceContextValue = useMemo<OrderFiscalWorkspaceContextValue>(() => ({
     isDirty,
     saveDraft: saveWorkspace,
-  }), [isDirty, saveWorkspace])
+    previewBlockingMessage: getPreviewBlockingMessage(calculation?.validation),
+  }), [calculation?.validation, isDirty, saveWorkspace])
 
   return (
     <OrderFiscalWorkspaceContext.Provider value={workspaceContextValue}>
@@ -721,6 +728,21 @@ export function OrderFiscalWorkspaceTabs({
                         onCheckedChange={(checked) => handleFieldChange('consumidorFinal', checked)}
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label htmlFor="fiscal-observation">Observacao fiscal da DANFE</Label>
+                    <Textarea
+                      id="fiscal-observation"
+                      rows={4}
+                      value={form.fiscalObservation}
+                      onChange={(event) => handleFieldChange('fiscalObservation', event.target.value)}
+                      placeholder="Ex.: Entrega parcial autorizada pelo cliente, informacoes operacionais da nota ou observacoes que devem aparecer em Dados adicionais."
+                      className="resize-y bg-white"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Aparece em Dados adicionais da DANFE e no XML fiscal do pedido.
+                    </p>
                   </div>
                 </div>
               </div>

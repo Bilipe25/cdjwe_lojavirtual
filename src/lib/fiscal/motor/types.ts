@@ -70,6 +70,7 @@ export interface EnvironmentContext {
   serie_nfe: string
   proximo_numero_nfe: number
   tipo_emissao: string
+  emissao_ativa: boolean
   modalidade_frete_padrao: string
   natureza_operacao: string
   // Toggles
@@ -233,6 +234,7 @@ export interface IcmsStRule {
 export interface FiscalItemContext {
   order_item_id: string
   product_variant_id: string
+  sku: string | null
   product_name: string
   fabric_name: string | null
   color_name: string | null
@@ -327,6 +329,7 @@ export interface IbsCbsBreakdown {
 export interface ItemTaxBreakdown {
   order_item_id: string
   product_variant_id: string
+  sku: string | null
   product_name: string
   fabric_name: string | null
   color_name: string | null

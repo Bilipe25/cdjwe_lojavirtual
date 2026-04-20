@@ -11,6 +11,11 @@ import fs from 'node:fs'
 import { XMLParser } from 'fast-xml-parser'
 import { loadCertificate } from './sign-xml.service'
 import { buildSoapEnvelope } from './map-fiscal-to-nfe.service'
+import {
+  getUnsupportedFiscalEmissionModeMessage,
+  normalizeFiscalEmissionMode,
+  resolveEmissionAuthorizerOverride,
+} from '@/lib/fiscal/emission-mode'
 
 type SefazService =
   | 'NfeAutorizacao'
@@ -302,10 +307,28 @@ const ENDPOINTS: Record<string, SefazEndpoints> = {
 export function getSefazEndpoint(
   uf: string,
   ambiente: SefazEnvironment,
-  service: SefazService
+  service: SefazService,
+  tipoEmissao: string = 'normal'
 ): string {
   const normalizedUf = (uf || '').trim().toUpperCase()
-  const autorizador = UF_AUTORIZADOR[normalizedUf]
+  const normalizedTipoEmissao = normalizeFiscalEmissionMode(tipoEmissao)
+  const unsupportedModeMessage = getUnsupportedFiscalEmissionModeMessage(normalizedTipoEmissao)
+  const contingencyCapableService = new Set<SefazService>([
+    'NfeAutorizacao',
+    'NfeRetAutorizacao',
+    'NfeConsultaProtocolo',
+    'NfeStatusServico',
+  ])
+
+  if (unsupportedModeMessage && contingencyCapableService.has(service)) {
+    throw new Error(unsupportedModeMessage)
+  }
+
+  const authorizerOverride = contingencyCapableService.has(service)
+    ? resolveEmissionAuthorizerOverride(normalizedTipoEmissao)
+    : null
+
+  const autorizador = authorizerOverride || UF_AUTORIZADOR[normalizedUf]
   if (!autorizador) {
     throw new Error(`UF "${normalizedUf}" nao possui autorizador mapeado.`)
   }

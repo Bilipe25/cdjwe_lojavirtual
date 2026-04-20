@@ -17,6 +17,7 @@ import type {
   StoreContext,
 } from '../motor/types'
 import { FRETE_CODES, UF_CODES } from './types'
+import { mapFiscalEmissionModeToTpEmis } from '@/lib/fiscal/emission-mode'
 
 const NF_NAMESPACE = 'http://www.portalfiscal.inf.br/nfe'
 
@@ -47,8 +48,9 @@ export function mapFiscalPayloadToNFeXml(
   const nNF = documentNumber
   const dhEmi = formatSefazDateTime(new Date())
   const tpAmb = ctx.environment.ambiente === 'producao' ? 1 : 2
+  const tpEmis = mapFiscalEmissionModeToTpEmis(ctx.environment.tipo_emissao)
 
-  const chaveBase = buildChaveBase(cUF, dhEmi, ctx.emitter.cnpj, Number(modelo), Number(serie), nNF, 1, cNF)
+  const chaveBase = buildChaveBase(cUF, dhEmi, ctx.emitter.cnpj, Number(modelo), Number(serie), nNF, tpEmis, cNF)
   const cDV = calculateMod11(chaveBase)
   const chaveAcesso = `${chaveBase}${cDV}`
   const infNFeId = `NFe${chaveAcesso}`
@@ -69,7 +71,7 @@ export function mapFiscalPayloadToNFeXml(
     idDest: resolveDestinationIndicator(ctx.store, ctx.emitter.uf),
     cMunFG: Number(ctx.emitter.ibge),
     tpImp: modelo === '55' ? 1 : 4,
-    tpEmis: 1,
+    tpEmis,
     cDV: Number(cDV),
     tpAmb,
     finNFe: mapFinalidadeNFe(ctx.operation),
@@ -148,7 +150,7 @@ export function mapFiscalPayloadToNFeXml(
     },
   }
 
-  const additionalInfo = buildAdditionalInfoTag(payload, totals, options)
+  const additionalInfo = buildAdditionalInfoTag(options.additionalInfo)
 
   const infNFe = {
     '@_versao': '4.00',
@@ -565,56 +567,10 @@ function buildIcmsUfDestTag(item: ItemTaxBreakdown): Record<string, unknown> {
   }
 }
 
-function buildAdditionalInfoTag(
-  payload: FiscalDocumentPayload,
-  totals: DocumentTotals,
-  options: NFeBuildOptions
-): string | null {
-  const parts: string[] = []
-
-  if (options.orderNumber?.trim()) {
-    parts.push(`Pedido vinculado: ${options.orderNumber.trim()}`)
-  }
-
-  if (options.payment?.methodName || options.payment?.installments) {
-    const paymentSummary = [
-      options.payment?.methodName || null,
-      options.payment?.installments && options.payment.installments > 1
-        ? `${options.payment.installments} parcelas`
-        : null,
-    ].filter(Boolean).join(' - ')
-
-    if (paymentSummary) {
-      parts.push(`Condicao de pagamento: ${paymentSummary}`)
-    }
-  }
-
-  if (payload.context.transport.delivery_form && payload.context.transport.delivery_form !== 'nao_informado') {
-    parts.push(`Forma de entrega: ${humanizeDeliveryForm(payload.context.transport.delivery_form)}`)
-  }
-
-  if (totals.vTotTrib > 0) {
-    parts.push(`Total aproximado de tributos (Lei 12.741): R$ ${formatDecimal(totals.vTotTrib)}`)
-  }
-
-  if (totals.vFrete > 0) {
-    parts.push(`Frete: R$ ${formatDecimal(totals.vFrete)}`)
-  }
-
-  if (totals.vSeg > 0) {
-    parts.push(`Seguro: R$ ${formatDecimal(totals.vSeg)}`)
-  }
-
-  if (totals.vOutro > 0) {
-    parts.push(`Outras despesas: R$ ${formatDecimal(totals.vOutro)}`)
-  }
-
-  if (options.additionalInfo?.trim()) {
-    parts.push(options.additionalInfo.trim())
-  }
-
-  if (parts.length === 0) return null
-  return normalizeNFeText(parts.join(' | '), 5000)
+function buildAdditionalInfoTag(additionalInfo: string | null | undefined): string | null {
+  const normalized = (additionalInfo || '').trim()
+  if (!normalized) return null
+  return normalizeNFeText(normalized, 5000)
 }
 
 function resolveDestinationIndicator(store: StoreContext, emitterUf: string): number {
@@ -736,20 +692,6 @@ function mapBuyerPresence(operation: FiscalOperationContext, modelo: '55' | '65'
     default:
       return 0
   }
-}
-
-function humanizeDeliveryForm(value: FiscalTransportContext['delivery_form']): string {
-  const labels: Record<FiscalTransportContext['delivery_form'], string> = {
-    nao_informado: 'Nao informado',
-    retirada: 'Retirada',
-    transportadora: 'Transportadora',
-    frota_propria: 'Frota propria',
-    correios: 'Correios',
-    entrega_expressa: 'Entrega expressa',
-    balcao: 'Balcao',
-  }
-
-  return labels[value] || 'Nao informado'
 }
 
 function generateCNF(): string {

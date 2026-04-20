@@ -25,6 +25,8 @@ import {
 } from './sefaz-client.service'
 import type { FiscalDocumentPayload } from '../motor/types'
 import type { EmissionResult } from './types'
+import { buildResolvedAdditionalInfo } from '@/lib/fiscal/additional-info'
+import type { CompanyFiscalEnvironmentParams } from '@/lib/types'
 
 const NF_NAMESPACE = 'http://www.portalfiscal.inf.br/nfe'
 const AUTHORIZED_STATUS_CODES = new Set([100, 150])
@@ -53,8 +55,10 @@ interface OrderFiscalEmissionData {
   payment_method_code: string | null
   payment_method_name: string | null
   payment_installments: number | null
+  fiscal_observation: string | null
   notes: string | null
   shipping_address: string | null
+  environment_params_jsonb: CompanyFiscalEnvironmentParams | null
 }
 
 interface EmissionReservationResponse {
@@ -95,23 +99,35 @@ export async function emitNFe(
       return createErrorResult('SEQUENCE_ERROR', 'Serie/numero fiscal nao retornados pela reserva de emissao.')
     }
 
+    const additionalInfoResolved = buildResolvedAdditionalInfo({
+      payload,
+      order: {
+        orderNumber: orderData.order_number,
+        paymentMethodName: orderData.payment_method_name,
+        paymentInstallments: orderData.payment_installments,
+        fiscalObservation: orderData.fiscal_observation,
+        shippingAddress: orderData.shipping_address,
+      },
+      environmentParams: orderData.environment_params_jsonb,
+    })
+
     const { xml: infNFeXml, chaveAcesso, infNFeId } = mapFiscalPayloadToNFeXml(
       payload,
       reservation.numero,
       reservation.serie,
       modelo,
-      {
-        payment: {
-          methodCode: orderData.payment_method_code,
-          methodName: orderData.payment_method_name,
-          installments: orderData.payment_installments,
-          paidAmount: payload.totals.vNF,
-        },
-        freightMode: payload.context.transport.freight_mode,
-        additionalInfo: buildAdditionalInfo(orderData, payload),
-        orderNumber: orderData.order_number,
-      }
-    )
+        {
+          payment: {
+            methodCode: orderData.payment_method_code,
+            methodName: orderData.payment_method_name,
+            installments: orderData.payment_installments,
+            paidAmount: payload.totals.vNF,
+          },
+          freightMode: payload.context.transport.freight_mode,
+          additionalInfo: additionalInfoResolved,
+          orderNumber: orderData.order_number,
+        }
+      )
 
     const nfeXmlUnsigned = `<NFe xmlns="${NF_NAMESPACE}">${infNFeXml}</NFe>`
 
@@ -127,6 +143,7 @@ export async function emitNFe(
 
     const envelopeXml = buildNFeAuthorizationEnvelope(signedNFeXml)
     const ambiente = reservation.ambiente
+    const tipoEmissao = payload.context.environment.tipo_emissao
 
     const emittedAt = new Date().toISOString()
     const snapshot = buildFiscalDocumentSnapshot({
@@ -137,6 +154,7 @@ export async function emitNFe(
         paymentMethodCode: orderData.payment_method_code,
         paymentMethodName: orderData.payment_method_name,
         paymentInstallments: orderData.payment_installments,
+        fiscalObservation: orderData.fiscal_observation,
         notes: orderData.notes,
         shippingAddress: orderData.shipping_address,
         total: payload.totals.vNF,
@@ -157,6 +175,7 @@ export async function emitNFe(
         codigoStatus: null,
         motivoStatus: null,
         digestValue: null,
+        additionalInfoResolved,
       },
     })
 
@@ -216,7 +235,7 @@ export async function emitNFe(
       const emitterUf = payload.context.emitter.uf
       const responseXmlParts: string[] = []
 
-      const authorizationEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeAutorizacao')
+      const authorizationEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeAutorizacao', tipoEmissao)
       const authorizationSoapResponse = await sendSoapRequest(authorizationEndpoint, envelopeXml, 'NFeAutorizacao4')
       responseXmlParts.push(`<!-- autorizacao -->\n${authorizationSoapResponse.body}`)
 
@@ -227,7 +246,7 @@ export async function emitNFe(
       )
 
       if (PROCESSING_STATUS_CODES.has(finalResult.cStat) && finalResult.nRec) {
-        const retEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeRetAutorizacao')
+        const retEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeRetAutorizacao', tipoEmissao)
         const receiptNumber = finalResult.nRec
         for (let attempt = 0; attempt < RET_AUTORIZATION_ATTEMPTS; attempt++) {
           await wait(RET_AUTORIZATION_DELAY_MS)
@@ -247,7 +266,7 @@ export async function emitNFe(
       }
 
       if ((!AUTHORIZED_STATUS_CODES.has(finalResult.cStat) || !finalResult.protNFe) && chaveAcesso) {
-        const consultEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeConsultaProtocolo')
+        const consultEndpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeConsultaProtocolo', tipoEmissao)
         const consultXml = buildConsultaProtocoloRequestXml(tpAmb, chaveAcesso)
         const consultResponse = await sendSoapRequest(consultEndpoint, consultXml, 'NFeConsultaProtocolo4')
         responseXmlParts.push(`<!-- consulta-protocolo -->\n${consultResponse.body}`)
@@ -389,21 +408,41 @@ async function loadOrderFiscalEmissionData(
   supabase: ReturnType<typeof createServiceRoleClient>,
   orderId: string
 ): Promise<OrderFiscalEmissionData | null> {
-  const { data, error } = await supabase
-    .from('orders')
-    .select('order_number, payment_method_code, payment_method_name, payment_installments, notes, shipping_address')
-    .eq('id', orderId)
-    .maybeSingle()
+  const [
+    { data: orderData, error: orderError },
+    { data: fiscalSettings, error: fiscalSettingsError },
+    { data: environmentData, error: environmentError },
+  ] = await Promise.all([
+    supabase
+      .from('orders')
+      .select('order_number, payment_method_code, payment_method_name, payment_installments, notes, shipping_address')
+      .eq('id', orderId)
+      .maybeSingle(),
+    supabase
+      .from('order_fiscal_settings')
+      .select('fiscal_observation')
+      .eq('order_id', orderId)
+      .maybeSingle(),
+    supabase
+      .from('company_fiscal_environment')
+      .select('parametros_jsonb')
+      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
 
-  if (error || !data) return null
+  if (orderError || !orderData || fiscalSettingsError || environmentError) return null
 
   return {
-    order_number: data.order_number ?? null,
-    payment_method_code: data.payment_method_code ?? null,
-    payment_method_name: data.payment_method_name ?? null,
-    payment_installments: data.payment_installments ?? null,
-    notes: data.notes ?? null,
-    shipping_address: data.shipping_address ?? null,
+    order_number: orderData.order_number ?? null,
+    payment_method_code: orderData.payment_method_code ?? null,
+    payment_method_name: orderData.payment_method_name ?? null,
+    payment_installments: orderData.payment_installments ?? null,
+    fiscal_observation: (fiscalSettings?.fiscal_observation || '').trim() || null,
+    notes: orderData.notes ?? null,
+    shipping_address: orderData.shipping_address ?? null,
+    environment_params_jsonb: (environmentData?.parametros_jsonb || null) as CompanyFiscalEnvironmentParams | null,
   }
 }
 
@@ -533,27 +572,6 @@ function buildExistingEmissionResult(existing: EmissionReservationRow): Emission
   }
 }
 
-function buildAdditionalInfo(orderData: OrderFiscalEmissionData, payload: FiscalDocumentPayload): string | null {
-  const paymentSummary = [
-    orderData.payment_method_name,
-    orderData.payment_installments && orderData.payment_installments > 1
-      ? `${orderData.payment_installments} parcelas`
-      : null,
-  ].filter(Boolean).join(' - ')
-
-  const parts = [
-    orderData.order_number ? `Pedido: ${orderData.order_number}` : null,
-    paymentSummary ? `Pagamento: ${paymentSummary}` : null,
-    payload.totals.vTotTrib > 0 ? `Tributos aprox.: R$ ${payload.totals.vTotTrib.toFixed(2)}` : null,
-    orderData.notes,
-    orderData.shipping_address ? `Endereco de entrega: ${orderData.shipping_address}` : null,
-  ]
-    .map((value) => (value || '').trim())
-    .filter(Boolean)
-
-  return parts.length > 0 ? parts.join(' | ') : null
-}
-
 function isUniqueActiveEmissionViolation(message: string | undefined): boolean {
   return (message || '').toLowerCase().includes('uq_fiscal_documents_active_order_model')
 }
@@ -578,6 +596,10 @@ function formatEmissionReservationError(message: string | undefined): string {
 
   if (normalized.includes('ambiente fiscal nao configurado')) {
     return 'Ambiente fiscal da empresa nao foi configurado.'
+  }
+
+  if (normalized.includes('emissao fiscal desativada no ambiente')) {
+    return 'A emissao fiscal esta desativada no ambiente de emissao. Ative a emissao antes de tentar enviar NF-e.'
   }
 
   if (

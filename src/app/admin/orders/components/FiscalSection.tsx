@@ -442,10 +442,46 @@ function FiscalSectionContent({ orderId, orderStatus }: FiscalSectionProps) {
   }
 
   const handleDanfePreview = async (modelo: '55' | '65' = '55') => {
+    const previewUrl = `/api/fiscal/danfe-preview/order/${orderId}?modelo=${modelo}`
+
+    if (!workspace?.isDirty) {
+      if (workspace?.previewBlockingMessage) {
+        toast.error(workspace.previewBlockingMessage)
+        return
+      }
+
+      const openedTab = window.open(previewUrl, '_blank')
+      if (!openedTab) {
+        toast.error('Nao foi possivel abrir o preview da DANFE em nova aba. Verifique as permissoes do navegador.')
+      }
+      return
+    }
+
     const ready = await ensureSavedWorkspace()
     if (!ready) return
 
-    window.open(`/api/fiscal/danfe-preview/order/${orderId}?modelo=${modelo}`, '_blank', 'noopener,noreferrer')
+    try {
+      const response = await fetch(previewUrl, {
+        method: 'GET',
+        cache: 'no-store',
+      })
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        toast.error(
+          payload?.error
+            || 'Preview da DANFE bloqueado por validacao fiscal do pedido.'
+        )
+        return
+      }
+
+      const blob = await response.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      window.location.assign(objectUrl)
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+    } catch {
+      toast.error('Erro ao gerar preview da DANFE.')
+    }
   }
 
   const handleOpenFiscalReview = () => {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { calculateOrderFiscal } from '@/lib/fiscal/motor'
 import { generateDanfePreviewPdf } from '@/lib/fiscal/transport/danfe-generator.service'
+import { getPreviewBlockingErrors } from '@/lib/fiscal/preview-validation'
 
 function toResponseBody(buffer: Buffer): ArrayBuffer {
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
@@ -36,6 +37,22 @@ export async function GET(
       return NextResponse.json(
         { error: calcResult.error.message || 'Falha ao calcular preview fiscal do pedido.' },
         { status: 400 }
+      )
+    }
+
+    const previewBlockingErrors = getPreviewBlockingErrors(calcResult.data.validation)
+    if (previewBlockingErrors.length > 0) {
+      const primaryMessage = previewBlockingErrors[0]?.message || 'Pedido fiscal invalido para gerar preview da DANFE.'
+      return NextResponse.json(
+        {
+          error: primaryMessage,
+          validation: {
+            isValid: false,
+            errors: previewBlockingErrors,
+            warnings: calcResult.data.validation.warnings,
+          },
+        },
+        { status: 422 }
       )
     }
 

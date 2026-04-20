@@ -12,6 +12,8 @@ import {
   parseFiscalDocumentSnapshot,
   snapshotItemToDanfeItem,
 } from './fiscal-document-snapshot'
+import { buildResolvedAdditionalInfo } from '@/lib/fiscal/additional-info'
+import type { CompanyFiscalEnvironmentParams } from '@/lib/types'
 
 function resolveExistingPath(candidates: string[]) {
   for (const candidate of candidates) {
@@ -48,12 +50,14 @@ interface DanfeItem {
   unit: string
   quantity: number
   unitPrice: number
+  discountValue: number
   totalValue: number
   icmsBase: number
   icmsValue: number
   icmsRate: number
   ipiValue: number
   ipiRate: number
+  totalTributos: number
   additionalInfo: string | null
 }
 
@@ -155,6 +159,25 @@ const COLORS = {
 const ADDITIONAL_INFO_HEADER_HEIGHT = 14
 const ADDITIONAL_INFO_BODY_HEIGHT = 86
 const ADDITIONAL_INFO_TOTAL_HEIGHT = ADDITIONAL_INFO_HEADER_HEIGHT + ADDITIONAL_INFO_BODY_HEIGHT
+const ITEM_TABLE_HEADERS = [
+  'CODIGO\nPRODUTO',
+  'DESCRICAO DO PRODUTO',
+  'NCM',
+  'CST',
+  'CFOP',
+  'UNID',
+  'QTDE',
+  'VALOR\nUNIT.',
+  'VALOR\nDESC.',
+  'VALOR\nTOTAL',
+  'BASE\nICMS',
+  'VALOR\nICMS',
+  'VALOR\nIPI',
+  'ALIQ.\nICMS',
+  'ALIQ.\nIPI',
+  'TOTAL\nTRIBUTOS',
+] as const
+const ITEM_TABLE_WIDTHS = [34, 142, 30, 18, 20, 18, 22, 32, 32, 35, 35, 32, 28, 22, 22, 33] as const
 
 const HEADER_LAYOUT = {
   leftWidth: 286,
@@ -251,13 +274,31 @@ export async function generateDanfePreviewPdf(
   const supabase = createServiceRoleClient()
 
   try {
-    const { data: order, error } = await supabase
-      .from('orders')
-      .select('id, order_number, payment_method_code, payment_method_name, payment_installments, notes, shipping_address, total')
-      .eq('id', orderId)
-      .maybeSingle()
+    const [
+      { data: order, error },
+      { data: fiscalSettings, error: fiscalSettingsError },
+      { data: environmentData, error: environmentError },
+    ] = await Promise.all([
+      supabase
+        .from('orders')
+        .select('id, order_number, payment_method_code, payment_method_name, payment_installments, notes, shipping_address, total')
+        .eq('id', orderId)
+        .maybeSingle(),
+      supabase
+        .from('order_fiscal_settings')
+        .select('fiscal_observation')
+        .eq('order_id', orderId)
+        .maybeSingle(),
+      supabase
+        .from('company_fiscal_environment')
+        .select('parametros_jsonb')
+        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ])
 
-    if (error || !order) {
+    if (error || !order || fiscalSettingsError || environmentError) {
       return { success: false, error: 'Pedido nao encontrado para preview da DANFE.' }
     }
 
@@ -265,6 +306,17 @@ export async function generateDanfePreviewPdf(
     const emittedAt = new Date().toISOString()
     const numero = modelo === '65' ? environment.proximo_numero_nfce : environment.proximo_numero_nfe
     const serie = modelo === '65' ? environment.serie_nfce : environment.serie_nfe
+    const additionalInfoResolved = buildResolvedAdditionalInfo({
+      payload,
+      order: {
+        orderNumber: order.order_number ?? null,
+        paymentMethodName: order.payment_method_name ?? null,
+        paymentInstallments: order.payment_installments ?? null,
+        fiscalObservation: (fiscalSettings?.fiscal_observation || '').trim() || null,
+        shippingAddress: order.shipping_address ?? null,
+      },
+      environmentParams: (environmentData?.parametros_jsonb || null) as CompanyFiscalEnvironmentParams | null,
+    })
 
     const snapshot = buildFiscalDocumentSnapshot({
       payload,
@@ -274,6 +326,7 @@ export async function generateDanfePreviewPdf(
         paymentMethodCode: order.payment_method_code ?? null,
         paymentMethodName: order.payment_method_name ?? null,
         paymentInstallments: order.payment_installments ?? null,
+        fiscalObservation: (fiscalSettings?.fiscal_observation || '').trim() || null,
         notes: order.notes ?? null,
         shippingAddress: order.shipping_address ?? null,
         total: order.total ?? payload.totals.vNF,
@@ -294,6 +347,7 @@ export async function generateDanfePreviewPdf(
         codigoStatus: null,
         motivoStatus: 'Preview de DANFE sem valor fiscal.',
         digestValue: null,
+        additionalInfoResolved,
       },
     })
 
@@ -425,15 +479,23 @@ async function loadSystemLogoBuffer(): Promise<Buffer | null> {
     if (!response.ok) return null
 
     const sourceBuffer = Buffer.from(await response.arrayBuffer())
-    return await sharp(sourceBuffer)
+    const image = sharp(sourceBuffer, { density: 300 })
+    const metadata = await image.metadata()
+
+    if (metadata.format === 'png' || metadata.format === 'jpeg' || metadata.format === 'jpg') {
+      return sourceBuffer
+    }
+
+    return await image
       .resize({
-        width: 86,
-        height: 30,
+        width: 600,
+        height: 220,
         fit: 'inside',
-        withoutEnlargement: true,
+        withoutEnlargement: false,
         background: { r: 255, g: 255, b: 255, alpha: 0 },
       })
-      .png()
+      .sharpen()
+      .png({ compressionLevel: 3, quality: 100 })
       .toBuffer()
   } catch {
     return null
@@ -557,9 +619,10 @@ function drawHeader(doc: PDFKit.PDFDocument, data: DanfeData, y: number) {
   const leftWidth = HEADER_LAYOUT.leftWidth
   const middleWidth = HEADER_LAYOUT.middleWidth
   const rightWidth = PAGE.width - leftWidth - middleWidth
-  const height = 86
-  const logoWidth = data.logoBuffer ? 86 : 0
-  const textX = PAGE.left + 6 + (logoWidth > 0 ? logoWidth + 8 : 0)
+  const height = 92
+  const logoWidth = data.logoBuffer ? 104 : 0
+  const logoHeight = data.logoBuffer ? 38 : 0
+  const textX = PAGE.left + 6 + (logoWidth > 0 ? logoWidth + 10 : 0)
   const textWidth = leftWidth - (textX - PAGE.left) - 6
 
   drawRect(doc, PAGE.left, y, leftWidth, height)
@@ -569,7 +632,7 @@ function drawHeader(doc: PDFKit.PDFDocument, data: DanfeData, y: number) {
   if (data.logoBuffer) {
     try {
       doc.image(data.logoBuffer, PAGE.left + 6, y + 6, {
-        fit: [logoWidth, 30],
+        fit: [logoWidth, logoHeight],
       })
     } catch {
       // fallback silencioso para emissao sem logo
@@ -580,29 +643,39 @@ function drawHeader(doc: PDFKit.PDFDocument, data: DanfeData, y: number) {
   doc.text(data.emitterName, textX, y + 6, { width: textWidth })
   if (data.emitterFantasy) {
     setFont(doc, 'regular', 8)
-    doc.text(data.emitterFantasy, textX, y + 20, { width: textWidth })
+    doc.text(data.emitterFantasy, textX, y + 19, { width: textWidth })
   }
-  setFont(doc, 'regular', 7)
-  doc.text(`CNPJ: ${data.emitterCnpj}`, textX, y + 34, { width: textWidth })
-  doc.text(`IE: ${data.emitterIe || '-'}`, textX, y + 45, { width: textWidth })
-  doc.text(data.emitterAddress, textX, y + 56, { width: textWidth })
-  doc.text(data.emitterCityUf, textX, y + 68, { width: textWidth })
+  setFont(doc, 'regular', 6.8)
+  doc.text(`CNPJ: ${data.emitterCnpj}`, textX, y + 32, { width: textWidth })
+  doc.text(`IE: ${data.emitterIe || '-'}`, textX, y + 42, { width: textWidth })
+
+  setFont(doc, 'regular', 6.1)
+  const addressTop = y + 52
+  const cityTop = y + 79
+  doc.text(data.emitterAddress, textX, addressTop, {
+    width: textWidth,
+    height: cityTop - addressTop - 2,
+    lineGap: 0,
+    ellipsis: true,
+  })
+  doc.text(data.emitterCityUf, textX, cityTop, { width: textWidth })
 
   setFont(doc, 'bold', 18)
   doc.text('DANFE', PAGE.left + leftWidth, y + 8, { width: middleWidth, align: 'center' })
-  setFont(doc, 'regular', 6.5)
-  doc.text('Documento Auxiliar da', PAGE.left + leftWidth + 8, y + 28, { width: middleWidth - 16, align: 'center' })
-  doc.text('Nota Fiscal Eletronica', PAGE.left + leftWidth + 8, y + 37, { width: middleWidth - 16, align: 'center' })
+  setFont(doc, 'regular', 6.1)
+  doc.text('Documento Auxiliar da', PAGE.left + leftWidth + 8, y + 27, { width: middleWidth - 16, align: 'center' })
+  doc.text('Nota Fiscal Eletronica', PAGE.left + leftWidth + 8, y + 35, { width: middleWidth - 16, align: 'center' })
+  setFont(doc, 'bold', 6.3)
+  doc.text('0-ENTRADA / 1-SAIDA', PAGE.left + leftWidth + 8, y + 48, {
+    width: middleWidth - 16,
+    align: 'center',
+  })
   setFont(doc, 'bold', 8)
-  doc.text(`0 - ENTRADA   1 - SAIDA: ${data.numeroNf > 0 ? '1' : '0'}`, PAGE.left + leftWidth + 8, y + 50, {
+  doc.text(`N. ${String(data.numeroNf).padStart(9, '0')}`, PAGE.left + leftWidth + 8, y + 60, {
     width: middleWidth - 16,
     align: 'center',
   })
-  doc.text(`N. ${String(data.numeroNf).padStart(9, '0')}`, PAGE.left + leftWidth + 8, y + 63, {
-    width: middleWidth - 16,
-    align: 'center',
-  })
-  doc.text(`SERIE ${data.serie}`, PAGE.left + leftWidth + 8, y + 72, {
+  doc.text(`SERIE ${data.serie}`, PAGE.left + leftWidth + 8, y + 70, {
     width: middleWidth - 16,
     align: 'center',
   })
@@ -626,7 +699,7 @@ function drawHeader(doc: PDFKit.PDFDocument, data: DanfeData, y: number) {
     { width: rightWidth - 8, align: 'center' }
   )
   if (data.dataAutorizacao) {
-    doc.text(data.dataAutorizacao, PAGE.left + leftWidth + middleWidth + 4, y + 71, {
+    doc.text(data.dataAutorizacao, PAGE.left + leftWidth + middleWidth + 4, y + 73, {
       width: rightWidth - 8,
       align: 'center',
     })
@@ -829,30 +902,35 @@ function drawTransportSection(doc: PDFKit.PDFDocument, data: DanfeData, y: numbe
 }
 
 function drawItemsTableHeader(doc: PDFKit.PDFDocument, y: number) {
-  const headers = ['CODIGO', 'DESCRICAO', 'NCM', 'CST', 'CFOP', 'UN', 'QTD', 'V.UNIT', 'V.TOTAL', 'BC.ICMS', 'V.ICMS', 'ALIQ.']
-  const widths = [28, 176, 42, 24, 30, 20, 32, 44, 46, 44, 37, 32]
-  drawTableHeader(doc, y, headers, widths)
-  return y + 16
+  drawRect(doc, PAGE.left, y, PAGE.width, 24, true)
+  drawColumnDividers(doc, PAGE.left, y, ITEM_TABLE_WIDTHS as unknown as number[], 24)
+
+  let x = PAGE.left
+  ITEM_TABLE_HEADERS.forEach((header, index) => {
+    setFont(doc, 'bold', 5.1)
+    doc.text(header, x + 1, y + 4, {
+      width: ITEM_TABLE_WIDTHS[index] - 2,
+      align: index === 1 ? 'left' : 'center',
+      lineGap: 0,
+    })
+    x += ITEM_TABLE_WIDTHS[index]
+  })
+
+  return y + 24
 }
 
 function measureItemRow(doc: PDFKit.PDFDocument, item: DanfeItem) {
-  const descWidth = 172
-  const infoWidth = PAGE.width - 8
+  const descWidth = ITEM_TABLE_WIDTHS[1] - 4
   setFont(doc, 'regular', 6)
   const descriptionHeight = Math.max(12, doc.heightOfString(item.description, { width: descWidth, align: 'left', lineGap: 1 }))
-  const infoHeight = item.additionalInfo
-    ? Math.max(9, doc.heightOfString(item.additionalInfo, { width: infoWidth, align: 'left', lineGap: 1 }))
-    : 0
-  return 6 + descriptionHeight + 4 + (infoHeight > 0 ? infoHeight + 4 : 0)
+  return 6 + descriptionHeight + 6
 }
 
 function drawItemRow(doc: PDFKit.PDFDocument, item: DanfeItem, y: number) {
-  const widths = [28, 176, 42, 24, 30, 20, 32, 44, 46, 44, 37, 32]
+  const widths = ITEM_TABLE_WIDTHS as unknown as number[]
   const rowHeight = measureItemRow(doc, item)
-  const descriptionHeight = Math.max(12, doc.heightOfString(item.description, { width: widths[1] - 4, lineGap: 1 }))
-  const mainRowHeight = 6 + descriptionHeight + 4
   drawRect(doc, PAGE.left, y, PAGE.width, rowHeight)
-  drawColumnDividers(doc, PAGE.left, y, widths, item.additionalInfo ? mainRowHeight : rowHeight)
+  drawColumnDividers(doc, PAGE.left, y, widths, rowHeight)
 
   let x = PAGE.left
   const values = [
@@ -864,14 +942,18 @@ function drawItemRow(doc: PDFKit.PDFDocument, item: DanfeItem, y: number) {
     item.unit,
     item.quantity.toFixed(2),
     formatMoney(item.unitPrice),
+    formatMoney(item.discountValue),
     formatMoney(item.totalValue),
     formatMoney(item.icmsBase),
     formatMoney(item.icmsValue),
-    `${item.icmsRate.toFixed(2)}%`,
+    formatMoney(item.ipiValue),
+    formatRate(item.icmsRate),
+    formatRate(item.ipiRate),
+    formatMoney(item.totalTributos),
   ]
 
   values.forEach((value, index) => {
-    setFont(doc, index === 1 ? 'regular' : 'mono', index === 1 ? 5.9 : 5.8)
+    setFont(doc, index === 1 ? 'regular' : 'mono', index === 1 ? 5.6 : 5.6)
     doc.text(value, x + 2, y + 4, {
       width: widths[index] - 4,
       lineGap: index === 1 ? 1 : 0,
@@ -879,15 +961,6 @@ function drawItemRow(doc: PDFKit.PDFDocument, item: DanfeItem, y: number) {
     })
     x += widths[index]
   })
-
-  if (item.additionalInfo) {
-    drawHorizontalDivider(doc, PAGE.left, y + mainRowHeight, PAGE.width)
-    setFont(doc, 'regular', 5.5)
-    doc.text(item.additionalInfo, PAGE.left + 4, y + mainRowHeight + 3, {
-      width: PAGE.width - 8,
-      align: 'left',
-    })
-  }
 
   return y + rowHeight
 }
@@ -906,9 +979,6 @@ function drawAdditionalInfoSection(doc: PDFKit.PDFDocument, data: DanfeData, y: 
 
   const complement = [
     data.additionalInfo,
-    data.vTotTrib > 0 ? `Total aproximado de tributos: ${formatMoney(data.vTotTrib)}` : null,
-    data.orderNumber ? `Pedido vinculado: ${data.orderNumber}` : null,
-    data.paymentSummary ? `Condicao de pagamento: ${data.paymentSummary}` : null,
     data.preview ? 'Preview da DANFE sem autorizacao SEFAZ e sem valor fiscal.' : null,
   ].filter(Boolean).join(' | ')
 
@@ -926,7 +996,7 @@ function finalizePageNumbers(doc: PDFKit.PDFDocument) {
     doc.switchToPage(index)
     const headerTop = getHeaderTopForPage(index)
     setFont(doc, 'bold', 7)
-    doc.text(`FOLHA ${index + 1}/${range.count}`, PAGE.left + HEADER_LAYOUT.leftWidth + 8, headerTop + 78, {
+    doc.text(`FOLHA ${index + 1}/${range.count}`, PAGE.left + HEADER_LAYOUT.leftWidth + 8, headerTop + 81, {
       width: HEADER_LAYOUT.middleWidth - 16,
       align: 'center',
     })
@@ -989,13 +1059,6 @@ function drawColumnDividers(
     doc.moveTo(cursor, y).lineTo(cursor, y + height).stroke(COLORS.border)
     doc.restore()
   }
-}
-
-function drawHorizontalDivider(doc: PDFKit.PDFDocument, x: number, y: number, width: number) {
-  doc.save()
-  doc.lineWidth(LINE.thin)
-  doc.moveTo(x, y).lineTo(x + width, y).stroke(COLORS.border)
-  doc.restore()
 }
 
 function drawRect(doc: PDFKit.PDFDocument, x: number, y: number, width: number, height: number, fill = false) {
@@ -1165,6 +1228,13 @@ function mapDeliveryFormLabel(value: string) {
 }
 
 function formatMoney(value: number) {
+  return Number(value || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+function formatRate(value: number) {
   return Number(value || 0).toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

@@ -107,10 +107,10 @@ export async function evaluateCompanyFiscalReadiness(): Promise<FiscalReadinessS
   const supabase = await createClient()
 
   const [profileRes, envRes, certRes, federalRes, icmsLinksRes, ibscbsLinksRes] = await Promise.all([
-    supabase.from('company_fiscal_profile').select('*').order('created_at', { ascending: true }).limit(1).maybeSingle(),
-    supabase.from('company_fiscal_environment').select('*').order('created_at', { ascending: true }).limit(1).maybeSingle(),
-    supabase.from('company_certificate_config').select('*').order('created_at', { ascending: true }).limit(1).maybeSingle(),
-    supabase.from('emitter_federal_tax_config').select('id').order('created_at', { ascending: true }).limit(1).maybeSingle(),
+    supabase.from('company_fiscal_profile').select('*').order('updated_at', { ascending: false }).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('company_fiscal_environment').select('*').order('updated_at', { ascending: false }).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('company_certificate_config').select('*').order('updated_at', { ascending: false }).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('emitter_federal_tax_config').select('id').order('updated_at', { ascending: false }).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('emitter_icms_state_links').select('id').eq('is_active', true).limit(1),
     supabase.from('emitter_ibscbs_state_links').select('id, ibscbs_version_id').eq('is_active', true).limit(1),
   ])
@@ -311,4 +311,3 @@ export async function evaluateCompanyFiscalReadiness(): Promise<FiscalReadinessS
     isReadyForProduction: blockingCount === 0,
   }
 }
-

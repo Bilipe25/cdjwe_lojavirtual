@@ -10,6 +10,10 @@ import type {
   ValidationResult,
   ValidationError,
 } from './types'
+import {
+  getUnsupportedFiscalEmissionModeMessage,
+  isOperationalFiscalEmissionModeSupported,
+} from '@/lib/fiscal/emission-mode'
 
 /**
  * Validates a fiscal document before emission.
@@ -194,6 +198,25 @@ export function validateFiscalDocument(
       field: 'environment.proximo_numero_nfe',
       code: 'ENV_INVALID_NUMERO',
       message: 'Proximo numero de NF-e invalido.',
+      severity: 'error',
+    })
+  }
+
+  if (!ctx.environment.emissao_ativa) {
+    errors.push({
+      field: 'environment.emissao_ativa',
+      code: 'ENV_EMISSION_DISABLED',
+      message: 'A emissao fiscal esta desativada no ambiente de emissao.',
+      severity: 'error',
+    })
+  }
+
+  if (!isOperationalFiscalEmissionModeSupported(ctx.environment.tipo_emissao)) {
+    errors.push({
+      field: 'environment.tipo_emissao',
+      code: 'ENV_UNSUPPORTED_EMISSION_MODE',
+      message: getUnsupportedFiscalEmissionModeMessage(ctx.environment.tipo_emissao)
+        || 'O tipo de emissao configurado ainda nao esta operacional no fluxo atual.',
       severity: 'error',
     })
   }

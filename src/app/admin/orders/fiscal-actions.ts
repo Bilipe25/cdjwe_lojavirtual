@@ -67,6 +67,7 @@ export interface OrderFiscalWorkspacePayload {
     finalidadeNfe: OrderFiscalOperationPurpose
     presencaComprador: OrderFiscalBuyerPresence
     consumidorFinal: boolean
+    fiscalObservation: string | null
     freightMode: OrderFiscalFreightMode
     deliveryForm: OrderFiscalDeliveryForm
     transporterName: string | null
@@ -97,6 +98,7 @@ export interface SaveOrderFiscalWorkspaceInput {
   finalidadeNfe?: OrderFiscalOperationPurpose
   presencaComprador?: OrderFiscalBuyerPresence
   consumidorFinal?: boolean
+  fiscalObservation?: string | null
   freightMode?: OrderFiscalFreightMode
   deliveryForm?: OrderFiscalDeliveryForm
   transporterName?: string | null
@@ -293,6 +295,7 @@ async function buildWorkspacePayload(orderId: string): Promise<OrderFiscalWorksp
                     ? 'outros'
                     : 'internet',
       consumidorFinal: settingsRecord?.consumidor_final === true,
+      fiscalObservation: sanitizeText(settingsRecord?.fiscal_observation as string | undefined),
       freightMode:
         settingsRecord?.freight_mode === 'emitente' ||
         settingsRecord?.freight_mode === 'destinatario' ||
@@ -388,6 +391,7 @@ export async function saveOrderFiscalWorkspaceAction(input: SaveOrderFiscalWorks
       finalidade_nfe: input.finalidadeNfe || 'normal',
       presenca_comprador: input.presencaComprador || 'internet',
       consumidor_final: input.consumidorFinal === true,
+      fiscal_observation: sanitizeText(input.fiscalObservation),
       freight_mode: input.freightMode || 'sem_frete',
       delivery_form: input.deliveryForm || 'nao_informado',
       transporter_name: sanitizeText(input.transporterName),

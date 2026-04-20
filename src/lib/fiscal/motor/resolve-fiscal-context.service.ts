@@ -24,6 +24,7 @@ import type {
 } from './types'
 import { safeNumber } from './types'
 import { inferOperationDirectionFromCfop } from '@/lib/fiscal/order-fiscal-workspace'
+import { normalizeFiscalEmissionMode } from '@/lib/fiscal/emission-mode'
 
 function digitsOnly(value: string | null | undefined): string {
   return (value || '').replace(/\D/g, '')
@@ -281,13 +282,14 @@ async function loadEnvironmentContext(): Promise<FiscalCalculationResult<Environ
     return { success: false, error: { code: 'ENV_NOT_FOUND', message: 'Ambiente de emissao nao configurado.' } }
   }
 
-    return {
+  return {
     success: true,
     data: {
       ambiente: env.ambiente === 'producao' ? 'producao' : 'homologacao',
       serie_nfe: env.serie_padrao_nfe || '1',
       proximo_numero_nfe: safeNumber(env.proximo_numero_nfe, 1),
-      tipo_emissao: env.tipo_emissao || '1',
+      tipo_emissao: normalizeFiscalEmissionMode(env.tipo_emissao),
+      emissao_ativa: env.emissao_ativa === true,
       modalidade_frete_padrao: env.modalidade_frete_padrao || 'destinatario',
       natureza_operacao: env.natureza_operacao || 'VENDA DE MERCADORIA',
       desconto_impostos_prazo: env.desconto_impostos_prazo !== false,
@@ -325,6 +327,7 @@ async function loadOrderItemsContext(
       cfop_override_code,
       tax_profile_id,
       product_variant:product_variants(
+        sku,
         product_id,
         product:products(
           id,
@@ -603,6 +606,7 @@ async function loadOrderItemsContext(
     items.push({
       order_item_id: item.id as string,
       product_variant_id: item.product_variant_id as string,
+      sku: normalizeOptionalText((variant?.sku as string | undefined) || null),
       product_name: (item.product_name as string) || '',
       fabric_name: normalizeOptionalText(item.fabric_name as string | undefined),
       color_name: normalizeOptionalText(item.color_name as string | undefined),

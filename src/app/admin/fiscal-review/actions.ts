@@ -21,6 +21,8 @@ import {
   generateDanfePdf,
 } from '@/lib/fiscal/transport'
 import type { FiscalDocumentPayload } from '@/lib/fiscal/motor'
+import { UF_CODES } from '@/lib/fiscal/transport/types'
+import { normalizeFiscalEmissionMode } from '@/lib/fiscal/emission-mode'
 import type {
   FiscalDocumentDetail,
   FiscalDocumentEventItem,
@@ -161,7 +163,8 @@ export async function getFiscalEmissionEnvironmentAction() {
   const { data, error } = await serviceRole
     .from('company_fiscal_environment')
     .select('ambiente, emissao_ativa, tipo_emissao, serie_padrao_nfe, proximo_numero_nfe, serie_nfce, proximo_numero_nfce')
-    .order('created_at', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
@@ -175,7 +178,7 @@ export async function getFiscalEmissionEnvironmentAction() {
       ? {
         ambiente: data.ambiente === 'producao' ? 'producao' : 'homologacao',
         emissaoAtiva: data.emissao_ativa === true,
-        tipoEmissao: String(data.tipo_emissao || 'normal'),
+        tipoEmissao: normalizeFiscalEmissionMode(data.tipo_emissao),
         seriePadraoNfe: data.serie_padrao_nfe ? String(data.serie_padrao_nfe) : null,
         proximoNumeroNfe: typeof data.proximo_numero_nfe === 'number' ? data.proximo_numero_nfe : null,
         serieNfce: data.serie_nfce ? String(data.serie_nfce) : null,
@@ -305,28 +308,33 @@ export async function checkSefazStatusAction() {
     const { data: profile } = await serviceRole
       .from('company_fiscal_profile')
       .select('fiscal_state')
+      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
     const { data: envConfig } = await serviceRole
       .from('company_fiscal_environment')
-      .select('ambiente')
+      .select('ambiente, tipo_emissao')
+      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
     const uf = profile?.fiscal_state?.toUpperCase() || 'SP'
     const ambiente = envConfig?.ambiente === 'producao' ? 'producao' as const : 'homologacao' as const
     const tpAmb = ambiente === 'producao' ? 1 : 2
+    const cUF = UF_CODES[uf] || 35
 
     const statusXml = [
       '<consStatServ xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">',
       `<tpAmb>${tpAmb}</tpAmb>`,
-      '<cUF>35</cUF>',
+      `<cUF>${cUF}</cUF>`,
       '<xServ>STATUS</xServ>',
       '</consStatServ>',
     ].join('')
 
-    const endpoint = getSefazEndpoint(uf, ambiente, 'NfeStatusServico')
+    const endpoint = getSefazEndpoint(uf, ambiente, 'NfeStatusServico', envConfig?.tipo_emissao || 'normal')
     const response = await sendSoapRequest(endpoint, statusXml, 'NFeStatusServico4')
 
     return {

@@ -1,6 +1,7 @@
 import 'server-only'
 
 import type { FiscalDocumentPayload, ItemTaxBreakdown } from '../motor/types'
+import { normalizeAdditionalInfoPart } from '@/lib/fiscal/additional-info'
 
 export interface FiscalDocumentSnapshot extends FiscalDocumentPayload {
   order: {
@@ -9,6 +10,7 @@ export interface FiscalDocumentSnapshot extends FiscalDocumentPayload {
     paymentMethodCode?: string | null
     paymentMethodName?: string | null
     paymentInstallments?: number | null
+    fiscalObservation?: string | null
     notes?: string | null
     shippingAddress?: string | null
     total?: number | null
@@ -27,6 +29,7 @@ export interface FiscalDocumentSnapshot extends FiscalDocumentPayload {
     codigoStatus: number | null
     motivoStatus: string | null
     digestValue: string | null
+    additionalInfoResolved?: string | null
   }
 }
 
@@ -38,6 +41,7 @@ export function buildFiscalDocumentSnapshot(params: {
     paymentMethodCode?: string | null
     paymentMethodName?: string | null
     paymentInstallments?: number | null
+    fiscalObservation?: string | null
     notes?: string | null
     shippingAddress?: string | null
     total?: number | null
@@ -56,6 +60,7 @@ export function buildFiscalDocumentSnapshot(params: {
     codigoStatus: number | null
     motivoStatus: string | null
     digestValue: string | null
+    additionalInfoResolved?: string | null
   }
 }): FiscalDocumentSnapshot {
   return {
@@ -78,6 +83,15 @@ export function parseFiscalDocumentSnapshot(value: unknown): FiscalDocumentSnaps
 
 export function getSnapshotAdditionalInfo(snapshot: FiscalDocumentSnapshot | null): string | null {
   if (!snapshot) return null
+
+  if (Object.prototype.hasOwnProperty.call(snapshot.document, 'additionalInfoResolved')) {
+    return normalizeAdditionalInfoPart(snapshot.document.additionalInfoResolved)
+  }
+
+  const hasFiscalObservation = Object.prototype.hasOwnProperty.call(snapshot.order, 'fiscalObservation')
+  const freeTextObservation = hasFiscalObservation
+    ? snapshot.order.fiscalObservation
+    : snapshot.order.notes
 
   const paymentSummary = [
     snapshot.order.paymentMethodName,
@@ -104,10 +118,10 @@ export function getSnapshotAdditionalInfo(snapshot: FiscalDocumentSnapshot | nul
     snapshot.totals.vTotTrib > 0
       ? `Tributos aproximados (Lei 12.741): R$ ${Number(snapshot.totals.vTotTrib || 0).toFixed(2)}`
       : null,
-    snapshot.order.notes,
+    freeTextObservation,
     snapshot.order.shippingAddress ? `Endereco de entrega: ${snapshot.order.shippingAddress}` : null,
   ]
-    .map((value) => (value || '').trim())
+    .map((value) => normalizeAdditionalInfoPart(value))
     .filter(Boolean)
 
   return parts.length > 0 ? parts.join(' | ') : null
@@ -120,18 +134,34 @@ function isUuidLike(value: string | null | undefined) {
 
 function buildItemVariantDescription(item: ItemTaxBreakdown) {
   const variantParts = [
-    item.fabric_name ? `Tecido: ${item.fabric_name}` : null,
-    item.color_name ? `Cor: ${item.color_name}` : null,
-    item.size_name ? `Tamanho: ${item.size_name}` : item.size ? `Tamanho: ${item.size}` : null,
+    item.color_name || null,
+    item.fabric_name || null,
+    item.size_name ? item.size_name : item.size ? item.size : null,
   ].filter(Boolean)
 
-  return variantParts.length > 0 ? `${item.product_name}\n${variantParts.join(' | ')}` : item.product_name
+  const primaryLine = variantParts.length > 0
+    ? `${item.product_name} - (${variantParts.join(' - ')})`
+    : item.product_name
+
+  const lines: string[] = [primaryLine]
+
+  if (item.inf_ad_prod) {
+    lines.push(
+      ...item.inf_ad_prod
+        .split('|')
+        .map((part) => part.trim())
+        .filter(Boolean)
+    )
+  }
+
+  return lines.join('\n')
 }
 
 export function snapshotItemToDanfeItem(item: ItemTaxBreakdown, index: number = 0) {
   const fallbackCode = String(index + 1).padStart(3, '0')
-  const rawCode = item.product_variant_id || item.order_item_id || ''
-  const code = isUuidLike(rawCode) ? fallbackCode : rawCode.substring(0, 14)
+  const sku = (item.sku || '').trim()
+  const rawCode = sku || item.product_variant_id || item.order_item_id || ''
+  const code = sku ? sku.substring(0, 14) : (isUuidLike(rawCode) ? fallbackCode : fallbackCode)
 
   return {
     code,
@@ -142,12 +172,14 @@ export function snapshotItemToDanfeItem(item: ItemTaxBreakdown, index: number = 
     unit: item.commercial_unit || item.tax_unit || 'UN',
     quantity: item.quantity,
     unitPrice: item.fiscal_unit_value,
+    discountValue: item.fiscal_discount_value,
     totalValue: item.fiscal_total_value,
     icmsBase: item.icms.base,
     icmsValue: item.icms.value,
     icmsRate: item.aliquota_icms || item.icms.rate,
     ipiValue: item.ipi.value,
     ipiRate: item.aliquota_ipi || item.ipi.rate,
+    totalTributos: item.total_tributos,
     additionalInfo: item.inf_ad_prod || null,
   }
 }

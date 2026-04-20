@@ -589,6 +589,7 @@ export interface OrderFiscalSettings {
   finalidade_nfe: OrderFiscalOperationPurpose
   presenca_comprador: OrderFiscalBuyerPresence
   consumidor_final: boolean
+  fiscal_observation: string | null
   freight_mode: OrderFiscalFreightMode
   delivery_form: OrderFiscalDeliveryForm
   transporter_name: string | null
@@ -938,6 +939,25 @@ export type CRT = '1' | '2' | '3'
 export type CertificateStatus = 'active' | 'expired' | 'revoked' | 'pending'
 export type AmbienteFiscal = 'homologacao' | 'producao'
 
+export interface FiscalAdditionalInfoFlags {
+  mostrar_numero_pedido: boolean
+  mostrar_condicao_pagamento: boolean
+  mostrar_natureza_operacao: boolean
+  mostrar_forma_entrega: boolean
+  mostrar_frete_seguro_outras_despesas: boolean
+  mostrar_tributos_aproximados: boolean
+  mostrar_endereco_entrega: boolean
+  mostrar_observacao_fiscal_pedido: boolean
+  mostrar_observacoes_padrao: boolean
+}
+
+export interface CompanyFiscalEnvironmentParams {
+  item_info_fields?: Record<string, unknown>[] | null
+  observacoes_padrao?: string[] | null
+  additional_info_flags?: Partial<FiscalAdditionalInfoFlags> | null
+  [key: string]: unknown
+}
+
 export interface CompanyFiscalProfile {
   id: string
   razao_social: string
@@ -989,7 +1009,7 @@ export interface CompanyFiscalEnvironment {
   frete_base_icms: boolean
   modalidade_frete_padrao: string
   // JSONB bag for item info toggles, default notes, etc.
-  parametros_jsonb: Record<string, unknown> | null
+  parametros_jsonb: CompanyFiscalEnvironmentParams | null
   created_at: string
   updated_at: string
 }

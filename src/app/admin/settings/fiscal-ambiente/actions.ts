@@ -3,6 +3,11 @@
 import { createClient } from '@/lib/supabase/server'
 import type { CompanyFiscalEnvironment } from '@/lib/types'
 import { evaluateCompanyFiscalReadiness } from '@/lib/fiscal/company-readiness'
+import { normalizeFiscalEmissionMode } from '@/lib/fiscal/emission-mode'
+import {
+  sanitizeAdditionalInfoFlags,
+  sanitizeAdditionalStandardNotes,
+} from '@/lib/fiscal/additional-info'
 
 export async function loadFiscalEnvironmentAction(): Promise<{ data: CompanyFiscalEnvironment | null; error: string | null }> {
   const supabase = await createClient()
@@ -101,6 +106,15 @@ export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentIn
   }
 
   const supabase = await createClient()
+  const params = input.parametros_jsonb || {}
+  const sanitizedParametrosJsonb = {
+    ...params,
+    item_info_fields: Array.isArray(params.item_info_fields) ? params.item_info_fields : [],
+    observacoes_padrao: sanitizeAdditionalStandardNotes(params.observacoes_padrao),
+    additional_info_flags: sanitizeAdditionalInfoFlags(
+      params.additional_info_flags as Record<string, unknown> | undefined
+    ),
+  }
   const existingEnvironment = input.id
     ? { data: { id: input.id }, error: null }
     : await supabase
@@ -119,7 +133,7 @@ export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentIn
     ambiente: input.ambiente,
     serie_padrao_nfe: input.serie_padrao_nfe,
     proximo_numero_nfe: input.proximo_numero_nfe,
-    tipo_emissao: input.tipo_emissao || 'normal',
+    tipo_emissao: normalizeFiscalEmissionMode(input.tipo_emissao),
     emissao_ativa: input.emissao_ativa,
     max_itens_por_nota: input.max_itens_por_nota,
     ultima_nota_nfe: input.ultima_nota_nfe,
@@ -134,7 +148,7 @@ export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentIn
     icms_base_pis_cofins: input.icms_base_pis_cofins,
     frete_base_icms: input.frete_base_icms,
     modalidade_frete_padrao: input.modalidade_frete_padrao,
-    parametros_jsonb: input.parametros_jsonb,
+    parametros_jsonb: sanitizedParametrosJsonb,
   }
 
   const targetEnvironmentId = existingEnvironment.data?.id || null

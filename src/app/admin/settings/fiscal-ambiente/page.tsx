@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,7 +48,15 @@ import { FiscalHelpText } from '../components/FiscalHelpText'
 import { FiscalReadinessCard } from '../components/FiscalReadinessCard'
 import { FiscalPageSummaryPanel } from '../components/FiscalPageSummaryPanel'
 import { loadFiscalEnvironmentAction, saveFiscalEnvironmentAction } from './actions'
-import type { CompanyFiscalEnvironment } from '@/lib/types'
+import type { CompanyFiscalEnvironment, FiscalAdditionalInfoFlags } from '@/lib/types'
+import {
+  isOperationalFiscalEmissionModeSupported,
+  normalizeFiscalEmissionMode,
+} from '@/lib/fiscal/emission-mode'
+import {
+  DEFAULT_ADDITIONAL_INFO_FLAGS,
+  parseFiscalEnvironmentParams,
+} from '@/lib/fiscal/additional-info'
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -61,6 +70,19 @@ const TIPO_EMISSAO_OPTIONS = [
   { value: 'contingencia_svcan', label: 'Contingência SVC-AN' },
   { value: 'contingencia_svcrs', label: 'Contingência SVC-RS' },
 ]
+
+const TIPO_EMISSAO_RUNTIME_OPTIONS = TIPO_EMISSAO_OPTIONS.map((option) => ({
+  ...option,
+  supported: isOperationalFiscalEmissionModeSupported(option.value),
+}))
+
+const DISABLED_RUNTIME_NOTE =
+  'Este controle permanece salvo, mas ainda nao alimenta a emissao real nem o preview da DANFE no fluxo atual.'
+
+const DISABLED_RUNTIME_KEYS = new Set([
+  'descontoImpostosPrazo',
+  'bloquearRetornoParcialRemessa',
+])
 
 const MODALIDADE_FRETE_OPTIONS = [
   { value: 'emitente', label: 'Contratação do Frete por conta do remetente (CIF)' },
@@ -95,6 +117,58 @@ const DEFAULT_ITEM_INFO_FIELDS: ItemInfoField[] = [
   { key: 'produto_fabricante', label: 'Produto - Fabricante', legend: 'Fabricante', enabled: true },
 ]
 
+const ADDITIONAL_INFO_FLAG_OPTIONS: Array<{
+  key: keyof FiscalAdditionalInfoFlags
+  label: string
+  help: string
+}> = [
+  {
+    key: 'mostrar_numero_pedido',
+    label: 'Mostrar numero do pedido',
+    help: 'Inclui o identificador comercial do pedido em Dados adicionais da DANFE e no XML fiscal.',
+  },
+  {
+    key: 'mostrar_condicao_pagamento',
+    label: 'Mostrar condicao de pagamento',
+    help: 'Exibe a forma de pagamento e a quantidade de parcelas quando houver informacao util.',
+  },
+  {
+    key: 'mostrar_natureza_operacao',
+    label: 'Mostrar natureza da operacao',
+    help: 'Reflete a natureza operacional efetiva do pedido no bloco de observacoes fiscais.',
+  },
+  {
+    key: 'mostrar_forma_entrega',
+    label: 'Mostrar forma de entrega',
+    help: 'Inclui retirada, transportadora, frota propria, correios ou outro modo configurado no pedido.',
+  },
+  {
+    key: 'mostrar_frete_seguro_outras_despesas',
+    label: 'Mostrar frete, seguro e outras despesas',
+    help: 'Exibe os componentes financeiros complementares apenas quando tiverem valor maior que zero.',
+  },
+  {
+    key: 'mostrar_tributos_aproximados',
+    label: 'Mostrar tributos aproximados',
+    help: 'Acrescenta a linha da Lei 12.741 com o total aproximado de tributos do documento.',
+  },
+  {
+    key: 'mostrar_endereco_entrega',
+    label: 'Mostrar endereco de entrega',
+    help: 'Inclui o endereco logico de entrega do pedido na observacao fiscal resolvida.',
+  },
+  {
+    key: 'mostrar_observacao_fiscal_pedido',
+    label: 'Mostrar observacao fiscal do pedido',
+    help: 'Controla se o texto digitado na subtab Geral do pedido entra ou nao na DANFE/XML.',
+  },
+  {
+    key: 'mostrar_observacoes_padrao',
+    label: 'Mostrar observacoes padrao globais',
+    help: 'Acrescenta notas fixas da empresa em todos os previews e documentos novos emitidos.',
+  },
+]
+
 /* ------------------------------------------------------------------ */
 /*  Form state                                                         */
 /* ------------------------------------------------------------------ */
@@ -125,6 +199,7 @@ interface FormState {
   modalidadeFretePadrao: string
   // JSONB-backed
   itemInfoFields: ItemInfoField[]
+  additionalInfoFlags: FiscalAdditionalInfoFlags
   observacoesPadrao: string[]
 }
 
@@ -148,6 +223,7 @@ const initialForm: FormState = {
   freteBaseIcms: false,
   modalidadeFretePadrao: 'destinatario',
   itemInfoFields: DEFAULT_ITEM_INFO_FIELDS,
+  additionalInfoFlags: DEFAULT_ADDITIONAL_INFO_FLAGS,
   observacoesPadrao: [],
 }
 
@@ -155,8 +231,8 @@ function buildFormState(record: CompanyFiscalEnvironment | null): FormState {
   if (!record) return initialForm
 
   const params = (record.parametros_jsonb || {}) as Record<string, unknown>
+  const parsedParams = parseFiscalEnvironmentParams(params)
   const savedItems = Array.isArray(params.item_info_fields) ? (params.item_info_fields as ItemInfoField[]) : null
-  const savedObs = Array.isArray(params.observacoes_padrao) ? (params.observacoes_padrao as string[]) : []
 
   return {
     ambiente: record.ambiente || 'homologacao',
@@ -169,7 +245,7 @@ function buildFormState(record: CompanyFiscalEnvironment | null): FormState {
     cscIdNfce: record.csc_id_nfce || '',
     cscNumeroNfce: record.csc_numero_nfce || '',
     maxItensPorNota: record.max_itens_por_nota?.toString() || '100',
-    tipoEmissao: record.tipo_emissao || 'normal',
+    tipoEmissao: normalizeFiscalEmissionMode(record.tipo_emissao),
     emissaoAtiva: record.emissao_ativa || false,
     codigoReferenciaNota: record.codigo_referencia_nota || 'codigo_interno',
     descontoImpostosPrazo: record.desconto_impostos_prazo ?? true,
@@ -178,7 +254,8 @@ function buildFormState(record: CompanyFiscalEnvironment | null): FormState {
     freteBaseIcms: record.frete_base_icms ?? false,
     modalidadeFretePadrao: record.modalidade_frete_padrao || 'destinatario',
     itemInfoFields: savedItems || DEFAULT_ITEM_INFO_FIELDS,
-    observacoesPadrao: savedObs,
+    additionalInfoFlags: parsedParams.additionalInfoFlags,
+    observacoesPadrao: parsedParams.observacoesPadrao,
   }
 }
 
@@ -196,9 +273,23 @@ export default function FiscalAmbientePage() {
   const [savedForm, setSavedForm] = useState<FormState>(initialForm)
 
   const hasChanges = useMemo(() => JSON.stringify(form) !== JSON.stringify(savedForm), [form, savedForm])
+  const unsupportedEmissionMode = useMemo(
+    () => !isOperationalFiscalEmissionModeSupported(form.tipoEmissao),
+    [form.tipoEmissao]
+  )
 
   const updateField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }, [])
+
+  const toggleAdditionalInfoFlag = useCallback((key: keyof FiscalAdditionalInfoFlags, value: boolean) => {
+    setForm((prev) => ({
+      ...prev,
+      additionalInfoFlags: {
+        ...prev.additionalInfoFlags,
+        [key]: value,
+      },
+    }))
   }, [])
 
   useEffect(() => {
@@ -291,6 +382,7 @@ export default function FiscalAmbientePage() {
       modalidade_frete_padrao: form.modalidadeFretePadrao,
       parametros_jsonb: {
         item_info_fields: form.itemInfoFields,
+        additional_info_flags: form.additionalInfoFlags,
         observacoes_padrao: form.observacoesPadrao.filter((o) => o.trim()),
       },
     })
@@ -617,6 +709,7 @@ export default function FiscalAmbientePage() {
                         value={option.value}
                         checked={form.codigoReferenciaNota === option.value}
                         onChange={() => updateField('codigoReferenciaNota', option.value)}
+                        disabled
                         className="peer sr-only"
                       />
                       <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30 peer-checked:border-blue-600 transition-colors" />
@@ -626,6 +719,9 @@ export default function FiscalAmbientePage() {
                   </label>
                 ))}
               </div>
+              <p className="text-xs text-amber-700">
+                {DISABLED_RUNTIME_NOTE}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -671,9 +767,15 @@ export default function FiscalAmbientePage() {
                       {item.label}
                       <FiscalHelpText text={item.help} />
                     </Label>
+                    {DISABLED_RUNTIME_KEYS.has(item.key) && (
+                      <p className="mt-1 text-xs text-amber-700">
+                        {DISABLED_RUNTIME_NOTE}
+                      </p>
+                    )}
                   </div>
                   <Switch
                     checked={form[item.key]}
+                    disabled={DISABLED_RUNTIME_KEYS.has(item.key)}
                     onCheckedChange={(value) => updateField(item.key, value)}
                   />
                 </div>
@@ -724,26 +826,65 @@ export default function FiscalAmbientePage() {
                   </div>
                   <Switch
                     checked={field.enabled}
+                    disabled
                     onCheckedChange={() => toggleItemInfo(field.key)}
                   />
                 </div>
                 {index < form.itemInfoFields.length - 1 && <Separator />}
               </div>
             ))}
+            <div className="px-1 pb-1 text-xs text-amber-700">
+              {DISABLED_RUNTIME_NOTE}
+            </div>
           </CardContent>
         </Card>
 
         {/* ══════════════════════════════════════════════════════════ */}
-        {/* 6) OBSERVAÇÕES PADRÃO                                     */}
+        {/* 6) COMPOSIÇÃO DE DADOS ADICIONAIS                         */}
         {/* ══════════════════════════════════════════════════════════ */}
         <Card className="glass-card border-0">
           <CardHeader>
             <CardTitle className="text-lg font-heading flex items-center gap-2">
               <MessageSquarePlus className="h-5 w-5 text-bronze" />
-              Observações padrão
+              Composição de Dados adicionais
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
+            <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+              Esta composição governa o texto final de <strong>Dados adicionais</strong> na DANFE e do
+              <strong> infAdic.infCpl</strong> no XML fiscal. O mesmo formatter é aplicado no preview,
+              na emissão e no snapshot dos novos documentos.
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {ADDITIONAL_INFO_FLAG_OPTIONS.map((item) => (
+                <div key={item.key} className="rounded-xl border bg-white/60 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <Label className="flex items-center gap-1 text-sm font-medium cursor-pointer">
+                        {item.label}
+                        <FiscalHelpText text={item.help} />
+                      </Label>
+                      <p className="text-xs text-muted-foreground">{item.help}</p>
+                    </div>
+                    <Switch
+                      checked={form.additionalInfoFlags[item.key]}
+                      onCheckedChange={(value) => toggleAdditionalInfoFlag(item.key, value)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">Observações padrão globais</Label>
+              <p className="text-xs text-muted-foreground">
+                Essas notas entram nos novos previews e documentos emitidos quando a flag
+                <strong> Mostrar observações padrão globais</strong> estiver habilitada.
+              </p>
+            </div>
             {form.observacoesPadrao.length === 0 ? (
               <div className="rounded-xl border border-dashed p-8 text-center">
                 <p className="text-sm text-muted-foreground">Nenhuma observação cadastrada</p>
@@ -752,11 +893,11 @@ export default function FiscalAmbientePage() {
               <div className="space-y-3">
                 {form.observacoesPadrao.map((obs, index) => (
                   <div key={index} className="flex items-start gap-2">
-                    <Input
+                    <Textarea
                       value={obs}
                       onChange={(e) => updateObservacao(index, e.target.value)}
                       placeholder="Digite a observação padrão..."
-                      className="bg-white/60 flex-1"
+                      className="min-h-20 bg-white/60 flex-1 resize-y"
                     />
                     <Button
                       type="button"
@@ -804,13 +945,16 @@ export default function FiscalAmbientePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {TIPO_EMISSAO_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
+                  {TIPO_EMISSAO_RUNTIME_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value} disabled={!option.supported}>
                       {option.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className={`text-xs ${unsupportedEmissionMode ? 'text-red-600' : 'text-muted-foreground'}`}>
+                O fluxo operacional atual suporta emissao Normal, SVC-AN e SVC-RS. Modos legados ficam salvos, mas bloqueiam emissao real.
+              </p>
             </div>
 
             <Separator />

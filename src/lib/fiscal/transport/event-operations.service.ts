@@ -128,7 +128,12 @@ export async function cancelNFe(
     ].join('')
 
     // 6. Send to SEFAZ
-    const endpoint = getSefazEndpoint(uf, ambiente, 'NfeRecepcaoEvento')
+    const endpoint = getSefazEndpoint(
+      uf,
+      ambiente,
+      'NfeRecepcaoEvento',
+      snapshot.context.environment.tipo_emissao || 'normal'
+    )
     const response = await sendSoapRequest(endpoint, envEventoXml, 'NFeRecepcaoEvento4')
 
     // 7. Parse response
@@ -305,7 +310,12 @@ export async function sendCartaCorrecao(
     ].join('')
 
     // 6. Send to SEFAZ
-    const endpoint = getSefazEndpoint(uf, ambiente, 'NfeRecepcaoEvento')
+    const endpoint = getSefazEndpoint(
+      uf,
+      ambiente,
+      'NfeRecepcaoEvento',
+      snapshot.context.environment.tipo_emissao || 'normal'
+    )
     const response = await sendSoapRequest(endpoint, envEventoXml, 'NFeRecepcaoEvento4')
 
     // 7. Parse

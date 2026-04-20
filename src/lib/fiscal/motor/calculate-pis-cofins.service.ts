@@ -28,7 +28,8 @@ const COFINS_ZERO_CSTS = ['04', '05', '06', '07', '08', '09']
 export function calculatePis(
   item: FiscalItemContext,
   ctx: FiscalContext,
-  discountValue: number = 0
+  discountValue: number = 0,
+  icmsValue: number = 0
 ): PisCofinsItemBreakdown {
   // Resolve CST (priority: profile → default 01)
   const cst = item.tax_profile.pis_cst || '01'
@@ -41,9 +42,9 @@ export function calculatePis(
   const productValue = item.quantity * item.unit_price
   let base = productValue - discountValue
 
-  // If icms_base_pis_cofins is enabled, include ICMS in the PIS/COFINS base
-  // (default behavior for Lucro Presumido: base = revenue value)
-  // When disabled, ICMS is NOT included (some court decisions allow exclusion)
+  if (!ctx.environment.icms_base_pis_cofins) {
+    base -= icmsValue
+  }
 
   base = roundFiscal(Math.max(0, base))
 
@@ -61,7 +62,8 @@ export function calculatePis(
 export function calculateCofins(
   item: FiscalItemContext,
   ctx: FiscalContext,
-  discountValue: number = 0
+  discountValue: number = 0,
+  icmsValue: number = 0
 ): PisCofinsItemBreakdown {
   const cst = item.tax_profile.cofins_cst || '01'
 
@@ -71,6 +73,10 @@ export function calculateCofins(
 
   const productValue = item.quantity * item.unit_price
   let base = productValue - discountValue
+
+  if (!ctx.environment.icms_base_pis_cofins) {
+    base -= icmsValue
+  }
 
   base = roundFiscal(Math.max(0, base))
 

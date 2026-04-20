@@ -98,8 +98,8 @@ export function buildFiscalDocument(
     const st = calculateIcmsSt(item, ctx, icms, ipi.value, itemFreight)
 
     // PIS/COFINS
-    const pis = calculatePis(item, ctx, itemDiscount)
-    const cofins = calculateCofins(item, ctx, itemDiscount)
+    const pis = calculatePis(item, ctx, itemDiscount, icms.value)
+    const cofins = calculateCofins(item, ctx, itemDiscount, icms.value)
 
     // IBS/CBS
     const ibscbs = calculateIbsCbs(item)
@@ -123,6 +123,7 @@ export function buildFiscalDocument(
     itemBreakdowns.push({
       order_item_id: item.order_item_id,
       product_variant_id: item.product_variant_id,
+      sku: item.sku,
       product_name: item.product_name,
       fabric_name: item.fabric_name,
       color_name: item.color_name,

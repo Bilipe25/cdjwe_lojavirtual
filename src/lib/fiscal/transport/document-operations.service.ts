@@ -43,7 +43,12 @@ export async function consultNFeStatus(
     const ambiente = normalizeAmbiente(doc.ambiente)
     const tpAmb = ambiente === 'producao' ? 1 : 2
 
-    const endpoint = getSefazEndpoint(emitterUf, ambiente, 'NfeConsultaProtocolo')
+    const endpoint = getSefazEndpoint(
+      emitterUf,
+      ambiente,
+      'NfeConsultaProtocolo',
+      snapshot?.context.environment.tipo_emissao || 'normal'
+    )
     const requestXml = buildConsultaProtocoloRequestXml(tpAmb, doc.chave_acesso)
     const response = await sendSoapRequest(endpoint, requestXml, 'NFeConsultaProtocolo4')
     const sefazResult = parseSefazConsultaProtocoloResponse(response.parsed)
@@ -150,7 +155,12 @@ export async function inutilizeNFeRange(params: {
     })
 
     const signedXml = signInutilizacaoXml(xml, infInutId, certData)
-    const endpoint = getSefazEndpoint(String(profile.fiscal_state || 'SP').toUpperCase(), ambiente, 'NfeInutilizacao')
+    const endpoint = getSefazEndpoint(
+      String(profile.fiscal_state || 'SP').toUpperCase(),
+      ambiente,
+      'NfeInutilizacao',
+      environment.tipo_emissao || 'normal'
+    )
     const response = await sendSoapRequest(endpoint, signedXml, 'NFeInutilizacao4')
     const sefazResult = parseSefazInutilizacaoResponse(response.parsed)
     const duration = Date.now() - startTime
@@ -211,6 +221,8 @@ async function loadEmitterUf(): Promise<string> {
   const { data } = await supabase
     .from('company_fiscal_profile')
     .select('fiscal_state')
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
@@ -222,6 +234,8 @@ async function loadCompanyProfile() {
   const { data } = await supabase
     .from('company_fiscal_profile')
     .select('cnpj, fiscal_state')
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
@@ -232,7 +246,9 @@ async function loadCompanyEnvironment() {
   const supabase = createServiceRoleClient()
   const { data } = await supabase
     .from('company_fiscal_environment')
-    .select('id, ambiente, proximo_numero_nfe, proximo_numero_nfce')
+    .select('id, ambiente, tipo_emissao, proximo_numero_nfe, proximo_numero_nfce')
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
