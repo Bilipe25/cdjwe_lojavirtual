@@ -155,18 +155,44 @@ function normalizeCfopCode(value?: string | null) {
 function getCfopSourceLabel(value?: string | null) {
   switch (value) {
     case 'item_override':
-      return 'override por item'
+      return 'Override por item'
     case 'order_global':
-      return 'cfop global'
+      return 'CFOP global'
     case 'rule_override':
-      return 'regra fiscal'
+      return 'Regra fiscal'
     case 'profile_default':
-      return 'perfil tributario'
+      return 'Perfil tributario'
     case 'geographic_inference':
-      return 'inferencia geografica'
+      return 'Inferencia geografica'
     default:
-      return 'pending'
+      return 'Pendente'
   }
+}
+
+function getSelectOptionLabel<T extends string>(
+  options: Array<{ value: T; label: string }>,
+  value?: T | string | null,
+  fallback: string = 'Nao definido'
+) {
+  const matched = options.find((option) => option.value === value)
+  return matched?.label || fallback
+}
+
+function getNaturezaDisplayLabel(
+  naturezaOperacaoId: string,
+  natureCatalog: Array<{ id: string; descricao: string }>,
+  naturezaSnapshot: Record<string, unknown> | null | undefined
+) {
+  if (!naturezaOperacaoId) {
+    return 'Sem natureza definida'
+  }
+
+  const matched = natureCatalog.find((natureza) => natureza.id === naturezaOperacaoId)
+  if (matched?.descricao) {
+    return matched.descricao
+  }
+
+  return getNaturezaSnapshotDescription(naturezaSnapshot) || 'Natureza selecionada'
 }
 
 function toCurrencyString(value: number) {
@@ -368,6 +394,30 @@ export function OrderFiscalWorkspaceTabs({
   const selectedNatureza = useMemo(
     () => natureCatalog.find((natureza) => natureza.id === form?.naturezaOperacaoId) || null,
     [natureCatalog, form?.naturezaOperacaoId]
+  )
+  const naturezaSelectLabel = useMemo(
+    () => getNaturezaDisplayLabel(
+      form?.naturezaOperacaoId || '',
+      natureCatalog,
+      workspace?.settings.naturezaOperacaoSnapshot
+    ),
+    [form?.naturezaOperacaoId, natureCatalog, workspace?.settings.naturezaOperacaoSnapshot]
+  )
+  const finalidadeSelectLabel = useMemo(
+    () => getSelectOptionLabel(PURPOSE_OPTIONS, form?.finalidadeNfe, 'Selecione a finalidade'),
+    [form?.finalidadeNfe]
+  )
+  const buyerPresenceSelectLabel = useMemo(
+    () => getSelectOptionLabel(BUYER_PRESENCE_OPTIONS, form?.presencaComprador, 'Selecione a presenca'),
+    [form?.presencaComprador]
+  )
+  const freightModeSelectLabel = useMemo(() => {
+    const matched = FREIGHT_MODE_OPTIONS.find((option) => option.value === form?.freightMode)
+    return matched ? `${matched.sefazCode} - ${matched.label}` : 'Selecione a modalidade do frete'
+  }, [form?.freightMode])
+  const deliveryFormSelectLabel = useMemo(
+    () => getSelectOptionLabel(DELIVERY_FORM_OPTIONS, form?.deliveryForm, 'Selecione a forma de entrega'),
+    [form?.deliveryForm]
   )
   const selectedCfopOption = (() => {
     if (!form?.cfopGlobalCode) return null
@@ -657,7 +707,9 @@ export function OrderFiscalWorkspaceTabs({
                       onValueChange={(nextValue) => handleFieldChange('naturezaOperacaoId', !nextValue || nextValue === '__none__' ? '' : nextValue)}
                     >
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Selecione a natureza da operacao" />
+                        <SelectValue placeholder="Selecione a natureza da operacao">
+                          {naturezaSelectLabel}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">Sem natureza definida</SelectItem>
@@ -684,7 +736,7 @@ export function OrderFiscalWorkspaceTabs({
                       onValueChange={(nextValue) => handleFieldChange('finalidadeNfe', nextValue as OrderFiscalOperationPurpose)}
                     >
                       <SelectTrigger className="w-full">
-                        <SelectValue />
+                        <SelectValue>{finalidadeSelectLabel}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {PURPOSE_OPTIONS.map((option) => (
@@ -703,7 +755,7 @@ export function OrderFiscalWorkspaceTabs({
                       onValueChange={(nextValue) => handleFieldChange('presencaComprador', nextValue as OrderFiscalBuyerPresence)}
                     >
                       <SelectTrigger className="w-full">
-                        <SelectValue />
+                        <SelectValue>{buyerPresenceSelectLabel}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {BUYER_PRESENCE_OPTIONS.map((option) => (
@@ -888,7 +940,7 @@ export function OrderFiscalWorkspaceTabs({
                           <TableCell>
                             <div className="flex flex-col">
                               <span className="font-mono text-xs">{item.cfop}</span>
-                              <span className="text-[11px] text-muted-foreground">{item.cfopSource}</span>
+                              <span className="text-[11px] text-muted-foreground">{getCfopSourceLabel(item.cfopSource)}</span>
                             </div>
                           </TableCell>
                           <TableCell className="text-right">{toCurrencyString(item.icms)}</TableCell>
@@ -915,7 +967,7 @@ export function OrderFiscalWorkspaceTabs({
                     onValueChange={(nextValue) => handleFieldChange('freightMode', nextValue as OrderFiscalFreightMode)}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue />
+                      <SelectValue>{freightModeSelectLabel}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {FREIGHT_MODE_OPTIONS.map((option) => (
@@ -934,7 +986,7 @@ export function OrderFiscalWorkspaceTabs({
                     onValueChange={(nextValue) => handleFieldChange('deliveryForm', nextValue as OrderFiscalDeliveryForm)}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue />
+                      <SelectValue>{deliveryFormSelectLabel}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {DELIVERY_FORM_OPTIONS.map((option) => (
