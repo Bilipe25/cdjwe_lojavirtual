@@ -8,6 +8,7 @@ export interface UpsertProductDomainInput {
     name: string
     slug: string
     description?: string | null
+    manufacturerName?: string | null
     categoryId: string
     taxProfileId?: string | null
     size?: string | null
@@ -278,6 +279,11 @@ function normalizeSizeOptions(
 }
 
 function sanitizeFiscalCode(value?: string | null) {
+    const trimmed = (value || '').trim()
+    return trimmed.length > 0 ? trimmed : null
+}
+
+function sanitizeOptionalProductText(value?: string | null) {
     const trimmed = (value || '').trim()
     return trimmed.length > 0 ? trimmed : null
 }
@@ -754,6 +760,7 @@ async function upsertProductDomainFallback(input: UpsertProductDomainInput): Pro
         name: input.name.trim(),
         slug: input.slug.trim(),
         description: input.description?.trim() ? input.description.trim() : null,
+        manufacturer_name: sanitizeOptionalProductText(input.manufacturerName),
         category_id: input.categoryId,
         tax_profile_id: input.taxProfileId ?? null,
         size: input.size?.trim() ? input.size.trim() : null,
@@ -1108,6 +1115,16 @@ export async function upsertProductDomainAction(
         }
 
         resolvedProductId = row.product_id
+        const manufacturerName = sanitizeOptionalProductText(input.manufacturerName)
+        const { error: manufacturerError } = await adminSupabase
+            .from('products')
+            .update({ manufacturer_name: manufacturerName })
+            .eq('id', resolvedProductId)
+
+        if (manufacturerError) {
+            throw manufacturerError
+        }
+
         await logProductAuditEvent({
             operationId,
             actorProfileId,

@@ -48,13 +48,18 @@ import { FiscalHelpText } from '../components/FiscalHelpText'
 import { FiscalReadinessCard } from '../components/FiscalReadinessCard'
 import { FiscalPageSummaryPanel } from '../components/FiscalPageSummaryPanel'
 import { loadFiscalEnvironmentAction, saveFiscalEnvironmentAction } from './actions'
-import type { CompanyFiscalEnvironment, FiscalAdditionalInfoFlags } from '@/lib/types'
+import type {
+  CompanyFiscalEnvironment,
+  FiscalAdditionalInfoFlags,
+  FiscalItemAdditionalInfoFlags,
+} from '@/lib/types'
 import {
   isOperationalFiscalEmissionModeSupported,
   normalizeFiscalEmissionMode,
 } from '@/lib/fiscal/emission-mode'
 import {
   DEFAULT_ADDITIONAL_INFO_FLAGS,
+  DEFAULT_ITEM_ADDITIONAL_INFO_FLAGS,
   parseFiscalEnvironmentParams,
 } from '@/lib/fiscal/additional-info'
 
@@ -104,17 +109,39 @@ interface ItemInfoField {
   key: string
   label: string
   legend: string
-  enabled: boolean
+  enabled?: boolean
 }
 
 const DEFAULT_ITEM_INFO_FIELDS: ItemInfoField[] = [
-  { key: 'desconto_percentual', label: 'Desconto percentual', legend: 'Desconto percentual', enabled: false },
+  { key: 'mostrar_descricao_fiscal_padrao', label: 'Mostrar descricao fiscal padrao', legend: 'Descricao fiscal padrao' },
   { key: 'numero_item_atendimento', label: 'Número do item no atendimento', legend: 'Número item', enabled: false },
   { key: 'observacao_item', label: 'Observação do item no atendimento', legend: 'Inf. complementar', enabled: true },
   { key: 'produto_acesso_rapido', label: 'Produto - Acesso rápido', legend: 'Acesso rápido', enabled: false },
   { key: 'produto_categoria', label: 'Produto - Categoria', legend: 'Categoria', enabled: false },
   { key: 'produto_codigo_barras', label: 'Produto - Código de barras', legend: 'Cód. barras', enabled: false },
   { key: 'produto_fabricante', label: 'Produto - Fabricante', legend: 'Fabricante', enabled: true },
+]
+
+const ITEM_ADDITIONAL_INFO_FLAG_OPTIONS: Array<{
+  key: keyof FiscalItemAdditionalInfoFlags
+  label: string
+  help: string
+}> = [
+  {
+    key: 'mostrar_descricao_fiscal_padrao',
+    label: 'Mostrar descricao fiscal padrao',
+    help: 'Usa a descricao fiscal padrao do perfil tributario quando houver configuracao fiscal valida no item.',
+  },
+  {
+    key: 'mostrar_fabricante_produto',
+    label: 'Mostrar fabricante do produto',
+    help: 'Inclui o fabricante cadastrado no produto nas informacoes adicionais fiscais do item.',
+  },
+  {
+    key: 'mostrar_codigo_barras_gtin',
+    label: 'Mostrar codigo de barras / GTIN',
+    help: 'Mostra o GTIN real do item quando ele existir e estiver apto para uso fiscal.',
+  },
 ]
 
 const ADDITIONAL_INFO_FLAG_OPTIONS: Array<{
@@ -199,6 +226,7 @@ interface FormState {
   modalidadeFretePadrao: string
   // JSONB-backed
   itemInfoFields: ItemInfoField[]
+  itemAdditionalInfoFlags: FiscalItemAdditionalInfoFlags
   additionalInfoFlags: FiscalAdditionalInfoFlags
   observacoesPadrao: string[]
 }
@@ -223,6 +251,7 @@ const initialForm: FormState = {
   freteBaseIcms: false,
   modalidadeFretePadrao: 'destinatario',
   itemInfoFields: DEFAULT_ITEM_INFO_FIELDS,
+  itemAdditionalInfoFlags: DEFAULT_ITEM_ADDITIONAL_INFO_FLAGS,
   additionalInfoFlags: DEFAULT_ADDITIONAL_INFO_FLAGS,
   observacoesPadrao: [],
 }
@@ -254,6 +283,7 @@ function buildFormState(record: CompanyFiscalEnvironment | null): FormState {
     freteBaseIcms: record.frete_base_icms ?? false,
     modalidadeFretePadrao: record.modalidade_frete_padrao || 'destinatario',
     itemInfoFields: savedItems || DEFAULT_ITEM_INFO_FIELDS,
+    itemAdditionalInfoFlags: parsedParams.itemAdditionalInfoFlags,
     additionalInfoFlags: parsedParams.additionalInfoFlags,
     observacoesPadrao: parsedParams.observacoesPadrao,
   }
@@ -287,6 +317,16 @@ export default function FiscalAmbientePage() {
       ...prev,
       additionalInfoFlags: {
         ...prev.additionalInfoFlags,
+        [key]: value,
+      },
+    }))
+  }, [])
+
+  const toggleItemAdditionalInfoFlag = useCallback((key: keyof FiscalItemAdditionalInfoFlags, value: boolean) => {
+    setForm((prev) => ({
+      ...prev,
+      itemAdditionalInfoFlags: {
+        ...prev.itemAdditionalInfoFlags,
         [key]: value,
       },
     }))
@@ -326,15 +366,6 @@ export default function FiscalAmbientePage() {
   }
 
   /* ── Item info toggle ───────────────────────────────────────────── */
-
-  const toggleItemInfo = useCallback((key: string) => {
-    setForm((prev) => ({
-      ...prev,
-      itemInfoFields: prev.itemInfoFields.map((f) =>
-        f.key === key ? { ...f, enabled: !f.enabled } : f
-      ),
-    }))
-  }, [])
 
   /* ── Observações padrão ─────────────────────────────────────────── */
 
@@ -381,7 +412,7 @@ export default function FiscalAmbientePage() {
       frete_base_icms: form.freteBaseIcms,
       modalidade_frete_padrao: form.modalidadeFretePadrao,
       parametros_jsonb: {
-        item_info_fields: form.itemInfoFields,
+        item_additional_info_flags: form.itemAdditionalInfoFlags,
         additional_info_flags: form.additionalInfoFlags,
         observacoes_padrao: form.observacoesPadrao.filter((o) => o.trim()),
       },
@@ -816,25 +847,30 @@ export default function FiscalAmbientePage() {
               Informações adicionais dos itens
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-0">
-            {form.itemInfoFields.map((field, index) => (
-              <div key={field.key}>
-                <div className="flex items-center justify-between py-3.5 px-1">
-                  <div className="flex-1 min-w-0 pr-4">
-                    <div className="text-sm font-medium">{field.label}</div>
-                    <div className="text-xs text-muted-foreground">Legenda: {field.legend}</div>
+          <CardContent className="space-y-5">
+            <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+              Esses controles governam o texto de <strong>infAdProd</strong> no XML e a leitura fiscal
+              complementar do item na DANFE. O mesmo formatter e aplicado no preview, na emissao e no
+              snapshot dos novos documentos.
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {ITEM_ADDITIONAL_INFO_FLAG_OPTIONS.map((item) => (
+                <div key={item.key} className="rounded-xl border bg-white/60 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <Label className="flex items-center gap-1 text-sm font-medium cursor-pointer">
+                        {item.label}
+                        <FiscalHelpText text={item.help} />
+                      </Label>
+                      <p className="text-xs text-muted-foreground">{item.help}</p>
+                    </div>
+                    <Switch
+                      checked={form.itemAdditionalInfoFlags[item.key]}
+                      onCheckedChange={(value) => toggleItemAdditionalInfoFlag(item.key, value)}
+                    />
                   </div>
-                  <Switch
-                    checked={field.enabled}
-                    disabled
-                    onCheckedChange={() => toggleItemInfo(field.key)}
-                  />
                 </div>
-                {index < form.itemInfoFields.length - 1 && <Separator />}
-              </div>
-            ))}
-            <div className="px-1 pb-1 text-xs text-amber-700">
-              {DISABLED_RUNTIME_NOTE}
+              ))}
             </div>
           </CardContent>
         </Card>

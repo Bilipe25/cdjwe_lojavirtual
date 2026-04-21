@@ -349,6 +349,7 @@ export interface Product {
   name: string
   slug: string
   description: string | null
+  manufacturer_name?: string | null
   category_id: string
   tax_profile_id?: string | null
   size: string | null // ex: "3x2 lugares"
@@ -951,10 +952,17 @@ export interface FiscalAdditionalInfoFlags {
   mostrar_observacoes_padrao: boolean
 }
 
+export interface FiscalItemAdditionalInfoFlags {
+  mostrar_fabricante_produto: boolean
+  mostrar_descricao_fiscal_padrao: boolean
+  mostrar_codigo_barras_gtin: boolean
+}
+
 export interface CompanyFiscalEnvironmentParams {
   item_info_fields?: Record<string, unknown>[] | null
   observacoes_padrao?: string[] | null
   additional_info_flags?: Partial<FiscalAdditionalInfoFlags> | null
+  item_additional_info_flags?: Partial<FiscalItemAdditionalInfoFlags> | null
   [key: string]: unknown
 }
 

@@ -25,6 +25,7 @@ import type {
 import { safeNumber } from './types'
 import { inferOperationDirectionFromCfop } from '@/lib/fiscal/order-fiscal-workspace'
 import { normalizeFiscalEmissionMode } from '@/lib/fiscal/emission-mode'
+import { parseFiscalEnvironmentParams } from '@/lib/fiscal/additional-info'
 
 function digitsOnly(value: string | null | undefined): string {
   return (value || '').replace(/\D/g, '')
@@ -282,6 +283,10 @@ async function loadEnvironmentContext(): Promise<FiscalCalculationResult<Environ
     return { success: false, error: { code: 'ENV_NOT_FOUND', message: 'Ambiente de emissao nao configurado.' } }
   }
 
+  const params = parseFiscalEnvironmentParams(
+    (env.parametros_jsonb || {}) as Record<string, unknown>
+  )
+
   return {
     success: true,
     data: {
@@ -297,6 +302,7 @@ async function loadEnvironmentContext(): Promise<FiscalCalculationResult<Environ
       frete_base_icms: env.frete_base_icms === true,
       max_itens_por_nota: safeNumber(env.max_itens_por_nota, 100),
       codigo_referencia_nota: env.codigo_referencia_nota || 'codigo_interno',
+      item_additional_info_flags: params.itemAdditionalInfoFlags,
       serie_nfce: env.serie_nfce || '0',
       proximo_numero_nfce: safeNumber(env.proximo_numero_nfce, 1),
     },
@@ -331,6 +337,7 @@ async function loadOrderItemsContext(
         product_id,
         product:products(
           id,
+          manufacturer_name,
           tax_profile_id,
           tax_profile:product_tax_profiles(*)
         )
@@ -607,6 +614,7 @@ async function loadOrderItemsContext(
       order_item_id: item.id as string,
       product_variant_id: item.product_variant_id as string,
       sku: normalizeOptionalText((variant?.sku as string | undefined) || null),
+      manufacturer_name: normalizeOptionalText(product?.manufacturer_name as string | undefined),
       product_name: (item.product_name as string) || '',
       fabric_name: normalizeOptionalText(item.fabric_name as string | undefined),
       color_name: normalizeOptionalText(item.color_name as string | undefined),

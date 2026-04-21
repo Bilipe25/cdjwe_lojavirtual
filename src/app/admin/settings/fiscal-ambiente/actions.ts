@@ -6,6 +6,7 @@ import { evaluateCompanyFiscalReadiness } from '@/lib/fiscal/company-readiness'
 import { normalizeFiscalEmissionMode } from '@/lib/fiscal/emission-mode'
 import {
   sanitizeAdditionalInfoFlags,
+  sanitizeItemAdditionalInfoFlags,
   sanitizeAdditionalStandardNotes,
 } from '@/lib/fiscal/additional-info'
 
@@ -109,10 +110,12 @@ export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentIn
   const params = input.parametros_jsonb || {}
   const sanitizedParametrosJsonb = {
     ...params,
-    item_info_fields: Array.isArray(params.item_info_fields) ? params.item_info_fields : [],
     observacoes_padrao: sanitizeAdditionalStandardNotes(params.observacoes_padrao),
     additional_info_flags: sanitizeAdditionalInfoFlags(
       params.additional_info_flags as Record<string, unknown> | undefined
+    ),
+    item_additional_info_flags: sanitizeItemAdditionalInfoFlags(
+      params.item_additional_info_flags as Record<string, unknown> | undefined
     ),
   }
   const existingEnvironment = input.id

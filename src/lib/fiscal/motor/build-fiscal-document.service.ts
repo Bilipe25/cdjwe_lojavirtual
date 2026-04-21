@@ -20,28 +20,7 @@ import { calculateIbsCbs } from './calculate-ibscbs.service'
 import { distributeFreight } from './calculate-freight.service'
 import { distributeDiscount } from './calculate-discount.service'
 import { validateFiscalDocument } from './validate-fiscal-document.service'
-
-function buildItemAdditionalInfo(item: ItemTaxBreakdown): string | null {
-  const parts: string[] = []
-
-  if (item.cest) {
-    parts.push(`CEST ${item.cest}`)
-  }
-
-  if (item.fcp.value > 0) {
-    parts.push(`FCP proprio: p ${item.fcp.rate.toFixed(2)}% v ${item.fcp.value.toFixed(2)}`)
-  }
-
-  if (item.st.fcp_value > 0) {
-    parts.push(`FCP-ST: p ${item.st.fcp_rate.toFixed(2)}% v ${item.st.fcp_value.toFixed(2)}`)
-  }
-
-  if (item.ipi.value > 0) {
-    parts.push(`IPI: CST ${item.ipi.cst} p ${item.ipi.rate.toFixed(2)}% v ${item.ipi.value.toFixed(2)}`)
-  }
-
-  return parts.length > 0 ? parts.join(' | ') : null
-}
+import { buildResolvedItemAdditionalInfo } from '@/lib/fiscal/additional-info'
 
 /**
  * Builds the complete FiscalDocumentPayload from a resolved FiscalContext.
@@ -124,6 +103,7 @@ export function buildFiscalDocument(
       order_item_id: item.order_item_id,
       product_variant_id: item.product_variant_id,
       sku: item.sku,
+      manufacturer_name: item.manufacturer_name,
       product_name: item.product_name,
       fabric_name: item.fabric_name,
       color_name: item.color_name,
@@ -163,7 +143,21 @@ export function buildFiscalDocument(
   }
 
   for (const item of itemBreakdowns) {
-    item.inf_ad_prod = buildItemAdditionalInfo(item)
+    item.inf_ad_prod = buildResolvedItemAdditionalInfo({
+      item: {
+        manufacturer_name: item.manufacturer_name,
+        default_fiscal_description: ctx.items.find((ctxItem) => ctxItem.order_item_id === item.order_item_id)?.tax_profile.default_fiscal_description || null,
+        ean_gtin: item.ean_gtin,
+        tax_ean_gtin: item.tax_ean_gtin,
+        cest: item.cest,
+        fcp: item.fcp,
+        st: item.st,
+        ipi: item.ipi,
+      },
+      environmentParams: {
+        item_additional_info_flags: ctx.environment.item_additional_info_flags,
+      },
+    })
   }
 
   // 4. Compute document totals

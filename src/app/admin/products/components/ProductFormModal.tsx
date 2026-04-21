@@ -137,6 +137,7 @@ export function ProductFormModal({
         defaultValues: {
             name: '',
             description: '',
+            manufacturer_name: '',
             category_id: '',
             tax_profile_id: '',
             size: '',
@@ -189,6 +190,7 @@ export function ProductFormModal({
                 reset({
                     name: editingProduct.name,
                     description: editingProduct.description || '',
+                    manufacturer_name: editingProduct.manufacturer_name || '',
                     category_id: editingProduct.category_id || '',
                     tax_profile_id: editingProduct.tax_profile_id || '',
                     size: editingProduct.size || '',
@@ -246,6 +248,7 @@ export function ProductFormModal({
                 reset({
                     name: '',
                     description: '',
+                    manufacturer_name: '',
                     category_id: categories[0]?.id || '',
                     tax_profile_id: '',
                     size: '',
@@ -500,6 +503,18 @@ export function ProductFormModal({
                                     <Label className="text-navy font-medium">Tamanho / Dimensoes</Label>
                                     <Input {...register('size')} placeholder="Ex: 3 Lugares (2.50m x 1.10m)" className="bg-white/60" />
                                     <p className="text-[11px] text-muted-foreground">Informe as medidas descritivas para facilitar a escolha do lojista.</p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label className="text-navy font-medium">Fabricante</Label>
+                                    <Input
+                                        {...register('manufacturer_name')}
+                                        placeholder="Ex: CD JWE LTDA"
+                                        className="bg-white/60"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Usado nas informacoes adicionais do item fiscal quando habilitado.
+                                    </p>
                                 </div>
 
                                 <div className="space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3.5">

@@ -1,5 +1,9 @@
-import type { FiscalDocumentPayload, FiscalTransportContext } from './motor/types'
-import type { CompanyFiscalEnvironmentParams, FiscalAdditionalInfoFlags } from '@/lib/types'
+import type { FiscalDocumentPayload, FiscalTransportContext, ItemTaxBreakdown } from './motor/types'
+import type {
+  CompanyFiscalEnvironmentParams,
+  FiscalAdditionalInfoFlags,
+  FiscalItemAdditionalInfoFlags,
+} from '@/lib/types'
 
 export const DEFAULT_ADDITIONAL_INFO_FLAGS: FiscalAdditionalInfoFlags = {
   mostrar_numero_pedido: true,
@@ -13,6 +17,12 @@ export const DEFAULT_ADDITIONAL_INFO_FLAGS: FiscalAdditionalInfoFlags = {
   mostrar_observacoes_padrao: true,
 }
 
+export const DEFAULT_ITEM_ADDITIONAL_INFO_FLAGS: FiscalItemAdditionalInfoFlags = {
+  mostrar_fabricante_produto: true,
+  mostrar_descricao_fiscal_padrao: true,
+  mostrar_codigo_barras_gtin: true,
+}
+
 export interface FiscalAdditionalInfoOrderData {
   orderNumber?: string | null
   paymentMethodName?: string | null
@@ -24,6 +34,22 @@ export interface FiscalAdditionalInfoOrderData {
 export interface FiscalAdditionalInfoBuildInput {
   payload: FiscalDocumentPayload
   order: FiscalAdditionalInfoOrderData
+  environmentParams?: CompanyFiscalEnvironmentParams | Record<string, unknown> | null
+}
+
+export interface FiscalItemAdditionalInfoBuildInput {
+  item: Pick<
+    ItemTaxBreakdown,
+    | 'manufacturer_name'
+    | 'ean_gtin'
+    | 'tax_ean_gtin'
+    | 'cest'
+    | 'fcp'
+    | 'st'
+    | 'ipi'
+  > & {
+    default_fiscal_description?: string | null
+  }
   environmentParams?: CompanyFiscalEnvironmentParams | Record<string, unknown> | null
 }
 
@@ -51,6 +77,24 @@ export function sanitizeAdditionalInfoFlags(
   return parseAdditionalInfoFlags(value)
 }
 
+export function parseItemAdditionalInfoFlags(
+  value: Partial<FiscalItemAdditionalInfoFlags> | Record<string, unknown> | null | undefined
+): FiscalItemAdditionalInfoFlags {
+  const source = (value || {}) as Partial<FiscalItemAdditionalInfoFlags> & Record<string, unknown>
+
+  return {
+    mostrar_fabricante_produto: source.mostrar_fabricante_produto !== false,
+    mostrar_descricao_fiscal_padrao: source.mostrar_descricao_fiscal_padrao !== false,
+    mostrar_codigo_barras_gtin: source.mostrar_codigo_barras_gtin !== false,
+  }
+}
+
+export function sanitizeItemAdditionalInfoFlags(
+  value: Partial<FiscalItemAdditionalInfoFlags> | Record<string, unknown> | null | undefined
+): FiscalItemAdditionalInfoFlags {
+  return parseItemAdditionalInfoFlags(value)
+}
+
 export function sanitizeAdditionalStandardNotes(value: unknown): string[] {
   if (!Array.isArray(value)) return []
 
@@ -63,6 +107,7 @@ export function parseFiscalEnvironmentParams(
   value: CompanyFiscalEnvironmentParams | Record<string, unknown> | null | undefined
 ): {
   additionalInfoFlags: FiscalAdditionalInfoFlags
+  itemAdditionalInfoFlags: FiscalItemAdditionalInfoFlags
   observacoesPadrao: string[]
 } {
   const source = (value || {}) as Record<string, unknown>
@@ -70,6 +115,9 @@ export function parseFiscalEnvironmentParams(
   return {
     additionalInfoFlags: parseAdditionalInfoFlags(
       (source as Record<string, unknown>).additional_info_flags as Record<string, unknown> | undefined
+    ),
+    itemAdditionalInfoFlags: parseItemAdditionalInfoFlags(
+      (source as Record<string, unknown>).item_additional_info_flags as Record<string, unknown> | undefined
     ),
     observacoesPadrao: sanitizeAdditionalStandardNotes(
       (source as Record<string, unknown>).observacoes_padrao
@@ -129,9 +177,57 @@ export function buildResolvedAdditionalInfo(input: FiscalAdditionalInfoBuildInpu
   return parts.length > 0 ? parts.join(' | ') : null
 }
 
+export function buildResolvedItemAdditionalInfo(input: FiscalItemAdditionalInfoBuildInput): string | null {
+  const { itemAdditionalInfoFlags } = parseFiscalEnvironmentParams(input.environmentParams)
+  const { item } = input
+  const parts: string[] = []
+
+  const defaultFiscalDescription = normalizeAdditionalInfoPart(item.default_fiscal_description)
+  if (itemAdditionalInfoFlags.mostrar_descricao_fiscal_padrao && defaultFiscalDescription) {
+    parts.push(defaultFiscalDescription)
+  }
+
+  const manufacturerName = normalizeAdditionalInfoPart(item.manufacturer_name)
+  if (itemAdditionalInfoFlags.mostrar_fabricante_produto && manufacturerName) {
+    parts.push(`Fabricante: ${manufacturerName}`)
+  }
+
+  const gtin = normalizeGtin(item.tax_ean_gtin || item.ean_gtin)
+  if (itemAdditionalInfoFlags.mostrar_codigo_barras_gtin && gtin) {
+    parts.push(`GTIN: ${gtin}`)
+  }
+
+  if (item.cest) {
+    parts.push(`CEST ${item.cest}`)
+  }
+
+  if (item.fcp.value > 0) {
+    parts.push(`FCP proprio: p ${item.fcp.rate.toFixed(2)}% v ${item.fcp.value.toFixed(2)}`)
+  }
+
+  if (item.st.fcp_value > 0) {
+    parts.push(`FCP-ST: p ${item.st.fcp_rate.toFixed(2)}% v ${item.st.fcp_value.toFixed(2)}`)
+  }
+
+  if (item.ipi.value > 0) {
+    parts.push(`IPI: CST ${item.ipi.cst} p ${item.ipi.rate.toFixed(2)}% v ${item.ipi.value.toFixed(2)}`)
+  }
+
+  return parts.length > 0 ? parts.join(' | ') : null
+}
+
 export function normalizeAdditionalInfoPart(value: string | null | undefined) {
   const normalized = (value || '').replace(/\s+/g, ' ').trim()
   return normalized.length > 0 ? normalized : null
+}
+
+function normalizeGtin(value: string | null | undefined) {
+  const normalized = normalizeAdditionalInfoPart(value)
+  if (!normalized) return null
+
+  const upper = normalized.toUpperCase()
+  if (upper === 'SEM GTIN' || upper === 'SEM GTIN TRIBUTAVEL') return null
+  return normalized
 }
 
 function buildPaymentSummary(methodName: string | null | undefined, installments: number | null | undefined) {

@@ -1,3 +1,5 @@
+import type { FiscalItemAdditionalInfoFlags } from '@/lib/types'
+
 // ============================================================
 // Motor Fiscal — Core Types
 // Camada 2: Business logic layer for tax calculation
@@ -79,6 +81,7 @@ export interface EnvironmentContext {
   frete_base_icms: boolean
   max_itens_por_nota: number
   codigo_referencia_nota: string
+  item_additional_info_flags: FiscalItemAdditionalInfoFlags
   // NFC-e
   serie_nfce: string
   proximo_numero_nfce: number
@@ -235,6 +238,7 @@ export interface FiscalItemContext {
   order_item_id: string
   product_variant_id: string
   sku: string | null
+  manufacturer_name: string | null
   product_name: string
   fabric_name: string | null
   color_name: string | null
@@ -330,6 +334,7 @@ export interface ItemTaxBreakdown {
   order_item_id: string
   product_variant_id: string
   sku: string | null
+  manufacturer_name: string | null
   product_name: string
   fabric_name: string | null
   color_name: string | null
