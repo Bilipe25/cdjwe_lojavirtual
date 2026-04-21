@@ -65,6 +65,8 @@ export interface AdminOrderDetailRecord {
     payment_installments?: number | null
     payment_discount_percentage?: number | null
     payment_surcharge_percentage?: number | null
+    archived_at?: string | null
+    archive_reason?: string | null
     store?: {
         company_name?: string | null
         cnpj?: string | null
@@ -118,6 +120,8 @@ const ORDER_DETAIL_SELECT = `
     payment_installments,
     payment_discount_percentage,
     payment_surcharge_percentage,
+    archived_at,
+    archive_reason,
     store:stores(company_name, cnpj),
     profile:profiles!orders_profile_id_fkey(full_name, role),
     customer_profile:profiles!orders_profile_id_fkey(full_name, role),

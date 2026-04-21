@@ -1,7 +1,7 @@
 import 'server-only'
 
 import type { FiscalDocumentPayload, ItemTaxBreakdown } from '../motor/types'
-import { normalizeAdditionalInfoPart } from '@/lib/fiscal/additional-info'
+import { normalizeAdditionalInfoPart, normalizeAdditionalInfoText } from '@/lib/fiscal/additional-info'
 
 export interface FiscalDocumentSnapshot extends FiscalDocumentPayload {
   order: {
@@ -85,7 +85,7 @@ export function getSnapshotAdditionalInfo(snapshot: FiscalDocumentSnapshot | nul
   if (!snapshot) return null
 
   if (Object.prototype.hasOwnProperty.call(snapshot.document, 'additionalInfoResolved')) {
-    return normalizeAdditionalInfoPart(snapshot.document.additionalInfoResolved)
+    return normalizeAdditionalInfoText(snapshot.document.additionalInfoResolved)
   }
 
   const hasFiscalObservation = Object.prototype.hasOwnProperty.call(snapshot.order, 'fiscalObservation')
@@ -124,7 +124,7 @@ export function getSnapshotAdditionalInfo(snapshot: FiscalDocumentSnapshot | nul
     .map((value) => normalizeAdditionalInfoPart(value))
     .filter(Boolean)
 
-  return parts.length > 0 ? parts.join(' | ') : null
+  return parts.length > 0 ? parts.join('\n') : null
 }
 
 function isUuidLike(value: string | null | undefined) {

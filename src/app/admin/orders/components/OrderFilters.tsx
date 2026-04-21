@@ -61,6 +61,8 @@ interface OrderFiltersProps {
     currentSearch: string
     onStatusChange: (status: string | null) => void
     currentStatus: string
+    onArchiveVisibilityChange: (visibility: 'active' | 'archived' | 'all') => void
+    currentArchiveVisibility: 'active' | 'archived' | 'all'
     onExport: () => void
     selectedCount: number
     onBulkUpdateStatus: (newStatus: OrderStatus) => void
@@ -71,6 +73,8 @@ export function OrderFilters({
     currentSearch,
     onStatusChange,
     currentStatus,
+    onArchiveVisibilityChange,
+    currentArchiveVisibility,
     onExport,
     selectedCount,
     onBulkUpdateStatus,
@@ -111,6 +115,20 @@ export function OrderFilters({
                                 {statusConfig[status].label}
                             </SelectItem>
                         ))}
+                    </SelectContent>
+                </Select>
+
+                <Select
+                    value={currentArchiveVisibility}
+                    onValueChange={(value) => onArchiveVisibilityChange(value as 'active' | 'archived' | 'all')}
+                >
+                    <SelectTrigger className="h-11 w-full bg-white/60 sm:w-48">
+                        <SelectValue placeholder="Visibilidade" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="active">Pedidos ativos</SelectItem>
+                        <SelectItem value="archived">Pedidos arquivados</SelectItem>
+                        <SelectItem value="all">Todos os pedidos</SelectItem>
                     </SelectContent>
                 </Select>
 

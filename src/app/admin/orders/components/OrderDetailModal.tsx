@@ -86,6 +86,9 @@ export interface AdminOrderDetailRecord {
         surcharge_percentage?: number | null
     } | null
     items?: OrderItem[]
+    archived_at?: string | null
+    archive_reason?: string | null
+    fiscal_status?: string | null
 }
 
 interface OrderDetailModalProps {
@@ -123,6 +126,8 @@ export function OrderDetailModal({
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
     const [hasInvoice, setHasInvoice] = useState(false)
     const [checkingInvoice, setCheckingInvoice] = useState(false)
+    const [hasFiscalDocument, setHasFiscalDocument] = useState(false)
+    const [checkingFiscalDocument, setCheckingFiscalDocument] = useState(false)
     const [routeAssignment, setRouteAssignment] = useState<OrderRouteAssignmentRecord | null>(null)
     const [checkingRouteAssignment, setCheckingRouteAssignment] = useState(false)
 
@@ -152,6 +157,8 @@ export function OrderDetailModal({
                 payment_installments,
                 payment_discount_percentage,
                 payment_surcharge_percentage,
+                archived_at,
+                archive_reason,
                 store:stores(company_name, cnpj),
                 customer_profile:profiles!orders_profile_id_fkey(full_name, role),
                 created_by_profile:profiles!orders_created_by_profile_id_fkey(full_name, role),
@@ -234,6 +241,27 @@ export function OrderDetailModal({
         setCheckingInvoice(false)
     }, [])
 
+    const checkFiscalDocumentExists = useCallback(async (orderId: string) => {
+        setCheckingFiscalDocument(true)
+        const supabase = createClient()
+        const { data, error } = await supabase
+            .from('fiscal_documents')
+            .select('id')
+            .eq('order_id', orderId)
+            .limit(1)
+            .maybeSingle()
+
+        if (error) {
+            console.error('[ADMIN ORDERS] Falha ao verificar documento fiscal do pedido:', error)
+            setHasFiscalDocument(false)
+            setCheckingFiscalDocument(false)
+            return
+        }
+
+        setHasFiscalDocument(Boolean(data?.id))
+        setCheckingFiscalDocument(false)
+    }, [])
+
     const checkRouteAssignment = useCallback(async (orderId: string) => {
         setCheckingRouteAssignment(true)
         const supabase = createClient()
@@ -263,16 +291,19 @@ export function OrderDetailModal({
             fetchHistory(order.id)
             fetchSettings()
             checkInvoiceExists(order.id)
+            checkFiscalDocumentExists(order.id)
             checkRouteAssignment(order.id)
         } else {
             setOrderData(null)
             setHistory([])
             setHasInvoice(false)
             setCheckingInvoice(false)
+            setHasFiscalDocument(false)
+            setCheckingFiscalDocument(false)
             setRouteAssignment(null)
             setCheckingRouteAssignment(false)
         }
-    }, [open, order?.id, fetchOrderDetail, checkInvoiceExists, checkRouteAssignment])
+    }, [open, order?.id, fetchOrderDetail, checkInvoiceExists, checkFiscalDocumentExists, checkRouteAssignment])
 
     const handlePrint = async () => {
         if (!orderData) return
@@ -293,9 +324,11 @@ export function OrderDetailModal({
     const couponDiscountAmount = Number(resolvedOrder.coupon_discount_amount || 0)
     const paymentDiscountAmount = Math.max(0, Number(resolvedOrder.discount_amount || 0) - couponDiscountAmount)
     const isDeleting = deletingOrderIds.includes(resolvedOrder.id)
+    const isArchived = Boolean(resolvedOrder.archived_at)
     const cannotDeleteBecauseInvoice = hasInvoice || checkingInvoice
     const cannotDeleteBecauseRoute = Boolean(routeAssignment) || checkingRouteAssignment
-    const cannotDelete = cannotDeleteBecauseInvoice || cannotDeleteBecauseRoute
+    const cannotDelete = cannotDeleteBecauseInvoice || cannotDeleteBecauseRoute || isArchived
+    const willArchive = hasFiscalDocument || checkingFiscalDocument
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -345,6 +378,7 @@ export function OrderDetailModal({
                                         size="sm"
                                         className="h-9 w-9 sm:w-auto px-0 sm:px-3 text-bronze hover:bg-bronze/5 border-bronze/20 gap-2 shrink-0 rounded-lg font-bold"
                                         onClick={() => setIsInvoiceModalOpen(true)}
+                                        disabled={isArchived}
                                     >
                                         <Receipt className="h-4 w-4" />
                                         <span className="hidden sm:inline">Gerar Fatura</span>
@@ -362,7 +396,15 @@ export function OrderDetailModal({
                                 >
                                     {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                                     <span className="hidden sm:inline">
-                                        {hasInvoice ? 'Pedido faturado' : routeAssignment ? 'Pedido em rota' : 'Excluir'}
+                                        {isArchived
+                                            ? 'Pedido arquivado'
+                                            : hasInvoice
+                                              ? 'Pedido faturado'
+                                              : routeAssignment
+                                                ? 'Pedido em rota'
+                                                : willArchive
+                                                  ? 'Arquivar'
+                                                  : 'Excluir'}
                                     </span>
                                 </Button>
                             )}
@@ -389,6 +431,11 @@ export function OrderDetailModal({
                     {routeAssignment && (
                         <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
                             Este pedido esta vinculado a rota {routeAssignment.route?.route_number || routeAssignment.route_id} e nao pode ser excluido. Remova a parada da rota na logistica antes de continuar.
+                        </div>
+                    )}
+                    {isArchived && (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                            Este pedido esta arquivado para preservar a NF-e e o historico fiscal. Motivo: {resolvedOrder.archive_reason || 'Arquivamento administrativo.'}
                         </div>
                     )}
                 </DialogHeader>
@@ -583,7 +630,9 @@ export function OrderDetailModal({
                         <div className="mx-auto h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center mb-2">
                             <AlertCircle className="h-6 w-6 text-destructive" />
                         </div>
-                        <AlertDialogTitle className="text-center text-xl">Excluir Pedido?</AlertDialogTitle>
+                        <AlertDialogTitle className="text-center text-xl">
+                            {isArchived ? 'Pedido arquivado' : willArchive ? 'Arquivar pedido?' : 'Excluir Pedido?'}
+                        </AlertDialogTitle>
                         <AlertDialogDescription className="text-center text-balance">
                             Você está prestes a excluir permanentemente o pedido <strong>{resolvedOrder.order_number}</strong>. Esta ação removerá todos os itens e históricos e não pode ser desfeita.
                         </AlertDialogDescription>

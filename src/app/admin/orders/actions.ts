@@ -1,6 +1,7 @@
 ﻿'use server'
 
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 type RouteStopRouteRecord = {
     route_number?: string | null
@@ -14,26 +15,44 @@ type RouteStopRecord = {
     route?: RouteStopRouteRecord | RouteStopRouteRecord[] | null
 }
 
+type FiscalDocumentStorageRow = {
+    id: string
+    xml_envio_path: string | null
+    xml_retorno_path: string | null
+    xml_processado_path: string | null
+    danfe_path: string | null
+}
+
+async function ensureAdminOrderAccess() {
+    const supabase = await createServerClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: 'Nao autorizado. Faca login novamente.' as const }
+    }
+
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+    if (profileError || profile?.role !== 'admin') {
+        return { error: 'Permissao negada para excluir pedidos.' as const }
+    }
+
+    return { supabase, userId: user.id as string }
+}
+
 export async function deleteOrderAction(orderId: string) {
     try {
-        const supabase = await createServerClient()
-        const {
-            data: { user },
-        } = await supabase.auth.getUser()
-
-        if (!user) {
-            return { error: 'Nao autorizado. Faca login novamente.' }
+        const access = await ensureAdminOrderAccess()
+        if ('error' in access) {
+            return { error: access.error }
         }
-
-        const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', user.id)
-            .single()
-
-        if (profileError || profile?.role !== 'admin') {
-            return { error: 'Permissao negada para excluir pedidos.' }
-        }
+        const { supabase } = access
 
         const { data: existingInvoice, error: invoiceError } = await supabase
             .from('invoices')
@@ -79,7 +98,7 @@ export async function deleteOrderAction(orderId: string) {
             }
         }
 
-        const { error } = await supabase.rpc('admin_delete_order', {
+        const { data, error } = await supabase.rpc('admin_delete_order', {
             p_order_id: orderId,
         })
 
@@ -104,6 +123,7 @@ export async function deleteOrderAction(orderId: string) {
             }
 
             if (
+                normalizedMessage.includes('pedido possui fatura vinculada') ||
                 normalizedMessage.includes('invoices_order_id_fkey') ||
                 (normalizedMessage.includes('table "invoices"') && normalizedMessage.includes('foreign key'))
             ) {
@@ -113,6 +133,7 @@ export async function deleteOrderAction(orderId: string) {
             }
 
             if (
+                normalizedMessage.includes('pedido possui parada logistica ativa') ||
                 normalizedMessage.includes('delivery_route_stops_order_id_fkey') ||
                 (normalizedMessage.includes('table "delivery_route_stops"') && normalizedMessage.includes('foreign key'))
             ) {
@@ -121,12 +142,126 @@ export async function deleteOrderAction(orderId: string) {
                 }
             }
 
+            if (
+                normalizedMessage.includes('fiscal_documents_order_id_fkey') ||
+                (normalizedMessage.includes('table "fiscal_documents"') && normalizedMessage.includes('foreign key'))
+            ) {
+                return {
+                    error: 'Este pedido possui NF-e vinculada e agora deve ser arquivado, nao excluido fisicamente. A migration de arquivamento fiscal do banco precisa ser aplicada antes de repetir a operacao.',
+                }
+            }
+
             return { error: error.message || 'Falha ao excluir o pedido no banco de dados.' }
         }
 
-        return { success: true }
+        const mode = typeof data === 'string' ? data : Array.isArray(data) ? data[0] : null
+
+        if (mode === 'already_archived') {
+            return { success: true, mode: 'archived' as const, alreadyArchived: true }
+        }
+
+        if (mode === 'archived') {
+            return { success: true, mode: 'archived' as const }
+        }
+
+        return { success: true, mode: 'deleted' as const }
     } catch (e: unknown) {
         console.error('Erro na acao de exclusao de pedido:', e)
         return { error: 'Ocorreu um erro inesperado ao excluir o pedido.' }
+    }
+}
+
+export async function hardDeleteArchivedOrderAction(orderId: string) {
+    try {
+        const access = await ensureAdminOrderAccess()
+        if ('error' in access) {
+            return { error: access.error }
+        }
+
+        const { supabase } = access
+        const adminSupabase = createServiceRoleClient()
+
+        const { data: orderRow, error: orderError } = await supabase
+            .from('orders')
+            .select('id, archived_at')
+            .eq('id', orderId)
+            .maybeSingle()
+
+        if (orderError) {
+            console.error('Falha ao validar pedido para hard delete:', orderError)
+            return { error: 'Nao foi possivel validar o pedido antes do hard delete definitivo.' }
+        }
+
+        if (!orderRow) {
+            return { success: true, alreadyDeleted: true }
+        }
+
+        if (!orderRow.archived_at) {
+            return { error: 'Somente pedidos arquivados podem ser apagados definitivamente.' }
+        }
+
+        const { data: fiscalDocuments, error: fiscalDocumentsError } = await adminSupabase
+            .from('fiscal_documents')
+            .select('id, xml_envio_path, xml_retorno_path, xml_processado_path, danfe_path')
+            .eq('order_id', orderId)
+
+        if (fiscalDocumentsError) {
+            console.error('Falha ao carregar documentos fiscais para hard delete:', fiscalDocumentsError)
+            return { error: 'Nao foi possivel carregar os arquivos fiscais do pedido para limpeza definitiva.' }
+        }
+
+        const storagePaths = Array.from(
+            new Set(
+                ((fiscalDocuments || []) as FiscalDocumentStorageRow[])
+                    .flatMap((document) => [
+                        document.xml_envio_path,
+                        document.xml_retorno_path,
+                        document.xml_processado_path,
+                        document.danfe_path,
+                    ])
+                    .map((path) => (path || '').trim())
+                    .filter((path) => path.length > 0)
+            )
+        )
+
+        if (storagePaths.length > 0) {
+            const { error: storageError } = await adminSupabase.storage.from('fiscal-xml').remove(storagePaths)
+
+            if (storageError) {
+                console.error('Falha ao remover arquivos fiscais do storage:', storageError)
+                return {
+                    error: 'Falha ao remover DANFE/XML do storage fiscal. O hard delete foi bloqueado para evitar limpeza parcial.',
+                }
+            }
+        }
+
+        const { data, error } = await supabase.rpc('admin_hard_delete_archived_order', {
+            p_order_id: orderId,
+        })
+
+        if (error) {
+            console.error('Falha ao executar hard delete definitivo do pedido:', error)
+            const normalizedMessage = (error.message || '').toLowerCase()
+
+            if (normalizedMessage.includes('pedido nao encontrado')) {
+                return { success: true, alreadyDeleted: true }
+            }
+
+            if (normalizedMessage.includes('arquivado')) {
+                return { error: 'Somente pedidos arquivados podem ser apagados definitivamente.' }
+            }
+
+            return { error: error.message || 'Falha ao apagar definitivamente o pedido no banco de dados.' }
+        }
+
+        const mode = typeof data === 'string' ? data : Array.isArray(data) ? data[0] : null
+        if (mode === 'already_deleted') {
+            return { success: true, alreadyDeleted: true }
+        }
+
+        return { success: true, mode: 'hard_deleted' as const }
+    } catch (e: unknown) {
+        console.error('Erro na acao de hard delete definitivo do pedido:', e)
+        return { error: 'Ocorreu um erro inesperado ao apagar definitivamente o pedido.' }
     }
 }

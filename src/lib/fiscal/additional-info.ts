@@ -174,7 +174,7 @@ export function buildResolvedAdditionalInfo(input: FiscalAdditionalInfoBuildInpu
     parts.push(`Endereco de entrega: ${shippingAddress}`)
   }
 
-  return parts.length > 0 ? parts.join(' | ') : null
+  return parts.length > 0 ? parts.join('\n') : null
 }
 
 export function buildResolvedItemAdditionalInfo(input: FiscalItemAdditionalInfoBuildInput): string | null {
@@ -219,6 +219,17 @@ export function buildResolvedItemAdditionalInfo(input: FiscalItemAdditionalInfoB
 export function normalizeAdditionalInfoPart(value: string | null | undefined) {
   const normalized = (value || '').replace(/\s+/g, ' ').trim()
   return normalized.length > 0 ? normalized : null
+}
+
+export function normalizeAdditionalInfoText(value: string | null | undefined) {
+  const normalizedLines = (value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => normalizeAdditionalInfoPart(line))
+    .filter((line): line is string => Boolean(line))
+
+  return normalizedLines.length > 0 ? normalizedLines.join('\n') : null
 }
 
 function normalizeGtin(value: string | null | undefined) {

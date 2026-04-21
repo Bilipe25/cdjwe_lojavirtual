@@ -21,6 +21,8 @@ type AdminOrdersSearchRpcRow = {
     total_count: number | null
     sales_channel?: string | null
     created_by_full_name?: string | null
+    archived_at?: string | null
+    archive_reason?: string | null
 }
 
 type AdminOrderExportEnrichmentRow = {
@@ -80,6 +82,10 @@ export async function GET(request: Request) {
     const search = searchParams.get('q')?.trim() || null
     const rawStatus = searchParams.get('status')?.trim() || null
     const status = rawStatus === 'all' ? null : rawStatus
+    const rawArchiveVisibility = searchParams.get('archive_visibility')?.trim() || 'active'
+    const archiveVisibility = rawArchiveVisibility === 'all' || rawArchiveVisibility === 'archived'
+        ? rawArchiveVisibility
+        : 'active'
 
     const allowedStatus = new Set([
         'pending',
@@ -104,6 +110,7 @@ export async function GET(request: Request) {
             p_status: status,
             p_page: page,
             p_page_size: PAGE_SIZE,
+            p_archive_visibility: archiveVisibility,
         })
 
         if (error) {
@@ -184,6 +191,8 @@ export async function GET(request: Request) {
         'Desconto pagamento',
         'Desconto total',
         'Data',
+        'Arquivado em',
+        'Motivo arquivamento',
     ]
 
     const lines = rows.map((row) => {
@@ -231,6 +240,8 @@ export async function GET(request: Request) {
             escapeCsvValue(formatMoney(paymentDiscountAmount)),
             escapeCsvValue(formatMoney(totalDiscountAmount)),
             escapeCsvValue(formatDate(row.created_at)),
+            escapeCsvValue(row.archived_at ? formatDate(row.archived_at) : ''),
+            escapeCsvValue(row.archive_reason || ''),
         ].join(',')
     })
 

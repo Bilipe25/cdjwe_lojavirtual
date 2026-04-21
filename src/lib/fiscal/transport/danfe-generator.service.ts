@@ -980,12 +980,13 @@ function drawAdditionalInfoSection(doc: PDFKit.PDFDocument, data: DanfeData, y: 
   const complement = [
     data.additionalInfo,
     data.preview ? 'Preview da DANFE sem autorizacao SEFAZ e sem valor fiscal.' : null,
-  ].filter(Boolean).join(' | ')
+  ].filter(Boolean).join('\n')
 
   setFont(doc, 'regular', 7)
   doc.text(complement || 'Sem informacoes complementares.', PAGE.left + 4, y + 14, {
     width: leftWidth - 8,
     height: height - 18,
+    lineGap: 1,
   })
 }
 

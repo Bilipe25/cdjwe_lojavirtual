@@ -26,6 +26,7 @@ import type { OrderItem, OrderStatus, SystemSettings } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -46,7 +47,7 @@ import { AdminOrderActionBar } from '@/app/admin/orders/components/AdminOrderAct
 import { InvoiceOrderModal } from '@/app/admin/financeiro/contas-a-receber/components/InvoiceOrderModal'
 import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
-import { deleteOrderAction } from '@/app/admin/orders/actions'
+import { deleteOrderAction, hardDeleteArchivedOrderAction } from '@/app/admin/orders/actions'
 import { useAdminOrderDetail } from '@/app/admin/orders/hooks/use-admin-order-detail'
 
 function formatCurrency(value: number | null | undefined) {
@@ -144,7 +145,10 @@ export default function OrderDetailPage() {
     const [settings, setSettings] = useState<SystemSettings | null>(null)
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+    const [isHardDeleteDialogOpen, setIsHardDeleteDialogOpen] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
+    const [isHardDeleting, setIsHardDeleting] = useState(false)
+    const [hardDeleteConfirmed, setHardDeleteConfirmed] = useState(false)
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
 
     useEffect(() => {
@@ -170,6 +174,7 @@ export default function OrderDetailPage() {
     const estimatedDeliveryLabel = order?.estimated_delivery
         ? format(new Date(order.estimated_delivery), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })
         : 'Nao informado'
+    const isArchived = Boolean(order?.archived_at)
 
     const paymentStatusLabel = useMemo(() => {
         switch (order?.payment_status) {
@@ -251,15 +256,43 @@ export default function OrderDetailPage() {
                 return
             }
 
-            toast.success(
-                'alreadyDeleted' in result && result.alreadyDeleted
-                    ? 'Pedido ja havia sido removido e a tela foi sincronizada.'
-                    : 'Pedido excluido com sucesso.'
-            )
+            if ('alreadyDeleted' in result && result.alreadyDeleted) {
+                toast.success('Pedido ja havia sido removido e a tela foi sincronizada.')
+            } else if ('alreadyArchived' in result && result.alreadyArchived) {
+                toast.success('Pedido ja estava arquivado para preservar a NF-e e o historico fiscal.')
+            } else if ('mode' in result && result.mode === 'archived') {
+                toast.success('Pedido arquivado com sucesso para preservar a NF-e e o historico fiscal.')
+            } else {
+                toast.success('Pedido excluido com sucesso.')
+            }
             router.push('/admin/orders')
         } finally {
             setIsDeleting(false)
             setIsDeleteDialogOpen(false)
+        }
+    }
+
+    const handleHardDeleteArchived = async () => {
+        if (!order) return
+        setIsHardDeleting(true)
+        try {
+            const result = await hardDeleteArchivedOrderAction(order.id)
+            if (result.error) {
+                toast.error(result.error)
+                return
+            }
+
+            if ('alreadyDeleted' in result && result.alreadyDeleted) {
+                toast.success('Pedido ja havia sido apagado definitivamente e a tela foi sincronizada.')
+            } else {
+                toast.success('Pedido apagado definitivamente com NF-e, eventos fiscais e arquivos DANFE/XML.')
+            }
+
+            router.push('/admin/orders')
+        } finally {
+            setIsHardDeleting(false)
+            setIsHardDeleteDialogOpen(false)
+            setHardDeleteConfirmed(false)
         }
     }
 
@@ -337,9 +370,11 @@ export default function OrderDetailPage() {
                     invoice={invoice}
                     routeAssignment={routeAssignment}
                     fiscalSummary={fiscalSummary}
+                    archived={isArchived}
                     loadingMeta={loadingMeta}
                     updatingStatus={isUpdatingStatus}
                     deleting={isDeleting}
+                    hardDeleting={isHardDeleting}
                     onOpenInvoice={() => setIsInvoiceModalOpen(true)}
                     onOpenFiscalReview={() => {
                         const targetUrl = fiscalSummary?.id
@@ -351,6 +386,7 @@ export default function OrderDetailPage() {
                     onPrint={handlePrint}
                     onUpdateStatus={handleUpdateStatus}
                     onDelete={() => setIsDeleteDialogOpen(true)}
+                    onHardDeleteArchived={isArchived ? () => setIsHardDeleteDialogOpen(true) : undefined}
                 />
 
                 {invoice ? (
@@ -365,6 +401,13 @@ export default function OrderDetailPage() {
                         Este pedido esta vinculado a rota{' '}
                         {routeAssignment.route?.route_number || routeAssignment.route_id}. Operacoes destrutivas
                         devem ser feitas somente apos remover a parada na logistica.
+                    </div>
+                ) : null}
+
+                {isArchived ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                        Este pedido esta arquivado para preservar a NF-e e o historico fiscal. Motivo:{' '}
+                        {order.archive_reason || 'Arquivamento administrativo.'}
                     </div>
                 ) : null}
             </motion.div>
@@ -435,6 +478,7 @@ export default function OrderDetailPage() {
                                         <DetailRow label="Representante" value={representativeName} />
                                     ) : null}
                                     <DetailRow label="Atualizado em" value={formatDateTime(order.updated_at || order.created_at)} />
+                                    <DetailRow label="Arquivamento" value={isArchived ? formatDateTime(order.archived_at) : 'Ativo'} />
                                 </CardContent>
                             </Card>
 
@@ -631,20 +675,64 @@ export default function OrderDetailPage() {
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                 <AlertDialogContent className="rounded-2xl border-0 shadow-2xl">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Excluir pedido?</AlertDialogTitle>
+                        <AlertDialogTitle>{isArchived ? 'Pedido arquivado' : fiscalSummary?.id ? 'Arquivar pedido?' : 'Excluir pedido?'}</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Esta acao remove o pedido, seus itens e o historico associado. Se houver fatura
-                            vinculada ou rota ativa, a exclusao sera bloqueada automaticamente.
+                            {isArchived
+                                ? 'Este pedido ja esta arquivado para preservar a NF-e e o historico fiscal.'
+                                : fiscalSummary?.id
+                                  ? 'Esta acao arquiva o pedido e preserva a NF-e, os itens e o historico fiscal. Se houver fatura vinculada ou rota ativa, a operacao sera bloqueada automaticamente.'
+                                  : 'Esta acao remove o pedido, seus itens e o historico associado. Se houver fatura vinculada ou rota ativa, a exclusao sera bloqueada automaticamente.'}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={handleDelete}
-                            disabled={isDeleting}
+                            disabled={isDeleting || isArchived}
                             className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
-                            {isDeleting ? 'Excluindo...' : 'Excluir pedido'}
+                            {isDeleting ? (fiscalSummary?.id ? 'Arquivando...' : 'Excluindo...') : isArchived ? 'Pedido arquivado' : fiscalSummary?.id ? 'Arquivar pedido' : 'Excluir pedido'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+                open={isHardDeleteDialogOpen}
+                onOpenChange={(open) => {
+                    setIsHardDeleteDialogOpen(open)
+                    if (!open) {
+                        setHardDeleteConfirmed(false)
+                    }
+                }}
+            >
+                <AlertDialogContent className="rounded-2xl border-0 shadow-2xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Hard delete definitivo?</AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-3 text-left">
+                            <p>
+                                Esta acao apaga definitivamente o pedido <strong>{order.order_number}</strong>,
+                                incluindo NF-e, eventos fiscais e arquivos DANFE/XML do storage.
+                            </p>
+                            <p>Depois da confirmacao, nao sera possivel recuperar esse conteudo.</p>
+                            <label className="mt-2 flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm text-foreground">
+                                <Checkbox
+                                    checked={hardDeleteConfirmed}
+                                    onCheckedChange={(checked) => setHardDeleteConfirmed(checked === true)}
+                                    className="mt-0.5"
+                                />
+                                <span>Entendo que esta acao e irreversivel.</span>
+                            </label>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleHardDeleteArchived}
+                            disabled={isHardDeleting || !hardDeleteConfirmed}
+                            className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            {isHardDeleting ? 'Apagando definitivamente...' : 'Apagar definitivamente'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

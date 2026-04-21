@@ -14,7 +14,7 @@ import { OrderFilters, statusConfig } from './components/OrderFilters'
 import { OrderList, OrderWithDetails } from './components/OrderList'
 
 // Actions
-import { deleteOrderAction } from './actions'
+import { deleteOrderAction, hardDeleteArchivedOrderAction } from './actions'
 
 const ITEMS_PER_PAGE = 15;
 
@@ -35,6 +35,8 @@ type AdminOrdersSearchRpcRow = {
     total_count: number | null
     sales_channel?: string | null
     created_by_full_name?: string | null
+    archived_at?: string | null
+    archive_reason?: string | null
 }
 
 type AdminOrderStatusUpdateRpcRow = {
@@ -74,10 +76,13 @@ export default function AdminOrdersPage() {
     const [loading, setLoading] = useState(true)
     const [deletingOrderIds, setDeletingOrderIds] = useState<string[]>([])
     const deletingOrderIdsRef = useRef<Set<string>>(new Set())
+    const [hardDeletingOrderIds, setHardDeletingOrderIds] = useState<string[]>([])
+    const hardDeletingOrderIdsRef = useRef<Set<string>>(new Set())
     
     // Server-Side Search & Filters
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('all')
+    const [archiveVisibility, setArchiveVisibility] = useState<'active' | 'archived' | 'all'>('active')
     
     // Pagination
     const [currentPage, setCurrentPage] = useState(1)
@@ -96,6 +101,7 @@ export default function AdminOrdersPage() {
             p_status: statusFilter === 'all' ? null : statusFilter,
             p_page: currentPage,
             p_page_size: ITEMS_PER_PAGE,
+            p_archive_visibility: archiveVisibility,
         })
 
         if (error) {
@@ -194,6 +200,8 @@ export default function AdminOrdersPage() {
                     sales_channel: salesChannel,
                     fiscal_status: fiscalStatusById.get(order.id) || null,
                     has_invoice: Boolean(enrichment?.hasInvoice),
+                    archived_at: order.archived_at || null,
+                    archive_reason: order.archive_reason || null,
                 }
             })
             setOrders(mapped)
@@ -202,7 +210,7 @@ export default function AdminOrdersPage() {
         
         setLoading(false)
         setSelectedOrders([]) // Reset selection on page change
-    }, [currentPage, search, statusFilter])
+    }, [archiveVisibility, currentPage, search, statusFilter])
 
     // Re-fetch when dependencies change
     useEffect(() => {
@@ -352,18 +360,55 @@ export default function AdminOrdersPage() {
                 return false
             }
 
-            setOrders((prev) => prev.filter((order) => order.id !== orderId))
             setSelectedOrders((prev) => prev.filter((id) => id !== orderId))
 
-            toast.success(
-                'alreadyDeleted' in result && result.alreadyDeleted
-                    ? 'Pedido ja havia sido excluido e a tela foi sincronizada.'
-                    : 'Pedido excluido com sucesso.'
-            )
+            if ('alreadyDeleted' in result && result.alreadyDeleted) {
+                toast.success('Pedido ja havia sido excluido e a tela foi sincronizada.')
+            } else if ('alreadyArchived' in result && result.alreadyArchived) {
+                toast.success('Pedido ja estava arquivado para preservar a NF-e e o historico fiscal.')
+            } else if ('mode' in result && result.mode === 'archived') {
+                toast.success('Pedido arquivado com sucesso para preservar a NF-e e o historico fiscal.')
+            } else {
+                toast.success('Pedido excluido com sucesso.')
+            }
+
+            await loadOrders()
             return true
         } finally {
             deletingOrderIdsRef.current.delete(orderId)
             setDeletingOrderIds((prev) => prev.filter((id) => id !== orderId))
+        }
+    }
+
+    const hardDeleteArchivedOrder = async (orderId: string) => {
+        if (hardDeletingOrderIdsRef.current.has(orderId)) {
+            return false
+        }
+
+        hardDeletingOrderIdsRef.current.add(orderId)
+        setHardDeletingOrderIds((prev) => [...prev, orderId])
+
+        try {
+            const result = await hardDeleteArchivedOrderAction(orderId)
+
+            if (result.error) {
+                toast.error(result.error)
+                return false
+            }
+
+            setSelectedOrders((prev) => prev.filter((id) => id !== orderId))
+
+            if ('alreadyDeleted' in result && result.alreadyDeleted) {
+                toast.success('Pedido ja havia sido apagado definitivamente e a tela foi sincronizada.')
+            } else {
+                toast.success('Pedido apagado definitivamente com NF-e, eventos fiscais e arquivos DANFE/XML.')
+            }
+
+            await loadOrders()
+            return true
+        } finally {
+            hardDeletingOrderIdsRef.current.delete(orderId)
+            setHardDeletingOrderIds((prev) => prev.filter((id) => id !== orderId))
         }
     }
 
@@ -380,6 +425,7 @@ export default function AdminOrdersPage() {
         const searchTerm = search.trim()
         if (searchTerm) params.set('q', searchTerm)
         if (statusFilter !== 'all') params.set('status', statusFilter)
+        if (archiveVisibility !== 'active') params.set('archive_visibility', archiveVisibility)
 
         try {
             const query = params.toString()
@@ -433,6 +479,8 @@ export default function AdminOrdersPage() {
                 onSearch={(term) => { setSearch(term); setCurrentPage(1); }}
                 currentStatus={statusFilter}
                 onStatusChange={(status) => { setStatusFilter(status || 'all'); setCurrentPage(1); }}
+                currentArchiveVisibility={archiveVisibility}
+                onArchiveVisibilityChange={(visibility) => { setArchiveVisibility(visibility); setCurrentPage(1); }}
                 onExport={exportCSV}
                 selectedCount={selectedOrders.length}
                 onBulkUpdateStatus={handleBulkUpdateStatus}
@@ -443,10 +491,12 @@ export default function AdminOrdersPage() {
                 orders={orders}
                 loading={loading}
                 deletingOrderIds={deletingOrderIds}
+                hardDeletingOrderIds={hardDeletingOrderIds}
                 selectedOrders={selectedOrders}
                 onToggleSelect={toggleSelectOrder}
                 onUpdateStatus={updateOrderStatus}
                 onDelete={deleteOrder}
+                onHardDeleteArchived={hardDeleteArchivedOrder}
             />
 
             {/* Next/Prev Server Pagination */}

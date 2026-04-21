@@ -570,7 +570,7 @@ function buildIcmsUfDestTag(item: ItemTaxBreakdown): Record<string, unknown> {
 function buildAdditionalInfoTag(additionalInfo: string | null | undefined): string | null {
   const normalized = (additionalInfo || '').trim()
   if (!normalized) return null
-  return normalizeNFeText(normalized, 5000)
+  return normalizeNFeMultilineText(normalized, 5000)
 }
 
 function resolveDestinationIndicator(store: StoreContext, emitterUf: string): number {
@@ -607,6 +607,20 @@ function normalizeNFeText(value: string | null | undefined, maxLength: number): 
     .replace(/[\u0000-\u001F\u007F]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+
+  return normalized.substring(0, maxLength)
+}
+
+function normalizeNFeMultilineText(value: string | null | undefined, maxLength: number): string {
+  const normalized = (value || '')
+    .normalize('NFKC')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, ' ')
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
 
   return normalized.substring(0, maxLength)
 }

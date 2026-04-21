@@ -20,6 +20,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -59,30 +60,40 @@ export interface OrderWithDetails {
     sales_channel?: 'customer_portal' | 'representative'
     fiscal_status?: string | null
     has_invoice?: boolean
+    archived_at?: string | null
+    archive_reason?: string | null
 }
 
 interface OrderListProps {
     orders: OrderWithDetails[]
     loading: boolean
     deletingOrderIds: string[]
+    hardDeletingOrderIds: string[]
     selectedOrders: string[]
     onToggleSelect: (id: string) => void
     onViewDetail?: (order: OrderWithDetails) => void
     onUpdateStatus: (id: string, newStatus: OrderStatus) => void
     onDelete?: (id: string) => Promise<boolean> | boolean
+    onHardDeleteArchived?: (id: string) => Promise<boolean> | boolean
 }
 
 export function OrderList({
     orders,
     loading,
     deletingOrderIds,
+    hardDeletingOrderIds,
     selectedOrders,
     onToggleSelect,
     onUpdateStatus,
     onDelete,
+    onHardDeleteArchived,
 }: OrderListProps) {
     const router = useRouter()
     const [orderToDelete, setOrderToDelete] = React.useState<string | null>(null)
+    const [orderToHardDelete, setOrderToHardDelete] = React.useState<string | null>(null)
+    const [hardDeleteConfirmed, setHardDeleteConfirmed] = React.useState(false)
+    const pendingRemovalOrder = orders.find((order) => order.id === orderToDelete) || null
+    const pendingHardDeleteOrder = orders.find((order) => order.id === orderToHardDelete) || null
 
     if (loading) {
         return (
@@ -131,6 +142,10 @@ export function OrderList({
                 const representativeName =
                     order.created_by_profile?.full_name || 'Representante nao informado'
                 const isDeleting = deletingOrderIds.includes(order.id)
+                const isHardDeleting = hardDeletingOrderIds.includes(order.id)
+                const isArchived = Boolean(order.archived_at)
+                const hasFiscalDocument = Boolean(order.fiscal_status && order.fiscal_status !== 'none')
+                const removalLabel = isArchived ? 'Pedido arquivado' : hasFiscalDocument ? 'Arquivar pedido' : 'Excluir pedido'
 
                 return (
                     <motion.div
@@ -142,7 +157,7 @@ export function OrderList({
                         <Card
                             className={`glass-card cursor-pointer border-0 transition-all hover:shadow-md ${
                                 isSelected ? 'bg-bronze/5 ring-2 ring-bronze' : ''
-                            } ${order.status === 'cancelled' ? 'grayscale-[0.5] opacity-70' : ''}`}
+                            } ${order.status === 'cancelled' ? 'grayscale-[0.5] opacity-70' : ''} ${isArchived ? 'border border-slate-200/70 bg-slate-50/80 opacity-85' : ''}`}
                             onClick={() => router.push(`/admin/orders/${order.id}`)}
                         >
                             <CardContent className="p-0">
@@ -197,6 +212,14 @@ export function OrderList({
                                                 >
                                                     <FileText className="h-3 w-3" />
                                                     Faturado
+                                                </Badge>
+                                            ) : null}
+                                            {isArchived ? (
+                                                <Badge
+                                                    variant="outline"
+                                                    className="gap-1 border-slate-300 bg-slate-100 text-[10px] text-slate-700"
+                                                >
+                                                    Arquivado
                                                 </Badge>
                                             ) : null}
                                             {order.fiscal_status && order.fiscal_status !== 'none' ? (
@@ -341,7 +364,7 @@ export function OrderList({
                                                             <DropdownMenuSeparator />
                                                             <DropdownMenuItem
                                                                 onClick={() => setOrderToDelete(order.id)}
-                                                                disabled={isDeleting}
+                                                                disabled={isDeleting || isArchived}
                                                                 className="text-destructive focus:bg-destructive/10"
                                                             >
                                                                 {isDeleting ? (
@@ -349,8 +372,25 @@ export function OrderList({
                                                                 ) : (
                                                                     <Trash2 className="mr-2 h-4 w-4" />
                                                                 )}
-                                                                Excluir pedido
+                                                                {removalLabel}
                                                             </DropdownMenuItem>
+                                                            {isArchived && onHardDeleteArchived ? (
+                                                                <DropdownMenuItem
+                                                                    onClick={() => {
+                                                                        setHardDeleteConfirmed(false)
+                                                                        setOrderToHardDelete(order.id)
+                                                                    }}
+                                                                    disabled={isHardDeleting}
+                                                                    className="text-destructive focus:bg-destructive/10"
+                                                                >
+                                                                    {isHardDeleting ? (
+                                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                    ) : (
+                                                                        <Trash2 className="mr-2 h-4 w-4" />
+                                                                    )}
+                                                                    Hard delete definitivo
+                                                                </DropdownMenuItem>
+                                                            ) : null}
                                                         </>
                                                     ) : null}
                                                 </DropdownMenuContent>
@@ -370,10 +410,19 @@ export function OrderList({
                         <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
                             <AlertCircle className="h-6 w-6 text-destructive" />
                         </div>
-                        <AlertDialogTitle className="text-center text-xl">Excluir pedido?</AlertDialogTitle>
+                        <AlertDialogTitle className="text-center text-xl">
+                            {pendingRemovalOrder?.archived_at
+                                ? 'Pedido arquivado'
+                                : pendingRemovalOrder?.fiscal_status && pendingRemovalOrder.fiscal_status !== 'none'
+                                  ? 'Arquivar pedido?'
+                                  : 'Excluir pedido?'}
+                        </AlertDialogTitle>
                         <AlertDialogDescription className="text-center text-balance">
-                            Esta acao e permanente e removera todos os dados do pedido, itens e historico de
-                            status. Deseja continuar?
+                            {pendingRemovalOrder?.archived_at
+                                ? 'Este pedido ja esta arquivado para preservar o historico fiscal e nao pode ser excluido novamente por esta tela.'
+                                : pendingRemovalOrder?.fiscal_status && pendingRemovalOrder.fiscal_status !== 'none'
+                                  ? 'Este pedido possui documento fiscal vinculado. A acao ira arquivar o pedido e preservar a NF-e, os itens e o historico fiscal.'
+                                  : 'Esta acao e permanente e removera todos os dados do pedido, itens e historico de status. Deseja continuar?'}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="mt-4 flex-row gap-3 sm:gap-0">
@@ -389,16 +438,90 @@ export function OrderList({
                                     }
                                 }
                             }}
-                            disabled={Boolean(orderToDelete && deletingOrderIds.includes(orderToDelete))}
+                            disabled={Boolean(
+                                (orderToDelete && deletingOrderIds.includes(orderToDelete)) ||
+                                pendingRemovalOrder?.archived_at
+                            )}
                             className="flex-1 rounded-xl bg-destructive text-destructive-foreground shadow-lg shadow-destructive/20 hover:bg-destructive/90"
                         >
                             {orderToDelete && deletingOrderIds.includes(orderToDelete) ? (
                                 <>
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Excluindo...
+                                    {pendingRemovalOrder?.fiscal_status && pendingRemovalOrder.fiscal_status !== 'none'
+                                        ? 'Arquivando...'
+                                        : 'Excluindo...'}
                                 </>
+                            ) : pendingRemovalOrder?.archived_at ? (
+                                'Pedido arquivado'
+                            ) : pendingRemovalOrder?.fiscal_status && pendingRemovalOrder.fiscal_status !== 'none' ? (
+                                'Arquivar pedido'
                             ) : (
                                 'Excluir agora'
+                            )}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+                open={!!orderToHardDelete}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setOrderToHardDelete(null)
+                        setHardDeleteConfirmed(false)
+                    }
+                }}
+            >
+                <AlertDialogContent className="w-[95vw] max-w-lg rounded-2xl border-0 shadow-2xl">
+                    <AlertDialogHeader>
+                        <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+                            <AlertCircle className="h-6 w-6 text-destructive" />
+                        </div>
+                        <AlertDialogTitle className="text-center text-xl">Hard delete definitivo?</AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-3 text-left text-balance">
+                            <p>
+                                Esta acao apaga definitivamente o pedido{' '}
+                                <strong>{pendingHardDeleteOrder?.order_number || 'selecionado'}</strong>, incluindo NF-e,
+                                eventos fiscais e arquivos DANFE/XML do storage.
+                            </p>
+                            <p>Depois da confirmacao, nao sera possivel recuperar esse conteudo.</p>
+                            <label className="mt-2 flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm text-foreground">
+                                <Checkbox
+                                    checked={hardDeleteConfirmed}
+                                    onCheckedChange={(checked) => setHardDeleteConfirmed(checked === true)}
+                                    className="mt-0.5"
+                                />
+                                <span>Entendo que esta acao e irreversivel.</span>
+                            </label>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="mt-4 flex-row gap-3 sm:gap-0">
+                        <AlertDialogCancel className="mt-0 flex-1 rounded-xl border-navy/10 hover:bg-navy/5">
+                            Cancelar
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={async () => {
+                                if (orderToHardDelete) {
+                                    const success = await onHardDeleteArchived?.(orderToHardDelete)
+                                    if (success) {
+                                        setOrderToHardDelete(null)
+                                        setHardDeleteConfirmed(false)
+                                    }
+                                }
+                            }}
+                            disabled={Boolean(
+                                !hardDeleteConfirmed ||
+                                (orderToHardDelete && hardDeletingOrderIds.includes(orderToHardDelete))
+                            )}
+                            className="flex-1 rounded-xl bg-destructive text-destructive-foreground shadow-lg shadow-destructive/20 hover:bg-destructive/90"
+                        >
+                            {orderToHardDelete && hardDeletingOrderIds.includes(orderToHardDelete) ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Apagando definitivamente...
+                                </>
+                            ) : (
+                                'Apagar definitivamente'
                             )}
                         </AlertDialogAction>
                     </AlertDialogFooter>

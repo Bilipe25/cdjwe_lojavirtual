@@ -36,14 +36,17 @@ interface AdminOrderActionBarProps {
     invoice: AdminOrderInvoiceRecord | null
     routeAssignment: AdminOrderRouteAssignmentRecord | null
     fiscalSummary: AdminOrderFiscalSummary | null
+    archived?: boolean
     loadingMeta?: boolean
     updatingStatus?: boolean
     deleting?: boolean
+    hardDeleting?: boolean
     onOpenInvoice: () => void
     onOpenFiscalReview: () => void
     onPrint: () => void
     onUpdateStatus: (status: OrderStatus) => void
     onDelete?: () => void
+    onHardDeleteArchived?: () => void
 }
 
 function getFiscalBadgeLabel(fiscalSummary: AdminOrderFiscalSummary | null) {
@@ -72,19 +75,23 @@ export function AdminOrderActionBar({
     invoice,
     routeAssignment,
     fiscalSummary,
+    archived = false,
     loadingMeta = false,
     updatingStatus = false,
     deleting = false,
+    hardDeleting = false,
     onOpenInvoice,
     onOpenFiscalReview,
     onPrint,
     onUpdateStatus,
     onDelete,
+    onHardDeleteArchived,
 }: AdminOrderActionBarProps) {
-    const nextTransitions = getAvailableOrderStatusTransitions(order.status)
-    const canInvoice = order.status !== 'pending' && order.status !== 'cancelled'
+    const nextTransitions = archived ? [] : getAvailableOrderStatusTransitions(order.status)
+    const canInvoice = !archived && order.status !== 'pending' && order.status !== 'cancelled'
     const hasInvoice = Boolean(invoice)
     const fiscalLabel = getFiscalBadgeLabel(fiscalSummary)
+    const hasFiscalDocument = Boolean(fiscalSummary?.id)
 
     return (
         <div className="glass-card rounded-2xl border-0 p-3 sm:p-4">
@@ -137,6 +144,15 @@ export function AdminOrderActionBar({
                         >
                             <ShieldCheck className="h-3 w-3" />
                             {fiscalLabel}
+                        </Badge>
+                    ) : null}
+
+                    {archived ? (
+                        <Badge
+                            variant="outline"
+                            className="gap-1 border-slate-200 bg-slate-100 text-xs text-slate-700"
+                        >
+                            Pedido arquivado
                         </Badge>
                     ) : null}
                 </div>
@@ -206,8 +222,8 @@ export function AdminOrderActionBar({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
                             {nextTransitions.length === 0 ? (
-                                <DropdownMenuItem disabled>
-                                    Nenhuma transicao disponivel
+                            <DropdownMenuItem disabled>
+                                    {archived ? 'Pedido arquivado sem acoes operacionais' : 'Nenhuma transicao disponivel'}
                                 </DropdownMenuItem>
                             ) : (
                                 nextTransitions.map((status) => {
@@ -234,7 +250,7 @@ export function AdminOrderActionBar({
                                 <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
-                                        disabled={deleting || hasInvoice || Boolean(routeAssignment)}
+                                        disabled={deleting || hasInvoice || Boolean(routeAssignment) || archived}
                                         onClick={onDelete}
                                         className="text-destructive focus:bg-destructive/10"
                                     >
@@ -243,12 +259,30 @@ export function AdminOrderActionBar({
                                         ) : (
                                             <Trash2 className="mr-2 h-4 w-4" />
                                         )}
-                                        {hasInvoice
+                                        {archived
+                                            ? 'Pedido arquivado'
+                                            : hasInvoice
                                             ? 'Exclusao bloqueada por fatura'
                                             : routeAssignment
                                               ? 'Exclusao bloqueada por rota'
-                                              : 'Excluir pedido'}
+                                              : hasFiscalDocument
+                                                ? 'Arquivar pedido'
+                                                : 'Excluir pedido'}
                                     </DropdownMenuItem>
+                                    {archived && onHardDeleteArchived ? (
+                                        <DropdownMenuItem
+                                            disabled={hardDeleting}
+                                            onClick={onHardDeleteArchived}
+                                            className="text-destructive focus:bg-destructive/10"
+                                        >
+                                            {hardDeleting ? (
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <Trash2 className="mr-2 h-4 w-4" />
+                                            )}
+                                            Hard delete definitivo
+                                        </DropdownMenuItem>
+                                    ) : null}
                                 </>
                             ) : null}
                         </DropdownMenuContent>
