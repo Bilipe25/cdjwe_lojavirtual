@@ -25,8 +25,9 @@ import {
 } from './sefaz-client.service'
 import type { FiscalDocumentPayload } from '../motor/types'
 import type { EmissionResult } from './types'
-import { buildResolvedAdditionalInfo } from '@/lib/fiscal/additional-info'
+import { buildResolvedAdditionalInfo, buildResolvedFiscalAuthorityInfo } from '@/lib/fiscal/additional-info'
 import type { CompanyFiscalEnvironmentParams } from '@/lib/types'
+import { resolveBillingFromInvoices, type FiscalInvoiceSnapshot } from '@/lib/fiscal/billing'
 
 const NF_NAMESPACE = 'http://www.portalfiscal.inf.br/nfe'
 const AUTHORIZED_STATUS_CODES = new Set([100, 150])
@@ -59,6 +60,7 @@ interface OrderFiscalEmissionData {
   notes: string | null
   shipping_address: string | null
   environment_params_jsonb: CompanyFiscalEnvironmentParams | null
+  invoices: FiscalInvoiceSnapshot[]
 }
 
 interface EmissionReservationResponse {
@@ -110,6 +112,14 @@ export async function emitNFe(
       },
       environmentParams: orderData.environment_params_jsonb,
     })
+    const fiscalAuthorityInfoResolved = buildResolvedFiscalAuthorityInfo({ payload })
+    const billing = resolveBillingFromInvoices({
+      invoices: orderData.invoices,
+      paymentMethodName: orderData.payment_method_name,
+      paymentInstallments: orderData.payment_installments,
+      documentNetValue: payload.totals.vNF,
+      documentDiscountValue: payload.totals.vDesc,
+    })
 
     const { xml: infNFeXml, chaveAcesso, infNFeId } = mapFiscalPayloadToNFeXml(
       payload,
@@ -119,12 +129,15 @@ export async function emitNFe(
         {
           payment: {
             methodCode: orderData.payment_method_code,
-            methodName: orderData.payment_method_name,
-            installments: orderData.payment_installments,
+            methodName: billing?.paymentMethodName || orderData.payment_method_name,
+            installments: billing?.installmentCount || orderData.payment_installments,
             paidAmount: payload.totals.vNF,
           },
           freightMode: payload.context.transport.freight_mode,
           additionalInfo: additionalInfoResolved,
+          fiscalAuthorityInfo: fiscalAuthorityInfoResolved,
+          billing,
+          environmentParams: orderData.environment_params_jsonb,
           orderNumber: orderData.order_number,
         }
       )
@@ -158,6 +171,7 @@ export async function emitNFe(
         notes: orderData.notes,
         shippingAddress: orderData.shipping_address,
         total: payload.totals.vNF,
+        billing,
       },
       document: {
         modelo,
@@ -176,6 +190,7 @@ export async function emitNFe(
         motivoStatus: null,
         digestValue: null,
         additionalInfoResolved,
+        fiscalAuthorityInfoResolved,
       },
     })
 
@@ -412,6 +427,7 @@ async function loadOrderFiscalEmissionData(
     { data: orderData, error: orderError },
     { data: fiscalSettings, error: fiscalSettingsError },
     { data: environmentData, error: environmentError },
+    { data: invoiceData, error: invoiceError },
   ] = await Promise.all([
     supabase
       .from('orders')
@@ -430,9 +446,32 @@ async function loadOrderFiscalEmissionData(
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from('invoices')
+      .select(`
+        id,
+        invoice_number,
+        status,
+        issue_date,
+        total_amount,
+        installment_count,
+        payment_method_name,
+        payment_condition_name,
+        created_at,
+        installments:invoice_installments (
+          id,
+          installment_number,
+          due_date,
+          amount,
+          paid_amount,
+          status
+        )
+      `)
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: false }),
   ])
 
-  if (orderError || !orderData || fiscalSettingsError || environmentError) return null
+  if (orderError || !orderData || fiscalSettingsError || environmentError || invoiceError) return null
 
   return {
     order_number: orderData.order_number ?? null,
@@ -443,6 +482,7 @@ async function loadOrderFiscalEmissionData(
     notes: orderData.notes ?? null,
     shipping_address: orderData.shipping_address ?? null,
     environment_params_jsonb: (environmentData?.parametros_jsonb || null) as CompanyFiscalEnvironmentParams | null,
+    invoices: (invoiceData || []) as FiscalInvoiceSnapshot[],
   }
 }
 

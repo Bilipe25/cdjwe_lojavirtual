@@ -8,6 +8,7 @@ export interface UpsertProductDomainInput {
     name: string
     slug: string
     description?: string | null
+    commercialCode?: string | null
     manufacturerName?: string | null
     categoryId: string
     taxProfileId?: string | null
@@ -19,6 +20,7 @@ export interface UpsertProductDomainInput {
     isFeatured: boolean
     activeVariantIds?: string[] | null
     variantPriceOverrides?: Record<string, number | null> | null
+    variantSkuOverrides?: Record<string, string | null> | null
     operationId?: string
 }
 
@@ -760,6 +762,7 @@ async function upsertProductDomainFallback(input: UpsertProductDomainInput): Pro
         name: input.name.trim(),
         slug: input.slug.trim(),
         description: input.description?.trim() ? input.description.trim() : null,
+        commercial_code: sanitizeOptionalProductText(input.commercialCode),
         manufacturer_name: sanitizeOptionalProductText(input.manufacturerName),
         category_id: input.categoryId,
         tax_profile_id: input.taxProfileId ?? null,
@@ -847,6 +850,25 @@ async function upsertProductDomainFallback(input: UpsertProductDomainInput): Pro
                 .eq('product_id', productId)
                 .eq('id', variantId)
             if (priceError) throw priceError
+        }
+    }
+
+    if (input.variantSkuOverrides !== undefined && input.variantSkuOverrides !== null) {
+        const entries = Object.entries(input.variantSkuOverrides)
+        for (const [variantId, rawSku] of entries) {
+            if (!isValidUuid(variantId)) continue
+
+            const sku = sanitizeOptionalProductText(rawSku)
+            if (sku && sku.length > 60) {
+                throw new Error(`SKU invalido para variacao ${variantId}.`)
+            }
+
+            const { error: skuError } = await adminSupabase
+                .from('product_variants')
+                .update({ sku })
+                .eq('product_id', productId)
+                .eq('id', variantId)
+            if (skuError) throw skuError
         }
     }
 
@@ -1116,13 +1138,38 @@ export async function upsertProductDomainAction(
 
         resolvedProductId = row.product_id
         const manufacturerName = sanitizeOptionalProductText(input.manufacturerName)
+        const commercialCode = sanitizeOptionalProductText(input.commercialCode)
         const { error: manufacturerError } = await adminSupabase
             .from('products')
-            .update({ manufacturer_name: manufacturerName })
+            .update({
+                manufacturer_name: manufacturerName,
+                commercial_code: commercialCode,
+            })
             .eq('id', resolvedProductId)
 
         if (manufacturerError) {
             throw manufacturerError
+        }
+
+        if (input.variantSkuOverrides !== undefined && input.variantSkuOverrides !== null) {
+            for (const [variantId, rawSku] of Object.entries(input.variantSkuOverrides)) {
+                if (!isValidUuid(variantId)) continue
+
+                const sku = sanitizeOptionalProductText(rawSku)
+                if (sku && sku.length > 60) {
+                    throw new Error(`SKU invalido para variacao ${variantId}.`)
+                }
+
+                const { error: variantSkuError } = await adminSupabase
+                    .from('product_variants')
+                    .update({ sku })
+                    .eq('product_id', resolvedProductId)
+                    .eq('id', variantId)
+
+                if (variantSkuError) {
+                    throw variantSkuError
+                }
+            }
         }
 
         await logProductAuditEvent({
@@ -1137,6 +1184,7 @@ export async function upsertProductDomainAction(
                 variantsInserted: Number(row.variants_inserted || 0),
                 variantConfigTouched: input.activeVariantIds !== undefined && input.activeVariantIds !== null,
                 variantPricingTouched: input.variantPriceOverrides !== undefined && input.variantPriceOverrides !== null,
+                variantSkuTouched: input.variantSkuOverrides !== undefined && input.variantSkuOverrides !== null,
                 sizeConfigTouched: input.sizeOptions !== undefined && input.sizeOptions !== null,
                 hasSizeVariants: input.hasSizeVariants === true,
                 usedFallback,
@@ -1161,6 +1209,7 @@ export async function upsertProductDomainAction(
             payload: {
                 hasVariantConfig: input.activeVariantIds !== undefined && input.activeVariantIds !== null,
                 hasVariantPricing: input.variantPriceOverrides !== undefined && input.variantPriceOverrides !== null,
+                hasVariantSkuConfig: input.variantSkuOverrides !== undefined && input.variantSkuOverrides !== null,
                 hasSizeConfig: input.sizeOptions !== undefined && input.sizeOptions !== null,
             },
         })

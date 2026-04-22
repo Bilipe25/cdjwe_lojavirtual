@@ -167,6 +167,8 @@ export interface ResolvedTaxProfile {
   // CFOP defaults
   default_output_cfop: string | null
   default_input_cfop: string | null
+  default_output_cfop_config_id: string | null
+  default_input_cfop_config_id: string | null
   default_fiscal_description: string | null
   // PIS/COFINS
   pis_cst: string | null
@@ -238,6 +240,7 @@ export interface FiscalItemContext {
   order_item_id: string
   product_variant_id: string
   sku: string | null
+  commercial_code: string | null
   manufacturer_name: string | null
   product_name: string
   fabric_name: string | null
@@ -323,9 +326,23 @@ export interface IpiBreakdown {
 export interface IbsCbsBreakdown {
   cst_code: string | null
   classification_code: string | null
+  regular_cst_code: string | null
+  regular_classification_code: string | null
+  presumed_credit_code: string | null
+  presumed_credit_rate: number
+  presumed_credit_value: number
   base: number
   rate: number
   value: number
+  ibs_uf_rate: number
+  ibs_uf_value: number
+  ibs_mun_rate: number
+  ibs_mun_value: number
+  ibs_value: number
+  cbs_rate: number
+  cbs_value: number
+  is_ready: boolean
+  should_emit: boolean
 }
 
 // --------------- Item Tax Breakdown (per item) ---------------
@@ -334,6 +351,7 @@ export interface ItemTaxBreakdown {
   order_item_id: string
   product_variant_id: string
   sku: string | null
+  commercial_code: string | null
   manufacturer_name: string | null
   product_name: string
   fabric_name: string | null
@@ -373,6 +391,8 @@ export interface ItemTaxBreakdown {
   cst_icms: string
   aliquota_icms: number
   aliquota_ipi: number
+  resolved_product_code: string
+  resolved_product_description: string
   inf_ad_prod: string | null
 }
 

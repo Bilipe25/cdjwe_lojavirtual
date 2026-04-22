@@ -9,7 +9,13 @@ import { getProductVariantConfig, type FabricConfigGroup } from '@/app/admin/act
 
 interface ProductFabricConfigProps {
     productId: string | undefined
-    onChange: (payload: { activeVariantIds: string[]; priceOverrides: Record<string, number | null> }) => void
+    onChange: (payload: {
+        activeVariantIds: string[]
+        priceOverrides: Record<string, number | null>
+        skuOverrides: Record<string, string | null>
+        priceTouched: boolean
+        skuTouched: boolean
+    }) => void
 }
 
 export function ProductFabricConfig({ productId, onChange }: ProductFabricConfigProps) {
@@ -19,6 +25,7 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
     const [loading, setLoading] = useState(false)
     const [loadError, setLoadError] = useState<string | null>(null)
     const [priceInputs, setPriceInputs] = useState<Record<string, string>>({})
+    const [skuInputs, setSkuInputs] = useState<Record<string, string>>({})
     const hasUserInteractedRef = useRef(false)
 
     // Keep onChange in a ref so it never triggers unnecessary re-runs
@@ -43,12 +50,21 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                 priceOverrides[variantId] = parsePrice(value)
             })
 
+            const skuOverrides: Record<string, string | null> = {}
+            Object.entries(skuInputs).forEach(([variantId, value]) => {
+                const normalized = value.trim()
+                skuOverrides[variantId] = normalized.length > 0 ? normalized : null
+            })
+
             onChangeRef.current({
                 activeVariantIds: Array.from(activeIds),
                 priceOverrides,
+                skuOverrides,
+                priceTouched: false,
+                skuTouched: false,
             })
         }
-    }, [activeIds, priceInputs, groups.length])
+    }, [activeIds, priceInputs, skuInputs, groups.length])
 
     const loadConfig = useCallback(async (id: string) => {
         setLoading(true)
@@ -61,6 +77,7 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
             setActiveIds(new Set())
             setExpandedFabrics(new Set())
             setPriceInputs({})
+            setSkuInputs({})
             setLoading(false)
             return
         }
@@ -71,6 +88,7 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
 
             const initialActiveIds = new Set<string>()
             const initialPrices: Record<string, string> = {}
+            const initialSkus: Record<string, string> = {}
 
             result.data.forEach((group) => {
                 group.colors.forEach((color) => {
@@ -79,12 +97,14 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                         color.price_override !== null && color.price_override !== undefined
                             ? color.price_override.toString()
                             : ''
+                    initialSkus[color.variantId] = color.sku || ''
                 })
             })
 
             setActiveIds(initialActiveIds)
             setExpandedFabrics(new Set(result.data.map((group) => group.fabric.id)))
             setPriceInputs(initialPrices)
+            setSkuInputs(initialSkus)
         }
 
         setLoading(false)
@@ -324,6 +344,38 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                                                 </button>
 
                                                 <div className="ml-auto flex items-center gap-2">
+                                                    <span className="text-[11px] text-muted-foreground">SKU</span>
+                                                    <Input
+                                                        value={skuInputs[color.variantId] || ''}
+                                                        onChange={(event) => {
+                                                            hasUserInteractedRef.current = true
+                                                            const value = event.target.value.toUpperCase()
+                                                            setSkuInputs((prev) => ({ ...prev, [color.variantId]: value }))
+                                                            onChangeRef.current({
+                                                                activeVariantIds: Array.from(activeIds),
+                                                                priceOverrides: Object.fromEntries(
+                                                                    Object.entries(priceInputs).map(([variantId, inputValue]) => [
+                                                                        variantId,
+                                                                        parsePrice(inputValue),
+                                                                    ])
+                                                                ),
+                                                                skuOverrides: {
+                                                                    ...Object.fromEntries(
+                                                                        Object.entries(skuInputs).map(([variantId, inputValue]) => [
+                                                                            variantId,
+                                                                            inputValue.trim() || null,
+                                                                        ])
+                                                                    ),
+                                                                    [color.variantId]: value.trim() || null,
+                                                                },
+                                                                priceTouched: false,
+                                                                skuTouched: true,
+                                                            })
+                                                        }}
+                                                        placeholder="Opcional"
+                                                        className="h-7 w-36 text-xs uppercase"
+                                                        maxLength={60}
+                                                    />
                                                     <span className="text-[11px] text-muted-foreground">R$</span>
                                                     <Input
                                                         value={priceInputs[color.variantId] || ''}
@@ -331,6 +383,26 @@ export function ProductFabricConfig({ productId, onChange }: ProductFabricConfig
                                                             hasUserInteractedRef.current = true
                                                             const value = event.target.value
                                                             setPriceInputs((prev) => ({ ...prev, [color.variantId]: value }))
+                                                            onChangeRef.current({
+                                                                activeVariantIds: Array.from(activeIds),
+                                                                priceOverrides: {
+                                                                    ...Object.fromEntries(
+                                                                        Object.entries(priceInputs).map(([variantId, inputValue]) => [
+                                                                            variantId,
+                                                                            parsePrice(inputValue),
+                                                                        ])
+                                                                    ),
+                                                                    [color.variantId]: parsePrice(value),
+                                                                },
+                                                                skuOverrides: Object.fromEntries(
+                                                                    Object.entries(skuInputs).map(([variantId, inputValue]) => [
+                                                                        variantId,
+                                                                        inputValue.trim() || null,
+                                                                    ])
+                                                                ),
+                                                                priceTouched: true,
+                                                                skuTouched: false,
+                                                            })
                                                         }}
                                                         placeholder="Padrao"
                                                         type="number"

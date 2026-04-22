@@ -128,6 +128,11 @@ export function ProductList({
                                                 {product.is_featured && <Star className="h-3 w-3 fill-bronze text-bronze" />}
                                             </div>
                                             <div className="flex items-center gap-2 mt-1">
+                                                {product.commercial_code && (
+                                                    <span className="text-[11px] font-medium bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded truncate max-w-[160px]">
+                                                        Cod: {product.commercial_code}
+                                                    </span>
+                                                )}
                                                 <span className="text-[11px] font-medium bg-muted px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[150px]">
                                                     {product.category?.name || 'Sem Categoria'}
                                                 </span>
@@ -223,6 +228,11 @@ export function ProductList({
                                     <div className="min-w-0 pr-1 flex-1">
                                         <h3 className="font-semibold text-sm sm:text-lg text-navy truncate" title={product.name}>{product.name}</h3>
                                         <div className="flex items-center gap-1 mt-0.5 overflow-hidden">
+                                            {product.commercial_code && (
+                                                <span className="text-[9px] sm:text-[10px] font-medium bg-slate-100 text-slate-700 px-1 py-0.5 rounded truncate max-w-[120px]">
+                                                    {product.commercial_code}
+                                                </span>
+                                            )}
                                             <span className="text-[10px] sm:text-xs font-medium bg-muted px-1 sm:px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[80px] sm:max-w-[120px]">
                                                 {product.category?.name || 'Sem Categoria'}
                                             </span>

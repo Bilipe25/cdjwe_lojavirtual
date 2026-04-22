@@ -4,6 +4,7 @@ import type {
   FiscalAdditionalInfoFlags,
   FiscalItemAdditionalInfoFlags,
 } from '@/lib/types'
+import { parseTechnicalResponsibleConfig } from '@/lib/fiscal/technical-responsible'
 
 export const DEFAULT_ADDITIONAL_INFO_FLAGS: FiscalAdditionalInfoFlags = {
   mostrar_numero_pedido: true,
@@ -51,6 +52,10 @@ export interface FiscalItemAdditionalInfoBuildInput {
     default_fiscal_description?: string | null
   }
   environmentParams?: CompanyFiscalEnvironmentParams | Record<string, unknown> | null
+}
+
+export interface FiscalAuthorityInfoBuildInput {
+  payload: FiscalDocumentPayload
 }
 
 export function parseAdditionalInfoFlags(
@@ -109,6 +114,7 @@ export function parseFiscalEnvironmentParams(
   additionalInfoFlags: FiscalAdditionalInfoFlags
   itemAdditionalInfoFlags: FiscalItemAdditionalInfoFlags
   observacoesPadrao: string[]
+  technicalResponsible: ReturnType<typeof parseTechnicalResponsibleConfig>
 } {
   const source = (value || {}) as Record<string, unknown>
 
@@ -122,6 +128,7 @@ export function parseFiscalEnvironmentParams(
     observacoesPadrao: sanitizeAdditionalStandardNotes(
       (source as Record<string, unknown>).observacoes_padrao
     ),
+    technicalResponsible: parseTechnicalResponsibleConfig(source),
   }
 }
 
@@ -213,7 +220,48 @@ export function buildResolvedItemAdditionalInfo(input: FiscalItemAdditionalInfoB
     parts.push(`IPI: CST ${item.ipi.cst} p ${item.ipi.rate.toFixed(2)}% v ${item.ipi.value.toFixed(2)}`)
   }
 
-  return parts.length > 0 ? parts.join(' | ') : null
+  return parts.length > 0 ? parts.join('\n') : null
+}
+
+export function buildResolvedFiscalAuthorityInfo(input: FiscalAuthorityInfoBuildInput): string | null {
+  const { payload } = input
+
+  const totals = payload.items.reduce(
+    (acc, item) => {
+      acc.difalBase += item.icms.difal_base || 0
+      acc.difalOrigin += item.icms.difal_value_origin || 0
+      acc.difalDestination += item.icms.difal_value_destination || 0
+      acc.fcpSt += item.st.fcp_value || 0
+      return acc
+    },
+    { difalBase: 0, difalOrigin: 0, difalDestination: 0, fcpSt: 0 }
+  )
+
+  const parts: string[] = []
+
+  if (totals.difalDestination > 0 || totals.difalOrigin > 0) {
+    parts.push(
+      `DIFAL: BC ${formatMoney(totals.difalBase)} | UF destino ${formatMoney(totals.difalDestination)} | UF origem ${formatMoney(totals.difalOrigin)}`
+    )
+  }
+
+  if (payload.totals.vFCP > 0) {
+    parts.push(`FCP proprio total: R$ ${formatMoney(payload.totals.vFCP)}`)
+  }
+
+  if (totals.fcpSt > 0) {
+    parts.push(`FCP-ST total: R$ ${formatMoney(totals.fcpSt)}`)
+  }
+
+  if (payload.totals.vST > 0) {
+    parts.push(`ICMS-ST total: R$ ${formatMoney(payload.totals.vST)}`)
+  }
+
+  if (payload.totals.vIPI > 0) {
+    parts.push(`IPI total: R$ ${formatMoney(payload.totals.vIPI)}`)
+  }
+
+  return parts.length > 0 ? parts.join('\n') : null
 }
 
 export function normalizeAdditionalInfoPart(value: string | null | undefined) {

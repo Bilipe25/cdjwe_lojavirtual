@@ -37,7 +37,7 @@ export function ProductFilters({
                 <div className="relative w-full lg:max-w-sm order-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Buscar produtos por nome..."
+                        placeholder="Buscar por nome ou codigo comercial..."
                         value={search}
                         onChange={(e) => onSearchChange(e.target.value)}
                         className="pl-9 h-10 md:h-11 bg-white"

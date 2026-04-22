@@ -3,6 +3,7 @@ import { z } from 'zod'
 export const productSchema = z.object({
     name: z.string().min(1, 'O nome do produto e obrigatorio'),
     description: z.string().optional(),
+    commercial_code: z.string().optional(),
     manufacturer_name: z.string().optional(),
     category_id: z.string().min(1, 'A categoria e obrigatoria'),
     tax_profile_id: z.string().uuid('Perfil tributario invalido').optional().or(z.literal('')),

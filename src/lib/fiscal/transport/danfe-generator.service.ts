@@ -12,8 +12,9 @@ import {
   parseFiscalDocumentSnapshot,
   snapshotItemToDanfeItem,
 } from './fiscal-document-snapshot'
-import { buildResolvedAdditionalInfo } from '@/lib/fiscal/additional-info'
+import { buildResolvedAdditionalInfo, buildResolvedFiscalAuthorityInfo } from '@/lib/fiscal/additional-info'
 import type { CompanyFiscalEnvironmentParams } from '@/lib/types'
+import { resolveBillingFromInvoices, type FiscalInvoiceSnapshot } from '@/lib/fiscal/billing'
 
 function resolveExistingPath(candidates: string[]) {
   for (const candidate of candidates) {
@@ -102,6 +103,10 @@ interface DanfeData {
   items: DanfeItem[]
   volumes: DanfeTransportVolume[]
   duplicatas: DanfeDuplicata[]
+  billingInvoiceNumber: string | null
+  billingOriginalValue: number
+  billingDiscountValue: number
+  billingNetValue: number
   orderNumber: string | null
   paymentSummary: string | null
   freightModeLabel: string
@@ -278,6 +283,7 @@ export async function generateDanfePreviewPdf(
       { data: order, error },
       { data: fiscalSettings, error: fiscalSettingsError },
       { data: environmentData, error: environmentError },
+      { data: invoiceData, error: invoiceError },
     ] = await Promise.all([
       supabase
         .from('orders')
@@ -296,9 +302,32 @@ export async function generateDanfePreviewPdf(
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from('invoices')
+        .select(`
+          id,
+          invoice_number,
+          status,
+          issue_date,
+          total_amount,
+          installment_count,
+          payment_method_name,
+          payment_condition_name,
+          created_at,
+          installments:invoice_installments (
+            id,
+            installment_number,
+            due_date,
+            amount,
+            paid_amount,
+            status
+          )
+        `)
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: false }),
     ])
 
-    if (error || !order || fiscalSettingsError || environmentError) {
+    if (error || !order || fiscalSettingsError || environmentError || invoiceError) {
       return { success: false, error: 'Pedido nao encontrado para preview da DANFE.' }
     }
 
@@ -317,6 +346,14 @@ export async function generateDanfePreviewPdf(
       },
       environmentParams: (environmentData?.parametros_jsonb || null) as CompanyFiscalEnvironmentParams | null,
     })
+    const fiscalAuthorityInfoResolved = buildResolvedFiscalAuthorityInfo({ payload })
+    const billing = resolveBillingFromInvoices({
+      invoices: (invoiceData || []) as FiscalInvoiceSnapshot[],
+      paymentMethodName: order.payment_method_name ?? null,
+      paymentInstallments: order.payment_installments ?? null,
+      documentNetValue: payload.totals.vNF,
+      documentDiscountValue: payload.totals.vDesc,
+    })
 
     const snapshot = buildFiscalDocumentSnapshot({
       payload,
@@ -330,6 +367,7 @@ export async function generateDanfePreviewPdf(
         notes: order.notes ?? null,
         shippingAddress: order.shipping_address ?? null,
         total: order.total ?? payload.totals.vNF,
+        billing,
       },
       document: {
         modelo,
@@ -348,6 +386,7 @@ export async function generateDanfePreviewPdf(
         motivoStatus: 'Preview de DANFE sem valor fiscal.',
         digestValue: null,
         additionalInfoResolved,
+        fiscalAuthorityInfoResolved,
       },
     })
 
@@ -392,8 +431,12 @@ function buildDanfeDataFromSnapshot(
   const emitter = snapshot.context.emitter
   const store = snapshot.context.store
   const transport = snapshot.context.transport
-  const total = Number(snapshot.order.total || snapshot.totals.vNF || 0)
-  const duplicates = buildDuplicatas(snapshot.order.paymentInstallments || null, total, snapshot.document.emittedAt)
+  const billing = snapshot.order.billing || null
+  const duplicates = (billing?.duplicates || []).map((duplicate) => ({
+    numero: duplicate.numero,
+    vencimento: duplicate.vencimento,
+    valor: Number(duplicate.valor || 0),
+  }))
 
   return {
     logoBuffer: overrides.logoBuffer,
@@ -428,8 +471,15 @@ function buildDanfeDataFromSnapshot(
       netWeight: volume.net_weight,
     })),
     duplicatas: duplicates,
+    billingInvoiceNumber: billing?.invoiceNumber || null,
+    billingOriginalValue: Number(billing?.valueOriginal || snapshot.totals.vNF || 0),
+    billingDiscountValue: Number(billing?.valueDiscount || snapshot.totals.vDesc || 0),
+    billingNetValue: Number(billing?.valueNet || snapshot.totals.vNF || 0),
     orderNumber: snapshot.order.orderNumber || null,
-    paymentSummary: buildPaymentSummary(snapshot.order.paymentMethodName, snapshot.order.paymentInstallments),
+    paymentSummary: buildPaymentSummary(
+      billing?.paymentConditionName || billing?.paymentMethodName || snapshot.order.paymentMethodName,
+      billing?.installmentCount || snapshot.order.paymentInstallments
+    ),
     freightModeLabel: mapFreightModeLabel(transport.freight_mode),
     freightModeCode: mapFreightModeCode(transport.freight_mode),
     deliveryFormLabel: mapDeliveryFormLabel(transport.delivery_form),
@@ -763,12 +813,11 @@ function drawFaturaSection(doc: PDFKit.PDFDocument, data: DanfeData, y: number) 
   const resumoAltura = 24
   const resumoLarguras = [150, 120, 120, 165]
   let x = PAGE.left
-  const valorOriginal = Math.max(0, roundMoney(data.vProd + data.vFrete + data.vSeg + data.vOutro))
   const resumoCampos: Array<[string, string]> = [
-    ['NUMERO FATURA', `${String(data.numeroNf).padStart(9, '0')} / ${data.serie}`],
-    ['VALOR ORIGINAL', formatMoney(valorOriginal)],
-    ['VALOR DESCONTO', formatMoney(data.vDesc)],
-    ['VALOR LIQUIDO', formatMoney(data.vNF)],
+    ['NUMERO FATURA', data.billingInvoiceNumber || `${String(data.numeroNf).padStart(9, '0')} / ${data.serie}`],
+    ['VALOR ORIGINAL', formatMoney(data.billingOriginalValue)],
+    ['VALOR DESCONTO', formatMoney(data.billingDiscountValue)],
+    ['VALOR LIQUIDO', formatMoney(data.billingNetValue)],
   ]
 
   resumoCampos.forEach(([label, value], index) => {
@@ -902,7 +951,7 @@ function drawTransportSection(doc: PDFKit.PDFDocument, data: DanfeData, y: numbe
 }
 
 function drawItemsTableHeader(doc: PDFKit.PDFDocument, y: number) {
-  drawRect(doc, PAGE.left, y, PAGE.width, 24, true)
+  drawRect(doc, PAGE.left, y, PAGE.width, 24)
   drawColumnDividers(doc, PAGE.left, y, ITEM_TABLE_WIDTHS as unknown as number[], 24)
 
   let x = PAGE.left
@@ -1005,7 +1054,7 @@ function finalizePageNumbers(doc: PDFKit.PDFDocument) {
 }
 
 function drawSectionHeader(doc: PDFKit.PDFDocument, title: string, y: number) {
-  drawRect(doc, PAGE.left, y, PAGE.width, 14, true)
+  drawRect(doc, PAGE.left, y, PAGE.width, 14)
   setFont(doc, 'bold', 7.2)
   doc.text(title, PAGE.left + 4, y + 4, { width: PAGE.width - 8 })
   return y + 14
@@ -1032,7 +1081,7 @@ function drawLabeledCell(
 }
 
 function drawTableHeader(doc: PDFKit.PDFDocument, y: number, headers: string[], widths: number[]) {
-  drawRect(doc, PAGE.left, y, PAGE.width, 16, true)
+  drawRect(doc, PAGE.left, y, PAGE.width, 16)
   drawColumnDividers(doc, PAGE.left, y, widths, 16)
   let x = PAGE.left
   headers.forEach((header, index) => {
@@ -1135,35 +1184,6 @@ function digitsOrZeros(value: string) {
   return digits.length === 44 ? digits : ''.padEnd(44, '0')
 }
 
-function buildDuplicatas(installments: number | null, total: number, baseDate: string | null) {
-  if (!installments || installments <= 1) return [] as DanfeDuplicata[]
-
-  const base = Number(total || 0)
-  const perInstallment = Math.floor((base * 100) / installments) / 100
-  const duplicates: DanfeDuplicata[] = []
-  let allocated = 0
-
-  for (let index = 0; index < installments; index++) {
-    const value = index === installments - 1 ? roundMoney(base - allocated) : roundMoney(perInstallment)
-    allocated = roundMoney(allocated + value)
-    duplicates.push({
-      numero: String(index + 1).padStart(3, '0'),
-      vencimento: estimateInstallmentDate(baseDate, index + 1),
-      valor: value,
-    })
-  }
-
-  return duplicates
-}
-
-function estimateInstallmentDate(baseDate: string | null, installment: number) {
-  if (!baseDate) return '-'
-  const date = new Date(baseDate)
-  if (Number.isNaN(date.getTime())) return '-'
-  date.setMonth(date.getMonth() + installment)
-  return date.toLocaleDateString('pt-BR')
-}
-
 function buildPaymentSummary(methodName: string | null | undefined, installments: number | null | undefined) {
   const parts = [
     methodName || null,
@@ -1240,10 +1260,6 @@ function formatRate(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
-}
-
-function roundMoney(value: number) {
-  return Math.round(Number(value || 0) * 100) / 100
 }
 
 function formatAddress(

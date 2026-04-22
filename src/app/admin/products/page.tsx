@@ -86,7 +86,7 @@ export default function AdminProductsPage() {
                 })
 
             if (debouncedSearch) {
-                query = query.ilike('name', `%${debouncedSearch}%`)
+                query = query.or(`name.ilike.%${debouncedSearch}%,commercial_code.ilike.%${debouncedSearch}%`)
             }
             if (categoryFilter !== 'all') {
                 query = query.eq('category_id', categoryFilter)
@@ -150,10 +150,12 @@ export default function AdminProductsPage() {
             setLoading(false)
         }
     }, [
+        categories,
         debouncedSearch,
         categoryFilter,
         currentPage,
         supabase,
+        taxProfiles,
         shouldLoadCategories,
         shouldLoadTaxProfiles,
     ])
@@ -189,7 +191,8 @@ export default function AdminProductsPage() {
         primaryImageId: string | null,
         activeVariantIds: string[],
         variantPriceOverrides: Record<string, number | null>,
-        options: { variantConfigTouched: boolean; variantPricingTouched: boolean }
+        variantSkuOverrides: Record<string, string | null>,
+        options: { variantConfigTouched: boolean; variantPricingTouched: boolean; variantSkuTouched: boolean }
     ) => {
         setSaving(true)
         const operationId = crypto.randomUUID()
@@ -199,6 +202,7 @@ export default function AdminProductsPage() {
             name: data.name,
             slug,
             description: data.description || null,
+            commercial_code: data.commercial_code?.trim() || null,
             manufacturer_name: data.manufacturer_name?.trim() || null,
             category_id: data.category_id,
             tax_profile_id: data.tax_profile_id || null,
@@ -236,6 +240,7 @@ export default function AdminProductsPage() {
                 name: payload.name,
                 slug: payload.slug,
                 description: payload.description,
+                commercialCode: payload.commercial_code,
                 manufacturerName: payload.manufacturer_name,
                 categoryId: payload.category_id,
                 taxProfileId: payload.tax_profile_id,
@@ -255,6 +260,7 @@ export default function AdminProductsPage() {
                 isFeatured: payload.is_featured,
                 activeVariantIds: options.variantConfigTouched ? activeVariantIds : null,
                 variantPriceOverrides: options.variantPricingTouched ? variantPriceOverrides : null,
+                variantSkuOverrides: options.variantSkuTouched ? variantSkuOverrides : null,
                 operationId,
             })
 

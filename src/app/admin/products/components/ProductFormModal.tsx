@@ -77,7 +77,8 @@ interface ProductFormModalProps {
         primaryImageId: string | null,
         activeVariantIds: string[],
         variantPriceOverrides: Record<string, number | null>,
-        options: { variantConfigTouched: boolean; variantPricingTouched: boolean }
+        variantSkuOverrides: Record<string, string | null>,
+        options: { variantConfigTouched: boolean; variantPricingTouched: boolean; variantSkuTouched: boolean }
     ) => Promise<void>;
 }
 
@@ -137,6 +138,7 @@ export function ProductFormModal({
         defaultValues: {
             name: '',
             description: '',
+            commercial_code: '',
             manufacturer_name: '',
             category_id: '',
             tax_profile_id: '',
@@ -170,10 +172,12 @@ export function ProductFormModal({
     // Fabric/Color config state
     const [activeVariantIds, setActiveVariantIds] = useState<string[]>([]);
     const [variantPriceOverrides, setVariantPriceOverrides] = useState<Record<string, number | null>>({});
+    const [variantSkuOverrides, setVariantSkuOverrides] = useState<Record<string, string | null>>({});
     const [activeTab, setActiveTab] = useState<ActiveTab>('info');
     // Track if the fabric config was touched (to avoid unnecessary saves)
     const fabricConfigTouched = useRef(false);
     const variantPricingTouched = useRef(false);
+    const variantSkuTouched = useRef(false);
     const previousPreviewUrlsRef = useRef<string[]>([]);
 
     // Initialize form when opening/editing
@@ -183,13 +187,16 @@ export function ProductFormModal({
             setActiveTab('info');
             fabricConfigTouched.current = false;
             variantPricingTouched.current = false;
+            variantSkuTouched.current = false;
             setActiveVariantIds([]);
             setVariantPriceOverrides({});
+            setVariantSkuOverrides({});
 
             if (editingProduct) {
                 reset({
                     name: editingProduct.name,
                     description: editingProduct.description || '',
+                    commercial_code: editingProduct.commercial_code || '',
                     manufacturer_name: editingProduct.manufacturer_name || '',
                     category_id: editingProduct.category_id || '',
                     tax_profile_id: editingProduct.tax_profile_id || '',
@@ -248,6 +255,7 @@ export function ProductFormModal({
                 reset({
                     name: '',
                     description: '',
+                    commercial_code: '',
                     manufacturer_name: '',
                     category_id: categories[0]?.id || '',
                     tax_profile_id: '',
@@ -277,11 +285,19 @@ export function ProductFormModal({
         onOpenChange(open);
     };
 
-    const handleVariantChange = (payload: { activeVariantIds: string[]; priceOverrides: Record<string, number | null> }) => {
+    const handleVariantChange = (payload: {
+        activeVariantIds: string[]
+        priceOverrides: Record<string, number | null>
+        skuOverrides: Record<string, string | null>
+        priceTouched: boolean
+        skuTouched: boolean
+    }) => {
         setActiveVariantIds(payload.activeVariantIds);
         setVariantPriceOverrides(payload.priceOverrides);
+        setVariantSkuOverrides(payload.skuOverrides);
         fabricConfigTouched.current = true;
-        variantPricingTouched.current = true;
+        if (payload.priceTouched) variantPricingTouched.current = true;
+        if (payload.skuTouched) variantSkuTouched.current = true;
     };
 
     const onSubmit = async (data: ProductFormData) => {
@@ -329,9 +345,11 @@ export function ProductFormModal({
             primaryImageId,
             fabricConfigTouched.current ? activeVariantIds : [],
             variantPricingTouched.current ? variantPriceOverrides : {},
+            variantSkuTouched.current ? variantSkuOverrides : {},
             {
                 variantConfigTouched: fabricConfigTouched.current,
                 variantPricingTouched: variantPricingTouched.current,
+                variantSkuTouched: variantSkuTouched.current,
             }
         );
     };
@@ -503,6 +521,18 @@ export function ProductFormModal({
                                     <Label className="text-navy font-medium">Tamanho / Dimensoes</Label>
                                     <Input {...register('size')} placeholder="Ex: 3 Lugares (2.50m x 1.10m)" className="bg-white/60" />
                                     <p className="text-[11px] text-muted-foreground">Informe as medidas descritivas para facilitar a escolha do lojista.</p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label className="text-navy font-medium">Codigo comercial base</Label>
+                                    <Input
+                                        {...register('commercial_code')}
+                                        placeholder="Ex: EST-SANTINNI-32"
+                                        className="bg-white/60 uppercase"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Usado como fallback do cProd fiscal quando a variante nao possuir SKU proprio.
+                                    </p>
                                 </div>
 
                                 <div className="space-y-2">

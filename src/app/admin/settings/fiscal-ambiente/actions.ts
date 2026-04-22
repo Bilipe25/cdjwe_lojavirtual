@@ -9,6 +9,7 @@ import {
   sanitizeItemAdditionalInfoFlags,
   sanitizeAdditionalStandardNotes,
 } from '@/lib/fiscal/additional-info'
+import { sanitizeTechnicalResponsibleConfig } from '@/lib/fiscal/technical-responsible'
 
 export async function loadFiscalEnvironmentAction(): Promise<{ data: CompanyFiscalEnvironment | null; error: string | null }> {
   const supabase = await createClient()
@@ -116,6 +117,9 @@ export async function saveFiscalEnvironmentAction(input: SaveFiscalEnvironmentIn
     ),
     item_additional_info_flags: sanitizeItemAdditionalInfoFlags(
       params.item_additional_info_flags as Record<string, unknown> | undefined
+    ),
+    responsavel_tecnico: sanitizeTechnicalResponsibleConfig(
+      params.responsavel_tecnico as Record<string, unknown> | undefined
     ),
   }
   const existingEnvironment = input.id

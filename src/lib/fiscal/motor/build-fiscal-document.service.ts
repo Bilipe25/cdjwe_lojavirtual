@@ -21,6 +21,7 @@ import { distributeFreight } from './calculate-freight.service'
 import { distributeDiscount } from './calculate-discount.service'
 import { validateFiscalDocument } from './validate-fiscal-document.service'
 import { buildResolvedItemAdditionalInfo } from '@/lib/fiscal/additional-info'
+import { buildCommercialItemCode, buildCommercialItemDescription } from '@/lib/fiscal/document-commercial'
 
 /**
  * Builds the complete FiscalDocumentPayload from a resolved FiscalContext.
@@ -103,6 +104,7 @@ export function buildFiscalDocument(
       order_item_id: item.order_item_id,
       product_variant_id: item.product_variant_id,
       sku: item.sku,
+      commercial_code: item.commercial_code,
       manufacturer_name: item.manufacturer_name,
       product_name: item.product_name,
       fabric_name: item.fabric_name,
@@ -138,6 +140,23 @@ export function buildFiscalDocument(
       cst_icms: icms.cst,
       aliquota_icms: icms.rate,
       aliquota_ipi: ipi.rate,
+      resolved_product_code: buildCommercialItemCode({
+        productVariantId: item.product_variant_id,
+        sku: item.sku,
+        commercialCode: item.commercial_code,
+        productName: item.product_name,
+        colorName: item.color_name,
+        fabricName: item.fabric_name,
+        sizeName: item.size_name,
+        size: item.size,
+      }),
+      resolved_product_description: buildCommercialItemDescription({
+        productName: item.product_name,
+        colorName: item.color_name,
+        fabricName: item.fabric_name,
+        sizeName: item.size_name,
+        size: item.size,
+      }),
       inf_ad_prod: null,
     })
   }

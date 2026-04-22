@@ -7,7 +7,7 @@ import type { Fabric, FabricColor } from '@/lib/types'
 
 export interface FabricConfigGroup {
     fabric: Fabric
-    colors: (FabricColor & { variantId: string; isActive: boolean; price_override: number | null })[]
+    colors: (FabricColor & { variantId: string; isActive: boolean; price_override: number | null; sku: string | null })[]
 }
 
 interface ProductRow {
@@ -30,6 +30,7 @@ interface VariantRow {
     id: string
     fabric_id: string
     fabric_color_id: string
+    sku: string | null
     is_active: boolean
     price_override: number | null
 }
@@ -297,7 +298,7 @@ export async function getProductVariantConfig(productId: string): Promise<{
 
         const { data: variantsData, error: variantsError } = await supabase
             .from('product_variants')
-            .select('id, is_active, price_override, fabric_id, fabric_color_id')
+            .select('id, sku, is_active, price_override, fabric_id, fabric_color_id')
             .eq('product_id', productId)
             .order('fabric_id')
 
@@ -352,6 +353,7 @@ export async function getProductVariantConfig(productId: string): Promise<{
                 variantId: variant.id,
                 isActive: variant.is_active,
                 price_override: variant.price_override ?? null,
+                sku: typeof variant.sku === 'string' ? variant.sku : null,
             })
         }
 

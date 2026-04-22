@@ -337,6 +337,7 @@ async function loadOrderItemsContext(
         product_id,
         product:products(
           id,
+          commercial_code,
           manufacturer_name,
           tax_profile_id,
           tax_profile:product_tax_profiles(*)
@@ -511,6 +512,8 @@ async function loadOrderItemsContext(
       tax_ean_gtin: (taxProfile.tax_ean_gtin as string) || null,
       default_output_cfop: (taxProfile.default_output_cfop as string) || null,
       default_input_cfop: (taxProfile.default_input_cfop as string) || null,
+      default_output_cfop_config_id: (taxProfile.default_output_cfop_config_id as string) || null,
+      default_input_cfop_config_id: (taxProfile.default_input_cfop_config_id as string) || null,
       default_fiscal_description: (taxProfile.default_fiscal_description as string) || null,
       pis_cst: (taxProfile.pis_cst as string) || null,
       cofins_cst: (taxProfile.cofins_cst as string) || null,
@@ -614,6 +617,7 @@ async function loadOrderItemsContext(
       order_item_id: item.id as string,
       product_variant_id: item.product_variant_id as string,
       sku: normalizeOptionalText((variant?.sku as string | undefined) || null),
+      commercial_code: normalizeOptionalText(product?.commercial_code as string | undefined),
       manufacturer_name: normalizeOptionalText(product?.manufacturer_name as string | undefined),
       product_name: (item.product_name as string) || '',
       fabric_name: normalizeOptionalText(item.fabric_name as string | undefined),

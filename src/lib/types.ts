@@ -349,6 +349,7 @@ export interface Product {
   name: string
   slug: string
   description: string | null
+  commercial_code?: string | null
   manufacturer_name?: string | null
   category_id: string
   tax_profile_id?: string | null
@@ -958,11 +959,22 @@ export interface FiscalItemAdditionalInfoFlags {
   mostrar_codigo_barras_gtin: boolean
 }
 
+export interface FiscalTechnicalResponsibleConfig {
+  enabled: boolean
+  cnpj?: string | null
+  contato?: string | null
+  email?: string | null
+  fone?: string | null
+  csrt_id?: string | null
+  csrt_secret?: string | null
+}
+
 export interface CompanyFiscalEnvironmentParams {
   item_info_fields?: Record<string, unknown>[] | null
   observacoes_padrao?: string[] | null
   additional_info_flags?: Partial<FiscalAdditionalInfoFlags> | null
   item_additional_info_flags?: Partial<FiscalItemAdditionalInfoFlags> | null
+  responsavel_tecnico?: FiscalTechnicalResponsibleConfig | null
   [key: string]: unknown
 }
 

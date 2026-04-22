@@ -52,6 +52,7 @@ import type {
   CompanyFiscalEnvironment,
   FiscalAdditionalInfoFlags,
   FiscalItemAdditionalInfoFlags,
+  FiscalTechnicalResponsibleConfig,
 } from '@/lib/types'
 import {
   isOperationalFiscalEmissionModeSupported,
@@ -229,6 +230,7 @@ interface FormState {
   itemAdditionalInfoFlags: FiscalItemAdditionalInfoFlags
   additionalInfoFlags: FiscalAdditionalInfoFlags
   observacoesPadrao: string[]
+  technicalResponsible: FiscalTechnicalResponsibleConfig
 }
 
 const initialForm: FormState = {
@@ -254,6 +256,15 @@ const initialForm: FormState = {
   itemAdditionalInfoFlags: DEFAULT_ITEM_ADDITIONAL_INFO_FLAGS,
   additionalInfoFlags: DEFAULT_ADDITIONAL_INFO_FLAGS,
   observacoesPadrao: [],
+  technicalResponsible: {
+    enabled: false,
+    cnpj: '',
+    contato: '',
+    email: '',
+    fone: '',
+    csrt_id: '',
+    csrt_secret: '',
+  },
 }
 
 function buildFormState(record: CompanyFiscalEnvironment | null): FormState {
@@ -286,6 +297,15 @@ function buildFormState(record: CompanyFiscalEnvironment | null): FormState {
     itemAdditionalInfoFlags: parsedParams.itemAdditionalInfoFlags,
     additionalInfoFlags: parsedParams.additionalInfoFlags,
     observacoesPadrao: parsedParams.observacoesPadrao,
+    technicalResponsible: {
+      enabled: parsedParams.technicalResponsible.enabled,
+      cnpj: parsedParams.technicalResponsible.cnpj || '',
+      contato: parsedParams.technicalResponsible.contato || '',
+      email: parsedParams.technicalResponsible.email || '',
+      fone: parsedParams.technicalResponsible.fone || '',
+      csrt_id: parsedParams.technicalResponsible.csrt_id || '',
+      csrt_secret: parsedParams.technicalResponsible.csrt_secret || '',
+    },
   }
 }
 
@@ -331,6 +351,19 @@ export default function FiscalAmbientePage() {
       },
     }))
   }, [])
+
+  const updateTechnicalResponsibleField = useCallback(
+    <K extends keyof FiscalTechnicalResponsibleConfig>(key: K, value: FiscalTechnicalResponsibleConfig[K]) => {
+      setForm((prev) => ({
+        ...prev,
+        technicalResponsible: {
+          ...prev.technicalResponsible,
+          [key]: value,
+        },
+      }))
+    },
+    []
+  )
 
   useEffect(() => {
     const load = async () => {
@@ -415,6 +448,7 @@ export default function FiscalAmbientePage() {
         item_additional_info_flags: form.itemAdditionalInfoFlags,
         additional_info_flags: form.additionalInfoFlags,
         observacoes_padrao: form.observacoesPadrao.filter((o) => o.trim()),
+        responsavel_tecnico: form.technicalResponsible,
       },
     })
 
@@ -957,6 +991,91 @@ export default function FiscalAmbientePage() {
               <Plus className="h-4 w-4" />
               Adicionar observação
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card border-0">
+          <CardHeader>
+            <CardTitle className="text-lg font-heading flex items-center gap-2">
+              <Shield className="h-5 w-5 text-bronze" />
+              Responsável técnico do software
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+              Esta configuração governa o grupo <strong>infRespTec</strong> no XML da NF-e. Quando ativada e
+              preenchida com os dados mínimos, ela acompanha novas emissões automaticamente.
+            </div>
+
+            <div className="flex items-center justify-between rounded-xl border bg-white/60 p-4">
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">Habilitar responsável técnico</Label>
+                <p className="text-xs text-muted-foreground">
+                  Exige pelo menos CNPJ, contato e e-mail válidos para entrar no XML emitido.
+                </p>
+              </div>
+              <Switch
+                checked={form.technicalResponsible.enabled}
+                onCheckedChange={(value) => updateTechnicalResponsibleField('enabled', value)}
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>CNPJ do responsável técnico</Label>
+                <Input
+                  value={form.technicalResponsible.cnpj || ''}
+                  onChange={(event) => updateTechnicalResponsibleField('cnpj', event.target.value)}
+                  placeholder="Somente números"
+                  className="bg-white/60"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Contato técnico</Label>
+                <Input
+                  value={form.technicalResponsible.contato || ''}
+                  onChange={(event) => updateTechnicalResponsibleField('contato', event.target.value)}
+                  placeholder="Nome do responsável"
+                  className="bg-white/60"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>E-mail técnico</Label>
+                <Input
+                  value={form.technicalResponsible.email || ''}
+                  onChange={(event) => updateTechnicalResponsibleField('email', event.target.value)}
+                  placeholder="fiscal@empresa.com"
+                  className="bg-white/60"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Telefone técnico</Label>
+                <Input
+                  value={form.technicalResponsible.fone || ''}
+                  onChange={(event) => updateTechnicalResponsibleField('fone', event.target.value)}
+                  placeholder="Somente números"
+                  className="bg-white/60"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>ID do CSRT</Label>
+                <Input
+                  value={form.technicalResponsible.csrt_id || ''}
+                  onChange={(event) => updateTechnicalResponsibleField('csrt_id', event.target.value)}
+                  placeholder="Opcional"
+                  className="bg-white/60"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Segredo CSRT</Label>
+                <Input
+                  value={form.technicalResponsible.csrt_secret || ''}
+                  onChange={(event) => updateTechnicalResponsibleField('csrt_secret', event.target.value)}
+                  placeholder="Opcional"
+                  className="bg-white/60"
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 

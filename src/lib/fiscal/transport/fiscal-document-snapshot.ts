@@ -3,6 +3,26 @@ import 'server-only'
 import type { FiscalDocumentPayload, ItemTaxBreakdown } from '../motor/types'
 import { normalizeAdditionalInfoPart, normalizeAdditionalInfoText } from '@/lib/fiscal/additional-info'
 
+export interface FiscalBillingDuplicateSnapshot {
+  numero: string
+  vencimento: string
+  vencimentoIso?: string | null
+  valor: number
+}
+
+export interface FiscalBillingSnapshot {
+  invoiceId?: string | null
+  invoiceNumber?: string | null
+  issueDate?: string | null
+  paymentMethodName?: string | null
+  paymentConditionName?: string | null
+  installmentCount?: number | null
+  valueOriginal?: number | null
+  valueDiscount?: number | null
+  valueNet?: number | null
+  duplicates?: FiscalBillingDuplicateSnapshot[]
+}
+
 export interface FiscalDocumentSnapshot extends FiscalDocumentPayload {
   order: {
     orderId: string
@@ -14,6 +34,7 @@ export interface FiscalDocumentSnapshot extends FiscalDocumentPayload {
     notes?: string | null
     shippingAddress?: string | null
     total?: number | null
+    billing?: FiscalBillingSnapshot | null
   }
   document: {
     modelo: '55' | '65'
@@ -30,6 +51,7 @@ export interface FiscalDocumentSnapshot extends FiscalDocumentPayload {
     motivoStatus: string | null
     digestValue: string | null
     additionalInfoResolved?: string | null
+    fiscalAuthorityInfoResolved?: string | null
   }
 }
 
@@ -45,6 +67,7 @@ export function buildFiscalDocumentSnapshot(params: {
     notes?: string | null
     shippingAddress?: string | null
     total?: number | null
+    billing?: FiscalBillingSnapshot | null
   }
   document: {
     modelo: '55' | '65'
@@ -61,6 +84,7 @@ export function buildFiscalDocumentSnapshot(params: {
     motivoStatus: string | null
     digestValue: string | null
     additionalInfoResolved?: string | null
+    fiscalAuthorityInfoResolved?: string | null
   }
 }): FiscalDocumentSnapshot {
   return {
@@ -133,22 +157,16 @@ function isUuidLike(value: string | null | undefined) {
 }
 
 function buildItemVariantDescription(item: ItemTaxBreakdown) {
-  const variantParts = [
-    item.color_name || null,
-    item.fabric_name || null,
-    item.size_name ? item.size_name : item.size ? item.size : null,
-  ].filter(Boolean)
-
-  const primaryLine = variantParts.length > 0
-    ? `${item.product_name} - (${variantParts.join(' - ')})`
-    : item.product_name
+  const primaryLine = item.resolved_product_description || item.product_name
 
   const lines: string[] = [primaryLine]
 
   if (item.inf_ad_prod) {
     lines.push(
       ...item.inf_ad_prod
-        .split('|')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .split('\n')
         .map((part) => part.trim())
         .filter(Boolean)
     )
@@ -159,9 +177,10 @@ function buildItemVariantDescription(item: ItemTaxBreakdown) {
 
 export function snapshotItemToDanfeItem(item: ItemTaxBreakdown, index: number = 0) {
   const fallbackCode = String(index + 1).padStart(3, '0')
+  const resolvedCode = (item.resolved_product_code || '').trim()
   const sku = (item.sku || '').trim()
-  const rawCode = sku || item.product_variant_id || item.order_item_id || ''
-  const code = sku ? sku.substring(0, 14) : (isUuidLike(rawCode) ? fallbackCode : fallbackCode)
+  const rawCode = resolvedCode || sku || item.product_variant_id || item.order_item_id || ''
+  const code = rawCode && !isUuidLike(rawCode) ? rawCode.substring(0, 60) : fallbackCode
 
   return {
     code,

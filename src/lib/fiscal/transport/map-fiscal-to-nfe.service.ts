@@ -18,6 +18,9 @@ import type {
 } from '../motor/types'
 import { FRETE_CODES, UF_CODES } from './types'
 import { mapFiscalEmissionModeToTpEmis } from '@/lib/fiscal/emission-mode'
+import type { CompanyFiscalEnvironmentParams } from '@/lib/types'
+import { buildTechnicalResponsibleTag } from '@/lib/fiscal/technical-responsible'
+import type { ResolvedBillingData } from '@/lib/fiscal/billing'
 
 const NF_NAMESPACE = 'http://www.portalfiscal.inf.br/nfe'
 
@@ -32,6 +35,9 @@ export interface NFeBuildOptions {
   payment?: NFePaymentSnapshot | null
   freightMode?: string | null
   additionalInfo?: string | null
+  fiscalAuthorityInfo?: string | null
+  billing?: ResolvedBillingData | null
+  environmentParams?: CompanyFiscalEnvironmentParams | Record<string, unknown> | null
   orderNumber?: string | null
 }
 
@@ -137,8 +143,13 @@ export function mapFiscalPayloadToNFeXml(
     ...(item.inf_ad_prod ? { infAdProd: normalizeNFeText(item.inf_ad_prod, 500) } : {}),
   }))
 
-  const total = { ICMSTot: buildICMSTot(items, totals) }
+  const ibsCbsTot = buildIbsCbsTot(items)
+  const total = {
+    ICMSTot: buildICMSTot(items, totals),
+    ...(ibsCbsTot ? { IBSCBSTot: ibsCbsTot } : {}),
+  }
   const transp = buildTransportTag(ctx.transport, ctx.volumes, totals, options)
+  const cobr = buildBillingTag(options.billing)
   const pag = {
     detPag: {
       indPag: resolvePaymentIndicator(options.payment?.installments),
@@ -151,6 +162,11 @@ export function mapFiscalPayloadToNFeXml(
   }
 
   const additionalInfo = buildAdditionalInfoTag(options.additionalInfo)
+  const fiscalAuthorityInfo = buildAdditionalInfoTag(options.fiscalAuthorityInfo)
+  const technicalResponsible = buildTechnicalResponsibleTag({
+    environmentParams: options.environmentParams,
+    chaveAcesso,
+  })
 
   const infNFe = {
     '@_versao': '4.00',
@@ -161,8 +177,17 @@ export function mapFiscalPayloadToNFeXml(
     det,
     total,
     transp,
+    ...(cobr ? { cobr } : {}),
     pag,
-    ...(additionalInfo ? { infAdic: { infCpl: additionalInfo } } : {}),
+    ...((additionalInfo || fiscalAuthorityInfo)
+      ? {
+        infAdic: {
+          ...(additionalInfo ? { infCpl: additionalInfo } : {}),
+          ...(fiscalAuthorityInfo ? { infAdFisco: fiscalAuthorityInfo } : {}),
+        },
+      }
+      : {}),
+    ...(technicalResponsible ? { infRespTec: technicalResponsible } : {}),
   }
 
   const builder = new XMLBuilder({
@@ -187,9 +212,9 @@ function buildProd(item: ItemTaxBreakdown) {
   const uTrib = normalizeUnit(item.tax_unit || item.commercial_unit)
 
   return {
-    cProd: item.product_variant_id.substring(0, 60),
+    cProd: normalizeNFeText(item.resolved_product_code || item.sku || item.product_variant_id, 60),
     cEAN,
-    xProd: item.product_name.substring(0, 120),
+    xProd: normalizeNFeText(item.resolved_product_description || item.product_name, 120),
     NCM: item.ncm,
     ...(item.cest ? { CEST: item.cest } : {}),
     CFOP: Number(item.cfop),
@@ -228,6 +253,10 @@ function buildImposto(item: ItemTaxBreakdown) {
 
   imposto.PIS = buildPisTag(item)
   imposto.COFINS = buildCofinsTag(item)
+
+  if (item.ibscbs.should_emit && item.ibscbs.cst_code && item.ibscbs.classification_code) {
+    imposto.IBSCBS = buildIbsCbsTag(item)
+  }
 
   return imposto
 }
@@ -476,6 +505,73 @@ function buildICMSTot(items: ItemTaxBreakdown[], totals: DocumentTotals) {
   }
 }
 
+function buildIbsCbsTag(item: ItemTaxBreakdown): Record<string, unknown> {
+  return {
+    CST: item.ibscbs.cst_code,
+    cClassTrib: item.ibscbs.classification_code,
+    gIBSCBS: {
+      vBC: formatDecimal(item.ibscbs.base),
+      gIBSUF: {
+        pIBSUF: formatDecimal(item.ibscbs.ibs_uf_rate),
+        vIBSUF: formatDecimal(item.ibscbs.ibs_uf_value),
+      },
+      gIBSMun: {
+        pIBSMun: formatDecimal(item.ibscbs.ibs_mun_rate),
+        vIBSMun: formatDecimal(item.ibscbs.ibs_mun_value),
+      },
+      vIBS: formatDecimal(item.ibscbs.ibs_value),
+      gCBS: {
+        pCBS: formatDecimal(item.ibscbs.cbs_rate),
+        vCBS: formatDecimal(item.ibscbs.cbs_value),
+      },
+    },
+  }
+}
+
+function buildIbsCbsTot(items: ItemTaxBreakdown[]) {
+  const readyItems = items.filter((item) => item.ibscbs.should_emit)
+  if (readyItems.length === 0) return null
+
+  const totals = readyItems.reduce(
+    (acc, item) => {
+      acc.base += item.ibscbs.base
+      acc.ibsUf += item.ibscbs.ibs_uf_value
+      acc.ibsMun += item.ibscbs.ibs_mun_value
+      acc.ibs += item.ibscbs.ibs_value
+      acc.cbs += item.ibscbs.cbs_value
+      acc.credit += item.ibscbs.presumed_credit_value
+      return acc
+    },
+    { base: 0, ibsUf: 0, ibsMun: 0, ibs: 0, cbs: 0, credit: 0 }
+  )
+
+  return {
+    vBCIBSCBS: formatDecimal(totals.base),
+    gIBS: {
+      gIBSUF: {
+        vDif: '0.00',
+        vDevTrib: '0.00',
+        vIBSUF: formatDecimal(totals.ibsUf),
+      },
+      gIBSMun: {
+        vDif: '0.00',
+        vDevTrib: '0.00',
+        vIBSMun: formatDecimal(totals.ibsMun),
+      },
+      vIBS: formatDecimal(totals.ibs),
+      vCredPres: formatDecimal(totals.credit),
+      vCredPresCondSus: '0.00',
+    },
+    gCBS: {
+      vDif: '0.00',
+      vDevTrib: '0.00',
+      vCBS: formatDecimal(totals.cbs),
+      vCredPres: '0.00',
+      vCredPresCondSus: '0.00',
+    },
+  }
+}
+
 function buildTransportTag(
   transport: FiscalTransportContext,
   volumes: FiscalVolumeContext[],
@@ -568,9 +664,46 @@ function buildIcmsUfDestTag(item: ItemTaxBreakdown): Record<string, unknown> {
 }
 
 function buildAdditionalInfoTag(additionalInfo: string | null | undefined): string | null {
-  const normalized = (additionalInfo || '').trim()
-  if (!normalized) return null
-  return normalizeNFeMultilineText(normalized, 5000)
+  const normalizedLines = (additionalInfo || '')
+    .normalize('NFKC')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .split('\n')
+    .map((line) => normalizeNFeText(line, 5000))
+    .filter(Boolean)
+
+  if (normalizedLines.length === 0) return null
+  return normalizedLines.join(' | ').substring(0, 5000)
+}
+
+function buildBillingTag(billing: ResolvedBillingData | null | undefined): Record<string, unknown> | null {
+  if (!billing || billing.duplicatas.length === 0) return null
+
+  const duplicates = billing.duplicatas
+    .map((duplicate) => {
+      const dueDate = formatXmlDate(duplicate.vencimentoIso)
+      if (!dueDate) return null
+
+      return {
+        nDup: normalizeNFeText(duplicate.numero, 60),
+        dVenc: dueDate,
+        vDup: formatDecimal(duplicate.valor),
+      }
+    })
+    .filter((duplicate): duplicate is NonNullable<typeof duplicate> => Boolean(duplicate))
+
+  if (duplicates.length === 0) return null
+
+  return {
+    fat: {
+      nFat: normalizeNFeText(billing.invoiceNumber || 'FATURA', 60),
+      vOrig: formatDecimal(billing.valorOriginal),
+      ...(billing.valorDesconto > 0 ? { vDesc: formatDecimal(billing.valorDesconto) } : {}),
+      vLiq: formatDecimal(billing.valorLiquido),
+    },
+    dup: duplicates,
+  }
 }
 
 function resolveDestinationIndicator(store: StoreContext, emitterUf: string): number {
@@ -611,20 +744,6 @@ function normalizeNFeText(value: string | null | undefined, maxLength: number): 
   return normalized.substring(0, maxLength)
 }
 
-function normalizeNFeMultilineText(value: string | null | undefined, maxLength: number): string {
-  const normalized = (value || '')
-    .normalize('NFKC')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, ' ')
-    .split('\n')
-    .map((line) => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .join('\n')
-
-  return normalized.substring(0, maxLength)
-}
-
 function normalizeGtin(value: string | null | undefined): string {
   const digits = normalizeDigitsOnly(value)
   return [8, 12, 13, 14].includes(digits.length) ? digits : 'SEM GTIN'
@@ -632,6 +751,18 @@ function normalizeGtin(value: string | null | undefined): string {
 
 function normalizeDigitsOnly(value: string | null | undefined): string {
   return (value || '').replace(/\D/g, '')
+}
+
+function formatXmlDate(value: string | null | undefined): string | null {
+  if (!value) return null
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function resolveFreightMode(totalFreight: number, configuredMode: string | null | undefined): number {
