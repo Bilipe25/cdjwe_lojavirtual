@@ -180,6 +180,17 @@ export const cfopConfigFormSchema = z
         }
 
         if (
+            value.ibscbsConfig.regularClassificationCode &&
+            !value.ibscbsConfig.regularCstCode
+        ) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['ibscbsConfig', 'regularCstCode'],
+                message: 'Informe o CST regular quando houver classificacao regular.',
+            })
+        }
+
+        if (
             value.ibscbsConfig.regularCstCode &&
             value.ibscbsConfig.regularClassificationCode &&
             value.ibscbsConfig.regularClassificationCode.slice(0, 3) !== value.ibscbsConfig.regularCstCode

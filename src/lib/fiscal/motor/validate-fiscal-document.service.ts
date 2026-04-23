@@ -328,6 +328,26 @@ export function validateFiscalDocument(
         item_index: i,
       })
     }
+
+    if (item.ibscbs_context?.impacts_ibscbs && !item.ibscbs.is_ready) {
+      warnings.push({
+        field: `items[${i}].ibscbs`,
+        code: 'ITEM_IBSCBS_NOT_READY',
+        message: `Item "${item.product_name}": IBS/CBS nao pronto para emissao (${item.ibscbs.readiness_errors.join(' | ')}).`,
+        severity: 'warning',
+        item_index: i,
+      })
+    }
+
+    if (item.ibscbs_context?.legacy_payload_used) {
+      warnings.push({
+        field: `items[${i}].ibscbs`,
+        code: 'ITEM_IBSCBS_LEGACY_PAYLOAD',
+        message: `Item "${item.product_name}": IBS/CBS ainda depende de payload legado em parte da resolucao.`,
+        severity: 'warning',
+        item_index: i,
+      })
+    }
   }
 
   // ─── Totals validations ─────────────────────────

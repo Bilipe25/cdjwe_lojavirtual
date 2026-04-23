@@ -43,6 +43,10 @@ import {
     CFOP_OPERATION_SCOPE_OPTIONS,
     getCfopConfigurationStatusLabel,
 } from '@/lib/fiscal/cfop'
+import {
+    buildCfopIbscbsReadinessSummary,
+    getIbscbsReadinessClassName,
+} from '@/lib/fiscal/ibscbs-config'
 import { cfopConfigFormSchema, type CfopConfigFormValues } from '@/app/admin/fiscal-bases/cfop/schema'
 
 interface CfopConfigEditorProps {
@@ -106,6 +110,9 @@ function collectCfopFormIssues(errors: FieldErrors<CfopConfigFormValues>) {
     }
     if (errors.ibscbsConfig?.classificationCode?.message) {
         issues.push(String(errors.ibscbsConfig.classificationCode.message))
+    }
+    if (errors.ibscbsConfig?.regularCstCode?.message) {
+        issues.push(String(errors.ibscbsConfig.regularCstCode.message))
     }
     if (errors.ibscbsConfig?.regularClassificationCode?.message) {
         issues.push(String(errors.ibscbsConfig.regularClassificationCode.message))
@@ -430,6 +437,33 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
         ]
         return parts.join(' | ')
     }, [detail.usage])
+    const ibscbsReadiness = useMemo(
+        () =>
+            buildCfopIbscbsReadinessSummary({
+                impactsIbscbs,
+                hasCatalogPair: Boolean(
+                    ibscbsCatalogReady &&
+                    activeCatalogVersionIds.cstCatalogVersionId &&
+                    activeCatalogVersionIds.classificationVersionId
+                ),
+                hasCst: Boolean(watchedValues.ibscbsConfig?.cstCode),
+                hasClassification: Boolean(watchedValues.ibscbsConfig?.classificationCode),
+                hasRegularClassificationWithoutCst: Boolean(
+                    watchedValues.ibscbsConfig?.regularClassificationCode &&
+                    !watchedValues.ibscbsConfig?.regularCstCode
+                ),
+                presumedCreditCatalogReady,
+                hasPresumedCreditCode: Boolean(watchedValues.ibscbsConfig?.presumedCreditCode),
+            }),
+        [
+            activeCatalogVersionIds.classificationVersionId,
+            activeCatalogVersionIds.cstCatalogVersionId,
+            ibscbsCatalogReady,
+            impactsIbscbs,
+            presumedCreditCatalogReady,
+            watchedValues.ibscbsConfig,
+        ]
+    )
 
     const applySuggestionToForm = useCallback(
         (suggestion: CfopResolvedSuggestion, markDirty: boolean) => {
@@ -937,11 +971,25 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                 </section>
 
                 <section className="rounded-2xl border bg-white p-5 shadow-sm space-y-4">
-                    <h3 className="text-sm font-semibold text-navy">4. Dados de IBS/CBS</h3>
+                    <div className="space-y-1">
+                        <h3 className="text-sm font-semibold text-navy">4. Enquadramento IBS/CBS da operacao</h3>
+                        <p className="text-xs text-muted-foreground">
+                            O CFOP decide se a operacao impacta IBS/CBS e qual e o enquadramento legal dela. A formula numerica e as aliquotas continuam vindo da base/versionamento do perfil e dos vinculos por UF do emitente.
+                        </p>
+                    </div>
+                    <div className={`rounded-xl border px-4 py-3 text-sm ${getIbscbsReadinessClassName(ibscbsReadiness.level)}`}>
+                        <p className="font-medium">{ibscbsReadiness.title}</p>
+                        <p className="mt-1">{ibscbsReadiness.description}</p>
+                        <ul className="mt-2 space-y-1 text-xs">
+                            {ibscbsReadiness.items.map((item) => (
+                                <li key={item}>• {item}</li>
+                            ))}
+                        </ul>
+                    </div>
                     <div className="flex items-center justify-between rounded-xl border p-3">
                         <div>
-                            <p className="font-medium text-slate-900">Ativar bloco de IBS/CBS</p>
-                            <p className="text-xs text-muted-foreground">Use catalogos controlados e estrutura preparada para a reforma tributaria.</p>
+                            <p className="font-medium text-slate-900">Esta operacao impacta IBS/CBS?</p>
+                            <p className="text-xs text-muted-foreground">Ative apenas quando o CFOP realmente participar da resolucao IBS/CBS no runtime.</p>
                         </div>
                         <Switch
                             checked={impactsIbscbs}
@@ -973,13 +1021,13 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                     ) : null}
                     {!catalogLoadError && !loadingCatalogs && !ibscbsCatalogReady ? (
                         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-700">
-                            Ative uma versao de catalogo de CST e outra de classificacao tributaria de IBS/CBS para habilitar este bloco com seguranca.
+                            Ative uma versao de catalogo de CST e outra de classificacao tributaria de IBS/CBS para destravar o enquadramento desta operacao com seguranca.
                         </div>
                     ) : null}
 
                     <div className="grid gap-3 md:grid-cols-2">
                         <div className="space-y-1.5">
-                            <Label>CST IBS/CBS</Label>
+                            <Label>CST IBS/CBS da operacao</Label>
                             <Select
                                 value={watch('ibscbsConfig.cstCode') || '__none__'}
                                 disabled={!ibscbsCatalogReady}
@@ -1004,7 +1052,7 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                         </div>
 
                         <FiscalAutocompleteField
-                            label="Classificacao tributaria"
+                            label="Classificacao tributaria da operacao"
                             placeholder="Buscar classificacao"
                             value={selectedClassification}
                             options={classificationOptions}
@@ -1065,7 +1113,7 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                         />
 
                         <div className="space-y-1.5">
-                            <Label>Codigo do credito presumido</Label>
+                            <Label>Codigo do credito presumido da operacao</Label>
                             <Select
                                 value={watch('ibscbsConfig.presumedCreditCode') || '__none__'}
                                 disabled={!presumedCreditCatalogReady}
@@ -1086,7 +1134,7 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                         </div>
 
                         <div className="space-y-1.5">
-                            <Label>Aliquota de credito presumido</Label>
+                            <Label>Aliquota de credito presumido (%)</Label>
                             <Input type="number" step="0.01" {...register('ibscbsConfig.presumedCreditRate')} />
                         </div>
                     </div>
@@ -1097,6 +1145,7 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                     ) : null}
                     {errors.ibscbsConfig?.cstCatalogVersionId ? <p className="text-xs text-red-500">{errors.ibscbsConfig.cstCatalogVersionId.message}</p> : null}
                     {errors.ibscbsConfig?.classificationCode ? <p className="text-xs text-red-500">{errors.ibscbsConfig.classificationCode.message}</p> : null}
+                    {errors.ibscbsConfig?.regularCstCode ? <p className="text-xs text-red-500">{errors.ibscbsConfig.regularCstCode.message}</p> : null}
                     {errors.ibscbsConfig?.regularClassificationCode ? <p className="text-xs text-red-500">{errors.ibscbsConfig.regularClassificationCode.message}</p> : null}
                 </section>
 

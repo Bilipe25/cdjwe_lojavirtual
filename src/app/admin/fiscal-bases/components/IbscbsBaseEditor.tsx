@@ -72,6 +72,12 @@ function normalizeFormValues(input: {
     validTo?: string | null
     cstCatalogVersionId: string
     classificationCatalogVersionId: string
+    baseMode: string
+    basePercent?: number | null
+    baseReductionPercent?: number | null
+    ibsUfRate?: number | null
+    ibsMunRate?: number | null
+    cbsRate?: number | null
     nationalRule: {
         id?: string | null
         targetUf?: string | null
@@ -100,6 +106,15 @@ function normalizeFormValues(input: {
         validTo: input.validTo || undefined,
         cstCatalogVersionId: input.cstCatalogVersionId || '',
         classificationCatalogVersionId: input.classificationCatalogVersionId || '',
+        baseMode:
+            input.baseMode === 'fiscal_gross' || input.baseMode === 'fiscal_gross_less_icms_fcp'
+                ? input.baseMode
+                : 'subtotal',
+        basePercent: input.basePercent ?? 100,
+        baseReductionPercent: input.baseReductionPercent ?? 0,
+        ibsUfRate: input.ibsUfRate ?? undefined,
+        ibsMunRate: input.ibsMunRate ?? undefined,
+        cbsRate: input.cbsRate ?? undefined,
         nationalRule: {
             id: input.nationalRule.id || undefined,
             targetUf: input.nationalRule.targetUf || undefined,
@@ -249,7 +264,11 @@ export function IbscbsBaseEditor({ mode, ibscbsBaseId }: IbscbsBaseEditorProps) 
     }, [ibscbsBaseId, isEditMode, loadClassificationSeedValues])
 
     useEffect(() => {
-        void loadInitialData()
+        const timer = window.setTimeout(() => {
+            void loadInitialData()
+        }, 0)
+
+        return () => window.clearTimeout(timer)
     }, [loadInitialData])
 
     useEffect(() => {

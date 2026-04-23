@@ -30,15 +30,21 @@ export function ProductTaxProfileEditor({ mode, taxProfileId }: ProductTaxProfil
         if (!isEditMode || !taxProfileId) return
 
         setLoading(true)
-        const result = await getProductTaxProfileDetailAction(taxProfileId)
-        if (!result.success || !result.data) {
-            toast.error(result.error || 'Nao foi possivel carregar o perfil tributario.')
-            router.push('/admin/product-tax-profiles')
-            return
-        }
+        try {
+            const result = await getProductTaxProfileDetailAction(taxProfileId)
+            if (!result.success || !result.data) {
+                toast.error(result.error || 'Nao foi possivel carregar o perfil tributario.')
+                router.push('/admin/product-tax-profiles')
+                return
+            }
 
-        setInitialData(result.data.profile as unknown as Partial<ProductTaxProfileFormData>)
-        setLoading(false)
+            setInitialData(result.data.profile as unknown as Partial<ProductTaxProfileFormData>)
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : 'Nao foi possivel carregar o perfil tributario.')
+            router.push('/admin/product-tax-profiles')
+        } finally {
+            setLoading(false)
+        }
     }, [isEditMode, router, taxProfileId])
 
     useEffect(() => {
@@ -47,66 +53,70 @@ export function ProductTaxProfileEditor({ mode, taxProfileId }: ProductTaxProfil
 
     const handleSave = async (data: ProductTaxProfileFormData) => {
         setSaving(true)
+        try {
+            const result = await upsertProductTaxProfileAction({
+                id: data.id,
+                name: data.name,
+                code: data.code,
+                description: data.description,
+                ncm: data.ncm,
+                cest: data.cest,
+                originCode: data.originCode,
+                commercialUnit: data.commercialUnit,
+                taxUnit: data.taxUnit,
+                eanGtin: data.eanGtin,
+                taxEanGtin: data.taxEanGtin,
+                defaultFiscalDescription: data.defaultFiscalDescription,
+                fiscalType: data.fiscalType,
+                itemType: data.itemType,
+                hasSubstitutionTax: data.hasSubstitutionTax,
+                requiresCest: data.requiresCest,
+                hasIpi: data.hasIpi,
+                ipiCstOut: data.ipiCstOut,
+                ipiEnquadramentoCodigo: data.ipiEnquadramentoCodigo,
+                pisCst: data.pisCst,
+                cofinsCst: data.cofinsCst,
+                pisAliquota: data.pisAliquota ?? null,
+                cofinsAliquota: data.cofinsAliquota ?? null,
+                defaultOutputCfop: data.defaultOutputCfop,
+                defaultInputCfop: data.defaultInputCfop,
+                internalFiscalCode: data.internalFiscalCode,
+                defaultFiscalNotes: data.defaultFiscalNotes,
+                isActive: data.isActive,
+                requiresTaxConfiguration: data.requiresTaxConfiguration,
+                ncmReferenceId: data.ncmReferenceId,
+                ncmVersionId: data.ncmVersionId,
+                tipiReferenceId: data.tipiReferenceId,
+                tipiVersionId: data.tipiVersionId,
+                cestReferenceId: data.cestReferenceId,
+                cestVersionId: data.cestVersionId,
+                defaultOutputCfopReferenceId: data.defaultOutputCfopReferenceId,
+                defaultOutputCfopVersionId: data.defaultOutputCfopVersionId,
+                defaultInputCfopReferenceId: data.defaultInputCfopReferenceId,
+                defaultInputCfopVersionId: data.defaultInputCfopVersionId,
+                defaultOutputCfopConfigId: data.defaultOutputCfopConfigId,
+                defaultInputCfopConfigId: data.defaultInputCfopConfigId,
+                icmsBaseId: data.icmsBaseId,
+                ibscbsBaseId: data.ibscbsBaseId,
+                ibscbsVersionId: data.ibscbsVersionId,
+                fiscalReferenceSnapshot: data.fiscalReferenceSnapshot,
+                rules: data.rules,
+                cfopRules: data.rules,
+            })
 
-        const result = await upsertProductTaxProfileAction({
-            id: data.id,
-            name: data.name,
-            code: data.code,
-            description: data.description,
-            ncm: data.ncm,
-            cest: data.cest,
-            originCode: data.originCode,
-            commercialUnit: data.commercialUnit,
-            taxUnit: data.taxUnit,
-            eanGtin: data.eanGtin,
-            taxEanGtin: data.taxEanGtin,
-            defaultFiscalDescription: data.defaultFiscalDescription,
-            fiscalType: data.fiscalType,
-            itemType: data.itemType,
-            hasSubstitutionTax: data.hasSubstitutionTax,
-            requiresCest: data.requiresCest,
-            hasIpi: data.hasIpi,
-            ipiCstOut: data.ipiCstOut,
-            ipiEnquadramentoCodigo: data.ipiEnquadramentoCodigo,
-            pisCst: data.pisCst,
-            cofinsCst: data.cofinsCst,
-            pisAliquota: data.pisAliquota ?? null,
-            cofinsAliquota: data.cofinsAliquota ?? null,
-            defaultOutputCfop: data.defaultOutputCfop,
-            defaultInputCfop: data.defaultInputCfop,
-            internalFiscalCode: data.internalFiscalCode,
-            defaultFiscalNotes: data.defaultFiscalNotes,
-            isActive: data.isActive,
-            requiresTaxConfiguration: data.requiresTaxConfiguration,
-            ncmReferenceId: data.ncmReferenceId,
-            ncmVersionId: data.ncmVersionId,
-            tipiReferenceId: data.tipiReferenceId,
-            tipiVersionId: data.tipiVersionId,
-            cestReferenceId: data.cestReferenceId,
-            cestVersionId: data.cestVersionId,
-            defaultOutputCfopReferenceId: data.defaultOutputCfopReferenceId,
-            defaultOutputCfopVersionId: data.defaultOutputCfopVersionId,
-            defaultInputCfopReferenceId: data.defaultInputCfopReferenceId,
-            defaultInputCfopVersionId: data.defaultInputCfopVersionId,
-            defaultOutputCfopConfigId: data.defaultOutputCfopConfigId,
-            defaultInputCfopConfigId: data.defaultInputCfopConfigId,
-            icmsBaseId: data.icmsBaseId,
-            ibscbsBaseId: data.ibscbsBaseId,
-            ibscbsVersionId: data.ibscbsVersionId,
-            fiscalReferenceSnapshot: data.fiscalReferenceSnapshot,
-            rules: data.rules,
-            cfopRules: data.rules,
-        })
+            if (!result.success || !result.data) {
+                toast.error(result.error || 'Falha ao salvar perfil tributario.')
+                return
+            }
 
-        if (!result.success || !result.data) {
-            toast.error(result.error || 'Falha ao salvar perfil tributario.')
+            toast.success(result.data.created ? 'Perfil tributario criado.' : 'Perfil tributario atualizado.')
+            router.push('/admin/product-tax-profiles')
+            router.refresh()
+        } catch (error: unknown) {
+            toast.error(error instanceof Error ? error.message : 'Falha ao salvar perfil tributario.')
+        } finally {
             setSaving(false)
-            return
         }
-
-        toast.success(result.data.created ? 'Perfil tributario criado.' : 'Perfil tributario atualizado.')
-        router.push('/admin/product-tax-profiles')
-        router.refresh()
     }
 
     return (

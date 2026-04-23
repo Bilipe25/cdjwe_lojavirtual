@@ -234,6 +234,37 @@ export interface IcmsStRule {
   st_base_reduction_percent: number | null
 }
 
+export interface ResolvedIbsCbsContext {
+  target_uf: string | null
+  cfop_config_id: string | null
+  impacts_ibscbs: boolean
+  configuration_status: string | null
+  base_id: string | null
+  base_code: string | null
+  base_name: string | null
+  version_id: string | null
+  version_label: string | null
+  cst_catalog_version_id: string | null
+  cst_code: string | null
+  classification_version_id: string | null
+  classification_code: string | null
+  regular_cst_code: string | null
+  regular_classification_code: string | null
+  presumed_credit_catalog_version_id: string | null
+  presumed_credit_code: string | null
+  presumed_credit_rate: number | null
+  ibs_uf_rate: number | null
+  ibs_mun_rate: number | null
+  cbs_rate: number | null
+  rate: number | null
+  base_mode: string | null
+  base_percent: number | null
+  base_reduction_percent: number | null
+  applied_rule_scope: 'state' | 'national' | 'none'
+  legacy_payload_used: boolean
+  readiness_errors: string[]
+}
+
 // --------------- Fiscal Item Context ---------------
 
 export interface FiscalItemContext {
@@ -258,6 +289,7 @@ export interface FiscalItemContext {
   icms_rule: IcmsResolvedRule | null
   icms_interstate_rule: IcmsInterstateRule | null
   icms_st_rule: IcmsStRule | null
+  ibscbs_context: ResolvedIbsCbsContext | null
 }
 
 // --------------- Full Fiscal Context ---------------
@@ -341,6 +373,15 @@ export interface IbsCbsBreakdown {
   ibs_value: number
   cbs_rate: number
   cbs_value: number
+  base_mode: string | null
+  base_composition_value: number
+  base_excluded_tax_value: number
+  base_before_reduction: number
+  base_percent: number | null
+  base_reduction_percent: number
+  applied_rule_scope: 'state' | 'national' | 'none'
+  legacy_payload_used: boolean
+  readiness_errors: string[]
   is_ready: boolean
   should_emit: boolean
 }
@@ -376,6 +417,7 @@ export interface ItemTaxBreakdown {
   cofins: PisCofinsItemBreakdown
   ipi: IpiBreakdown
   ibscbs: IbsCbsBreakdown
+  ibscbs_context: ResolvedIbsCbsContext | null
   // Total tributos (Lei da Transparência)
   total_tributos: number
   // Metadata

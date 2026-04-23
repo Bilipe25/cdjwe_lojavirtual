@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useForm, type Resolver } from 'react-hook-form'
+import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -38,6 +39,10 @@ import {
 import { productTaxProfileSchema, type ProductTaxProfileFormData } from '../schema'
 import { TaxProfileNcmSelector } from './TaxProfileNcmSelector'
 import { TaxProfileCestSelector } from './TaxProfileCestSelector'
+import {
+    buildProfileIbscbsReadinessSummary,
+    getIbscbsReadinessClassName,
+} from '@/lib/fiscal/ibscbs-config'
 
 interface ProductTaxProfileFormProps {
     saving: boolean
@@ -249,6 +254,100 @@ function VersionStateBadge({
     )
 }
 
+function readSnapshotNode(
+    snapshot: Record<string, unknown> | undefined,
+    key:
+        | 'ncm'
+        | 'tipi'
+        | 'cest'
+        | 'default_output_cfop'
+        | 'default_input_cfop'
+        | 'default_output_cfop_config'
+        | 'default_input_cfop_config'
+        | 'icms_base'
+        | 'ibscbs_base'
+) {
+    const node = snapshot?.[key]
+    return node && typeof node === 'object' ? (node as Record<string, unknown>) : null
+}
+
+function readSnapshotString(node: Record<string, unknown> | null, key: string) {
+    const value = node?.[key]
+    if (typeof value !== 'string') return undefined
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : undefined
+}
+
+function normalizeInitialProfileFormData(
+    initialData: Partial<ProductTaxProfileFormData> | null
+): Partial<ProductTaxProfileFormData> | null {
+    if (!initialData) return null
+
+    const snapshot = initialData.fiscalReferenceSnapshot as Record<string, unknown> | undefined
+    const ncmNode = readSnapshotNode(snapshot, 'ncm')
+    const tipiNode = readSnapshotNode(snapshot, 'tipi')
+    const cestNode = readSnapshotNode(snapshot, 'cest')
+    const outputCfopNode = readSnapshotNode(snapshot, 'default_output_cfop')
+    const inputCfopNode = readSnapshotNode(snapshot, 'default_input_cfop')
+    const outputCfopConfigNode = readSnapshotNode(snapshot, 'default_output_cfop_config')
+    const inputCfopConfigNode = readSnapshotNode(snapshot, 'default_input_cfop_config')
+    const icmsBaseNode = readSnapshotNode(snapshot, 'icms_base')
+    const ibscbsBaseNode = readSnapshotNode(snapshot, 'ibscbs_base')
+
+    return {
+        ...initialData,
+        ncm: initialData.ncm || readSnapshotString(ncmNode, 'code'),
+        ncmReferenceId: initialData.ncmReferenceId || readSnapshotString(ncmNode, 'reference_id'),
+        ncmVersionId: initialData.ncmVersionId || readSnapshotString(ncmNode, 'version_id'),
+        tipiReferenceId: initialData.tipiReferenceId || readSnapshotString(tipiNode, 'reference_id'),
+        tipiVersionId: initialData.tipiVersionId || readSnapshotString(tipiNode, 'version_id'),
+        cest: initialData.cest || readSnapshotString(cestNode, 'code'),
+        cestReferenceId: initialData.cestReferenceId || readSnapshotString(cestNode, 'reference_id'),
+        cestVersionId: initialData.cestVersionId || readSnapshotString(cestNode, 'version_id'),
+        defaultOutputCfop: initialData.defaultOutputCfop || readSnapshotString(outputCfopNode, 'code'),
+        defaultOutputCfopReferenceId:
+            initialData.defaultOutputCfopReferenceId || readSnapshotString(outputCfopNode, 'reference_id'),
+        defaultOutputCfopVersionId:
+            initialData.defaultOutputCfopVersionId || readSnapshotString(outputCfopNode, 'version_id'),
+        defaultOutputCfopConfigId:
+            initialData.defaultOutputCfopConfigId || readSnapshotString(outputCfopConfigNode, 'config_id'),
+        defaultInputCfop: initialData.defaultInputCfop || readSnapshotString(inputCfopNode, 'code'),
+        defaultInputCfopReferenceId:
+            initialData.defaultInputCfopReferenceId || readSnapshotString(inputCfopNode, 'reference_id'),
+        defaultInputCfopVersionId:
+            initialData.defaultInputCfopVersionId || readSnapshotString(inputCfopNode, 'version_id'),
+        defaultInputCfopConfigId:
+            initialData.defaultInputCfopConfigId || readSnapshotString(inputCfopConfigNode, 'config_id'),
+        icmsBaseId: initialData.icmsBaseId || readSnapshotString(icmsBaseNode, 'base_id'),
+        ibscbsBaseId: initialData.ibscbsBaseId || readSnapshotString(ibscbsBaseNode, 'base_id'),
+        ibscbsVersionId: initialData.ibscbsVersionId || readSnapshotString(ibscbsBaseNode, 'version_id'),
+    }
+}
+
+function collectProductTaxProfileIssues(errors: FieldErrors<ProductTaxProfileFormData>) {
+    const issues = new Set<string>()
+    const visited = new WeakSet<object>()
+
+    const walk = (node: unknown) => {
+        if (!node || typeof node !== 'object') return
+        const objectNode = node as Record<string, unknown>
+        if (visited.has(objectNode)) return
+        visited.add(objectNode)
+
+        if (typeof objectNode.message === 'string' && objectNode.message.trim()) {
+            issues.add(objectNode.message.trim())
+        }
+
+        for (const [key, value] of Object.entries(objectNode)) {
+            if (key === 'message' || key === 'ref') continue
+            walk(value)
+        }
+    }
+
+    walk(errors)
+    return [...issues]
+}
+
 export function ProductTaxProfileForm({
     saving,
     initialData,
@@ -256,6 +355,7 @@ export function ProductTaxProfileForm({
     onSubmit,
     submitLabel,
 }: ProductTaxProfileFormProps) {
+    const normalizedInitialData = useMemo(() => normalizeInitialProfileFormData(initialData), [initialData])
     const form = useForm<ProductTaxProfileFormData>({
         resolver: zodResolver(productTaxProfileSchema) as Resolver<ProductTaxProfileFormData>,
         defaultValues,
@@ -292,10 +392,13 @@ export function ProductTaxProfileForm({
     const hasIpi = watch('hasIpi')
     const isActive = watch('isActive')
     const requiresTaxConfiguration = watch('requiresTaxConfiguration')
+    const currentDefaultFiscalDescription = watch('defaultFiscalDescription')
     const currentTipiReferenceId = watch('tipiReferenceId')
     const currentIcmsBaseId = watch('icmsBaseId')
     const currentIbscbsVersionId = watch('ibscbsVersionId')
-    const currentProfileId = initialData?.id
+    const currentDefaultOutputCfopConfigId = watch('defaultOutputCfopConfigId')
+    const currentDefaultInputCfopConfigId = watch('defaultInputCfopConfigId')
+    const currentProfileId = normalizedInitialData?.id
 
     useEffect(() => {
         const loadCatalogsAndVersions = async () => {
@@ -320,11 +423,14 @@ export function ProductTaxProfileForm({
                 ]),
                 listIcmsBaseOptionsAction({
                     includeInactive: false,
-                    includeCurrentId: typeof initialData?.icmsBaseId === 'string' ? initialData.icmsBaseId : null,
+                    includeCurrentId:
+                        typeof normalizedInitialData?.icmsBaseId === 'string' ? normalizedInitialData.icmsBaseId : null,
                 }),
                 listIbscbsBaseOptionsAction({
                     includeCurrentVersionId:
-                        typeof initialData?.ibscbsVersionId === 'string' ? initialData.ibscbsVersionId : null,
+                        typeof normalizedInitialData?.ibscbsVersionId === 'string'
+                            ? normalizedInitialData.ibscbsVersionId
+                            : null,
                 }),
             ])
 
@@ -351,19 +457,19 @@ export function ProductTaxProfileForm({
         }
 
         void loadCatalogsAndVersions()
-    }, [currentProfileId, initialData?.ibscbsVersionId, initialData?.icmsBaseId])
+    }, [currentProfileId, normalizedInitialData?.ibscbsVersionId, normalizedInitialData?.icmsBaseId])
 
     useEffect(() => {
-        const snapshot = initialData?.fiscalReferenceSnapshot as Record<string, unknown> | undefined
+        const snapshot = normalizedInitialData?.fiscalReferenceSnapshot as Record<string, unknown> | undefined
         reset({
             ...defaultValues,
-            ...(initialData || {}),
+            ...(normalizedInitialData || {}),
         })
         setSelectedNcm(buildInitialOption(snapshot, 'ncm'))
         setSelectedTipi(buildInitialOption(snapshot, 'tipi'))
         setSelectedCest(buildInitialOption(snapshot, 'cest'))
         setNcmSuggestions(null)
-    }, [initialData, reset])
+    }, [normalizedInitialData, reset])
 
     useEffect(() => {
         const loadSuggestions = async () => {
@@ -418,6 +524,21 @@ export function ProductTaxProfileForm({
             selectedIbscbsBase &&
             (!selectedIbscbsBase.isBaseActive || !selectedIbscbsBase.isVersionActive)
     )
+    const ibscbsProfileReadiness = useMemo(
+        () =>
+            buildProfileIbscbsReadinessSummary({
+                hasBaseVersion: Boolean(selectedIbscbsBase),
+                isSelectedVersionActive: Boolean(selectedIbscbsBase?.isBaseActive && selectedIbscbsBase?.isVersionActive),
+                hasAnyCfopConfig: Boolean(currentDefaultOutputCfopConfigId || currentDefaultInputCfopConfigId),
+                requiresTaxConfiguration,
+            }),
+        [
+            currentDefaultInputCfopConfigId,
+            currentDefaultOutputCfopConfigId,
+            requiresTaxConfiguration,
+            selectedIbscbsBase,
+        ]
+    )
 
     const referenceSummary = useMemo(() => {
         const parts = [
@@ -440,6 +561,13 @@ export function ProductTaxProfileForm({
         )
     }, [activeVersions, selectedCest, selectedNcm, selectedTipi])
 
+    const validationIssues = useMemo(() => collectProductTaxProfileIssues(errors), [errors])
+
+    const handleInvalidSubmit = () => {
+        toast.error(validationIssues[0] || 'Revise os campos obrigatorios antes de salvar o perfil tributario.')
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+
     const handleNcmSearch = async (query: string) => {
         setNcmLoading(true)
         const result = await searchFiscalNcmEntriesAction({ query, limit: 12 })
@@ -459,7 +587,18 @@ export function ProductTaxProfileForm({
     }
 
     return (
-        <form onSubmit={handleSubmit((data) => onSubmit(data))} className="space-y-5">
+        <form onSubmit={handleSubmit((data) => void onSubmit(data), handleInvalidSubmit)} className="space-y-5">
+            {validationIssues.length > 0 ? (
+                <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm">
+                    <p className="text-sm font-semibold text-amber-950">Ainda faltam ajustes antes de salvar</p>
+                    <ul className="mt-2 list-disc pl-5 text-sm text-amber-900">
+                        {validationIssues.map((issue) => (
+                            <li key={issue}>{issue}</li>
+                        ))}
+                    </ul>
+                </section>
+            ) : null}
+
             <section className="space-y-3 rounded-2xl border bg-white p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-navy">1. Informacoes Gerais</h3>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -504,7 +643,7 @@ export function ProductTaxProfileForm({
                             setValue('ncmReferenceId', option.id, { shouldDirty: true })
                             setValue('ncmVersionId', option.versionId, { shouldDirty: true })
                             setValue('ncm', option.code, { shouldDirty: true })
-                            if (!watch('defaultFiscalDescription')) {
+                            if (!currentDefaultFiscalDescription) {
                                 setValue('defaultFiscalDescription', option.description, { shouldDirty: true })
                             }
                         }}
@@ -651,7 +790,7 @@ export function ProductTaxProfileForm({
                             </SelectContent>
                         </Select>
                         <p className="text-xs text-muted-foreground">
-                            Vincule uma base versionada de IBS/CBS para preparar o perfil para reforma tributaria, vigencia fiscal e futura previa tributaria do pedido.
+                            O perfil escolhe a base/versionamento padrao do produto. O enquadramento da operacao continua vindo do CFOP e os vinculos do emitente por UF entram como complemento geografico.
                         </p>
                         {selectedIbscbsBase ? (
                             <div className="flex flex-wrap gap-2 text-xs">
@@ -685,6 +824,15 @@ export function ProductTaxProfileForm({
                                 Esta referencia de IBS/CBS permaneceu vinculada apenas por heranca historica do perfil. Para novos ajustes, prefira uma versao ativa.
                             </div>
                         ) : null}
+                        <div className={`rounded-xl border px-3 py-3 text-xs ${getIbscbsReadinessClassName(ibscbsProfileReadiness.level)}`}>
+                            <p className="font-medium">{ibscbsProfileReadiness.title}</p>
+                            <p className="mt-1">{ibscbsProfileReadiness.description}</p>
+                            <ul className="mt-2 space-y-1">
+                                {ibscbsProfileReadiness.items.map((item) => (
+                                    <li key={item}>• {item}</li>
+                                ))}
+                            </ul>
+                        </div>
                         {errors.ibscbsVersionId ? <p className="text-xs text-red-500">{errors.ibscbsVersionId.message}</p> : null}
                     </div>
 
@@ -950,7 +1098,7 @@ export function ProductTaxProfileForm({
                     </div>
                 </div>
 
-                {(errors.ncm || errors.cest || errors.ipiCstOut) && (
+                {validationIssues.length > 0 && (
                     <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                         Revise os campos fiscais destacados antes de salvar o perfil.
                     </div>

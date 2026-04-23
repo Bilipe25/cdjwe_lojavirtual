@@ -81,12 +81,20 @@ export function buildFiscalDocument(
     const pis = calculatePis(item, ctx, itemDiscount, icms.value)
     const cofins = calculateCofins(item, ctx, itemDiscount, icms.value)
 
-    // IBS/CBS
-    const ibscbs = calculateIbsCbs(item)
-
     // Fiscal values
     const fiscalUnitValue = roundFiscal(item.unit_price)
     const fiscalTotalValue = roundFiscal(item.quantity * item.unit_price)
+
+    // IBS/CBS
+    const ibscbs = calculateIbsCbs(item, {
+      fiscalTotalValue,
+      freightValue: itemFreight,
+      insuranceValue: itemInsurance,
+      otherExpensesValue: itemOtherExpenses,
+      discountValue: itemDiscount,
+      icmsValue: icms.value,
+      fcpValue: fcp.value,
+    })
 
     // Total tributos (Lei da Transparência 12.741/2012)
     const totalTributos = roundFiscal(
@@ -127,6 +135,7 @@ export function buildFiscalDocument(
       cofins,
       ipi,
       ibscbs,
+      ibscbs_context: item.ibscbs_context,
       total_tributos: totalTributos,
       tax_profile_id: item.tax_profile.tax_profile_id,
       tax_profile_version: item.tax_profile.tax_profile_version,

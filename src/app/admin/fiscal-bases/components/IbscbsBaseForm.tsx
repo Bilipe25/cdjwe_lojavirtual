@@ -1,6 +1,6 @@
 'use client'
 
-import { AlertTriangle, BookCheck, CalendarRange, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { AlertTriangle, BookCheck, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,6 +25,12 @@ import type {
     IbscbsCstCatalogItem,
 } from '@/app/admin/actions/ibscbs-bases'
 import { FiscalAutocompleteField } from './FiscalAutocompleteField'
+import {
+    buildIbscbsBaseReadinessSummary,
+    describeBaseModel,
+    getIbscbsReadinessClassName,
+    parseIbscbsRuntimeModel,
+} from '@/lib/fiscal/ibscbs-config'
 
 interface IbscbsBaseFormProps {
     mode: 'create' | 'edit'
@@ -253,6 +259,22 @@ export function IbscbsBaseForm({
     const getError = (path: string) => errors[path]
     const stateRuleErrorCount = Object.keys(errors).filter((key) => key.startsWith('stateRules.')).length
     const disabledFields = loading || saving || readOnly
+    const runtimeModel = parseIbscbsRuntimeModel({
+        base_mode: values.baseMode,
+        base_percent: values.basePercent,
+        base_reduction_percent: values.baseReductionPercent,
+        ibs_uf_rate: values.ibsUfRate,
+        ibs_mun_rate: values.ibsMunRate,
+        cbs_rate: values.cbsRate,
+    })
+    const readiness = buildIbscbsBaseReadinessSummary({
+        cstCatalogVersionId: values.cstCatalogVersionId,
+        classificationCatalogVersionId: values.classificationCatalogVersionId,
+        nationalCstCode: values.nationalRule.cstCode,
+        nationalClassificationCode: values.nationalRule.classificationCode,
+        stateRuleCount: values.stateRules.length,
+        model: runtimeModel,
+    })
 
     if (loading) {
         return <div className="rounded-3xl border bg-white p-8 text-sm text-slate-600 shadow-sm">Carregando estrutura da base de IBS/CBS...</div>
@@ -282,7 +304,7 @@ export function IbscbsBaseForm({
                             {mode === 'edit' ? 'Administrar Base de IBS/CBS' : 'Nova Base de IBS/CBS'}
                         </h1>
                         <p className="mt-1 max-w-3xl text-sm text-slate-600">
-                            Estruture CST, classificacao tributaria, vigencia e excecoes por UF da reforma tributaria em uma base versionada, auditavel e pronta para integracao futura com preview fiscal.
+                            Esta tela define a linguagem central do IBS/CBS: catalogos oficiais, regra nacional/UF e o modelo numerico da versao que sera herdado pelo runtime fiscal.
                         </p>
                     </div>
                 </div>
@@ -307,7 +329,24 @@ export function IbscbsBaseForm({
                 <SummaryMetric label="Versao atual" value={values.versionLabel || 'Draft'} helper={readOnly ? 'Visualizacao historica / ativa' : 'Edicao em rascunho'} />
                 <SummaryMetric label="Regras por UF" value={values.stateRules.length.toLocaleString('pt-BR')} helper="Excecoes estaduais configuradas" />
                 <SummaryMetric label="Versao ativa" value={activeVersionId ? 'Sim' : 'Nao'} helper="Somente uma versao ativa por base" />
-                <SummaryMetric label="Integracao" value="Perfis tributarios" helper="Preparada para heranca e snapshot fiscal" />
+                <SummaryMetric label="Modelo runtime" value={runtimeModel.totalRate > 0 ? `${runtimeModel.totalRate.toFixed(2)}%` : 'Pendente'} helper="Soma de IBS UF + IBS Mun + CBS" />
+            </div>
+
+            <div className={`rounded-2xl border px-4 py-3 ${getIbscbsReadinessClassName(readiness.level)}`}>
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-1">
+                        <p className="text-sm font-semibold">{readiness.title}</p>
+                        <p className="text-sm">{readiness.description}</p>
+                    </div>
+                    <Badge variant="outline" className="w-fit bg-white/80 text-current">
+                        {readiness.level === 'ready' ? 'Pronta para runtime' : readiness.level === 'partial' ? 'Prontidao parcial' : 'Pendente'}
+                    </Badge>
+                </div>
+                <ul className="mt-3 space-y-1 text-sm">
+                    {readiness.items.map((item) => (
+                        <li key={item}>• {item}</li>
+                    ))}
+                </ul>
             </div>
 
             {readOnly ? (
@@ -345,7 +384,7 @@ export function IbscbsBaseForm({
             </div>
 
             <div className="space-y-5 rounded-3xl border bg-white p-5 shadow-sm">
-                <SectionIntro title="2. Versao, vigencia e catalogos" description="A versao ativa fica congelada. Ajustes futuros devem nascer em nova versao draft, com vigencia clara e referencia explicita aos catalogos de CST e classificacao tributaria." />
+                <SectionIntro title="2. Versao, vigencia e catalogos" description="A base escolhe catalogos oficiais e vigencia. O CFOP depois escolhe o enquadramento da operacao dentro dessa linguagem." />
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <div className="space-y-1.5">
                         <Label>Rotulo da versao *</Label>
@@ -404,7 +443,93 @@ export function IbscbsBaseForm({
             </div>
 
             <div className="space-y-5 rounded-3xl border bg-white p-5 shadow-sm">
-                <SectionIntro title="3. Dados tributarios principais" description="A regra nacional funciona como base padrao. Quando uma UF exigir comportamento diferente, abra uma excecao estadual especifica." />
+                <SectionIntro title="3. Modelo numerico da versao" description="Aqui ficam a formula da base do IBS/CBS e as aliquotas da reforma. O CFOP nao define essas aliquotas; ele so define o enquadramento legal da operacao." />
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+                    <div className="space-y-1.5 xl:col-span-2">
+                        <Label>Formula da base IBS/CBS</Label>
+                        <Select
+                            value={values.baseMode}
+                            onValueChange={(next) => onChangeBase({ baseMode: next as IbscbsBaseFormValues['baseMode'] })}
+                            disabled={disabledFields}
+                        >
+                            <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Selecione a formula da base" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="subtotal">Subtotal puro do item</SelectItem>
+                                <SelectItem value="fiscal_gross">Valor fiscal do item (com despesas e desconto)</SelectItem>
+                                <SelectItem value="fiscal_gross_less_icms_fcp">Valor fiscal do item menos ICMS/FCP proprio</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">
+                            Para aproximar o comportamento da XML de mercado, use a opcao que parte do valor fiscal do item e exclui ICMS/FCP proprio.
+                        </p>
+                        <FieldError message={getError('baseMode')} />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>Base considerada do item (%)</Label>
+                        <Input
+                            type="number"
+                            step="0.01"
+                            value={values.basePercent ?? ''}
+                            onChange={(event) => onChangeBase({ basePercent: event.target.value === '' ? undefined : Number(event.target.value) })}
+                            disabled={disabledFields}
+                        />
+                        <FieldError message={getError('basePercent')} />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>Reducao da base (%)</Label>
+                        <Input
+                            type="number"
+                            step="0.01"
+                            value={values.baseReductionPercent ?? ''}
+                            onChange={(event) => onChangeBase({ baseReductionPercent: event.target.value === '' ? undefined : Number(event.target.value) })}
+                            disabled={disabledFields}
+                        />
+                        <FieldError message={getError('baseReductionPercent')} />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>Aliquota IBS UF (%)</Label>
+                        <Input
+                            type="number"
+                            step="0.01"
+                            value={values.ibsUfRate ?? ''}
+                            onChange={(event) => onChangeBase({ ibsUfRate: event.target.value === '' ? undefined : Number(event.target.value) })}
+                            disabled={disabledFields}
+                        />
+                        <FieldError message={getError('ibsUfRate')} />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>Aliquota IBS Municipio (%)</Label>
+                        <Input
+                            type="number"
+                            step="0.01"
+                            value={values.ibsMunRate ?? ''}
+                            onChange={(event) => onChangeBase({ ibsMunRate: event.target.value === '' ? undefined : Number(event.target.value) })}
+                            disabled={disabledFields}
+                        />
+                        <FieldError message={getError('ibsMunRate')} />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>Aliquota CBS (%)</Label>
+                        <Input
+                            type="number"
+                            step="0.01"
+                            value={values.cbsRate ?? ''}
+                            onChange={(event) => onChangeBase({ cbsRate: event.target.value === '' ? undefined : Number(event.target.value) })}
+                            disabled={disabledFields}
+                        />
+                        <FieldError message={getError('cbsRate')} />
+                    </div>
+                </div>
+                <div className="rounded-2xl border bg-slate-50 p-4 text-sm text-slate-700">
+                    <p className="font-medium text-slate-800">Resumo do modelo da versao</p>
+                    <p className="mt-1">{describeBaseModel(runtimeModel)}</p>
+                </div>
+            </div>
+
+            <div className="space-y-5 rounded-3xl border bg-white p-5 shadow-sm">
+                <SectionIntro title="4. Regra nacional de enquadramento" description="A regra nacional define CST e classificacao padrao da base. Excecoes por UF entram somente quando a legislacao realmente divergir." />
                 <IbscbsRuleCard
                     title="Regra nacional"
                     description="Estado vazio = regra nacional / padrao de IBS/CBS."
@@ -423,7 +548,7 @@ export function IbscbsBaseForm({
 
             <div className="space-y-5 rounded-3xl border bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <SectionIntro title="4. Excecoes por UF" description="Cada UF representa uma excecao especifica que sobrepoe a regra nacional. A UX deixa explicito quando a base esta operando nacionalmente e quando ha divergencia estadual." />
+                    <SectionIntro title="5. Excecoes por UF" description="Cada UF representa apenas uma sobreposicao estadual do enquadramento. A formula numerica continua pertencendo a versao desta base." />
                     <Button type="button" variant="outline" onClick={onAddStateRule} disabled={disabledFields}>
                         <Plus className="mr-1.5 h-4 w-4" />
                         Adicionar excecao por UF
@@ -466,7 +591,7 @@ export function IbscbsBaseForm({
             </div>
 
             <div className="space-y-5 rounded-3xl border bg-white p-5 shadow-sm">
-                <SectionIntro title="5. Resumo, historico e integracao" description="A base IBS/CBS fica pronta para ser herdada pelos Perfis Tributarios e usada como referencia futura na pre-analise fiscal do pedido e na emissao documental." />
+                <SectionIntro title="6. Resumo, historico e integracao" description="A base IBS/CBS fica pronta para ser herdada pelos perfis, combinada com CFOP no runtime e complementada por vinculos do emitente por UF quando necessario." />
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <div className="rounded-2xl border bg-slate-50 p-4">
                         <p className="text-sm font-medium text-slate-800">Regra base</p>
@@ -481,12 +606,12 @@ export function IbscbsBaseForm({
                         </p>
                     </div>
                     <div className="rounded-2xl border bg-slate-50 p-4">
-                        <p className="text-sm font-medium text-slate-800">Preview fiscal futuro</p>
-                        <p className="mt-1 text-sm text-slate-600">Preparada para resolver regra nacional x UF por contexto do cliente.</p>
+                        <p className="text-sm font-medium text-slate-800">Modelo da versao</p>
+                        <p className="mt-1 text-sm text-slate-600">{describeBaseModel(runtimeModel)}</p>
                     </div>
                     <div className="rounded-2xl border bg-slate-50 p-4">
                         <p className="text-sm font-medium text-slate-800">Perfis Tributarios</p>
-                        <p className="mt-1 text-sm text-slate-600">Apenas versoes ativas devem receber novos vinculos.</p>
+                        <p className="mt-1 text-sm text-slate-600">O perfil escolhe esta base/versionamento como heranca padrao do produto.</p>
                     </div>
                 </div>
 
@@ -520,7 +645,7 @@ export function IbscbsBaseForm({
                     <div className="flex items-start gap-2">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                         <p>
-                            Esta fase entrega a fundacao administrativa e fiscal de IBS/CBS com catalogos controlados, vigencia e versionamento. O calculo automatico e o preview fiscal completo ficam preparados para a proxima etapa, sem exigir refatoracao estrutural.
+                            Esta base agora fala a mesma lingua do runtime: catalogos oficiais, enquadramento nacional/UF e modelo numerico versionado. O CFOP continua dono do enquadramento da operacao e o emitente/UF continua como complemento geografico.
                         </p>
                     </div>
                 </div>

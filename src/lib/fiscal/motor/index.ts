@@ -31,6 +31,7 @@ export type {
   EnvironmentContext,
   FiscalItemContext,
   ResolvedTaxProfile,
+  ResolvedIbsCbsContext,
   IcmsBreakdown,
   FcpBreakdown,
   StBreakdown,
@@ -205,6 +206,7 @@ export async function persistOrderFiscalSnapshot(
           cofins: item.cofins,
           ipi: item.ipi,
           ibscbs: item.ibscbs,
+          ibscbs_context: item.ibscbs_context,
           totals: {
             insurance: item.fiscal_insurance_value,
             other_expenses: item.fiscal_other_expenses_value,

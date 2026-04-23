@@ -26,6 +26,7 @@ import { safeNumber } from './types'
 import { inferOperationDirectionFromCfop } from '@/lib/fiscal/order-fiscal-workspace'
 import { normalizeFiscalEmissionMode } from '@/lib/fiscal/emission-mode'
 import { parseFiscalEnvironmentParams } from '@/lib/fiscal/additional-info'
+import { resolveIbsCbsContext } from './resolve-ibscbs-context.service'
 
 function digitsOnly(value: string | null | undefined): string {
   return (value || '').replace(/\D/g, '')
@@ -313,7 +314,8 @@ async function loadEnvironmentContext(): Promise<FiscalCalculationResult<Environ
 
 async function loadOrderItemsContext(
   orderId: string,
-  storeUf: string
+  storeUf: string,
+  operationDirection: 'outbound' | 'inbound'
 ): Promise<FiscalCalculationResult<FiscalItemContext[]>> {
   const supabase = createServiceRoleClient()
 
@@ -389,7 +391,7 @@ async function loadOrderItemsContext(
       .select('*')
       .in('tax_profile_id', taxProfileIds)
       .eq('is_active', true)
-      .eq('operation_direction', 'outbound')
+      .eq('operation_direction', operationDirection)
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false })
     : { data: [] }
@@ -633,10 +635,232 @@ async function loadOrderItemsContext(
       icms_rule: icmsRule,
       icms_interstate_rule: icmsInterstateRule,
       icms_st_rule: icmsStRule,
+      ibscbs_context: null,
     })
   }
 
-  return { success: true, data: items }
+  const cfopConfigIds = Array.from(new Set(
+    items
+      .map((resolvedItem) => (
+        resolvedItem.applied_rule?.cfop_config_id
+        || (operationDirection === 'inbound'
+          ? resolvedItem.tax_profile.default_input_cfop_config_id
+          : resolvedItem.tax_profile.default_output_cfop_config_id)
+      ))
+      .filter((value): value is string => Boolean(value))
+  ))
+  const emitterLinkResult = await supabase
+    .from('emitter_ibscbs_state_links')
+    .select('target_uf, ibscbs_base_id, ibscbs_version_id')
+    .eq('is_active', true)
+    .or(`target_uf.eq.${storeUf},target_uf.is.null`)
+
+  if (emitterLinkResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'EMITTER_IBSCBS_LINKS_LOAD_FAILED',
+        message: emitterLinkResult.error.message,
+      },
+    }
+  }
+
+  const emitterLinks = (emitterLinkResult.data || []) as Array<Record<string, unknown>>
+  const ibscbsBaseIds = Array.from(new Set([
+    ...items.map((resolvedItem) => resolvedItem.tax_profile.ibscbs_base_id).filter((value): value is string => Boolean(value)),
+    ...emitterLinks.map((row) => normalizeOptionalText(row.ibscbs_base_id as string | undefined)).filter((value): value is string => Boolean(value)),
+  ]))
+  const ibscbsVersionIds = Array.from(new Set([
+    ...items.map((resolvedItem) => resolvedItem.tax_profile.ibscbs_version_id).filter((value): value is string => Boolean(value)),
+    ...emitterLinks.map((row) => normalizeOptionalText(row.ibscbs_version_id as string | undefined)).filter((value): value is string => Boolean(value)),
+  ]))
+
+  const [
+    cfopConfigsResult,
+    cfopIbscbsConfigsResult,
+    ibscbsBasesResult,
+    ibscbsVersionsResult,
+    ibscbsRulesResult,
+  ] = await Promise.all([
+    cfopConfigIds.length > 0
+      ? supabase
+        .from('fiscal_cfop_configs')
+        .select('id, impacts_ibscbs, configuration_status, future_tax_payload')
+        .in('id', cfopConfigIds)
+      : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
+    cfopConfigIds.length > 0
+      ? supabase
+        .from('fiscal_cfop_ibscbs_configs')
+        .select('cfop_config_id, cst_catalog_version_id, cst_code, classification_version_id, classification_code, regular_cst_code, regular_classification_code, presumed_credit_catalog_version_id, presumed_credit_code, presumed_credit_rate, future_tax_payload')
+        .in('cfop_config_id', cfopConfigIds)
+      : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
+    ibscbsBaseIds.length > 0
+      ? supabase
+        .from('fiscal_ibscbs_bases')
+        .select('id, code, name, future_tax_payload')
+        .in('id', ibscbsBaseIds)
+      : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
+    ibscbsVersionIds.length > 0
+      ? supabase
+        .from('fiscal_ibscbs_base_versions')
+        .select('id, ibscbs_base_id, version_label, future_tax_payload')
+        .in('id', ibscbsVersionIds)
+      : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
+    ibscbsVersionIds.length > 0
+      ? supabase
+        .from('fiscal_ibscbs_rules')
+        .select('ibscbs_version_id, target_uf, cst_code, classification_code, future_tax_payload')
+        .in('ibscbs_version_id', ibscbsVersionIds)
+        .or(`target_uf.eq.${storeUf},target_uf.is.null`)
+      : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
+  ])
+
+  if (cfopConfigsResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'CFOP_CONFIGS_LOAD_FAILED',
+        message: cfopConfigsResult.error.message,
+      },
+    }
+  }
+
+  if (cfopIbscbsConfigsResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'CFOP_IBSCBS_CONFIGS_LOAD_FAILED',
+        message: cfopIbscbsConfigsResult.error.message,
+      },
+    }
+  }
+
+  if (ibscbsBasesResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'IBSCBS_BASES_LOAD_FAILED',
+        message: ibscbsBasesResult.error.message,
+      },
+    }
+  }
+
+  if (ibscbsVersionsResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'IBSCBS_VERSIONS_LOAD_FAILED',
+        message: ibscbsVersionsResult.error.message,
+      },
+    }
+  }
+
+  if (ibscbsRulesResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'IBSCBS_RULES_LOAD_FAILED',
+        message: ibscbsRulesResult.error.message,
+      },
+    }
+  }
+
+  const cfopConfigsById = new Map(
+    ((cfopConfigsResult.data || []) as Array<Record<string, unknown>>).map((row) => [
+      String(row.id),
+      {
+        id: String(row.id),
+        impacts_ibscbs: row.impacts_ibscbs === true,
+        configuration_status: normalizeOptionalText(row.configuration_status as string | undefined),
+        future_tax_payload: (row.future_tax_payload as Record<string, unknown>) || {},
+      },
+    ])
+  )
+  const cfopIbscbsByCfopConfigId = new Map(
+    ((cfopIbscbsConfigsResult.data || []) as Array<Record<string, unknown>>).map((row) => [
+      String(row.cfop_config_id),
+      {
+        cfop_config_id: String(row.cfop_config_id),
+        cst_catalog_version_id: normalizeOptionalText(row.cst_catalog_version_id as string | undefined),
+        cst_code: normalizeOptionalText(row.cst_code as string | undefined),
+        classification_version_id: normalizeOptionalText(row.classification_version_id as string | undefined),
+        classification_code: normalizeOptionalText(row.classification_code as string | undefined),
+        regular_cst_code: normalizeOptionalText(row.regular_cst_code as string | undefined),
+        regular_classification_code: normalizeOptionalText(row.regular_classification_code as string | undefined),
+        presumed_credit_catalog_version_id: normalizeOptionalText(row.presumed_credit_catalog_version_id as string | undefined),
+        presumed_credit_code: normalizeOptionalText(row.presumed_credit_code as string | undefined),
+        presumed_credit_rate: row.presumed_credit_rate === null || row.presumed_credit_rate === undefined
+          ? null
+          : safeNumber(row.presumed_credit_rate),
+        future_tax_payload: (row.future_tax_payload as Record<string, unknown>) || {},
+      },
+    ])
+  )
+  const basesById = new Map(
+    ((ibscbsBasesResult.data || []) as Array<Record<string, unknown>>).map((row) => [
+      String(row.id),
+      {
+        id: String(row.id),
+        code: normalizeOptionalText(row.code as string | undefined),
+        name: normalizeOptionalText(row.name as string | undefined),
+        future_tax_payload: (row.future_tax_payload as Record<string, unknown>) || {},
+      },
+    ])
+  )
+  const versionsById = new Map(
+    ((ibscbsVersionsResult.data || []) as Array<Record<string, unknown>>).map((row) => [
+      String(row.id),
+      {
+        id: String(row.id),
+        ibscbs_base_id: String(row.ibscbs_base_id),
+        version_label: normalizeOptionalText(row.version_label as string | undefined),
+        future_tax_payload: (row.future_tax_payload as Record<string, unknown>) || {},
+      },
+    ])
+  )
+  const rulesByVersionId = new Map<string, Array<{
+    ibscbs_version_id: string
+    target_uf: string | null
+    cst_code: string | null
+    classification_code: string | null
+    future_tax_payload: Record<string, unknown>
+  }>>()
+
+  for (const row of ((ibscbsRulesResult.data || []) as Array<Record<string, unknown>>)) {
+    const versionId = String(row.ibscbs_version_id)
+    const bucket = rulesByVersionId.get(versionId) || []
+    bucket.push({
+      ibscbs_version_id: versionId,
+      target_uf: normalizeOptionalText(row.target_uf as string | undefined),
+      cst_code: normalizeOptionalText(row.cst_code as string | undefined),
+      classification_code: normalizeOptionalText(row.classification_code as string | undefined),
+      future_tax_payload: (row.future_tax_payload as Record<string, unknown>) || {},
+    })
+    rulesByVersionId.set(versionId, bucket)
+  }
+
+  const resolvedItems = items.map((resolvedItem) => ({
+    ...resolvedItem,
+    ibscbs_context: resolveIbsCbsContext(
+      resolvedItem,
+      storeUf,
+      operationDirection,
+      {
+        emitterLinks: emitterLinks.map((row) => ({
+          target_uf: normalizeOptionalText(row.target_uf as string | undefined),
+          ibscbs_base_id: String(row.ibscbs_base_id),
+          ibscbs_version_id: normalizeOptionalText(row.ibscbs_version_id as string | undefined),
+        })),
+        cfopConfigsById,
+        cfopIbscbsByCfopConfigId,
+        basesById,
+        versionsById,
+        rulesByVersionId,
+      }
+    ),
+  }))
+
+  return { success: true, data: resolvedItems }
 }
 
 interface OrderFiscalDraftContext {
@@ -855,7 +1079,8 @@ export async function resolveFiscalContext(
 
   const itemsResult = await loadOrderItemsContext(
     orderId,
-    storeResult.data.uf
+    storeResult.data.uf,
+    draftResult.data.operationDirection
   )
   if (!itemsResult.success) return itemsResult
 

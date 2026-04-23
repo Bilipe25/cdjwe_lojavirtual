@@ -44,7 +44,7 @@ interface EmitterStateLinkDialogProps {
   }) => Promise<void>
 }
 
-const UF_ALL_OPTION = { value: '__NATIONAL__', label: 'Brasil (regra nacional / padrão)' }
+const UF_ALL_OPTION = { value: '__NATIONAL__', label: 'Brasil (regra nacional / padrao)' }
 
 export function EmitterStateLinkDialog({
   open,
@@ -59,46 +59,41 @@ export function EmitterStateLinkDialog({
 }: EmitterStateLinkDialogProps) {
   const [selectedUf, setSelectedUf] = useState<string>('__NATIONAL__')
   const [selectedBaseId, setSelectedBaseId] = useState<string>('')
-  const [selectedVersionId, setSelectedVersionId] = useState<string>('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!open) return
 
-    if (mode === 'edit' && editData) {
-      setSelectedUf(editData.targetUf || '__NATIONAL__')
-      setSelectedBaseId(editData.baseId)
-      setSelectedVersionId(editData.versionId || '')
-      return
-    }
+    const nextSelectedUf = mode === 'edit' && editData ? editData.targetUf || '__NATIONAL__' : '__NATIONAL__'
+    const nextSelectedBaseId = mode === 'edit' && editData ? editData.baseId : ''
 
-    setSelectedUf('__NATIONAL__')
-    setSelectedBaseId('')
-    setSelectedVersionId('')
+    const timer = window.setTimeout(() => {
+      setSelectedUf(nextSelectedUf)
+      setSelectedBaseId(nextSelectedBaseId)
+    }, 0)
+
+    return () => window.clearTimeout(timer)
   }, [editData, mode, open])
 
-  const availableUFs = [UF_ALL_OPTION, ...BRAZIL_UF_OPTIONS.map((uf) => ({ value: uf.value, label: `${uf.value} — ${uf.label}` }))].filter(
-    (uf) => {
-      const ufValue = uf.value === '__NATIONAL__' ? null : uf.value
-      if (mode === 'edit' && editData?.targetUf === ufValue) return true
-      return !existingUFs.includes(ufValue)
-    }
-  )
+  const availableUFs = [
+    UF_ALL_OPTION,
+    ...BRAZIL_UF_OPTIONS.map((uf) => ({ value: uf.value, label: `${uf.value} - ${uf.label}` })),
+  ].filter((uf) => {
+    const ufValue = uf.value === '__NATIONAL__' ? null : uf.value
+    if (mode === 'edit' && editData?.targetUf === ufValue) return true
+    return !existingUFs.includes(ufValue)
+  })
 
   const options = type === 'icms' ? icmsOptions || [] : ibscbsOptions || []
   const selectedIbscbsOption = useMemo(
     () => (type === 'ibscbs' ? (ibscbsOptions || []).find((option) => option.id === selectedBaseId) : undefined),
     [ibscbsOptions, selectedBaseId, type]
   )
-
-  useEffect(() => {
-    if (type !== 'ibscbs') return
-    if (!selectedIbscbsOption) {
-      setSelectedVersionId('')
-      return
-    }
-    setSelectedVersionId(selectedIbscbsOption.activeVersionId || '')
-  }, [selectedIbscbsOption, type])
+  const resolvedSelectedVersionId =
+    type === 'ibscbs'
+      ? selectedIbscbsOption?.activeVersionId ||
+        (selectedBaseId === editData?.baseId ? editData?.versionId || '' : '')
+      : ''
 
   const handleConfirm = async () => {
     if (!selectedBaseId) return
@@ -107,7 +102,7 @@ export function EmitterStateLinkDialog({
     await onSave({
       targetUf: selectedUf === '__NATIONAL__' ? null : selectedUf,
       baseId: selectedBaseId,
-      versionId: type === 'ibscbs' ? selectedVersionId || null : null,
+      versionId: type === 'ibscbs' ? resolvedSelectedVersionId || null : null,
       editId: mode === 'edit' ? editData?.id : undefined,
     })
     setSaving(false)
@@ -115,6 +110,14 @@ export function EmitterStateLinkDialog({
   }
 
   const typeLabel = type === 'icms' ? 'ICMS' : 'IBS/CBS'
+  const titleLabel =
+    type === 'ibscbs'
+      ? mode === 'add'
+        ? 'Vincular complemento geografico de IBS/CBS'
+        : 'Editar complemento geografico de IBS/CBS'
+      : mode === 'add'
+        ? `Vincular base ${typeLabel}`
+        : `Editar vinculo ${typeLabel}`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -126,7 +129,7 @@ export function EmitterStateLinkDialog({
             ) : (
               <Pencil className="h-5 w-5 text-bronze" />
             )}
-            {mode === 'add' ? `Vincular base ${typeLabel}` : `Editar vínculo ${typeLabel}`}
+            {titleLabel}
           </DialogTitle>
         </DialogHeader>
 
@@ -146,7 +149,9 @@ export function EmitterStateLinkDialog({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Use Brasil para a regra nacional. Escolha uma UF específica apenas quando houver exceção fiscal por estado.
+              {type === 'ibscbs'
+                ? 'Use Brasil para a regra nacional do emitente. Escolha uma UF especifica apenas quando o runtime IBS/CBS realmente mudar por estado.'
+                : 'Use Brasil para a regra nacional. Escolha uma UF especifica apenas quando houver excecao fiscal por estado.'}
             </p>
           </div>
 
@@ -164,24 +169,34 @@ export function EmitterStateLinkDialog({
                 ) : (
                   options.map((option) => (
                     <SelectItem key={option.id} value={option.id}>
-                      {option.code} — {option.name}
+                      {option.code} - {option.name}
                     </SelectItem>
                   ))
                 )}
               </SelectContent>
             </Select>
+            {type === 'ibscbs' ? (
+              <p className="text-xs text-muted-foreground">
+                O CFOP continua dono do enquadramento da operacao. Aqui o emitente so informa qual base/versionamento
+                geografico o runtime deve herdar para esta abrangencia.
+              </p>
+            ) : null}
           </div>
 
           {type === 'ibscbs' ? (
             <div className="space-y-2 rounded-xl border bg-muted/10 p-4">
-              <div className="text-sm font-medium">Versão vinculada da base IBS/CBS</div>
+              <div className="text-sm font-medium">Versao geografica vinculada da base IBS/CBS</div>
               <div className="text-sm text-muted-foreground">
-                {selectedIbscbsOption?.activeVersionLabel || 'Selecione uma base com versão ativa.'}
+                {selectedIbscbsOption?.activeVersionLabel || 'Selecione uma base com versao ativa.'}
               </div>
               <div className="text-xs text-muted-foreground">
                 {selectedIbscbsOption?.activeValidFrom
-                  ? `Vigência inicial: ${new Date(selectedIbscbsOption.activeValidFrom).toLocaleDateString('pt-BR')}`
-                  : 'A base selecionada precisa ter uma versão ativa para ser vinculada ao emitente.'}
+                  ? `Vigencia inicial: ${new Date(selectedIbscbsOption.activeValidFrom).toLocaleDateString('pt-BR')}`
+                  : 'A base selecionada precisa ter uma versao ativa para ser vinculada ao emitente.'}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Perfil tributario e CFOP continuam falando a mesma linguagem fiscal; este vinculo apenas acrescenta o
+                recorte geografico do emitente.
               </div>
             </div>
           ) : null}
@@ -194,9 +209,9 @@ export function EmitterStateLinkDialog({
             </Button>
           </DialogClose>
           <Button
-            className="gradient-navy border-0 text-white gap-1.5"
+            className="gradient-navy gap-1.5 border-0 text-white"
             onClick={handleConfirm}
-            disabled={!selectedBaseId || (type === 'ibscbs' && !selectedVersionId) || saving}
+            disabled={!selectedBaseId || (type === 'ibscbs' && !resolvedSelectedVersionId) || saving}
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {mode === 'add' ? 'Adicionar' : 'Salvar'}

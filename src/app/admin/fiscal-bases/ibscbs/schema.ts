@@ -1,5 +1,8 @@
 import { z } from 'zod'
 import type { IbscbsVersionStatus } from '@/lib/fiscal/ibscbs'
+import type { IbscbsBaseMode } from '@/lib/fiscal/ibscbs-config'
+
+const ibscbsBaseModeSchema = z.enum(['subtotal', 'fiscal_gross', 'fiscal_gross_less_icms_fcp']) satisfies z.ZodType<IbscbsBaseMode>
 
 const optionalTrimmedString = z
     .string()
@@ -8,6 +11,19 @@ const optionalTrimmedString = z
         const trimmed = (value || '').trim()
         return trimmed.length > 0 ? trimmed : undefined
     })
+
+const optionalPercentageNumber = z.preprocess(
+    (value) => {
+        if (value === '' || value === null || value === undefined) return undefined
+        if (typeof value === 'string') {
+            const parsed = Number(value.replace(',', '.'))
+            return Number.isFinite(parsed) ? parsed : undefined
+        }
+        if (typeof value === 'number') return value
+        return undefined
+    },
+    z.number().min(0, 'Informe um percentual igual ou maior que zero.').optional()
+)
 
 const ruleSchema = z.object({
     id: z.string().uuid().optional(),
@@ -31,6 +47,12 @@ export const ibscbsBaseFormSchema = z
         validTo: optionalTrimmedString,
         cstCatalogVersionId: z.string().uuid('Selecione a versao de catalogo CST'),
         classificationCatalogVersionId: z.string().uuid('Selecione a versao do catalogo de classificacao'),
+        baseMode: ibscbsBaseModeSchema,
+        basePercent: optionalPercentageNumber,
+        baseReductionPercent: optionalPercentageNumber,
+        ibsUfRate: optionalPercentageNumber,
+        ibsMunRate: optionalPercentageNumber,
+        cbsRate: optionalPercentageNumber,
         nationalRule: ruleSchema,
         stateRules: z.array(ruleSchema).default([]),
     })
@@ -48,6 +70,14 @@ export const ibscbsBaseFormSchema = z
                 code: z.ZodIssueCode.custom,
                 path: ['nationalRule', 'classificationCode'],
                 message: 'A classificacao tributaria deve pertencer ao mesmo CST selecionado.',
+            })
+        }
+
+        if ((value.ibsUfRate || 0) <= 0 && (value.ibsMunRate || 0) <= 0 && (value.cbsRate || 0) <= 0) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['ibsUfRate'],
+                message: 'Informe pelo menos uma aliquota numerica de IBS UF, IBS Municipio ou CBS.',
             })
         }
 
@@ -106,6 +136,12 @@ export function createEmptyIbscbsBaseFormValues(): IbscbsBaseFormValues {
         validTo: undefined,
         cstCatalogVersionId: '',
         classificationCatalogVersionId: '',
+        baseMode: 'fiscal_gross_less_icms_fcp',
+        basePercent: 100,
+        baseReductionPercent: 0,
+        ibsUfRate: undefined,
+        ibsMunRate: undefined,
+        cbsRate: undefined,
         nationalRule: {
             id: undefined,
             targetUf: undefined,

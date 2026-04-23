@@ -1,21 +1,25 @@
 import { z } from 'zod'
 
 const optionalTrimmedString = z
-    .string()
-    .optional()
+    .preprocess((value) => (value === null ? undefined : value), z.string().optional())
     .transform((value) => {
         const trimmed = (value || '').trim()
         return trimmed.length > 0 ? trimmed : undefined
     })
 
 const optionalUuid = z
-    .string()
-    .optional()
+    .preprocess((value) => (value === null ? undefined : value), z.string().optional())
     .transform((value) => {
         const trimmed = (value || '').trim()
         return trimmed.length > 0 ? trimmed : undefined
     })
     .refine((value) => value === undefined || z.string().uuid().safeParse(value).success, 'Identificador invalido')
+
+const optionalJsonRecord = z
+    .record(z.string(), z.unknown())
+    .nullable()
+    .optional()
+    .transform((value) => value ?? undefined)
 
 const productTaxProfileRuleSchema = z
     .object({
@@ -35,8 +39,8 @@ const productTaxProfileRuleSchema = z
         isActive: z.boolean().default(true),
         effectiveFrom: optionalTrimmedString,
         effectiveTo: optionalTrimmedString,
-        rulePayload: z.record(z.string(), z.unknown()).optional(),
-        futureTaxPayload: z.record(z.string(), z.unknown()).optional(),
+        rulePayload: optionalJsonRecord,
+        futureTaxPayload: optionalJsonRecord,
         cfopConfigSnapshot: z
             .object({
                 config_id: optionalUuid,
@@ -150,7 +154,7 @@ export const productTaxProfileSchema = z
         icmsBaseId: optionalUuid,
         ibscbsBaseId: optionalUuid,
         ibscbsVersionId: optionalUuid,
-        fiscalReferenceSnapshot: z.record(z.string(), z.unknown()).optional(),
+        fiscalReferenceSnapshot: optionalJsonRecord,
         rules: z.array(productTaxProfileRuleSchema).default([]),
     })
     .superRefine((value, ctx) => {

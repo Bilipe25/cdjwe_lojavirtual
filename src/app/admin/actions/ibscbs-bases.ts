@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import type { IbscbsVersionStatus } from '@/lib/fiscal/ibscbs'
+import { parseIbscbsRuntimeModel, serializeIbscbsRuntimeModel } from '@/lib/fiscal/ibscbs-config'
 
 export interface IbscbsRuleInput {
     id?: string | null
@@ -40,6 +41,12 @@ export interface IbscbsBaseFormData {
     validTo?: string | null
     cstCatalogVersionId: string
     classificationCatalogVersionId: string
+    baseMode: string
+    basePercent?: number | null
+    baseReductionPercent?: number | null
+    ibsUfRate?: number | null
+    ibsMunRate?: number | null
+    cbsRate?: number | null
     nationalRule: IbscbsRuleInput
     stateRules: IbscbsRuleInput[]
 }
@@ -155,10 +162,6 @@ function sanitizeText(value?: string | null) {
 function sanitizeJsonObject(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
     return value as Record<string, unknown>
-}
-
-function isValidUuid(value?: string | null) {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''))
 }
 
 async function ensureAdminAccess() {
@@ -569,6 +572,7 @@ export async function getIbscbsBaseDetailAction(
             {}
         )
         const mappedRules = mappedRulesByVersionId[String(selectedVersion.id)] || []
+        const runtimeModel = parseIbscbsRuntimeModel(selectedVersion.future_tax_payload)
         const versionHistory = versions.map((row) => {
             const versionRuleRows = mappedRulesByVersionId[String(row.id)] || []
             return {
@@ -608,6 +612,12 @@ export async function getIbscbsBaseDetailAction(
                     validTo: typeof selectedVersion.valid_to === 'string' ? selectedVersion.valid_to : null,
                     cstCatalogVersionId: String(selectedVersion.cst_catalog_version_id || ''),
                     classificationCatalogVersionId: String(selectedVersion.classification_catalog_version_id || ''),
+                    baseMode: runtimeModel.baseMode,
+                    basePercent: runtimeModel.basePercent,
+                    baseReductionPercent: runtimeModel.baseReductionPercent,
+                    ibsUfRate: runtimeModel.ibsUfRate,
+                    ibsMunRate: runtimeModel.ibsMunRate,
+                    cbsRate: runtimeModel.cbsRate,
                     nationalRule,
                     stateRules: mappedRules.filter((rule) => Boolean(rule.targetUf)),
                 },
@@ -626,6 +636,14 @@ export async function upsertIbscbsBaseVersionAction(
     try {
         await ensureAdminAccess()
         const adminSupabase = createServiceRoleClient()
+        const runtimePayload = serializeIbscbsRuntimeModel({
+            baseMode: input.baseMode,
+            basePercent: input.basePercent,
+            baseReductionPercent: input.baseReductionPercent,
+            ibsUfRate: input.ibsUfRate,
+            ibsMunRate: input.ibsMunRate,
+            cbsRate: input.cbsRate,
+        })
         const { data, error } = await adminSupabase.rpc('admin_upsert_fiscal_ibscbs_base_version', {
             p_ibscbs_base_id: input.baseId ?? null,
             p_ibscbs_version_id: input.versionId ?? null,
@@ -656,7 +674,7 @@ export async function upsertIbscbsBaseVersionAction(
                 future_tax_payload: sanitizeJsonObject(rule.futureTaxPayload),
             })),
             p_metadata_jsonb: {},
-            p_future_tax_payload: {},
+            p_future_tax_payload: runtimePayload,
         })
         if (error) throw error
         const row = Array.isArray(data) ? data[0] : data
