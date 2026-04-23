@@ -159,9 +159,8 @@ export function buildResolvedAdditionalInfo(input: FiscalAdditionalInfoBuildInpu
     parts.push(`Forma de entrega: ${deliveryForm}`)
   }
 
-  const costBlock = buildTransportCostBlock(payload)
-  if (additionalInfoFlags.mostrar_frete_seguro_outras_despesas && costBlock) {
-    parts.push(costBlock)
+  if (additionalInfoFlags.mostrar_frete_seguro_outras_despesas) {
+    parts.push(...buildTransportCostLines(payload))
   }
 
   if (additionalInfoFlags.mostrar_tributos_aproximados && payload.totals.vTotTrib > 0) {
@@ -206,19 +205,27 @@ export function buildResolvedItemAdditionalInfo(input: FiscalItemAdditionalInfoB
   }
 
   if (item.cest) {
-    parts.push(`CEST ${item.cest}`)
+    parts.push(`CEST: ${item.cest}`)
   }
 
   if (item.fcp.value > 0) {
-    parts.push(`FCP proprio: p ${item.fcp.rate.toFixed(2)}% v ${item.fcp.value.toFixed(2)}`)
+    parts.push(`Base de Calculo FCP: R$ ${formatMoney(item.fcp.base)}`)
+    parts.push(`Aliquota FCP: ${formatPercent(item.fcp.rate)}`)
+    parts.push(`Valor FCP: R$ ${formatMoney(item.fcp.value)}`)
   }
 
   if (item.st.fcp_value > 0) {
-    parts.push(`FCP-ST: p ${item.st.fcp_rate.toFixed(2)}% v ${item.st.fcp_value.toFixed(2)}`)
+    parts.push(`Base de Calculo FCP-ST: R$ ${formatMoney(item.st.fcp_base || item.st.base)}`)
+    parts.push(`Aliquota FCP-ST: ${formatPercent(item.st.fcp_rate)}`)
+    parts.push(`Valor FCP-ST: R$ ${formatMoney(item.st.fcp_value)}`)
   }
 
   if (item.ipi.value > 0) {
-    parts.push(`IPI: CST ${item.ipi.cst} p ${item.ipi.rate.toFixed(2)}% v ${item.ipi.value.toFixed(2)}`)
+    if (item.ipi.cst) {
+      parts.push(`IPI CST: ${item.ipi.cst}`)
+    }
+    parts.push(`Aliquota IPI: ${formatPercent(item.ipi.rate)}`)
+    parts.push(`Valor IPI: R$ ${formatMoney(item.ipi.value)}`)
   }
 
   return parts.length > 0 ? parts.join('\n') : null
@@ -355,14 +362,12 @@ function buildPaymentSummary(methodName: string | null | undefined, installments
   return parts.length > 0 ? parts.join(' - ') : null
 }
 
-function buildTransportCostBlock(payload: FiscalDocumentPayload) {
-  const parts = [
+function buildTransportCostLines(payload: FiscalDocumentPayload) {
+  return [
     payload.totals.vFrete > 0 ? `Frete: R$ ${formatMoney(payload.totals.vFrete)}` : null,
     payload.totals.vSeg > 0 ? `Seguro: R$ ${formatMoney(payload.totals.vSeg)}` : null,
     payload.totals.vOutro > 0 ? `Outras despesas: R$ ${formatMoney(payload.totals.vOutro)}` : null,
-  ].filter(Boolean)
-
-  return parts.length > 0 ? parts.join(' / ') : null
+  ].filter((value): value is string => Boolean(value))
 }
 
 function humanizeDeliveryForm(value: FiscalTransportContext['delivery_form']) {
@@ -389,6 +394,13 @@ function formatMoney(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
+}
+
+function formatPercent(value: number) {
+  return Number(value || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }) + '%'
 }
 
 function uniqueStrings(values: Array<string | null | undefined>) {

@@ -680,7 +680,7 @@ async function loadOrderItemsContext(
     cfopIbscbsConfigsResult,
     ibscbsBasesResult,
     ibscbsVersionsResult,
-    ibscbsRulesResult,
+    activeIbscbsVersionsResult,
   ] = await Promise.all([
     cfopConfigIds.length > 0
       ? supabase
@@ -706,12 +706,12 @@ async function loadOrderItemsContext(
         .select('id, ibscbs_base_id, version_label, future_tax_payload')
         .in('id', ibscbsVersionIds)
       : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
-    ibscbsVersionIds.length > 0
+    ibscbsBaseIds.length > 0
       ? supabase
-        .from('fiscal_ibscbs_rules')
-        .select('ibscbs_version_id, target_uf, cst_code, classification_code, future_tax_payload')
-        .in('ibscbs_version_id', ibscbsVersionIds)
-        .or(`target_uf.eq.${storeUf},target_uf.is.null`)
+        .from('fiscal_ibscbs_base_versions')
+        .select('id, ibscbs_base_id, version_label, future_tax_payload')
+        .in('ibscbs_base_id', ibscbsBaseIds)
+        .eq('status', 'active')
       : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
   ])
 
@@ -755,12 +755,12 @@ async function loadOrderItemsContext(
     }
   }
 
-  if (ibscbsRulesResult.error) {
+  if (activeIbscbsVersionsResult.error) {
     return {
       success: false,
       error: {
-        code: 'IBSCBS_RULES_LOAD_FAILED',
-        message: ibscbsRulesResult.error.message,
+        code: 'IBSCBS_ACTIVE_VERSIONS_LOAD_FAILED',
+        message: activeIbscbsVersionsResult.error.message,
       },
     }
   }
@@ -807,8 +807,12 @@ async function loadOrderItemsContext(
       },
     ])
   )
+  const versionRows = [
+    ...((ibscbsVersionsResult.data || []) as Array<Record<string, unknown>>),
+    ...((activeIbscbsVersionsResult.data || []) as Array<Record<string, unknown>>),
+  ]
   const versionsById = new Map(
-    ((ibscbsVersionsResult.data || []) as Array<Record<string, unknown>>).map((row) => [
+    versionRows.map((row) => [
       String(row.id),
       {
         id: String(row.id),
@@ -818,6 +822,48 @@ async function loadOrderItemsContext(
       },
     ])
   )
+  const activeVersionsByBaseId = new Map<string, {
+    id: string
+    ibscbs_base_id: string
+    version_label: string | null
+    future_tax_payload: Record<string, unknown>
+  }>()
+
+  for (const row of ((activeIbscbsVersionsResult.data || []) as Array<Record<string, unknown>>)) {
+    const baseId = String(row.ibscbs_base_id)
+    if (!activeVersionsByBaseId.has(baseId)) {
+      activeVersionsByBaseId.set(baseId, {
+        id: String(row.id),
+        ibscbs_base_id: baseId,
+        version_label: normalizeOptionalText(row.version_label as string | undefined),
+        future_tax_payload: (row.future_tax_payload as Record<string, unknown>) || {},
+      })
+    }
+  }
+
+  const ibscbsRuleVersionIds = Array.from(new Set(
+    versionRows
+      .map((row) => normalizeOptionalText(row.id as string | undefined))
+      .filter((value): value is string => Boolean(value))
+  ))
+  const ibscbsRulesResult = ibscbsRuleVersionIds.length > 0
+    ? await supabase
+      .from('fiscal_ibscbs_rules')
+      .select('ibscbs_version_id, target_uf, cst_code, classification_code, future_tax_payload')
+      .in('ibscbs_version_id', ibscbsRuleVersionIds)
+      .or(`target_uf.eq.${storeUf},target_uf.is.null`)
+    : { data: [] as Record<string, unknown>[], error: null }
+
+  if (ibscbsRulesResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'IBSCBS_RULES_LOAD_FAILED',
+        message: ibscbsRulesResult.error.message,
+      },
+    }
+  }
+
   const rulesByVersionId = new Map<string, Array<{
     ibscbs_version_id: string
     target_uf: string | null
@@ -855,6 +901,7 @@ async function loadOrderItemsContext(
         cfopIbscbsByCfopConfigId,
         basesById,
         versionsById,
+        activeVersionsByBaseId,
         rulesByVersionId,
       }
     ),

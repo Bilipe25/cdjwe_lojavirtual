@@ -341,7 +341,7 @@ export async function emitNFe(
     let xmlProcessado: string | null = null
 
     if (isAuthorized && finalResult?.protNFe) {
-      xmlProcessado = buildNFeProcessedXml(signedNFeXml, finalResult.protNFe)
+      xmlProcessado = buildNFeProcessedXml(signedNFeXml, finalResult.protNFe, chaveAcesso)
       xmlProcessadoPath = `${orderId}/${fiscalDoc.id}/processado.xml`
 
       await supabase.storage

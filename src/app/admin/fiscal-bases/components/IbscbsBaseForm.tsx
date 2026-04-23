@@ -258,7 +258,7 @@ export function IbscbsBaseForm({
 }: IbscbsBaseFormProps) {
     const getError = (path: string) => errors[path]
     const stateRuleErrorCount = Object.keys(errors).filter((key) => key.startsWith('stateRules.')).length
-    const disabledFields = loading || saving || readOnly
+    const disabledFields = loading || saving
     const runtimeModel = parseIbscbsRuntimeModel({
         base_mode: values.baseMode,
         base_percent: values.basePercent,
@@ -351,7 +351,7 @@ export function IbscbsBaseForm({
 
             {readOnly ? (
                 <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                    Esta versao esta ativa e permanece imutavel para preservar a trilha fiscal. Para evoluir a base, crie uma nova versao draft a partir dela.
+                    Esta versao esta ativa. As alteracoes salvas aqui passam a valer nas proximas emissoes que utilizarem esta base IBS/CBS. Se preferir trabalhar com seguranca em uma copia, crie uma nova versao draft a partir dela.
                 </div>
             ) : null}
 

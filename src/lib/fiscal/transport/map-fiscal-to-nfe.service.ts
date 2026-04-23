@@ -140,7 +140,7 @@ export function mapFiscalPayloadToNFeXml(
     '@_nItem': index + 1,
     prod: buildProd(item),
     imposto: buildImposto(item),
-    ...(item.inf_ad_prod ? { infAdProd: normalizeNFeText(item.inf_ad_prod, 500) } : {}),
+    ...(item.inf_ad_prod ? { infAdProd: buildItemAdditionalInfoTag(item.inf_ad_prod) } : {}),
   }))
 
   const ibsCbsTot = buildIbsCbsTot(items)
@@ -161,8 +161,8 @@ export function mapFiscalPayloadToNFeXml(
     },
   }
 
-  const additionalInfo = buildAdditionalInfoTag(options.additionalInfo)
-  const fiscalAuthorityInfo = buildAdditionalInfoTag(options.fiscalAuthorityInfo)
+  const additionalInfo = buildAdditionalInfoTag(options.additionalInfo, 5000, '; ')
+  const fiscalAuthorityInfo = buildAdditionalInfoTag(options.fiscalAuthorityInfo, 2000, ' ; ')
   const technicalResponsible = buildTechnicalResponsibleTag({
     environmentParams: options.environmentParams,
     chaveAcesso,
@@ -182,8 +182,8 @@ export function mapFiscalPayloadToNFeXml(
     ...((additionalInfo || fiscalAuthorityInfo)
       ? {
         infAdic: {
-          ...(additionalInfo ? { infCpl: additionalInfo } : {}),
           ...(fiscalAuthorityInfo ? { infAdFisco: fiscalAuthorityInfo } : {}),
+          ...(additionalInfo ? { infCpl: additionalInfo } : {}),
         },
       }
       : {}),
@@ -663,18 +663,26 @@ function buildIcmsUfDestTag(item: ItemTaxBreakdown): Record<string, unknown> {
   }
 }
 
-function buildAdditionalInfoTag(additionalInfo: string | null | undefined): string | null {
+function buildAdditionalInfoTag(
+  additionalInfo: string | null | undefined,
+  maxLength: number,
+  separator: string
+): string | null {
   const normalizedLines = (additionalInfo || '')
     .normalize('NFKC')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/[\u0000-\u001F\u007F]/g, ' ')
     .split('\n')
-    .map((line) => normalizeNFeText(line, 5000))
+    .map((line) => normalizeNFeText(line, maxLength))
     .filter(Boolean)
 
   if (normalizedLines.length === 0) return null
-  return normalizedLines.join(' | ').substring(0, 5000)
+  return normalizedLines.join(separator).substring(0, maxLength)
+}
+
+function buildItemAdditionalInfoTag(additionalInfo: string | null | undefined): string | null {
+  return buildAdditionalInfoTag(additionalInfo, 500, '; ')
 }
 
 function buildBillingTag(billing: ResolvedBillingData | null | undefined): Record<string, unknown> | null {
@@ -907,7 +915,8 @@ export function buildNFeAuthorizationEnvelope(signedXml: string): string {
 
 export function buildNFeProcessedXml(
   signedXml: string,
-  protNFe: Record<string, unknown>
+  protNFe: Record<string, unknown>,
+  chaveAcesso?: string | null
 ): string {
   const builder = new XMLBuilder({
     ignoreAttributes: false,
@@ -915,14 +924,54 @@ export function buildNFeProcessedXml(
     format: false,
     suppressEmptyNode: true,
   })
+  const normalizedProtNFe = sanitizeProcessedProtocolNode(protNFe, chaveAcesso)
 
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<nfeProc xmlns="${NF_NAMESPACE}" versao="4.00">`,
     signedXml,
-    builder.build({ protNFe }),
+    builder.build({ protNFe: normalizedProtNFe }),
     '</nfeProc>',
   ].join('')
+}
+
+function sanitizeProcessedProtocolNode(
+  protNFe: Record<string, unknown>,
+  chaveAcesso?: string | null
+): Record<string, unknown> {
+  const sanitized = deepCloneRecord(protNFe)
+  const normalizedKey = normalizeDigitsOnly(chaveAcesso)
+
+  if (normalizedKey.length !== 44) {
+    return sanitized
+  }
+
+  const infProt = sanitized.infProt as Record<string, unknown> | undefined
+  if (infProt && typeof infProt === 'object') {
+    infProt.chNFe = normalizedKey
+    return sanitized
+  }
+
+  sanitized.infProt = { chNFe: normalizedKey }
+  return sanitized
+}
+
+function deepCloneRecord(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [key, deepCloneValue(entryValue)])
+  )
+}
+
+function deepCloneValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => deepCloneValue(entry))
+  }
+
+  if (value && typeof value === 'object') {
+    return deepCloneRecord(value as Record<string, unknown>)
+  }
+
+  return value
 }
 
 export function buildSoapEnvelope(content: string, service: string): string {

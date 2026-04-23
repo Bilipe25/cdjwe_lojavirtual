@@ -58,6 +58,7 @@ export interface ResolvedIbsCbsDependencies {
   cfopIbscbsByCfopConfigId: Map<string, CfopIbscbsConfigSnapshot>
   basesById: Map<string, IbscbsBaseSnapshot>
   versionsById: Map<string, IbscbsVersionSnapshot>
+  activeVersionsByBaseId: Map<string, IbscbsVersionSnapshot>
   rulesByVersionId: Map<string, IbscbsRuleSnapshot[]>
 }
 
@@ -113,13 +114,25 @@ export function resolveIbsCbsContext(
     || dependencies.emitterLinks.find((link) => !normalizeOptionalText(link.target_uf))
     || null
 
-  const baseId = emitterLink?.ibscbs_base_id || item.tax_profile.ibscbs_base_id
-  const versionId = emitterLink?.ibscbs_version_id || item.tax_profile.ibscbs_version_id
+  const explicitBaseId = emitterLink?.ibscbs_base_id || item.tax_profile.ibscbs_base_id || null
+  const explicitVersionId = emitterLink?.ibscbs_version_id || item.tax_profile.ibscbs_version_id || null
   const cfopIbscbsConfig = cfopConfigId
     ? dependencies.cfopIbscbsByCfopConfigId.get(cfopConfigId) || null
     : null
-  const base = baseId ? dependencies.basesById.get(baseId) || null : null
-  const version = versionId ? dependencies.versionsById.get(versionId) || null : null
+  const explicitVersion = explicitVersionId
+    ? dependencies.versionsById.get(explicitVersionId) || null
+    : null
+  const baseId = explicitBaseId || explicitVersion?.ibscbs_base_id || null
+  const activeVersion = baseId
+    ? dependencies.activeVersionsByBaseId.get(baseId) || null
+    : null
+  const version = explicitVersion || activeVersion
+  const versionId = version?.id || explicitVersionId
+  const base = baseId
+    ? dependencies.basesById.get(baseId) || null
+    : version?.ibscbs_base_id
+      ? dependencies.basesById.get(version.ibscbs_base_id) || null
+      : null
   const rule = versionId
     ? selectIbscbsRule(dependencies.rulesByVersionId.get(versionId) || [], storeUf)
     : { rule: null, scope: 'none' as const }
@@ -128,15 +141,11 @@ export function resolveIbsCbsContext(
     readinessErrors.push('Nenhum CFOP configurado foi resolvido para o item.')
   }
 
-  if (!cfopIbscbsConfig) {
-    readinessErrors.push('O CFOP resolvido nao possui configuracao de IBS/CBS vinculada.')
-  }
-
   if (!baseId || !versionId) {
     readinessErrors.push('O perfil tributario nao possui base e versao de IBS/CBS completas.')
   }
 
-  if (version && baseId && version.ibscbs_base_id !== baseId) {
+  if (explicitVersion && explicitBaseId && explicitVersion.ibscbs_base_id !== explicitBaseId) {
     readinessErrors.push('A versao de IBS/CBS nao pertence a base configurada no runtime.')
   }
 
