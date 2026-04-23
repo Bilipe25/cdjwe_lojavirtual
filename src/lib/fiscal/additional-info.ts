@@ -4,7 +4,7 @@ import type {
   FiscalAdditionalInfoFlags,
   FiscalItemAdditionalInfoFlags,
 } from '@/lib/types'
-import { parseTechnicalResponsibleConfig } from '@/lib/fiscal/technical-responsible'
+import { parseTechnicalResponsibleConfig } from '@/lib/fiscal/technical-responsible.shared'
 
 export const DEFAULT_ADDITIONAL_INFO_FLAGS: FiscalAdditionalInfoFlags = {
   mostrar_numero_pedido: true,

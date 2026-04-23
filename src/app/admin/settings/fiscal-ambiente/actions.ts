@@ -9,7 +9,7 @@ import {
   sanitizeItemAdditionalInfoFlags,
   sanitizeAdditionalStandardNotes,
 } from '@/lib/fiscal/additional-info'
-import { sanitizeTechnicalResponsibleConfig } from '@/lib/fiscal/technical-responsible'
+import { sanitizeTechnicalResponsibleConfig } from '@/lib/fiscal/technical-responsible.shared'
 
 export async function loadFiscalEnvironmentAction(): Promise<{ data: CompanyFiscalEnvironment | null; error: string | null }> {
   const supabase = await createClient()
