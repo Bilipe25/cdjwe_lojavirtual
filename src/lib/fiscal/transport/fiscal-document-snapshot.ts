@@ -21,6 +21,12 @@ export interface FiscalBillingSnapshot {
   valueDiscount?: number | null
   valueNet?: number | null
   duplicates?: FiscalBillingDuplicateSnapshot[]
+  // Legacy aliases kept for snapshots created from the billing resolver before
+  // the DANFE schema was normalized.
+  valorOriginal?: number | null
+  valorDesconto?: number | null
+  valorLiquido?: number | null
+  duplicatas?: FiscalBillingDuplicateSnapshot[]
 }
 
 export interface FiscalDocumentSnapshot extends FiscalDocumentPayload {
@@ -89,7 +95,10 @@ export function buildFiscalDocumentSnapshot(params: {
 }): FiscalDocumentSnapshot {
   return {
     ...params.payload,
-    order: params.order,
+    order: {
+      ...params.order,
+      billing: normalizeFiscalBillingSnapshot(params.order.billing),
+    },
     document: params.document,
   }
 }
@@ -102,7 +111,28 @@ export function parseFiscalDocumentSnapshot(value: unknown): FiscalDocumentSnaps
     return null
   }
 
-  return candidate as FiscalDocumentSnapshot
+  const snapshot = candidate as FiscalDocumentSnapshot
+  snapshot.order.billing = normalizeFiscalBillingSnapshot(snapshot.order.billing)
+  return snapshot
+}
+
+function normalizeFiscalBillingSnapshot(
+  billing: FiscalBillingSnapshot | null | undefined
+): FiscalBillingSnapshot | null {
+  if (!billing) return null
+
+  return {
+    invoiceId: billing.invoiceId ?? null,
+    invoiceNumber: billing.invoiceNumber ?? null,
+    issueDate: billing.issueDate ?? null,
+    paymentMethodName: billing.paymentMethodName ?? null,
+    paymentConditionName: billing.paymentConditionName ?? null,
+    installmentCount: billing.installmentCount ?? null,
+    valueOriginal: billing.valueOriginal ?? billing.valorOriginal ?? null,
+    valueDiscount: billing.valueDiscount ?? billing.valorDesconto ?? null,
+    valueNet: billing.valueNet ?? billing.valorLiquido ?? null,
+    duplicates: billing.duplicates ?? billing.duplicatas ?? [],
+  }
 }
 
 export function getSnapshotAdditionalInfo(snapshot: FiscalDocumentSnapshot | null): string | null {

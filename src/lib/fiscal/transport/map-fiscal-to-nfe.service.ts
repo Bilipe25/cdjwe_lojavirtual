@@ -149,7 +149,7 @@ export function mapFiscalPayloadToNFeXml(
     ICMSTot: buildICMSTot(items, totals),
     ...(ibsCbsTot ? { IBSCBSTot: ibsCbsTot, vNFTot: formatDecimal(totals.vNF) } : {}),
   }
-  const transp = buildTransportTag(ctx.transport, ctx.volumes, totals, options)
+  const transp = buildTransportTag(ctx.transport, ctx.volumes, options)
   const cobr = buildBillingTag(options.billing)
   const pag = {
     detPag: {
@@ -576,11 +576,10 @@ function buildIbsCbsTot(items: ItemTaxBreakdown[]) {
 function buildTransportTag(
   transport: FiscalTransportContext,
   volumes: FiscalVolumeContext[],
-  totals: DocumentTotals,
   options: NFeBuildOptions
 ): Record<string, unknown> {
   return {
-    modFrete: resolveFreightMode(totals.vFrete, options.freightMode || transport.freight_mode),
+    modFrete: resolveFreightMode(options.freightMode || transport.freight_mode),
     ...(transport.transporter_name || transport.transporter_document
       ? {
         transporta: {
@@ -784,8 +783,7 @@ function formatXmlDate(value: string | null | undefined): string | null {
   return `${year}-${month}-${day}`
 }
 
-function resolveFreightMode(totalFreight: number, configuredMode: string | null | undefined): number {
-  if (totalFreight <= 0) return 9
+function resolveFreightMode(configuredMode: string | null | undefined): number {
   const key = (configuredMode || 'sem_frete').trim().toLowerCase()
   return FRETE_CODES[key] ?? 9
 }

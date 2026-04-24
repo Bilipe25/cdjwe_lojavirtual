@@ -348,7 +348,10 @@ export function validateFiscalDocument(
       })
     }
 
-    if (item.pis.calculation_mode === 'quantity' && item.pis.unit_rate <= 0) {
+    if (
+      item.pis.calculation_mode === 'quantity' &&
+      (contextItem?.tax_profile.pis_unit_rate === null || contextItem?.tax_profile.pis_unit_rate === undefined)
+    ) {
       warnings.push({
         field: `items[${i}].pis.unit_rate`,
         code: 'ITEM_PIS_UNIT_RATE_MISSING',
@@ -358,7 +361,10 @@ export function validateFiscalDocument(
       })
     }
 
-    if (item.cofins.calculation_mode === 'quantity' && item.cofins.unit_rate <= 0) {
+    if (
+      item.cofins.calculation_mode === 'quantity' &&
+      (contextItem?.tax_profile.cofins_unit_rate === null || contextItem?.tax_profile.cofins_unit_rate === undefined)
+    ) {
       warnings.push({
         field: `items[${i}].cofins.unit_rate`,
         code: 'ITEM_COFINS_UNIT_RATE_MISSING',
@@ -423,7 +429,7 @@ export function validateFiscalDocument(
     warnings.push({
       field: 'transport.freight_value',
       code: 'TRANSPORT_ZERO_FREIGHT_VALUE',
-      message: 'Existe modalidade de frete informada, mas o valor do frete esta zerado.',
+      message: 'Modalidade de frete informada com valor de frete zerado; o XML mantera o modFrete selecionado e vFrete 0,00.',
       severity: 'warning',
     })
   }
