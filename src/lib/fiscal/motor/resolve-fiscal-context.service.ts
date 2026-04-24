@@ -59,10 +59,61 @@ function sanitizeCfopCode(value: string | null | undefined): string | null {
 
 type EmitterIcmsBaseSource = 'emitter_state' | 'emitter_national'
 
+interface CfopPiscofinsConfigSnapshot {
+  cfop_config_id: string
+  pis_cst_code: string | null
+  cofins_cst_code: string | null
+}
+
 interface EmitterIcmsLinkSnapshot {
   target_uf: string | null
   icms_base_id: string
   source: EmitterIcmsBaseSource
+}
+
+function resolvePiscofinsCfopConfigId(
+  item: FiscalItemContext,
+  operationDirection: 'outbound' | 'inbound'
+): string | null {
+  if (item.resolved_cfop_config_id) return item.resolved_cfop_config_id
+
+  if (item.resolved_cfop_source === 'item_override' || item.resolved_cfop_source === 'order_global') {
+    return null
+  }
+
+  if (item.applied_rule?.cfop_config_id) return item.applied_rule.cfop_config_id
+
+  if (item.resolved_cfop_source === 'rule_override' || item.resolved_cfop_source === 'geographic_inference') {
+    return null
+  }
+
+  return operationDirection === 'inbound'
+    ? item.tax_profile.default_input_cfop_config_id
+    : item.tax_profile.default_output_cfop_config_id
+}
+
+function applyCfopPiscofinsFallback(
+  item: FiscalItemContext,
+  operationDirection: 'outbound' | 'inbound',
+  configsByCfopConfigId: Map<string, CfopPiscofinsConfigSnapshot>
+): FiscalItemContext {
+  const cfopConfigId = resolvePiscofinsCfopConfigId(item, operationDirection)
+  const cfopConfig = cfopConfigId ? configsByCfopConfigId.get(cfopConfigId) || null : null
+  const profilePisCst = normalizeOptionalText(item.tax_profile.pis_cst)
+  const profileCofinsCst = normalizeOptionalText(item.tax_profile.cofins_cst)
+  const cfopPisCst = cfopConfig?.pis_cst_code || null
+  const cfopCofinsCst = cfopConfig?.cofins_cst_code || null
+
+  return {
+    ...item,
+    tax_profile: {
+      ...item.tax_profile,
+      pis_cst: profilePisCst ?? cfopPisCst ?? null,
+      cofins_cst: profileCofinsCst ?? cfopCofinsCst ?? null,
+      pis_cst_source: profilePisCst ? 'profile' : cfopPisCst ? 'cfop' : 'default',
+      cofins_cst_source: profileCofinsCst ? 'profile' : cfopCofinsCst ? 'cfop' : 'default',
+    },
+  }
 }
 
 function selectEmitterIcmsLink(
@@ -951,6 +1002,7 @@ async function loadOrderItemsContext(
   const [
     cfopConfigsResult,
     cfopIbscbsConfigsResult,
+    cfopPiscofinsConfigsResult,
     ibscbsBasesResult,
     ibscbsVersionsResult,
     activeIbscbsVersionsResult,
@@ -965,6 +1017,12 @@ async function loadOrderItemsContext(
       ? supabase
         .from('fiscal_cfop_ibscbs_configs')
         .select('cfop_config_id, cst_catalog_version_id, cst_code, classification_version_id, classification_code, regular_cst_code, regular_classification_code, presumed_credit_catalog_version_id, presumed_credit_code, presumed_credit_rate, future_tax_payload')
+        .in('cfop_config_id', cfopConfigIds)
+      : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
+    cfopConfigIds.length > 0
+      ? supabase
+        .from('fiscal_cfop_piscofins_configs')
+        .select('cfop_config_id, pis_cst_code, cofins_cst_code')
         .in('cfop_config_id', cfopConfigIds)
       : Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
     ibscbsBaseIds.length > 0
@@ -1004,6 +1062,16 @@ async function loadOrderItemsContext(
       error: {
         code: 'CFOP_IBSCBS_CONFIGS_LOAD_FAILED',
         message: cfopIbscbsConfigsResult.error.message,
+      },
+    }
+  }
+
+  if (cfopPiscofinsConfigsResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'CFOP_PISCOFINS_CONFIGS_LOAD_FAILED',
+        message: cfopPiscofinsConfigsResult.error.message,
       },
     }
   }
@@ -1066,6 +1134,16 @@ async function loadOrderItemsContext(
           ? null
           : safeNumber(row.presumed_credit_rate),
         future_tax_payload: (row.future_tax_payload as Record<string, unknown>) || {},
+      },
+    ])
+  )
+  const cfopPiscofinsByCfopConfigId = new Map(
+    ((cfopPiscofinsConfigsResult.data || []) as Array<Record<string, unknown>>).map((row) => [
+      String(row.cfop_config_id),
+      {
+        cfop_config_id: String(row.cfop_config_id),
+        pis_cst_code: normalizeOptionalText(row.pis_cst_code as string | undefined),
+        cofins_cst_code: normalizeOptionalText(row.cofins_cst_code as string | undefined),
       },
     ])
   )
@@ -1158,7 +1236,11 @@ async function loadOrderItemsContext(
     rulesByVersionId.set(versionId, bucket)
   }
 
-  const resolvedItems = itemsWithCfopConfig.map((resolvedItem) => ({
+  const itemsWithPiscofinsFallback = itemsWithCfopConfig.map((resolvedItem) => (
+    applyCfopPiscofinsFallback(resolvedItem, operationDirection, cfopPiscofinsByCfopConfigId)
+  ))
+
+  const resolvedItems = itemsWithPiscofinsFallback.map((resolvedItem) => ({
     ...resolvedItem,
     ibscbs_context: resolveIbsCbsContext(
       resolvedItem,

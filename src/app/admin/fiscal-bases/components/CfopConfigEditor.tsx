@@ -72,6 +72,20 @@ type CfopIcmsBooleanField =
     | 'icmsConfig.stCollectedPreviously'
     | 'impactsIcms'
 
+function formatFiscalCatalogOption(option: FiscalCatalogItemOption) {
+    const code = option.code.trim()
+    const label = option.label.trim()
+    const description = (option.description || '').trim()
+    const bestDescription = description && description !== code
+        ? description
+        : label && label !== code
+            ? label
+            : ''
+
+    if (!code) return bestDescription || 'Sem codigo'
+    return bestDescription ? `${code} - ${bestDescription}` : code
+}
+
 function toClassificationOption(item: IbscbsClassificationCatalogItem): FiscalSearchOption {
     return {
         id: item.id,
@@ -1151,6 +1165,9 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
 
                 <section className="rounded-2xl border bg-white p-5 shadow-sm space-y-4">
                     <h3 className="text-sm font-semibold text-navy">5. CST de PIS / COFINS</h3>
+                    <p className="text-xs text-muted-foreground">
+                        Esses CSTs funcionam como fallback por CFOP. O Perfil Tributario do item continua tendo prioridade; se ele estiver em branco, o motor usa a configuracao do CFOP.
+                    </p>
                     <div className="grid gap-3 md:grid-cols-2">
                         <div className="space-y-1.5">
                             <Label>PIS CST</Label>
@@ -1164,9 +1181,9 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                             >
                                 <SelectTrigger><SelectValue placeholder="Selecione o CST de PIS" /></SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="__none__">Sem CST de PIS</SelectItem>
+                                    <SelectItem value="__none__">Usar Perfil Tributario</SelectItem>
                                     {pisOptions.map((option) => (
-                                        <SelectItem key={option.id} value={option.code}>{option.code} - {option.label}</SelectItem>
+                                        <SelectItem key={option.id} value={option.code}>{formatFiscalCatalogOption(option)}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -1183,9 +1200,9 @@ export function CfopConfigEditor({ entryId, initialDetail }: CfopConfigEditorPro
                             >
                                 <SelectTrigger><SelectValue placeholder="Selecione o CST de COFINS" /></SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="__none__">Sem CST de COFINS</SelectItem>
+                                    <SelectItem value="__none__">Usar Perfil Tributario</SelectItem>
                                     {cofinsOptions.map((option) => (
-                                        <SelectItem key={option.id} value={option.code}>{option.code} - {option.label}</SelectItem>
+                                        <SelectItem key={option.id} value={option.code}>{formatFiscalCatalogOption(option)}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>

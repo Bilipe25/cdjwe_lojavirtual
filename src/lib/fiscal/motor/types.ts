@@ -173,6 +173,8 @@ export interface ResolvedTaxProfile {
   // PIS/COFINS
   pis_cst: string | null
   cofins_cst: string | null
+  pis_cst_source?: 'profile' | 'cfop' | 'default'
+  cofins_cst_source?: 'profile' | 'cfop' | 'default'
   pis_aliquota: number | null
   cofins_aliquota: number | null
   pis_unit_rate: number | null
