@@ -1,7 +1,6 @@
 // ============================================================
-// Motor Fiscal — Calculate PIS/COFINS Service
-// Regime: Lucro Presumido → Cumulativo
-// PIS: 0.65% | COFINS: 3.00%
+// Motor Fiscal - Calculate PIS/COFINS Service
+// Regime: Lucro Presumido -> Cumulativo
 // ============================================================
 
 import type {
@@ -11,54 +10,86 @@ import type {
 } from './types'
 import { roundFiscal, safeNumber } from './types'
 
-/**
- * PIS CSTs that result in zero tax (monophasic, exempt, suspended, etc.)
- */
-const PIS_ZERO_CSTS = ['04', '05', '06', '07', '08', '09']
+const ZERO_CSTS = ['04', '05', '06', '07', '08', '09']
+const QUANTITY_CST = '03'
 
-/**
- * COFINS CSTs that result in zero tax
- */
-const COFINS_ZERO_CSTS = ['04', '05', '06', '07', '08', '09']
+function zeroBreakdown(cst: string): PisCofinsItemBreakdown {
+  return {
+    cst,
+    calculation_mode: 'none',
+    base: 0,
+    quantity_base: 0,
+    rate: 0,
+    unit_rate: 0,
+    value: 0,
+  }
+}
 
-/**
- * Calculates PIS for a single item.
- * Lucro Presumido uses regime cumulativo (Lei 9.718/98).
- */
+function quantityBreakdown(cst: string, quantity: number, unitRate: number): PisCofinsItemBreakdown {
+  const quantityBase = roundFiscal(Math.max(0, quantity), 4)
+  const resolvedUnitRate = roundFiscal(Math.max(0, unitRate), 4)
+
+  return {
+    cst,
+    calculation_mode: 'quantity',
+    base: 0,
+    quantity_base: quantityBase,
+    rate: 0,
+    unit_rate: resolvedUnitRate,
+    value: roundFiscal(quantityBase * resolvedUnitRate),
+  }
+}
+
+function percentBreakdown(cst: string, base: number, rate: number): PisCofinsItemBreakdown {
+  const resolvedBase = roundFiscal(Math.max(0, base))
+  const resolvedRate = roundFiscal(Math.max(0, rate), 4)
+
+  return {
+    cst,
+    calculation_mode: 'percent',
+    base: resolvedBase,
+    quantity_base: 0,
+    rate: resolvedRate,
+    unit_rate: 0,
+    value: roundFiscal(resolvedBase * resolvedRate / 100),
+  }
+}
+
+function resolvePercentBase(
+  item: FiscalItemContext,
+  ctx: FiscalContext,
+  discountValue: number,
+  icmsValue: number
+) {
+  let base = item.quantity * item.unit_price - discountValue
+
+  if (!ctx.environment.icms_base_pis_cofins) {
+    base -= icmsValue
+  }
+
+  return base
+}
+
 export function calculatePis(
   item: FiscalItemContext,
   ctx: FiscalContext,
   discountValue: number = 0,
   icmsValue: number = 0
 ): PisCofinsItemBreakdown {
-  // Resolve CST (priority: profile → default 01)
   const cst = item.tax_profile.pis_cst || '01'
 
-  // Zero-rated CSTs
-  if (PIS_ZERO_CSTS.includes(cst)) {
-    return { cst, base: 0, rate: 0, value: 0 }
+  if (ZERO_CSTS.includes(cst)) {
+    return zeroBreakdown(cst)
   }
 
-  const productValue = item.quantity * item.unit_price
-  let base = productValue - discountValue
-
-  if (!ctx.environment.icms_base_pis_cofins) {
-    base -= icmsValue
+  if (cst === QUANTITY_CST) {
+    return quantityBreakdown(cst, item.quantity, safeNumber(item.tax_profile.pis_unit_rate))
   }
 
-  base = roundFiscal(Math.max(0, base))
-
-  // Resolve rate (priority: profile override → emitter federal config)
   const rate = safeNumber(item.tax_profile.pis_aliquota) || ctx.emitter.aliquota_pis
-  const value = roundFiscal(base * rate / 100)
-
-  return { cst, base, rate, value }
+  return percentBreakdown(cst, resolvePercentBase(item, ctx, discountValue, icmsValue), rate)
 }
 
-/**
- * Calculates COFINS for a single item.
- * Lucro Presumido uses regime cumulativo (Lei 9.718/98).
- */
 export function calculateCofins(
   item: FiscalItemContext,
   ctx: FiscalContext,
@@ -67,21 +98,14 @@ export function calculateCofins(
 ): PisCofinsItemBreakdown {
   const cst = item.tax_profile.cofins_cst || '01'
 
-  if (COFINS_ZERO_CSTS.includes(cst)) {
-    return { cst, base: 0, rate: 0, value: 0 }
+  if (ZERO_CSTS.includes(cst)) {
+    return zeroBreakdown(cst)
   }
 
-  const productValue = item.quantity * item.unit_price
-  let base = productValue - discountValue
-
-  if (!ctx.environment.icms_base_pis_cofins) {
-    base -= icmsValue
+  if (cst === QUANTITY_CST) {
+    return quantityBreakdown(cst, item.quantity, safeNumber(item.tax_profile.cofins_unit_rate))
   }
-
-  base = roundFiscal(Math.max(0, base))
 
   const rate = safeNumber(item.tax_profile.cofins_aliquota) || ctx.emitter.aliquota_cofins
-  const value = roundFiscal(base * rate / 100)
-
-  return { cst, base, rate, value }
+  return percentBreakdown(cst, resolvePercentBase(item, ctx, discountValue, icmsValue), rate)
 }

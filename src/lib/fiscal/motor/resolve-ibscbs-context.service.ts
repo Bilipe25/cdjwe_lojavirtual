@@ -138,7 +138,8 @@ export function resolveIbsCbsContext(
     : { rule: null, scope: 'none' as const }
 
   if (!cfopConfigId) {
-    readinessErrors.push('Nenhum CFOP configurado foi resolvido para o item.')
+    const effectiveCfop = item.resolved_cfop_code ? ` ${item.resolved_cfop_code}` : ''
+    readinessErrors.push(`Nenhuma configuracao fiscal foi encontrada para o CFOP efetivo${effectiveCfop} do item.`)
   }
 
   if (!baseId || !versionId) {
@@ -153,9 +154,12 @@ export function resolveIbsCbsContext(
     readinessErrors.push(`A base IBS/CBS nao possui regra nacional ou da UF ${storeUf}.`)
   }
 
-  const officialPayload = mergePayloads(
+  const baseVersionPayload = mergePayloads(
     base?.future_tax_payload,
-    version?.future_tax_payload,
+    version?.future_tax_payload
+  )
+  const officialPayload = mergePayloads(
+    baseVersionPayload,
     rule.rule?.future_tax_payload,
     cfopConfig?.future_tax_payload,
     cfopIbscbsConfig?.future_tax_payload
@@ -207,31 +211,31 @@ export function resolveIbsCbsContext(
     readNumberValue(legacyPayload, ['presumed_credit_rate', 'presumedCreditRate'])
   )
   const ibsUfRateResult = resolveNumberValue(
-    [readNumberValue(officialPayload, ['ibs_uf_rate', 'ibsUfRate'])],
+    [readNumberValue(baseVersionPayload, ['ibs_uf_rate', 'ibsUfRate'])],
     readNumberValue(legacyPayload, ['ibs_uf_rate', 'ibsUfRate'])
   )
   const ibsMunRateResult = resolveNumberValue(
-    [readNumberValue(officialPayload, ['ibs_mun_rate', 'ibsMunRate'])],
+    [readNumberValue(baseVersionPayload, ['ibs_mun_rate', 'ibsMunRate'])],
     readNumberValue(legacyPayload, ['ibs_mun_rate', 'ibsMunRate'])
   )
   const cbsRateResult = resolveNumberValue(
-    [readNumberValue(officialPayload, ['cbs_rate', 'cbsRate'])],
+    [readNumberValue(baseVersionPayload, ['cbs_rate', 'cbsRate'])],
     readNumberValue(legacyPayload, ['cbs_rate', 'cbsRate'])
   )
   const rateResult = resolveNumberValue(
-    [readNumberValue(officialPayload, ['rate', 'total_rate', 'totalRate'])],
+    [readNumberValue(baseVersionPayload, ['rate', 'total_rate', 'totalRate'])],
     readNumberValue(legacyPayload, ['rate', 'total_rate', 'totalRate'])
   )
   const baseModeResult = resolveTextValue(
-    [readTextValue(officialPayload, ['base_mode', 'baseMode'])],
+    [readTextValue(baseVersionPayload, ['base_mode', 'baseMode'])],
     readTextValue(legacyPayload, ['base_mode', 'baseMode'])
   )
   const basePercentResult = resolveNumberValue(
-    [readNumberValue(officialPayload, ['base_percent', 'basePercent'])],
+    [readNumberValue(baseVersionPayload, ['base_percent', 'basePercent'])],
     readNumberValue(legacyPayload, ['base_percent', 'basePercent'])
   )
   const baseReductionResult = resolveNumberValue(
-    [readNumberValue(officialPayload, ['base_reduction_percent', 'baseReductionPercent', 'base_reduction_rate'])],
+    [readNumberValue(baseVersionPayload, ['base_reduction_percent', 'baseReductionPercent', 'base_reduction_rate'])],
     readNumberValue(legacyPayload, ['base_reduction_percent', 'baseReductionPercent', 'base_reduction_rate'])
   )
 
@@ -303,7 +307,18 @@ function resolveCfopConfigId(
   item: FiscalItemContext,
   operationDirection: 'outbound' | 'inbound'
 ) {
+  if (item.resolved_cfop_config_id) return item.resolved_cfop_config_id
+
+  if (item.resolved_cfop_source === 'item_override' || item.resolved_cfop_source === 'order_global') {
+    return null
+  }
+
   if (item.applied_rule?.cfop_config_id) return item.applied_rule.cfop_config_id
+
+  if (item.resolved_cfop_source === 'rule_override' || item.resolved_cfop_source === 'geographic_inference') {
+    return null
+  }
+
   return operationDirection === 'inbound'
     ? item.tax_profile.default_input_cfop_config_id
     : item.tax_profile.default_output_cfop_config_id

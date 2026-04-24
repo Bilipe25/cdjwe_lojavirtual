@@ -10,7 +10,7 @@ import type {
   ItemTaxBreakdown,
   DocumentTotals,
 } from './types'
-import { roundFiscal, MOTOR_VERSION } from './types'
+import { roundFiscal, safeNumber, MOTOR_VERSION } from './types'
 import { resolveAllCfops } from './resolve-cfop.service'
 import { calculateIcms, calculateFcp } from './calculate-icms.service'
 import { calculateIcmsSt } from './calculate-icms-st.service'
@@ -69,7 +69,7 @@ export function buildFiscalDocument(
     const ipi = calculateIpi(item)
 
     // ICMS
-    const icms = calculateIcms(item, ctx, itemFreight, itemDiscount)
+    const icms = calculateIcms(item, ctx, itemFreight, itemDiscount, itemInsurance, itemOtherExpenses)
 
     // FCP
     const fcp = calculateFcp(item, icms)
@@ -96,17 +96,11 @@ export function buildFiscalDocument(
       fcpValue: fcp.value,
     })
 
-    // Total tributos (Lei da Transparência 12.741/2012)
-    const totalTributos = roundFiscal(
-      icms.value +
-      fcp.value +
-      st.value +
-      st.fcp_value +
-      pis.value +
-      cofins.value +
-      ipi.value +
-      ibscbs.value
+    const fiscalItemValue = roundFiscal(
+      Math.max(0, fiscalTotalValue + itemFreight + itemInsurance + itemOtherExpenses - itemDiscount)
     )
+    const approxTaxRatePercent = item.tax_profile.approx_tax_rate_percent
+    const totalTributos = roundFiscal(fiscalItemValue * safeNumber(approxTaxRatePercent) / 100)
 
     itemBreakdowns.push({
       order_item_id: item.order_item_id,
@@ -137,6 +131,7 @@ export function buildFiscalDocument(
       ibscbs,
       ibscbs_context: item.ibscbs_context,
       total_tributos: totalTributos,
+      approx_tax_rate_percent: approxTaxRatePercent,
       tax_profile_id: item.tax_profile.tax_profile_id,
       tax_profile_version: item.tax_profile.tax_profile_version,
       ncm: item.tax_profile.ncm,
@@ -177,7 +172,6 @@ export function buildFiscalDocument(
         default_fiscal_description: ctx.items.find((ctxItem) => ctxItem.order_item_id === item.order_item_id)?.tax_profile.default_fiscal_description || null,
         ean_gtin: item.ean_gtin,
         tax_ean_gtin: item.tax_ean_gtin,
-        cest: item.cest,
         fcp: item.fcp,
         st: item.st,
         ipi: item.ipi,

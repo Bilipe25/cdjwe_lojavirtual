@@ -76,6 +76,9 @@ const defaultValues: ProductTaxProfileFormData = {
     cofinsCst: undefined,
     pisAliquota: undefined,
     cofinsAliquota: undefined,
+    pisUnitRate: undefined,
+    cofinsUnitRate: undefined,
+    approxTaxRatePercent: undefined,
     defaultOutputCfop: undefined,
     defaultInputCfop: undefined,
     internalFiscalCode: undefined,
@@ -1018,12 +1021,27 @@ export function ProductTaxProfileForm({
                         onChange={(value) => setValue('ipiCstOut', value || undefined, { shouldDirty: true })}
                     />
                     <div className="space-y-1.5">
-                        <Label>Aliquota PIS</Label>
+                        <Label>Aliquota PIS (%)</Label>
                         <Input type="number" step="0.01" {...register('pisAliquota')} />
                     </div>
                     <div className="space-y-1.5">
-                        <Label>Aliquota COFINS</Label>
+                        <Label>Aliquota COFINS (%)</Label>
                         <Input type="number" step="0.01" {...register('cofinsAliquota')} />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>PIS por unidade (CST 03)</Label>
+                        <Input type="number" step="0.0001" {...register('pisUnitRate')} />
+                        <p className="text-xs text-muted-foreground">Usado somente quando o CST PIS for 03.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>COFINS por unidade (CST 03)</Label>
+                        <Input type="number" step="0.0001" {...register('cofinsUnitRate')} />
+                        <p className="text-xs text-muted-foreground">Usado somente quando o CST COFINS for 03.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>Tributos aproximados IBPT (%)</Label>
+                        <Input type="number" step="0.01" {...register('approxTaxRatePercent')} />
+                        <p className="text-xs text-muted-foreground">Calcula vTotTrib da Lei da Transparencia.</p>
                     </div>
                     <div className="space-y-1.5">
                         <Label>Codigo de enquadramento IPI</Label>

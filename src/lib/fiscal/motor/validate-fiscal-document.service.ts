@@ -329,6 +329,36 @@ export function validateFiscalDocument(
       })
     }
 
+    if (item.pis.calculation_mode === 'quantity' && item.pis.unit_rate <= 0) {
+      warnings.push({
+        field: `items[${i}].pis.unit_rate`,
+        code: 'ITEM_PIS_UNIT_RATE_MISSING',
+        message: `Item "${item.product_name}": PIS CST 03 exige aliquota por unidade para calcular por quantidade.`,
+        severity: 'warning',
+        item_index: i,
+      })
+    }
+
+    if (item.cofins.calculation_mode === 'quantity' && item.cofins.unit_rate <= 0) {
+      warnings.push({
+        field: `items[${i}].cofins.unit_rate`,
+        code: 'ITEM_COFINS_UNIT_RATE_MISSING',
+        message: `Item "${item.product_name}": COFINS CST 03 exige aliquota por unidade para calcular por quantidade.`,
+        severity: 'warning',
+        item_index: i,
+      })
+    }
+
+    if (item.approx_tax_rate_percent === null || item.approx_tax_rate_percent === undefined) {
+      warnings.push({
+        field: `items[${i}].approx_tax_rate_percent`,
+        code: 'ITEM_APPROX_TAX_RATE_MISSING',
+        message: `Item "${item.product_name}": percentual de tributos aproximados/IBPT nao informado; vTotTrib sera zero para este item.`,
+        severity: 'warning',
+        item_index: i,
+      })
+    }
+
     if (item.ibscbs_context?.impacts_ibscbs && !item.ibscbs.is_ready) {
       warnings.push({
         field: `items[${i}].ibscbs`,

@@ -27,6 +27,7 @@ import { inferOperationDirectionFromCfop } from '@/lib/fiscal/order-fiscal-works
 import { normalizeFiscalEmissionMode } from '@/lib/fiscal/emission-mode'
 import { parseFiscalEnvironmentParams } from '@/lib/fiscal/additional-info'
 import { resolveIbsCbsContext } from './resolve-ibscbs-context.service'
+import { resolveCfop } from './resolve-cfop.service'
 
 function digitsOnly(value: string | null | undefined): string {
   return (value || '').replace(/\D/g, '')
@@ -48,6 +49,165 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
 function sanitizeCfopCode(value: string | null | undefined): string | null {
   const digits = digitsOnly(value).slice(0, 4)
   return /^\d{4}$/.test(digits) ? digits : null
+}
+
+interface CfopConfigLookupCandidate {
+  id: string
+  code: string
+  operation_direction: string | null
+  impacts_ibscbs: boolean
+  configuration_status: string | null
+  updated_at: string | null
+  created_at: string | null
+}
+
+function isCfopDirectionCompatible(
+  direction: string | null | undefined,
+  operationDirection: 'outbound' | 'inbound'
+): boolean {
+  const normalized = direction === 'outbound' || direction === 'inbound' || direction === 'both'
+    ? direction
+    : 'both'
+  return normalized === 'both' || normalized === operationDirection
+}
+
+function cfopConfigStatusRank(status: string | null): number {
+  if (status === 'ready') return 0
+  if (status === 'partial') return 1
+  if (status === 'legacy') return 2
+  return 3
+}
+
+function compareCfopConfigCandidates(
+  left: CfopConfigLookupCandidate,
+  right: CfopConfigLookupCandidate
+): number {
+  const statusDelta = cfopConfigStatusRank(left.configuration_status) - cfopConfigStatusRank(right.configuration_status)
+  if (statusDelta !== 0) return statusDelta
+
+  if (left.impacts_ibscbs !== right.impacts_ibscbs) {
+    return left.impacts_ibscbs ? -1 : 1
+  }
+
+  const leftTimestamp = left.updated_at || left.created_at || ''
+  const rightTimestamp = right.updated_at || right.created_at || ''
+  return rightTimestamp.localeCompare(leftTimestamp)
+}
+
+async function loadCfopConfigIdsByEffectiveCode(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  cfopCodes: string[],
+  operationDirection: 'outbound' | 'inbound'
+): Promise<FiscalCalculationResult<Map<string, string>>> {
+  const codes = Array.from(new Set(cfopCodes.map((code) => sanitizeCfopCode(code)).filter((code): code is string => Boolean(code))))
+
+  if (codes.length === 0) {
+    return { success: true, data: new Map() }
+  }
+
+  const { data: activeVersion, error: activeVersionError } = await supabase
+    .from('fiscal_reference_versions')
+    .select('id')
+    .eq('table_type', 'cfop')
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (activeVersionError) {
+    return {
+      success: false,
+      error: {
+        code: 'CFOP_ACTIVE_VERSION_LOAD_FAILED',
+        message: activeVersionError.message,
+      },
+    }
+  }
+
+  const activeVersionId = normalizeOptionalText(activeVersion?.id as string | undefined)
+  const entriesQuery = supabase
+    .from('fiscal_cfop_entries')
+    .select('id, version_id, code, operation_direction')
+    .in('code', codes)
+
+  const entriesResult = activeVersionId
+    ? await entriesQuery.eq('version_id', activeVersionId)
+    : await entriesQuery
+
+  if (entriesResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'CFOP_ENTRIES_LOAD_FAILED',
+        message: entriesResult.error.message,
+      },
+    }
+  }
+
+  const entries = ((entriesResult.data || []) as Array<Record<string, unknown>>)
+    .filter((entry) => isCfopDirectionCompatible(entry.operation_direction as string | null | undefined, operationDirection))
+
+  const entryIds = Array.from(new Set(
+    entries
+      .map((entry) => normalizeOptionalText(entry.id as string | undefined))
+      .filter((value): value is string => Boolean(value))
+  ))
+
+  if (entryIds.length === 0) {
+    return { success: true, data: new Map() }
+  }
+
+  const { data: configs, error: configsError } = await supabase
+    .from('fiscal_cfop_configs')
+    .select('id, cfop_entry_id, impacts_ibscbs, configuration_status, is_active, updated_at, created_at')
+    .in('cfop_entry_id', entryIds)
+
+  if (configsError) {
+    return {
+      success: false,
+      error: {
+        code: 'CFOP_CONFIG_LOOKUP_FAILED',
+        message: configsError.message,
+      },
+    }
+  }
+
+  const entryById = new Map(
+    entries.map((entry) => [
+      String(entry.id),
+      {
+        code: sanitizeCfopCode(entry.code as string | undefined),
+        operation_direction: normalizeOptionalText(entry.operation_direction as string | undefined),
+      },
+    ])
+  )
+  const candidatesByCode = new Map<string, CfopConfigLookupCandidate[]>()
+
+  for (const config of (configs || []) as Array<Record<string, unknown>>) {
+    if (config.is_active === false) continue
+
+    const entryId = normalizeOptionalText(config.cfop_entry_id as string | undefined)
+    const entry = entryId ? entryById.get(entryId) : null
+    if (!entry?.code) continue
+
+    const bucket = candidatesByCode.get(entry.code) || []
+    bucket.push({
+      id: String(config.id),
+      code: entry.code,
+      operation_direction: entry.operation_direction,
+      impacts_ibscbs: config.impacts_ibscbs === true,
+      configuration_status: normalizeOptionalText(config.configuration_status as string | undefined),
+      updated_at: normalizeOptionalText(config.updated_at as string | undefined),
+      created_at: normalizeOptionalText(config.created_at as string | undefined),
+    })
+    candidatesByCode.set(entry.code, bucket)
+  }
+
+  const resolved = new Map<string, string>()
+  for (const [code, candidates] of candidatesByCode.entries()) {
+    const best = [...candidates].sort(compareCfopConfigCandidates)[0]
+    if (best) resolved.set(code, best.id)
+  }
+
+  return { success: true, data: resolved }
 }
 
 function normalizeStateRegistration(value: string | null | undefined): string | null {
@@ -314,8 +474,10 @@ async function loadEnvironmentContext(): Promise<FiscalCalculationResult<Environ
 
 async function loadOrderItemsContext(
   orderId: string,
+  emitterUf: string,
   storeUf: string,
-  operationDirection: 'outbound' | 'inbound'
+  operationDirection: 'outbound' | 'inbound',
+  operation: FiscalOperationContext
 ): Promise<FiscalCalculationResult<FiscalItemContext[]>> {
   const supabase = createServiceRoleClient()
 
@@ -521,6 +683,9 @@ async function loadOrderItemsContext(
       cofins_cst: (taxProfile.cofins_cst as string) || null,
       pis_aliquota: safeNumber(taxProfile.pis_aliquota) || null,
       cofins_aliquota: safeNumber(taxProfile.cofins_aliquota) || null,
+      pis_unit_rate: safeNumber(taxProfile.pis_unit_rate) || null,
+      cofins_unit_rate: safeNumber(taxProfile.cofins_unit_rate) || null,
+      approx_tax_rate_percent: safeNumber(taxProfile.approx_tax_rate_percent) || null,
       has_ipi: taxProfile.has_ipi === true,
       ipi_cst_out: (taxProfile.ipi_cst_out as string) || null,
       ipi_enquadramento_codigo: (taxProfile.ipi_enquadramento_codigo as string) || null,
@@ -630,6 +795,9 @@ async function loadOrderItemsContext(
       unit_price: safeNumber(item.unit_price),
       subtotal: safeNumber(item.subtotal),
       cfop_override_code: sanitizeCfopCode(item.cfop_override_code as string | undefined),
+      resolved_cfop_code: null,
+      resolved_cfop_source: null,
+      resolved_cfop_config_id: null,
       tax_profile: resolvedProfile,
       applied_rule: appliedRule,
       icms_rule: icmsRule,
@@ -639,14 +807,51 @@ async function loadOrderItemsContext(
     })
   }
 
+  const cfopRuntimeContext = {
+    emitter: { uf: emitterUf },
+    store: { uf: storeUf },
+    operation,
+    operation_direction: operationDirection,
+  } as FiscalContext
+
+  const itemsWithResolvedCfop = items.map((resolvedItem) => {
+    const cfopResolution = resolveCfop(resolvedItem, cfopRuntimeContext)
+    return {
+      ...resolvedItem,
+      resolved_cfop_code: sanitizeCfopCode(cfopResolution.cfop),
+      resolved_cfop_source: cfopResolution.source,
+    }
+  })
+
+  const cfopConfigByEffectiveCodeResult = await loadCfopConfigIdsByEffectiveCode(
+    supabase,
+    itemsWithResolvedCfop
+      .map((resolvedItem) => resolvedItem.resolved_cfop_code)
+      .filter((value): value is string => Boolean(value)),
+    operationDirection
+  )
+
+  if (!cfopConfigByEffectiveCodeResult.success) {
+    return cfopConfigByEffectiveCodeResult
+  }
+
+  const cfopConfigIdByCode = cfopConfigByEffectiveCodeResult.data
+  const itemsWithCfopConfig = itemsWithResolvedCfop.map((resolvedItem) => ({
+    ...resolvedItem,
+    resolved_cfop_config_id: resolvedItem.resolved_cfop_code
+      ? cfopConfigIdByCode.get(resolvedItem.resolved_cfop_code) || null
+      : null,
+  }))
+
   const cfopConfigIds = Array.from(new Set(
-    items
-      .map((resolvedItem) => (
-        resolvedItem.applied_rule?.cfop_config_id
-        || (operationDirection === 'inbound'
+    itemsWithCfopConfig
+      .flatMap((resolvedItem) => [
+        resolvedItem.resolved_cfop_config_id,
+        resolvedItem.applied_rule?.cfop_config_id || null,
+        operationDirection === 'inbound'
           ? resolvedItem.tax_profile.default_input_cfop_config_id
-          : resolvedItem.tax_profile.default_output_cfop_config_id)
-      ))
+          : resolvedItem.tax_profile.default_output_cfop_config_id,
+      ])
       .filter((value): value is string => Boolean(value))
   ))
   const emitterLinkResult = await supabase
@@ -667,11 +872,11 @@ async function loadOrderItemsContext(
 
   const emitterLinks = (emitterLinkResult.data || []) as Array<Record<string, unknown>>
   const ibscbsBaseIds = Array.from(new Set([
-    ...items.map((resolvedItem) => resolvedItem.tax_profile.ibscbs_base_id).filter((value): value is string => Boolean(value)),
+    ...itemsWithCfopConfig.map((resolvedItem) => resolvedItem.tax_profile.ibscbs_base_id).filter((value): value is string => Boolean(value)),
     ...emitterLinks.map((row) => normalizeOptionalText(row.ibscbs_base_id as string | undefined)).filter((value): value is string => Boolean(value)),
   ]))
   const ibscbsVersionIds = Array.from(new Set([
-    ...items.map((resolvedItem) => resolvedItem.tax_profile.ibscbs_version_id).filter((value): value is string => Boolean(value)),
+    ...itemsWithCfopConfig.map((resolvedItem) => resolvedItem.tax_profile.ibscbs_version_id).filter((value): value is string => Boolean(value)),
     ...emitterLinks.map((row) => normalizeOptionalText(row.ibscbs_version_id as string | undefined)).filter((value): value is string => Boolean(value)),
   ]))
 
@@ -885,7 +1090,7 @@ async function loadOrderItemsContext(
     rulesByVersionId.set(versionId, bucket)
   }
 
-  const resolvedItems = items.map((resolvedItem) => ({
+  const resolvedItems = itemsWithCfopConfig.map((resolvedItem) => ({
     ...resolvedItem,
     ibscbs_context: resolveIbsCbsContext(
       resolvedItem,
@@ -1126,8 +1331,10 @@ export async function resolveFiscalContext(
 
   const itemsResult = await loadOrderItemsContext(
     orderId,
+    emitterResult.data.uf,
     storeResult.data.uf,
-    draftResult.data.operationDirection
+    draftResult.data.operationDirection,
+    draftResult.data.operation
   )
   if (!itemsResult.success) return itemsResult
 

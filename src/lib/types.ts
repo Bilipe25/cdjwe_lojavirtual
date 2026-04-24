@@ -182,6 +182,9 @@ export interface ProductTaxProfile {
   cofins_cst: string | null
   pis_aliquota: number | null
   cofins_aliquota: number | null
+  pis_unit_rate?: number | null
+  cofins_unit_rate?: number | null
+  approx_tax_rate_percent?: number | null
   default_output_cfop: string | null
   default_input_cfop: string | null
   internal_fiscal_code: string | null

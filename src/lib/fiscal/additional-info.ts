@@ -5,7 +5,6 @@ import type {
   FiscalItemAdditionalInfoFlags,
 } from '@/lib/types'
 import { parseTechnicalResponsibleConfig } from '@/lib/fiscal/technical-responsible.shared'
-import { humanizeIbscbsBaseMode } from '@/lib/fiscal/ibscbs-config'
 
 export const DEFAULT_ADDITIONAL_INFO_FLAGS: FiscalAdditionalInfoFlags = {
   mostrar_numero_pedido: true,
@@ -45,7 +44,6 @@ export interface FiscalItemAdditionalInfoBuildInput {
     | 'manufacturer_name'
     | 'ean_gtin'
     | 'tax_ean_gtin'
-    | 'cest'
     | 'fcp'
     | 'st'
     | 'ipi'
@@ -204,10 +202,6 @@ export function buildResolvedItemAdditionalInfo(input: FiscalItemAdditionalInfoB
     parts.push(`GTIN: ${gtin}`)
   }
 
-  if (item.cest) {
-    parts.push(`CEST: ${item.cest}`)
-  }
-
   if (item.fcp.value > 0) {
     parts.push(`Base de Calculo FCP: R$ ${formatMoney(item.fcp.base)}`)
     parts.push(`Aliquota FCP: ${formatPercent(item.fcp.rate)}`)
@@ -245,9 +239,6 @@ export function buildResolvedFiscalAuthorityInfo(input: FiscalAuthorityInfoBuild
       acc.ibsMun += item.ibscbs.ibs_mun_value || 0
       acc.ibs += item.ibscbs.ibs_value || 0
       acc.cbs += item.ibscbs.cbs_value || 0
-      acc.ibscbsCredit += item.ibscbs.presumed_credit_value || 0
-      acc.ibscbsGross += item.ibscbs.base_composition_value || 0
-      acc.ibscbsExcludedTaxes += item.ibscbs.base_excluded_tax_value || 0
       return acc
     },
     {
@@ -260,9 +251,6 @@ export function buildResolvedFiscalAuthorityInfo(input: FiscalAuthorityInfoBuild
       ibsMun: 0,
       ibs: 0,
       cbs: 0,
-      ibscbsCredit: 0,
-      ibscbsGross: 0,
-      ibscbsExcludedTaxes: 0,
     }
   )
 
@@ -276,7 +264,7 @@ export function buildResolvedFiscalAuthorityInfo(input: FiscalAuthorityInfoBuild
   }
 
   if (payload.totals.vFCP > 0) {
-    parts.push(`FCP proprio total: R$ ${formatMoney(payload.totals.vFCP)}`)
+    parts.push(`Total do FCP: R$ ${formatMoney(payload.totals.vFCP)}`)
   }
 
   if (totals.fcpSt > 0) {
@@ -292,37 +280,9 @@ export function buildResolvedFiscalAuthorityInfo(input: FiscalAuthorityInfoBuild
   }
 
   if (ibscbsItems.length > 0) {
-    const csts = uniqueStrings(ibscbsItems.map((item) => item.ibscbs.cst_code))
-    const classifications = uniqueStrings(ibscbsItems.map((item) => item.ibscbs.classification_code))
-    const baseModes = uniqueStrings(ibscbsItems.map((item) => item.ibscbs.base_mode))
-    const scopes = uniqueStrings(ibscbsItems.map((item) => item.ibscbs.applied_rule_scope))
-
     parts.push(
-      `IBS/CBS: BC ${formatMoney(totals.ibscbsBase)} | IBS UF ${formatMoney(totals.ibsUf)} | IBS Mun ${formatMoney(totals.ibsMun)} | CBS ${formatMoney(totals.cbs)}`
+      `IBS/CBS: BC R$ ${formatMoney(totals.ibscbsBase)} | IBS UF R$ ${formatMoney(totals.ibsUf)} | IBS Municipio R$ ${formatMoney(totals.ibsMun)} | CBS R$ ${formatMoney(totals.cbs)}`
     )
-
-    if (baseModes.length > 0) {
-      const modeLabel = baseModes.length === 1
-        ? humanizeIbscbsBaseMode(baseModes[0])
-        : 'Multiplas formulas de base no documento'
-      parts.push(
-        `IBS/CBS composicao: ${modeLabel} | valor composto ${formatMoney(totals.ibscbsGross)} | exclusoes ICMS/FCP ${formatMoney(totals.ibscbsExcludedTaxes)}`
-      )
-    }
-
-    if (csts.length > 0 || classifications.length > 0) {
-      parts.push(
-        `IBS/CBS enquadramento: CST ${formatCompactList(csts)} | Classificacao ${formatCompactList(classifications)}`
-      )
-    }
-
-    if (totals.ibscbsCredit > 0) {
-      parts.push(`IBS/CBS credito presumido: R$ ${formatMoney(totals.ibscbsCredit)}`)
-    }
-
-    if (scopes.length > 0) {
-      parts.push(`IBS/CBS origem da regra: ${formatAppliedScopes(scopes)}`)
-    }
   }
 
   return parts.length > 0 ? parts.join('\n') : null
@@ -401,24 +361,4 @@ function formatPercent(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }) + '%'
-}
-
-function uniqueStrings(values: Array<string | null | undefined>) {
-  return [...new Set(values.filter((value): value is string => Boolean(value && value.trim())))]
-}
-
-function formatCompactList(values: string[]) {
-  if (values.length === 0) return '-'
-  if (values.length === 1) return values[0]
-  return values.join(', ')
-}
-
-function formatAppliedScopes(scopes: string[]) {
-  const labels = scopes.map((scope) => {
-    if (scope === 'state') return 'excecao estadual'
-    if (scope === 'national') return 'regra nacional'
-    return scope
-  })
-
-  return formatCompactList([...new Set(labels)])
 }

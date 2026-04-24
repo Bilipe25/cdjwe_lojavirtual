@@ -31,7 +31,9 @@ export function calculateIcms(
   item: FiscalItemContext,
   ctx: FiscalContext,
   freightValue: number = 0,
-  discountValue: number = 0
+  discountValue: number = 0,
+  insuranceValue: number = 0,
+  otherExpensesValue: number = 0
 ): IcmsBreakdown {
   const emptyBreakdown: IcmsBreakdown = {
     cst: '41',
@@ -65,23 +67,41 @@ export function calculateIcms(
     return { ...emptyBreakdown, cst: '60' }
   }
 
-  // Calculate base
   const productValue = item.quantity * item.unit_price
-  let base = productValue - discountValue
+  const operationValue = Math.max(0, productValue - discountValue)
+  const operationValueWithAdditions = Math.max(
+    0,
+    productValue + freightValue + insuranceValue + otherExpensesValue - discountValue
+  )
 
-  // Include freight in base if configured
-  if (ctx.environment.frete_base_icms) {
+  let base: number
+  switch (rule.base_calc_type) {
+    case 'operation_value_with_additions':
+      base = operationValueWithAdditions
+      break
+    case 'fixed_percent': {
+      const basePercent = safeNumber(rule.base_calc_percent, 100)
+      base = operationValueWithAdditions * basePercent / 100
+      break
+    }
+    case 'operation_value':
+    default:
+      base = operationValue
+      break
+  }
+
+  // Legacy fallback for older profiles that still depend on the global freight toggle.
+  if (!rule.base_calc_type && ctx.environment.frete_base_icms) {
     base += freightValue
   }
 
-  // Apply base reduction (CST 20, 70)
   let reductionPercent = 0
   if (rule.base_reduction_percent && rule.base_reduction_percent > 0) {
     reductionPercent = rule.base_reduction_percent
     base = base * (1 - reductionPercent / 100)
   }
 
-  base = roundFiscal(base)
+  base = roundFiscal(Math.max(0, base))
 
   // Calculate ICMS value
   const rate = safeNumber(rule.icms_rate)

@@ -141,12 +141,13 @@ export function mapFiscalPayloadToNFeXml(
     prod: buildProd(item),
     imposto: buildImposto(item),
     ...(item.inf_ad_prod ? { infAdProd: buildItemAdditionalInfoTag(item.inf_ad_prod) } : {}),
+    ...(item.ibscbs.should_emit ? { vItem: formatDecimal(calculateItemFiscalValue(item)) } : {}),
   }))
 
   const ibsCbsTot = buildIbsCbsTot(items)
   const total = {
     ICMSTot: buildICMSTot(items, totals),
-    ...(ibsCbsTot ? { IBSCBSTot: ibsCbsTot } : {}),
+    ...(ibsCbsTot ? { IBSCBSTot: ibsCbsTot, vNFTot: formatDecimal(totals.vNF) } : {}),
   }
   const transp = buildTransportTag(ctx.transport, ctx.volumes, totals, options)
   const cobr = buildBillingTag(options.billing)
@@ -162,7 +163,7 @@ export function mapFiscalPayloadToNFeXml(
   }
 
   const additionalInfo = buildAdditionalInfoTag(options.additionalInfo, 5000, '; ')
-  const fiscalAuthorityInfo = buildAdditionalInfoTag(options.fiscalAuthorityInfo, 2000, ' ; ')
+  const fiscalAuthorityInfo = buildAdditionalInfoTag(options.fiscalAuthorityInfo, 2000, '; ')
   const technicalResponsible = buildTechnicalResponsibleTag({
     environmentParams: options.environmentParams,
     chaveAcesso,
@@ -396,8 +397,8 @@ function buildPisTag(item: ItemTaxBreakdown): Record<string, unknown> {
     return {
       PISQtde: {
         CST: cst,
-        qBCProd: formatDecimal(item.quantity, 4),
-        vAliqProd: formatDecimal(item.pis.rate, 4),
+        qBCProd: formatDecimal(item.pis.quantity_base || item.quantity, 4),
+        vAliqProd: formatDecimal(item.pis.unit_rate, 4),
         vPIS: formatDecimal(item.pis.value),
       },
     }
@@ -436,8 +437,8 @@ function buildCofinsTag(item: ItemTaxBreakdown): Record<string, unknown> {
     return {
       COFINSQtde: {
         CST: cst,
-        qBCProd: formatDecimal(item.quantity, 4),
-        vAliqProd: formatDecimal(item.cofins.rate, 4),
+        qBCProd: formatDecimal(item.cofins.quantity_base || item.quantity, 4),
+        vAliqProd: formatDecimal(item.cofins.unit_rate, 4),
         vCOFINS: formatDecimal(item.cofins.value),
       },
     }
@@ -672,13 +673,23 @@ function buildAdditionalInfoTag(
     .normalize('NFKC')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
-    .replace(/[\u0000-\u001F\u007F]/g, ' ')
     .split('\n')
     .map((line) => normalizeNFeText(line, maxLength))
     .filter(Boolean)
 
   if (normalizedLines.length === 0) return null
   return normalizedLines.join(separator).substring(0, maxLength)
+}
+
+function calculateItemFiscalValue(item: ItemTaxBreakdown): number {
+  return Math.max(
+    0,
+    (item.fiscal_total_value || 0)
+      + (item.fiscal_freight_value || 0)
+      + (item.fiscal_insurance_value || 0)
+      + (item.fiscal_other_expenses_value || 0)
+      - (item.fiscal_discount_value || 0)
+  )
 }
 
 function buildItemAdditionalInfoTag(additionalInfo: string | null | undefined): string | null {

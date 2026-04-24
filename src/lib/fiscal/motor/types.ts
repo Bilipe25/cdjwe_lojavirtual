@@ -175,6 +175,9 @@ export interface ResolvedTaxProfile {
   cofins_cst: string | null
   pis_aliquota: number | null
   cofins_aliquota: number | null
+  pis_unit_rate: number | null
+  cofins_unit_rate: number | null
+  approx_tax_rate_percent: number | null
   // IPI
   has_ipi: boolean
   ipi_cst_out: string | null
@@ -204,6 +207,13 @@ export interface ResolvedTaxRule {
   priority: number
   rule_payload: Record<string, unknown>
 }
+
+export type FiscalCfopSource =
+  | 'item_override'
+  | 'order_global'
+  | 'rule_override'
+  | 'profile_default'
+  | 'geographic_inference'
 
 // --------------- ICMS Resolved Rule ---------------
 
@@ -282,6 +292,9 @@ export interface FiscalItemContext {
   unit_price: number
   subtotal: number
   cfop_override_code: string | null
+  resolved_cfop_code: string | null
+  resolved_cfop_source: FiscalCfopSource | null
+  resolved_cfop_config_id: string | null
   // Resolved
   tax_profile: ResolvedTaxProfile
   applied_rule: ResolvedTaxRule | null
@@ -342,8 +355,11 @@ export interface StBreakdown {
 
 export interface PisCofinsItemBreakdown {
   cst: string
+  calculation_mode: 'none' | 'percent' | 'quantity'
   base: number
+  quantity_base: number
   rate: number
+  unit_rate: number
   value: number
 }
 
@@ -401,7 +417,7 @@ export interface ItemTaxBreakdown {
   size_name: string | null
   quantity: number
   cfop: string
-  cfop_source: 'item_override' | 'order_global' | 'rule_override' | 'profile_default' | 'geographic_inference'
+  cfop_source: FiscalCfopSource
   // Fiscal values
   fiscal_unit_value: number
   fiscal_total_value: number
@@ -420,6 +436,7 @@ export interface ItemTaxBreakdown {
   ibscbs_context: ResolvedIbsCbsContext | null
   // Total tributos (Lei da Transparência)
   total_tributos: number
+  approx_tax_rate_percent: number | null
   // Metadata
   tax_profile_id: string
   tax_profile_version: number

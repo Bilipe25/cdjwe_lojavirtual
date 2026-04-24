@@ -94,6 +94,9 @@ export interface ProductTaxProfileInput {
     cofinsCst?: string | null
     pisAliquota?: number | null
     cofinsAliquota?: number | null
+    pisUnitRate?: number | null
+    cofinsUnitRate?: number | null
+    approxTaxRatePercent?: number | null
     defaultOutputCfop?: string | null
     defaultInputCfop?: string | null
     internalFiscalCode?: string | null
@@ -1746,6 +1749,9 @@ export async function getProductTaxProfileDetailAction(
                     cofinsCst: profile.cofins_cst,
                     pisAliquota: profile.pis_aliquota,
                     cofinsAliquota: profile.cofins_aliquota,
+                    pisUnitRate: profile.pis_unit_rate,
+                    cofinsUnitRate: profile.cofins_unit_rate,
+                    approxTaxRatePercent: profile.approx_tax_rate_percent,
                     defaultOutputCfop: profile.default_output_cfop,
                     defaultInputCfop: profile.default_input_cfop,
                     internalFiscalCode: profile.internal_fiscal_code,
@@ -2136,6 +2142,9 @@ export async function upsertProductTaxProfileAction(
             p_cofins_cst: sanitizeFiscalCode(input.cofinsCst),
             p_pis_aliquota: input.pisAliquota ?? null,
             p_cofins_aliquota: input.cofinsAliquota ?? null,
+            p_pis_unit_rate: input.pisUnitRate ?? null,
+            p_cofins_unit_rate: input.cofinsUnitRate ?? null,
+            p_approx_tax_rate_percent: input.approxTaxRatePercent ?? null,
             p_default_output_cfop: sanitizeFiscalCode(defaultOutputCfopFromReference || input.defaultOutputCfop),
             p_default_input_cfop: sanitizeFiscalCode(defaultInputCfopFromReference || input.defaultInputCfop),
             p_internal_fiscal_code: sanitizeFiscalCode(input.internalFiscalCode),

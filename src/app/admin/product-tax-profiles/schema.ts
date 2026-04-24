@@ -21,6 +21,20 @@ const optionalJsonRecord = z
     .optional()
     .transform((value) => value ?? undefined)
 
+const optionalNonNegativeNumber = (message: string) =>
+    z.preprocess(
+        (value) => {
+            if (value === '' || value === null || value === undefined) return undefined
+            if (typeof value === 'string') {
+                const parsed = Number(value.replace(',', '.'))
+                return Number.isFinite(parsed) ? parsed : undefined
+            }
+            if (typeof value === 'number') return value
+            return undefined
+        },
+        z.number().min(0, message).optional()
+    )
+
 const productTaxProfileRuleSchema = z
     .object({
         id: optionalUuid,
@@ -109,30 +123,11 @@ export const productTaxProfileSchema = z
         ipiEnquadramentoCodigo: optionalTrimmedString,
         pisCst: optionalTrimmedString,
         cofinsCst: optionalTrimmedString,
-        pisAliquota: z.preprocess(
-            (value) => {
-                if (value === '' || value === null || value === undefined) return undefined
-                if (typeof value === 'string') {
-                    const parsed = Number(value.replace(',', '.'))
-                    return Number.isFinite(parsed) ? parsed : undefined
-                }
-                if (typeof value === 'number') return value
-                return undefined
-            },
-            z.number().min(0, 'Aliquota invalida').optional()
-        ),
-        cofinsAliquota: z.preprocess(
-            (value) => {
-                if (value === '' || value === null || value === undefined) return undefined
-                if (typeof value === 'string') {
-                    const parsed = Number(value.replace(',', '.'))
-                    return Number.isFinite(parsed) ? parsed : undefined
-                }
-                if (typeof value === 'number') return value
-                return undefined
-            },
-            z.number().min(0, 'Aliquota invalida').optional()
-        ),
+        pisAliquota: optionalNonNegativeNumber('Aliquota invalida'),
+        cofinsAliquota: optionalNonNegativeNumber('Aliquota invalida'),
+        pisUnitRate: optionalNonNegativeNumber('Aliquota por unidade invalida'),
+        cofinsUnitRate: optionalNonNegativeNumber('Aliquota por unidade invalida'),
+        approxTaxRatePercent: optionalNonNegativeNumber('Percentual aproximado invalido'),
         defaultOutputCfop: optionalTrimmedString,
         defaultInputCfop: optionalTrimmedString,
         internalFiscalCode: optionalTrimmedString,

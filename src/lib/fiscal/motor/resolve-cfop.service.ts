@@ -4,11 +4,11 @@
 // context, tax profile rules, and CFOP configurations
 // ============================================================
 
-import type { FiscalContext, FiscalItemContext } from './types'
+import type { FiscalCfopSource, FiscalContext, FiscalItemContext } from './types'
 
 interface CfopResolution {
   cfop: string
-  source: 'item_override' | 'order_global' | 'rule_override' | 'profile_default' | 'geographic_inference'
+  source: FiscalCfopSource
   is_internal: boolean
   is_interstate: boolean
 }
