@@ -46,9 +46,49 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
   return normalized || null
 }
 
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
 function sanitizeCfopCode(value: string | null | undefined): string | null {
   const digits = digitsOnly(value).slice(0, 4)
   return /^\d{4}$/.test(digits) ? digits : null
+}
+
+type EmitterIcmsBaseSource = 'emitter_state' | 'emitter_national'
+
+interface EmitterIcmsLinkSnapshot {
+  target_uf: string | null
+  icms_base_id: string
+  source: EmitterIcmsBaseSource
+}
+
+function selectEmitterIcmsLink(
+  links: Array<Record<string, unknown>>,
+  storeUf: string
+): EmitterIcmsLinkSnapshot | null {
+  const normalizedStoreUf = normalizeText(storeUf).toUpperCase()
+  const normalizedLinks = links
+    .map((link) => {
+      const targetUf = normalizeOptionalText(link.target_uf as string | undefined)?.toUpperCase() || null
+      const baseId = normalizeOptionalText(link.icms_base_id as string | undefined)
+      if (!baseId) return null
+
+      return {
+        target_uf: targetUf,
+        icms_base_id: baseId,
+        source: targetUf ? 'emitter_state' : 'emitter_national',
+      } satisfies EmitterIcmsLinkSnapshot
+    })
+    .filter((link): link is EmitterIcmsLinkSnapshot => Boolean(link))
+
+  return (
+    normalizedLinks.find((link) => link.target_uf === normalizedStoreUf) ||
+    normalizedLinks.find((link) => !link.target_uf) ||
+    null
+  )
 }
 
 interface CfopConfigLookupCandidate {
@@ -567,11 +607,33 @@ async function loadOrderItemsContext(
     rulesByProfileId.set(taxProfileId, bucket)
   }
 
-  const icmsBaseIds = Array.from(new Set(
-    itemRecords
-      .map((item) => ((((item.product_variant as Record<string, unknown> | null)?.product as Record<string, unknown> | null)?.tax_profile as Record<string, unknown> | null)?.icms_base_id as string | undefined))
-      .filter((value): value is string => Boolean(value))
-  ))
+  const emitterIcmsLinkResult = await supabase
+    .from('emitter_icms_state_links')
+    .select('target_uf, icms_base_id')
+    .eq('is_active', true)
+    .or(`target_uf.eq.${storeUf},target_uf.is.null`)
+
+  if (emitterIcmsLinkResult.error) {
+    return {
+      success: false,
+      error: {
+        code: 'EMITTER_ICMS_LINKS_LOAD_FAILED',
+        message: emitterIcmsLinkResult.error.message,
+      },
+    }
+  }
+
+  const selectedEmitterIcmsLink = selectEmitterIcmsLink(
+    (emitterIcmsLinkResult.data || []) as Array<Record<string, unknown>>,
+    storeUf
+  )
+  const profileIcmsBaseIds = itemRecords
+    .map((item) => ((((item.product_variant as Record<string, unknown> | null)?.product as Record<string, unknown> | null)?.tax_profile as Record<string, unknown> | null)?.icms_base_id as string | undefined))
+    .filter((value): value is string => Boolean(value))
+  const icmsBaseIds = Array.from(new Set([
+    ...profileIcmsBaseIds,
+    ...(selectedEmitterIcmsLink?.icms_base_id ? [selectedEmitterIcmsLink.icms_base_id] : []),
+  ]))
 
   const [icmsRulesResult, interstateRulesResult, stRulesResult] = icmsBaseIds.length > 0
     ? await Promise.all([
@@ -681,11 +743,11 @@ async function loadOrderItemsContext(
       default_fiscal_description: (taxProfile.default_fiscal_description as string) || null,
       pis_cst: (taxProfile.pis_cst as string) || null,
       cofins_cst: (taxProfile.cofins_cst as string) || null,
-      pis_aliquota: safeNumber(taxProfile.pis_aliquota) || null,
-      cofins_aliquota: safeNumber(taxProfile.cofins_aliquota) || null,
-      pis_unit_rate: safeNumber(taxProfile.pis_unit_rate) || null,
-      cofins_unit_rate: safeNumber(taxProfile.cofins_unit_rate) || null,
-      approx_tax_rate_percent: safeNumber(taxProfile.approx_tax_rate_percent) || null,
+      pis_aliquota: nullableNumber(taxProfile.pis_aliquota),
+      cofins_aliquota: nullableNumber(taxProfile.cofins_aliquota),
+      pis_unit_rate: nullableNumber(taxProfile.pis_unit_rate),
+      cofins_unit_rate: nullableNumber(taxProfile.cofins_unit_rate),
+      approx_tax_rate_percent: nullableNumber(taxProfile.approx_tax_rate_percent),
       has_ipi: taxProfile.has_ipi === true,
       ipi_cst_out: (taxProfile.ipi_cst_out as string) || null,
       ipi_enquadramento_codigo: (taxProfile.ipi_enquadramento_codigo as string) || null,
@@ -729,9 +791,13 @@ async function loadOrderItemsContext(
     let icmsRule: IcmsResolvedRule | null = null
     let icmsInterstateRule: IcmsInterstateRule | null = null
     let icmsStRule: IcmsStRule | null = null
+    const resolvedIcmsBaseId = resolvedProfile.icms_base_id || selectedEmitterIcmsLink?.icms_base_id || null
+    const resolvedIcmsBaseSource = resolvedProfile.icms_base_id
+      ? 'profile'
+      : selectedEmitterIcmsLink?.source || 'none'
 
-    if (resolvedProfile.icms_base_id) {
-      const icmsRules = icmsRulesByBaseId.get(resolvedProfile.icms_base_id) || []
+    if (resolvedIcmsBaseId) {
+      const icmsRules = icmsRulesByBaseId.get(resolvedIcmsBaseId) || []
       if (icmsRules.length > 0) {
         const stateRule = icmsRules.find((r: Record<string, unknown>) => r.target_uf === storeUf)
         const nationalRule = icmsRules.find((r: Record<string, unknown>) => !r.target_uf)
@@ -751,7 +817,7 @@ async function loadOrderItemsContext(
         }
       }
 
-      const interstateRules = interstateRuleByBaseId.get(resolvedProfile.icms_base_id)
+      const interstateRules = interstateRuleByBaseId.get(resolvedIcmsBaseId)
       if (interstateRules) {
         icmsInterstateRule = {
           icms_rate: safeNumber(interstateRules.icms_rate),
@@ -760,7 +826,7 @@ async function loadOrderItemsContext(
         }
       }
 
-      const stRules = stRulesByBaseId.get(resolvedProfile.icms_base_id) || []
+      const stRules = stRulesByBaseId.get(resolvedIcmsBaseId) || []
       if (stRules.length > 0) {
         const stateStRule = stRules.find((r: Record<string, unknown>) => r.target_uf === storeUf)
         const nationalStRule = stRules.find((r: Record<string, unknown>) => !r.target_uf)
@@ -800,6 +866,8 @@ async function loadOrderItemsContext(
       resolved_cfop_config_id: null,
       tax_profile: resolvedProfile,
       applied_rule: appliedRule,
+      resolved_icms_base_id: resolvedIcmsBaseId,
+      resolved_icms_base_source: resolvedIcmsBaseSource,
       icms_rule: icmsRule,
       icms_interstate_rule: icmsInterstateRule,
       icms_st_rule: icmsStRule,

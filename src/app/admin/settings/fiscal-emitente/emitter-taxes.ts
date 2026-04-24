@@ -63,8 +63,8 @@ export async function saveEmitterFederalTaxConfig(
     }
 
     const payload = {
-        aliquota_pis: input.aliquota_pis ?? 0,
-        aliquota_cofins: input.aliquota_cofins ?? 0,
+        aliquota_pis: input.aliquota_pis ?? 0.65,
+        aliquota_cofins: input.aliquota_cofins ?? 3.0,
         artigo_sc_mva: input.artigo_sc_mva || 'nenhum',
         exibir_total_tributos: input.exibir_total_tributos,
         credito_presumido_icms: input.credito_presumido_icms,

@@ -298,6 +298,8 @@ export interface FiscalItemContext {
   // Resolved
   tax_profile: ResolvedTaxProfile
   applied_rule: ResolvedTaxRule | null
+  resolved_icms_base_id: string | null
+  resolved_icms_base_source: 'profile' | 'emitter_state' | 'emitter_national' | 'none'
   // ICMS rules (loaded from bases)
   icms_rule: IcmsResolvedRule | null
   icms_interstate_rule: IcmsInterstateRule | null

@@ -252,6 +252,7 @@ export function validateFiscalDocument(
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
+    const contextItem = ctx.items.find((ctxItem) => ctxItem.order_item_id === item.order_item_id)
 
     // NCM validation
     if (!item.ncm || !/^\d{8}$/.test(item.ncm)) {
@@ -292,6 +293,24 @@ export function validateFiscalDocument(
         code: 'ITEM_MISSING_ICMS_CST',
         message: `Item "${item.product_name}": CST ICMS nao informado.`,
         severity: 'error',
+        item_index: i,
+      })
+    }
+
+    if (!contextItem?.resolved_icms_base_id) {
+      warnings.push({
+        field: `items[${i}].icms_base_id`,
+        code: 'ITEM_ICMS_BASE_MISSING',
+        message: `Item "${item.product_name}": nenhuma base de ICMS foi encontrada no Perfil Tributario nem nos fallbacks do emitente.`,
+        severity: 'warning',
+        item_index: i,
+      })
+    } else if (!contextItem.icms_rule) {
+      warnings.push({
+        field: `items[${i}].icms_rule`,
+        code: 'ITEM_ICMS_RULE_MISSING',
+        message: `Item "${item.product_name}": base de ICMS resolvida, mas sem regra nacional/UF aplicavel para ${ctx.store.uf}.`,
+        severity: 'warning',
         item_index: i,
       })
     }
@@ -349,7 +368,7 @@ export function validateFiscalDocument(
       })
     }
 
-    if (item.approx_tax_rate_percent === null || item.approx_tax_rate_percent === undefined) {
+    if (ctx.emitter.exibir_total_tributos && (item.approx_tax_rate_percent === null || item.approx_tax_rate_percent === undefined)) {
       warnings.push({
         field: `items[${i}].approx_tax_rate_percent`,
         code: 'ITEM_APPROX_TAX_RATE_MISSING',

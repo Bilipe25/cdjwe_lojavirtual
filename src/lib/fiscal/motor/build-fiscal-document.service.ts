@@ -100,7 +100,9 @@ export function buildFiscalDocument(
       Math.max(0, fiscalTotalValue + itemFreight + itemInsurance + itemOtherExpenses - itemDiscount)
     )
     const approxTaxRatePercent = item.tax_profile.approx_tax_rate_percent
-    const totalTributos = roundFiscal(fiscalItemValue * safeNumber(approxTaxRatePercent) / 100)
+    const totalTributos = ctx.emitter.exibir_total_tributos
+      ? roundFiscal(fiscalItemValue * safeNumber(approxTaxRatePercent) / 100)
+      : 0
 
     itemBreakdowns.push({
       order_item_id: item.order_item_id,

@@ -86,7 +86,7 @@ export function calculatePis(
     return quantityBreakdown(cst, item.quantity, safeNumber(item.tax_profile.pis_unit_rate))
   }
 
-  const rate = safeNumber(item.tax_profile.pis_aliquota) || ctx.emitter.aliquota_pis
+  const rate = item.tax_profile.pis_aliquota ?? ctx.emitter.aliquota_pis
   return percentBreakdown(cst, resolvePercentBase(item, ctx, discountValue, icmsValue), rate)
 }
 
@@ -106,6 +106,6 @@ export function calculateCofins(
     return quantityBreakdown(cst, item.quantity, safeNumber(item.tax_profile.cofins_unit_rate))
   }
 
-  const rate = safeNumber(item.tax_profile.cofins_aliquota) || ctx.emitter.aliquota_cofins
+  const rate = item.tax_profile.cofins_aliquota ?? ctx.emitter.aliquota_cofins
   return percentBreakdown(cst, resolvePercentBase(item, ctx, discountValue, icmsValue), rate)
 }

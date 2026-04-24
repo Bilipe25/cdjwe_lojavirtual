@@ -121,7 +121,7 @@ export function EmitterIbscbsStatesSection() {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-lg font-heading">
               <FileText className="h-5 w-5 text-bronze" />
-              IBS/CBS por abrangencia do emitente
+              Fallback IBS/CBS por abrangencia do emitente
             </CardTitle>
             <Button
               size="sm"
@@ -134,8 +134,8 @@ export function EmitterIbscbsStatesSection() {
             </Button>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Esta tela nao define CST, classificacao ou aliquotas da operacao. Ela apenas complementa o runtime com a
-            abrangencia geografica do emitente: regra nacional primeiro e excecoes por UF quando existirem.
+            Usado como complemento geografico quando o Perfil Tributario nao trouxer base/versionamento suficientes. CFOP
+            e Base IBS/CBS continuam definindo CST, classificacao, aliquotas e formula numerica.
           </p>
         </CardHeader>
 
@@ -149,8 +149,8 @@ export function EmitterIbscbsStatesSection() {
                   : 'Ainda nao configurada'}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                O perfil tributario escolhe a base/versionamento padrao. Aqui o emitente confirma qual regra nacional o
-                runtime deve usar como fallback geografico.
+                O perfil tributario vence quando tiver base/versionamento. Aqui o emitente define a regra nacional usada
+                como fallback geografico.
               </p>
             </div>
 
@@ -185,7 +185,7 @@ export function EmitterIbscbsStatesSection() {
               <li>Base IBS/CBS: catalogos, regra nacional/UF e modelo numerico.</li>
               <li>CFOP: enquadramento da operacao, CST, classificacao e credito presumido.</li>
               <li>Perfil tributario: heranca padrao da base/versionamento do produto.</li>
-              <li>Emitente por UF: complemento geografico do runtime.</li>
+              <li>Emitente por UF: fallback geografico quando o perfil nao resolver tudo.</li>
             </ul>
           </div>
 

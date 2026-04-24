@@ -37,7 +37,11 @@ export function EmitterIcmsStatesSection() {
   }, [])
 
   useEffect(() => {
-    reload()
+    const timer = window.setTimeout(() => {
+      void reload()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
   }, [reload])
 
   const handleAdd = () => {
@@ -99,7 +103,7 @@ export function EmitterIcmsStatesSection() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg font-heading flex items-center gap-2">
               <Database className="h-5 w-5 text-bronze" />
-              ICMS por Estado
+              Fallback ICMS por Estado
             </CardTitle>
             <Button
               size="sm"
@@ -112,7 +116,7 @@ export function EmitterIcmsStatesSection() {
             </Button>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Vincule a base de ICMS padrão do emitente por abrangência nacional ou por exceção estadual. As regras detalhadas continuam dentro das Bases Fiscais.
+            Usado somente quando o Perfil Tributário do produto não tiver base ICMS vinculada. Se o perfil tiver base própria, este fallback não sobrescreve o item.
           </p>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -121,7 +125,7 @@ export function EmitterIcmsStatesSection() {
               <Database className="mx-auto h-8 w-8 mb-2 opacity-30" />
               <p className="text-sm font-medium">Nenhum vínculo de ICMS configurado.</p>
               <p className="text-xs mt-1">
-                Adicione uma base nacional ou uma exceção por UF para orientar o fallback fiscal do emitente.
+                Adicione uma base nacional ou uma exceção por UF para o motor usar quando o Perfil Tributário não definir ICMS.
               </p>
             </div>
           ) : (
@@ -153,7 +157,7 @@ export function EmitterIcmsStatesSection() {
                         {link.icms_base_code || link.icms_base_name || 'Base sem nome'}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {link.target_uf ? link.target_uf : 'Brasil'}
+                        {link.target_uf ? link.target_uf : 'Brasil (fallback nacional)'}
                         {link.icms_base_name && link.icms_base_code ? ` — ${link.icms_base_name}` : ''}
                       </div>
                     </div>

@@ -499,7 +499,7 @@ function buildICMSTot(items: ItemTaxBreakdown[], totals: DocumentTotals) {
     vCOFINS: formatDecimal(totals.vCOFINS),
     vOutro: formatDecimal(totals.vOutro),
     vNF: formatDecimal(totals.vNF),
-    vTotTrib: formatDecimal(totals.vTotTrib),
+    ...(totals.vTotTrib > 0 ? { vTotTrib: formatDecimal(totals.vTotTrib) } : {}),
     ...(vFCPUFDest > 0 ? { vFCPUFDest: formatDecimal(vFCPUFDest) } : {}),
     ...(vICMSUFDest > 0 ? { vICMSUFDest: formatDecimal(vICMSUFDest) } : {}),
     ...(vICMSUFRemet > 0 ? { vICMSUFRemet: formatDecimal(vICMSUFRemet) } : {}),

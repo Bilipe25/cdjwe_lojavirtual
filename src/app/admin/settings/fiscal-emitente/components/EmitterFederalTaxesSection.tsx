@@ -37,6 +37,14 @@ const REGIME_LABELS: Record<string, string> = {
   lucro_real: 'Lucro Real',
 }
 
+const DEFAULT_PIS_FALLBACK = '0,65'
+const DEFAULT_COFINS_FALLBACK = '3,00'
+
+function formatPercentInput(value: number | null | undefined, fallback: string): string {
+  if (value === null || value === undefined) return fallback
+  return String(value).replace('.', ',')
+}
+
 interface FederalFormState {
   aliquotaPis: string
   aliquotaCofins: string
@@ -47,8 +55,8 @@ interface FederalFormState {
 }
 
 const initialFederalForm: FederalFormState = {
-  aliquotaPis: '0',
-  aliquotaCofins: '0',
+  aliquotaPis: DEFAULT_PIS_FALLBACK,
+  aliquotaCofins: DEFAULT_COFINS_FALLBACK,
   artigoScMva: 'nenhum',
   exibirTotalTributos: true,
   creditoPresumidoIcms: false,
@@ -84,8 +92,8 @@ export function EmitterFederalTaxesSection() {
       if (taxResult.data) {
         setConfig(taxResult.data)
         const loaded: FederalFormState = {
-          aliquotaPis: taxResult.data.aliquota_pis?.toString() || '0',
-          aliquotaCofins: taxResult.data.aliquota_cofins?.toString() || '0',
+          aliquotaPis: formatPercentInput(taxResult.data.aliquota_pis, DEFAULT_PIS_FALLBACK),
+          aliquotaCofins: formatPercentInput(taxResult.data.aliquota_cofins, DEFAULT_COFINS_FALLBACK),
           artigoScMva: taxResult.data.artigo_sc_mva || 'nenhum',
           exibirTotalTributos: taxResult.data.exibir_total_tributos,
           creditoPresumidoIcms: taxResult.data.credito_presumido_icms,
@@ -126,7 +134,7 @@ export function EmitterFederalTaxesSection() {
     if (result.error) {
       toast.error(result.error)
     } else {
-      toast.success('Preferências fiscais salvas com sucesso.')
+      toast.success('Fallback fiscal corporativo salvo com sucesso.')
       setSavedForm({ ...form })
     }
     setSaving(false)
@@ -156,7 +164,7 @@ export function EmitterFederalTaxesSection() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-heading flex items-center gap-2">
             <Landmark className="h-5 w-5 text-bronze" />
-            Preferências Fiscais do Emitente
+            Fallback Fiscal Corporativo
           </CardTitle>
           {hasChanges && (
             <Button
@@ -171,7 +179,7 @@ export function EmitterFederalTaxesSection() {
           )}
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Ajuste preferências fiscais corporativas do emitente. As regras detalhadas continuam nas bases fiscais e nos vínculos por UF.
+          Configure os valores usados apenas quando o Perfil Tributário do item não trouxer regra própria. O perfil continua sendo a autoridade fiscal principal.
         </p>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -199,8 +207,8 @@ export function EmitterFederalTaxesSection() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label className="flex items-center gap-1">
-              Alíquota PIS *
-              <FiscalHelpText text="Informe a alíquota corporativa de PIS adotada como referência do emitente. Regras específicas continuam nos documentos e perfis fiscais quando necessário." />
+              Alíquota PIS fallback *
+              <FiscalHelpText text="Usada somente quando o Perfil Tributário do item não tiver alíquota PIS preenchida. Se o perfil tiver 0%, o zero é preservado." />
             </Label>
             <Input
               type="text"
@@ -213,8 +221,8 @@ export function EmitterFederalTaxesSection() {
           </div>
           <div className="space-y-2">
             <Label className="flex items-center gap-1">
-              Alíquota COFINS *
-              <FiscalHelpText text="Informe a alíquota corporativa de COFINS adotada como referência do emitente. Regras específicas continuam nos documentos e perfis fiscais quando necessário." />
+              Alíquota COFINS fallback *
+              <FiscalHelpText text="Usada somente quando o Perfil Tributário do item não tiver alíquota COFINS preenchida. Se o perfil tiver 0%, o zero é preservado." />
             </Label>
             <Input
               type="text"
@@ -252,7 +260,7 @@ export function EmitterFederalTaxesSection() {
             <div>
               <div className="text-sm font-medium">Exibir total aproximado de tributos</div>
               <div className="text-xs text-muted-foreground max-w-xl">
-                Use esta opção para orientar a exibição do total aproximado de tributos quando a operação fiscal exigir essa transparência no documento.
+                Quando ligado, XML e DANFE emitem o total aproximado apenas se o Perfil Tributário tiver percentual IBPT. Quando desligado, o vTotTrib é omitido.
               </div>
             </div>
             <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4">
