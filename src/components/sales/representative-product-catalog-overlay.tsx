@@ -19,13 +19,17 @@ import { Input } from '@/components/ui/input'
 import { getRepresentativeCatalogProductsPageAction } from '@/app/sales/actions'
 import { cn } from '@/lib/utils'
 import { useQuickViewData, QuickViewContent, type QuickViewAddToCartSummary } from '@/components/catalog/quick-view-content'
-import type { Category, Product } from '@/lib/types'
+import type { Category, OrderType, Product } from '@/lib/types'
+import type { RepresentativeStockPosition } from '@/components/sales/order-builder/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type BuilderProduct = Product & {
   images?: { url: string; is_primary: boolean }[]
   category?: Category | null
+  representative_stock_available?: number
+  representative_stock_reserved?: number
+  representative_stock_sold?: number
 }
 
 export type StagedItem = {
@@ -46,12 +50,15 @@ export type CatalogOverlayConfirmPayload = StagedItem[]
 interface Props {
   products: BuilderProduct[]
   categories: Category[]
+  orderType?: OrderType
+  representativeStock?: RepresentativeStockPosition[]
   /** When confirmed, yields staged items back to the order builder */
   onConfirm: (items: CatalogOverlayConfirmPayload) => void
   onClose: () => void
 }
 
 type Phase = 'catalog' | 'quick-view' | 'basket'
+type CatalogStockFilter = 'all' | 'available' | 'unavailable' | 'best_sellers' | 'promotions'
 
 const CATALOG_PAGE_SIZE = 24
 
@@ -71,12 +78,15 @@ function RepProductCard({
   product,
   onTap,
   stagedQty,
+  orderType,
 }: {
   product: BuilderProduct
   onTap: () => void
   stagedQty: number
+  orderType?: OrderType
 }) {
   const img = getPrimaryImage(product)
+  const available = Number(product.representative_stock_available || 0)
   return (
     <button
       type="button"
@@ -99,9 +109,17 @@ function RepProductCard({
       </div>
       <div className="p-2.5">
         <p className="text-sm font-semibold leading-tight line-clamp-2">{product.name}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          {fmt(product.base_price)}
-        </p>
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+          <p className="text-xs text-muted-foreground">{fmt(product.base_price)}</p>
+          {orderType === 'PRONTA_ENTREGA' ? (
+            <span className={cn(
+              'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+              available > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'
+            )}>
+              {available > 0 ? `${available} comigo` : 'indisponivel'}
+            </span>
+          ) : null}
+        </div>
       </div>
     </button>
   )
@@ -158,15 +176,20 @@ function RepBasket({
   onConfirm,
   onUpdateQty,
   onRemove,
+  orderType,
+  stockByKey,
 }: {
   items: StagedItem[]
   onBack: () => void
   onConfirm: () => void
   onUpdateQty: (id: string, qty: number) => void
   onRemove: (id: string) => void
+  orderType?: OrderType
+  stockByKey: Record<string, number>
 }) {
   const total = items.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
   const totalQty = items.reduce((s, i) => s + i.quantity, 0)
+  const hasStockIssue = orderType === 'PRONTA_ENTREGA' && items.some((item) => item.quantity > (stockByKey[item.id] || 0))
 
   return (
     <div className="flex flex-col h-full">
@@ -214,6 +237,13 @@ function RepBasket({
                     {[item.sizeName, item.fabricName, item.colorName].filter(Boolean).join(' · ')}
                   </p>
                   <p className="text-xs font-medium text-primary mt-0.5">{fmt(item.unitPrice)} / un</p>
+                  {orderType === 'PRONTA_ENTREGA' ? (
+                    <p className={item.quantity > (stockByKey[item.id] || 0) ? 'text-[10px] font-semibold text-destructive' : 'text-[10px] text-emerald-700'}>
+                      {(stockByKey[item.id] || 0) > 0
+                        ? `${stockByKey[item.id]} ${(stockByKey[item.id] || 0) === 1 ? 'disponivel' : 'disponiveis'} comigo`
+                        : 'Indisponivel comigo'}
+                    </p>
+                  ) : null}
                 </div>
 
                 {/* Qty + Remove */}
@@ -235,6 +265,7 @@ function RepBasket({
                     <span className="w-7 text-center text-sm font-bold">{item.quantity}</span>
                     <button
                       className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted"
+                      disabled={orderType === 'PRONTA_ENTREGA' && item.quantity >= (stockByKey[item.id] || 0)}
                       onClick={() => onUpdateQty(item.id, item.quantity + 1)}
                     >
                       <Plus className="h-3 w-3" />
@@ -261,12 +292,12 @@ function RepBasket({
           </div>
         </div>
         <Button
-          disabled={items.length === 0}
+          disabled={items.length === 0 || hasStockIssue}
           onClick={onConfirm}
           className="w-full h-12 rounded-xl gradient-navy hover:opacity-90 text-white font-semibold text-base shadow-sm"
         >
           <Check className="h-5 w-5 mr-2" />
-          CONFIRMAR E ADICIONAR AO PEDIDO
+          {hasStockIssue ? 'AJUSTE O SALDO PARA CONTINUAR' : 'CONFIRMAR E ADICIONAR AO PEDIDO'}
         </Button>
       </div>
     </div>
@@ -275,12 +306,20 @@ function RepBasket({
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
-export function RepresentativeProductCatalogOverlay({ products, categories, onConfirm, onClose }: Props) {
+export function RepresentativeProductCatalogOverlay({
+  products,
+  categories,
+  orderType = 'PRE_VENDA',
+  representativeStock = [],
+  onConfirm,
+  onClose,
+}: Props) {
   const [phase, setPhase] = useState<Phase>('catalog')
   const [activeProductId, setActiveProductId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
   const [selectedCategory, setSelectedCategory] = useState('all')
+  const [stockFilter, setStockFilter] = useState<CatalogStockFilter>(orderType === 'PRONTA_ENTREGA' && representativeStock.length > 0 ? 'available' : 'all')
   const [searchActive, setSearchActive] = useState(false)
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
@@ -295,6 +334,18 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
   const catalogRequestSequenceRef = useRef(0)
 
   const selectedCategoryId = selectedCategory === 'all' ? null : selectedCategory
+  const stockByKey = useMemo(() => {
+    return representativeStock.reduce<Record<string, number>>((acc, position) => {
+      acc[position.key] = Math.max(0, Number(position.quantity_available || 0))
+      return acc
+    }, {})
+  }, [representativeStock])
+
+  useEffect(() => {
+    if (orderType === 'PRONTA_ENTREGA' && representativeStock.length > 0) {
+      setStockFilter((current) => current === 'all' ? 'available' : current)
+    }
+  }, [orderType, representativeStock.length])
 
   useEffect(() => {
     if (searchActive && searchRef.current) {
@@ -316,6 +367,7 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
           pageSize: CATALOG_PAGE_SIZE,
           search: deferredSearch,
           categoryId: selectedCategoryId,
+          stockFilter,
         })
 
         if (cancelled || sequence !== catalogRequestSequenceRef.current) return
@@ -353,7 +405,7 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
     return () => {
       cancelled = true
     }
-  }, [deferredSearch, selectedCategoryId])
+  }, [deferredSearch, selectedCategoryId, stockFilter])
 
   const loadMoreProducts = async () => {
     if (catalogLoading || catalogLoadingMore || catalogPage >= catalogTotalPages) {
@@ -373,6 +425,7 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
         pageSize: CATALOG_PAGE_SIZE,
         search: deferredSearch,
         categoryId: selectedCategoryId,
+        stockFilter,
       })
 
       if (sequence !== catalogRequestSequenceRef.current) return
@@ -433,11 +486,18 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
     setStagedItems((prev) => {
       let updated = [...prev]
       newItems.forEach((newItem) => {
+        const existingQty = updated.find((i) => i.id === newItem.id)?.quantity || 0
+        const maxAvailable = orderType === 'PRONTA_ENTREGA'
+          ? (stockByKey[newItem.id] || 0)
+          : Number.POSITIVE_INFINITY
+        const nextQuantity = Math.min(existingQty + newItem.quantity, maxAvailable)
+        if (orderType === 'PRONTA_ENTREGA' && nextQuantity <= 0) return
+
         const existing = updated.find((i) => i.id === newItem.id)
         if (existing) {
-          updated = updated.map((i) => i.id === newItem.id ? { ...i, quantity: i.quantity + newItem.quantity } : i)
+          updated = updated.map((i) => i.id === newItem.id ? { ...i, quantity: nextQuantity } : i)
         } else {
-          updated.push(newItem)
+          updated.push({ ...newItem, quantity: nextQuantity })
         }
       })
       return updated
@@ -446,10 +506,15 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
   }
 
   const handleUpdateQty = (id: string, qty: number) => {
+    const maxAvailable = orderType === 'PRONTA_ENTREGA'
+      ? (stockByKey[id] || 0)
+      : Number.POSITIVE_INFINITY
+    const nextQty = Math.min(qty, maxAvailable)
+
     if (qty <= 0) {
       setStagedItems((prev) => prev.filter((i) => i.id !== id))
     } else {
-      setStagedItems((prev) => prev.map((i) => i.id === id ? { ...i, quantity: qty } : i))
+      setStagedItems((prev) => prev.map((i) => i.id === id ? { ...i, quantity: nextQty } : i))
     }
   }
 
@@ -554,6 +619,32 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
             </div>
           </div>
 
+          <div className="bg-background border-b border-border/30 px-4 py-2 shrink-0 overflow-x-auto">
+            <div className="flex items-center gap-2 w-max">
+              {[
+                ['all', 'Todos'],
+                ['available', 'Disponivel comigo'],
+                ['unavailable', 'Sem estoque'],
+                ['best_sellers', 'Mais vendidos'],
+                ['promotions', 'Promocoes'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setStockFilter(value as CatalogStockFilter)}
+                  className={cn(
+                    'text-xs font-semibold rounded-full border px-3 py-1 shrink-0 transition-colors',
+                    stockFilter === value
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-card text-muted-foreground border-border/60 hover:bg-muted'
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Grid */}
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-muted/10 p-3 pb-28">
             <div className="mb-3 flex items-center justify-between text-[11px] text-muted-foreground">
@@ -587,6 +678,7 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
                       key={product.id}
                       product={product}
                       stagedQty={stagedQtyByProductId[product.id] || 0}
+                      orderType={orderType}
                       onTap={() => {
                         setActiveProductId(product.id)
                         setPhase('quick-view')
@@ -649,6 +741,8 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
             onConfirm={handleConfirm}
             onUpdateQty={handleUpdateQty}
             onRemove={handleRemove}
+            orderType={orderType}
+            stockByKey={stockByKey}
           />
         </div>
       )}

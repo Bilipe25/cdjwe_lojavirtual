@@ -443,6 +443,146 @@ export interface ProductVariant {
   fabric_color?: FabricColor
 }
 
+// ==================== REPRESENTATIVE READY DELIVERY STOCK ====================
+
+export type RepresentativeStockMovementType =
+  | 'TRANSFER_IN'
+  | 'RESERVATION_CREATE'
+  | 'RESERVATION_RELEASE'
+  | 'RESERVATION_EXPIRE'
+  | 'READY_DELIVERY_SALE'
+  | 'SALE_CANCEL_REVERSAL'
+  | 'RETURN_QUARANTINE'
+  | 'ADJUSTMENT'
+  | 'DAY_CLOSING'
+
+export type RepresentativeStockTransferStatus = 'draft' | 'sent' | 'received' | 'cancelled'
+export type RepresentativeStockReservationStatus = 'active' | 'released' | 'consumed' | 'expired'
+export type RepresentativeDayClosingStatus = 'open' | 'submitted' | 'approved' | 'reopened' | 'cancelled'
+export type RepresentativeReceiptStatus = 'issued' | 'cancelled' | 'reissued'
+
+export interface RepresentativeStock {
+  id: string
+  representative_id: string
+  product_variant_id: string
+  size_option_id: string | null
+  quantity_available: number
+  quantity_reserved: number
+  quantity_sold: number
+  created_at: string
+  updated_at: string
+  representative?: Profile | null
+  product_variant?: ProductVariant | null
+  size_option?: ProductSizeOption | null
+}
+
+export interface RepresentativeStockReservation {
+  id: string
+  representative_id: string
+  product_variant_id: string
+  size_option_id: string | null
+  order_draft_id: string
+  cart_key: string | null
+  quantity: number
+  status: RepresentativeStockReservationStatus
+  expires_at: string
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RepresentativeStockTransfer {
+  id: string
+  transfer_number: string
+  representative_id: string
+  status: RepresentativeStockTransferStatus
+  notes: string | null
+  created_by: string | null
+  received_by: string | null
+  sent_at: string
+  received_at: string | null
+  created_at: string
+  updated_at: string
+  representative?: Profile | null
+  items?: RepresentativeStockTransferItem[]
+}
+
+export interface RepresentativeStockTransferItem {
+  id: string
+  transfer_id: string
+  product_variant_id: string
+  size_option_id: string | null
+  quantity: number
+  quantity_received: number
+  created_at: string
+  product_variant?: ProductVariant | null
+  size_option?: ProductSizeOption | null
+}
+
+export interface RepresentativeStockMovement {
+  id: string
+  representative_id: string
+  product_variant_id: string
+  size_option_id: string | null
+  movement_type: RepresentativeStockMovementType
+  quantity_delta: number
+  quantity_available_after: number
+  quantity_reserved_after: number
+  quantity_sold_after: number
+  order_id: string | null
+  order_item_id: string | null
+  transfer_id: string | null
+  transfer_item_id: string | null
+  reservation_id: string | null
+  closing_id: string | null
+  idempotency_key: string
+  notes: string | null
+  metadata: Record<string, unknown>
+  created_by: string | null
+  created_at: string
+  representative?: Profile | null
+  product_variant?: ProductVariant | null
+  size_option?: ProductSizeOption | null
+  order?: Order | null
+}
+
+export interface RepresentativeDayClosing {
+  id: string
+  closing_number: string
+  representative_id: string
+  business_date: string
+  route_label: string | null
+  status: RepresentativeDayClosingStatus
+  orders_count: number
+  items_count: number
+  gross_amount: number
+  received_amount: number
+  snapshot: Record<string, unknown>
+  submitted_by: string | null
+  approved_by: string | null
+  submitted_at: string | null
+  approved_at: string | null
+  created_at: string
+  updated_at: string
+  representative?: Profile | null
+}
+
+export interface RepresentativeReceipt {
+  id: string
+  receipt_number: string
+  order_id: string
+  representative_id: string | null
+  status: RepresentativeReceiptStatus
+  pdf_url: string | null
+  metadata: Record<string, unknown>
+  issued_by: string | null
+  issued_at: string
+  created_at: string
+  updated_at: string
+  representative?: Profile | null
+  order?: Order | null
+}
+
 // ==================== PRICING ====================
 
 export interface PriceTable {
@@ -682,6 +822,7 @@ export interface Order {
   created_by_profile?: Profile | null
   items?: OrderItem[]
   status_history?: OrderStatusHistory[]
+  representative_receipts?: RepresentativeReceipt[] | RepresentativeReceipt | null
   payment_method?: PaymentMethod
   payment_condition?: PaymentCondition
   payment_method_condition?: PaymentMethodCondition

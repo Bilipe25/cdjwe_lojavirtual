@@ -14,6 +14,7 @@ import {
   LogOut,
   MapPinned,
   MoreHorizontal,
+  PackageCheck,
   Palette,
   ShoppingBag,
   Sofa,
@@ -50,6 +51,7 @@ const mainNavItems: NavItem[] = [
 const moreNavItems: NavItem[] = [
   { href: '/sales/quotes/new', label: 'Novo Orcamento', shortLabel: 'Orcam.', icon: FileText },
   { href: '/sales/orders', label: 'Pedidos Realizados', shortLabel: 'Pedidos', icon: ClipboardCheck },
+  { href: '/sales/stock', label: 'Meu Estoque', shortLabel: 'Estoque', icon: PackageCheck },
   { href: '/sales/quotes', label: 'Orcamentos Salvos', shortLabel: 'Orcam.', icon: BarChart3 },
   { href: '/sales/catalog', label: 'Catalogo de Produtos', shortLabel: 'Catalogo', icon: Sofa },
   { href: '/sales/fabrics', label: 'Catalogo de Tecidos', shortLabel: 'Tecidos', icon: Palette },
@@ -64,6 +66,7 @@ const pageTitles: Record<string, string> = {
   '/sales/customers': 'Clientes',
   '/sales/visits': 'Visitas',
   '/sales/orders': 'Pedidos',
+  '/sales/stock': 'Meu Estoque',
   '/sales/quotes': 'Orcamentos',
   '/sales/catalog': 'Catalogo de Produtos',
   '/sales/fabrics': 'Catalogo de Tecidos',

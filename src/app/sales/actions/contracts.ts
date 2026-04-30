@@ -75,6 +75,9 @@ export const catalogProductsPageInputSchema = z
     pageSize: positiveIntOptionalSchema,
     search: optionalSearchSchema,
     categoryId: emptyStringToNull(idSchema.nullable()).optional(),
+    stockFilter: emptyStringToNull(
+      z.enum(['all', 'available', 'unavailable', 'best_sellers', 'promotions']).nullable()
+    ).optional(),
   })
   .strict()
 
@@ -142,6 +145,22 @@ export const representativeDocumentPayloadSchema = z
     negotiationSurchargeAmount: z.coerce.number().finite().nullable().optional(),
     negotiationReason: emptyStringToNull(z.string().trim().nullable()).optional(),
     items: z.array(representativeDraftLineSchema).min(1),
+  })
+  .strict()
+
+export const representativeStockReservationLineSchema = z
+  .object({
+    cartKey: emptyStringToUndefined(z.string().trim().min(1)).optional(),
+    productVariantId: idSchema,
+    sizeOptionId: emptyStringToNull(idSchema.nullable()).optional(),
+    quantity: z.coerce.number().int().min(1),
+  })
+  .strict()
+
+export const representativeStockReservationPayloadSchema = z
+  .object({
+    orderDraftId: z.string().trim().min(8),
+    items: z.array(representativeStockReservationLineSchema),
   })
   .strict()
 

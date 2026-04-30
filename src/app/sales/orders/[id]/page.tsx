@@ -11,11 +11,19 @@ function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
 
+function getReceiptNumber(order: Awaited<ReturnType<typeof getRepresentativeOrderDetail>>) {
+  if (!order) return null
+  const receipts = order.representative_receipts
+  const receipt = Array.isArray(receipts) ? receipts[0] : receipts
+  return receipt?.receipt_number || null
+}
+
 export default async function SalesOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const order = await getRepresentativeOrderDetail(id)
 
   if (!order) notFound()
+  const receiptNumber = getReceiptNumber(order)
 
   return (
     <div className="space-y-6">
@@ -45,7 +53,7 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
         <SalesInfoPill label="Criado em" value={new Date(order.created_at).toLocaleString('pt-BR')} />
         <SalesInfoPill label="Tipo" value={getOrderTypeLabel(order.order_type)} />
         <SalesInfoPill label="Pagamento" value={order.payment_method_name || 'Pendente'} />
-        <SalesInfoPill label="Total" value={formatCurrency(order.total)} />
+        <SalesInfoPill label={receiptNumber ? 'Recibo' : 'Total'} value={receiptNumber || formatCurrency(order.total)} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">

@@ -49,6 +49,9 @@ type RepresentativeBootstrapCustomer = Store & {
 
 type RepresentativeCatalogProduct = Product & {
     images?: { url: string; is_primary: boolean; sort_order?: number }[]
+    representative_stock_available?: number
+    representative_stock_reserved?: number
+    representative_stock_sold?: number
 }
 
 type PaginatedResult<T> = {
@@ -150,6 +153,17 @@ type RepresentativeCatalogProductsPageInput = {
     pageSize?: number
     search?: string
     categoryId?: string | null
+    stockFilter?: 'all' | 'available' | 'unavailable' | 'best_sellers' | 'promotions' | null
+}
+
+type RepresentativeStockPosition = {
+    key: string
+    product_variant_id: string
+    product_id: string | null
+    size_option_id: string | null
+    quantity_available: number
+    quantity_reserved: number
+    quantity_sold: number
 }
 
 type QuotePipelineSummary = {
@@ -328,6 +342,7 @@ const REPRESENTATIVE_ORDER_DETAIL_SELECT = `
             created_at,
             updated_at,
             store:stores(id, customer_code, company_name, trade_name, cnpj),
+            representative_receipts(receipt_number, status, issued_at),
             payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage),
             items:order_items(id, order_id, product_variant_id, size_option_id, product_name, fabric_name, color_name, size, size_name, quantity, unit_price, product_price, size_price, variation_price, final_price, subtotal)
         `
@@ -398,6 +413,7 @@ type RepresentativeCacheSegment =
     | 'products'
     | 'dashboard'
     | 'builder'
+    | 'inventory'
 
 function normalizePage(value?: number, fallback = 1) {
     const parsed = Number(value || fallback)
@@ -1152,14 +1168,100 @@ async function countRepresentativeCustomersInternal(
     return (assignedCountRes.count || 0) + accessibleUnassignedCount
 }
 
+function buildRepresentativeStockKey(productVariantId: string, sizeOptionId?: string | null) {
+    return `${productVariantId}::${sizeOptionId || 'legacy'}`
+}
+
+async function getRepresentativeStockPositionsInternal(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId?: string | null
+): Promise<RepresentativeStockPosition[]> {
+    if (!representativeId) return []
+
+    const { data, error } = await admin
+        .from('representative_stock')
+        .select(`
+            product_variant_id,
+            size_option_id,
+            quantity_available,
+            quantity_reserved,
+            quantity_sold,
+            product_variant:product_variants(product_id)
+        `)
+        .eq('representative_id', representativeId)
+
+    if (error) {
+        console.warn('[sales] Falha ao carregar estoque do representante.', {
+            representativeId,
+            error: error.message,
+        })
+        return []
+    }
+
+    return ((data || []) as Array<{
+        product_variant_id: string
+        size_option_id: string | null
+        quantity_available: number | null
+        quantity_reserved: number | null
+        quantity_sold: number | null
+        product_variant?: { product_id?: string | null } | { product_id?: string | null }[] | null
+    }>).map((row) => {
+        const variant = Array.isArray(row.product_variant) ? row.product_variant[0] : row.product_variant
+
+        return {
+            key: buildRepresentativeStockKey(row.product_variant_id, row.size_option_id),
+            product_variant_id: row.product_variant_id,
+            product_id: variant?.product_id || null,
+            size_option_id: row.size_option_id,
+            quantity_available: toSafeNonNegativeInt(row.quantity_available, 0),
+            quantity_reserved: toSafeNonNegativeInt(row.quantity_reserved, 0),
+            quantity_sold: toSafeNonNegativeInt(row.quantity_sold, 0),
+        }
+    })
+}
+
+function aggregateRepresentativeStockByProduct(stock: RepresentativeStockPosition[]) {
+    const map = new Map<string, {
+        quantity_available: number
+        quantity_reserved: number
+        quantity_sold: number
+    }>()
+
+    stock.forEach((position) => {
+        if (!position.product_id) return
+        const current = map.get(position.product_id) || {
+            quantity_available: 0,
+            quantity_reserved: 0,
+            quantity_sold: 0,
+        }
+
+        current.quantity_available += position.quantity_available
+        current.quantity_reserved += position.quantity_reserved
+        current.quantity_sold += position.quantity_sold
+        map.set(position.product_id, current)
+    })
+
+    return map
+}
+
 async function getRepresentativeCatalogProductsPageInternal(
     admin: ReturnType<typeof getAdminClient>,
-    input: RepresentativeCatalogProductsPageInput
+    input: RepresentativeCatalogProductsPageInput,
+    representativeId?: string | null
 ): Promise<PaginatedResult<RepresentativeCatalogProduct>> {
     const page = normalizePage(input.page, 1)
     const pageSize = normalizePageSize(input.pageSize, DEFAULT_PRODUCTS_PAGE_SIZE, 60)
     const search = normalizeSearchTerm(input.search)
+    const stockFilter = input.stockFilter || 'all'
     const offset = (page - 1) * pageSize
+    const representativeStock = await getRepresentativeStockPositionsInternal(admin, representativeId)
+    const representativeStockByProduct = aggregateRepresentativeStockByProduct(representativeStock)
+    const availableProductIds = Array.from(representativeStockByProduct.entries())
+        .filter(([, stock]) => stock.quantity_available > 0)
+        .map(([productId]) => productId)
+    const soldProductIds = Array.from(representativeStockByProduct.entries())
+        .filter(([, stock]) => stock.quantity_sold > 0)
+        .map(([productId]) => productId)
 
     const query = admin
         .from('products')
@@ -1173,6 +1275,40 @@ async function getRepresentativeCatalogProductsPageInternal(
 
     if (input.categoryId) {
         query.eq('category_id', input.categoryId)
+    }
+
+    if (stockFilter === 'available') {
+        if (availableProductIds.length === 0) {
+            return {
+                items: [],
+                total: 0,
+                page: 1,
+                pageSize,
+                totalPages: 1,
+            }
+        }
+        query.in('id', availableProductIds)
+    }
+
+    if (stockFilter === 'unavailable' && availableProductIds.length > 0) {
+        query.not('id', 'in', `(${availableProductIds.join(',')})`)
+    }
+
+    if (stockFilter === 'best_sellers') {
+        if (soldProductIds.length === 0) {
+            return {
+                items: [],
+                total: 0,
+                page: 1,
+                pageSize,
+                totalPages: 1,
+            }
+        }
+        query.in('id', soldProductIds)
+    }
+
+    if (stockFilter === 'promotions') {
+        query.eq('is_featured', true)
     }
 
     if (search) {
@@ -1189,7 +1325,16 @@ async function getRepresentativeCatalogProductsPageInternal(
     const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
     return {
-        items: (data || []) as RepresentativeCatalogProduct[],
+        items: ((data || []) as RepresentativeCatalogProduct[]).map((product) => {
+            const stock = representativeStockByProduct.get(product.id)
+
+            return {
+                ...product,
+                representative_stock_available: stock?.quantity_available || 0,
+                representative_stock_reserved: stock?.quantity_reserved || 0,
+                representative_stock_sold: stock?.quantity_sold || 0,
+            }
+        }),
         total,
         page: Math.min(page, totalPages),
         pageSize,
@@ -1703,6 +1848,7 @@ export async function getRepresentativeOrderCompletionData(orderId: string) {
                 created_at,
                 updated_at,
                 store:stores(id, customer_code, company_name, trade_name),
+                representative_receipts(receipt_number, status, issued_at),
                 payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage)
             `)
             .eq('id', orderId)
@@ -2259,12 +2405,12 @@ export async function getRepresentativeOrderBuilderData() {
                 priceTablesQuery.in('id', representativePolicy.allowedPriceTableIds)
             }
 
-            const [customers, initialProductsPage, categoriesRes, priceTablesRes, customerTypesRes] = await Promise.all([
+            const [customers, initialProductsPage, categoriesRes, priceTablesRes, customerTypesRes, representativeStock] = await Promise.all([
                 getRepresentativeCustomersInternal(scopeRepresentativeId, { includeLastOrder: false }),
                 getRepresentativeCatalogProductsPageInternal(admin, {
                     page: 1,
                     pageSize: DEFAULT_PRODUCTS_PAGE_SIZE,
-                }),
+                }, scopeRepresentativeId),
                 admin
                     .from('categories')
                     .select('id, name, slug, description, image_url, parent_id, sort_order, is_active, created_at, updated_at')
@@ -2276,6 +2422,7 @@ export async function getRepresentativeOrderBuilderData() {
                     .select('id, name, description, is_active, sort_order, created_at, updated_at')
                     .order('is_active', { ascending: false })
                     .order('sort_order', { ascending: true }),
+                getRepresentativeStockPositionsInternal(admin, scopeRepresentativeId),
             ])
 
             return {
@@ -2284,6 +2431,7 @@ export async function getRepresentativeOrderBuilderData() {
                 categories: categoriesRes.data || [],
                 priceTables: (priceTablesRes.data || []) as PriceTable[],
                 customerTypes: (customerTypesRes.data || []) as CustomerType[],
+                representativeStock,
             }
         },
         ['rep-builder-bootstrap-v2', scopeKey],
@@ -2292,6 +2440,7 @@ export async function getRepresentativeOrderBuilderData() {
                 getRepresentativeCacheTag(scopeKey, 'builder'),
                 getRepresentativeCacheTag(scopeKey, 'customers'),
                 getRepresentativeCacheTag(scopeKey, 'products'),
+                getRepresentativeCacheTag(scopeKey, 'inventory'),
             ],
             revalidate: BOOTSTRAP_CACHE_REVALIDATE_SECONDS,
         }
@@ -2316,10 +2465,13 @@ export async function getRepresentativeCatalogProductsPageAction(
     const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
 
     const loadProductsPage = unstable_cache(
-        async () => getRepresentativeCatalogProductsPageInternal(admin, { page, pageSize, search, categoryId }),
-        ['rep-products-page-v1', scopeKey, String(page), String(pageSize), search, categoryId || 'all'],
+        async () => getRepresentativeCatalogProductsPageInternal(admin, { page, pageSize, search, categoryId, stockFilter: input.stockFilter }, scopeRepresentativeId),
+        ['rep-products-page-v1', scopeKey, String(page), String(pageSize), search, categoryId || 'all', input.stockFilter || 'all'],
         {
-            tags: [getRepresentativeCacheTag(scopeKey, 'products')],
+            tags: [
+                getRepresentativeCacheTag(scopeKey, 'products'),
+                getRepresentativeCacheTag(scopeKey, 'inventory'),
+            ],
             revalidate: LIST_CACHE_REVALIDATE_SECONDS,
         }
     )
@@ -3056,7 +3208,7 @@ async function persistRepresentativeDocument(
                 })
             }
 
-            revalidateRepresentativeSegments(scopeRepresentativeId, ['orders', 'customers', 'visits', 'dashboard'])
+            revalidateRepresentativeSegments(scopeRepresentativeId, ['orders', 'customers', 'visits', 'dashboard', 'inventory', 'builder', 'products'])
             return { success: true, orderId: result.order_id, orderNumber: result.order_number }
         }
 

@@ -69,6 +69,8 @@ export function MobileOrderBuilder({
   submitting,
   canSubmitCurrentDocument,
   validationMessages,
+  readyDeliveryStockByKey,
+  readyDeliveryReservedByKey,
   onOpenCustomerSheet,
   onEditSelectedStore,
   onOpenProducts,
@@ -115,6 +117,8 @@ export function MobileOrderBuilder({
   submitting: boolean
   canSubmitCurrentDocument: boolean
   validationMessages: BuilderValidationMessage[]
+  readyDeliveryStockByKey?: Record<string, number>
+  readyDeliveryReservedByKey?: Record<string, number>
   onOpenCustomerSheet: () => void
   onEditSelectedStore: () => void
   onOpenProducts: () => void
@@ -203,7 +207,14 @@ export function MobileOrderBuilder({
         />
         {items.length > 0 ? (
           <div className="border-b border-border/30 bg-muted/10 px-4 py-4">
-            <ItemsList items={items} setItems={setItems} pricingPending={pricingPending} />
+            <ItemsList
+              items={items}
+              setItems={setItems}
+              pricingPending={pricingPending}
+              orderType={orderType}
+              readyDeliveryStockByKey={readyDeliveryStockByKey}
+              readyDeliveryReservedByKey={readyDeliveryReservedByKey}
+            />
             <Button
               onClick={onOpenProducts}
               variant="outline"

@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import { Minus, Package, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import type { OrderType } from '@/lib/types'
 import type { DraftItem } from '@/components/sales/order-builder/types'
 import { formatCurrency } from '@/components/sales/order-builder/utils'
 
@@ -10,10 +11,16 @@ export function ItemsList({
   items,
   setItems,
   pricingPending,
+  orderType = 'PRE_VENDA',
+  readyDeliveryStockByKey,
+  readyDeliveryReservedByKey,
 }: {
   items: DraftItem[]
   setItems: React.Dispatch<React.SetStateAction<DraftItem[]>>
   pricingPending: boolean
+  orderType?: OrderType
+  readyDeliveryStockByKey?: Record<string, number>
+  readyDeliveryReservedByKey?: Record<string, number>
 }) {
   return (
     <div>
@@ -28,7 +35,13 @@ export function ItemsList({
         </div>
       ) : (
         <div className="divide-y divide-border/30 rounded-xl border border-border/40">
-          {items.map((item) => (
+          {items.map((item) => {
+            const readyDeliveryAvailable = (readyDeliveryStockByKey?.[item.cartKey] || 0) + (readyDeliveryReservedByKey?.[item.cartKey] || 0)
+            const isReadyDelivery = orderType === 'PRONTA_ENTREGA'
+            const stockBlocked = isReadyDelivery && item.quantity >= readyDeliveryAvailable
+            const stockInsufficient = isReadyDelivery && item.quantity > readyDeliveryAvailable
+
+            return (
             <div key={item.cartKey} className="flex items-center gap-3 px-3 py-2.5">
               <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted/40">
                 {item.imageUrl ? (
@@ -46,6 +59,13 @@ export function ItemsList({
                   {item.fabricName} / {item.colorName}
                   {item.sizeName ? ` / ${item.sizeName}` : ''}
                 </p>
+                {isReadyDelivery ? (
+                  <p className={stockInsufficient ? 'text-[10px] font-semibold text-destructive' : 'text-[10px] text-emerald-700'}>
+                    {readyDeliveryAvailable > 0
+                      ? `${readyDeliveryAvailable} ${readyDeliveryAvailable === 1 ? 'disponivel' : 'disponiveis'} comigo`
+                      : 'Indisponivel comigo'}
+                  </p>
+                ) : null}
               </div>
 
               <div className="flex items-center gap-1.5">
@@ -54,6 +74,7 @@ export function ItemsList({
                   variant="outline"
                   size="icon"
                   className="h-7 w-7 rounded-lg border-border"
+                  disabled={stockBlocked}
                   onClick={() =>
                     setItems((current) =>
                       current.map((currentItem) =>
@@ -101,7 +122,8 @@ export function ItemsList({
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

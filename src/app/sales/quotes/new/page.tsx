@@ -88,6 +88,7 @@ export default async function SalesNewQuotePage({
       categories={data.categories}
       priceTables={data.priceTables}
       customerTypes={data.customerTypes}
+      representativeStock={data.representativeStock}
     />
   )
 }

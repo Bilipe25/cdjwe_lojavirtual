@@ -9,6 +9,12 @@ import { getOrderDeliverySummary, getOrderTypeLabel } from '@/lib/orders/order-t
 
 type CompletionHandler = () => unknown | Promise<unknown>
 
+function getReceiptNumber(data: OrderBuilderCompletionData) {
+  const receipts = data.order.representative_receipts
+  const receipt = Array.isArray(receipts) ? receipts[0] : receipts
+  return receipt?.receipt_number || null
+}
+
 export function OrderCompletionOverlay({
   loading,
   data,
@@ -49,6 +55,10 @@ export function OrderCompletionOverlay({
         </div>
       ) : (
         <>
+          {(() => {
+            const receiptNumber = getReceiptNumber(data)
+
+            return (
           <div className="shrink-0 px-4 pb-5 pt-4 text-white gradient-navy shadow-sm">
             <div className="flex items-start gap-3">
               <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/20">
@@ -59,9 +69,12 @@ export function OrderCompletionOverlay({
                 <p className="mt-0.5 text-xs text-white/75">Pedido #{data.order.order_number}</p>
                 <p className="mt-1 text-[11px] text-white/70">Total {formatCurrency(data.order.total)}</p>
                 <p className="mt-1 text-[11px] font-semibold text-white/85">{getOrderTypeLabel(data.order.order_type)}</p>
+                {receiptNumber ? <p className="mt-1 text-[11px] text-white/75">Recibo {receiptNumber}</p> : null}
               </div>
             </div>
           </div>
+            )
+          })()}
 
           <div className="flex-1 overflow-y-auto px-4 pb-24 pt-4">
             <div className="mb-3 rounded-2xl border border-border/40 bg-muted/30 px-4 py-3 text-xs leading-5 text-muted-foreground">

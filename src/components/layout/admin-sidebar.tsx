@@ -41,6 +41,11 @@ import {
     FileKey2,
     Radio,
     ScrollText,
+    Boxes,
+    ArrowLeftRight,
+    ListChecks,
+    ReceiptText,
+    CalendarCheck2,
 } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -115,8 +120,19 @@ const fiscalDocumentsNavItems = [
     { href: '/admin/fiscal-review', label: 'Notas fiscais', icon: ScrollText },
 ]
 
+const ordersNavItems = [
+    { href: '/admin/orders', label: 'Lista de pedidos', icon: ClipboardList },
+]
+
+const readyDeliveryNavItems = [
+    { href: '/admin/orders/pronta-entrega/estoque', label: 'Estoque por representante', icon: Boxes },
+    { href: '/admin/orders/pronta-entrega/transferir', label: 'Transferir estoque', icon: ArrowLeftRight },
+    { href: '/admin/orders/pronta-entrega/movimentacoes', label: 'Movimentações', icon: ListChecks },
+    { href: '/admin/orders/pronta-entrega/recebimentos', label: 'Relatório de recebimentos', icon: ReceiptText },
+    { href: '/admin/orders/pronta-entrega/fechamentos', label: 'Fechamento por representante', icon: CalendarCheck2 },
+]
+
 const bottomNavItems = [
-    { href: '/admin/orders', label: 'Pedidos', icon: ClipboardList },
     { href: '/admin/customers', label: 'Clientes', icon: Users },
     { href: '/admin/reports', label: 'Relatórios', icon: BarChart3 },
 ]
@@ -131,6 +147,8 @@ export function AdminSidebar() {
     const [financeiroOpen, setFinanceiroOpen] = useState(false)
     const [logisticaOpen, setLogisticaOpen] = useState(false)
     const [fiscalDocumentsOpen, setFiscalDocumentsOpen] = useState(false)
+    const [ordersOpen, setOrdersOpen] = useState(false)
+    const [readyDeliveryOpen, setReadyDeliveryOpen] = useState(false)
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [fiscalSettingsOpen, setFiscalSettingsOpen] = useState(false)
     const [settings, setSettings] = useState<{ logo_url?: string | null; system_name?: string } | null>(null)
@@ -141,6 +159,9 @@ export function AdminSidebar() {
     const isFinanceiroActive = financeiroNavItems.some(item => pathname.startsWith(item.href))
     const isLogisticaActive = logisticaNavItems.some(item => pathname.startsWith(item.href))
     const isFiscalDocumentsActive = fiscalDocumentsNavItems.some(item => pathname.startsWith(item.href))
+    const isReadyDeliveryActive = readyDeliveryNavItems.some(item => pathname.startsWith(item.href))
+    const isOrderListActive = pathname.startsWith('/admin/orders') && !pathname.startsWith('/admin/orders/pronta-entrega')
+    const isOrdersActive = isOrderListActive || isReadyDeliveryActive
     const isFiscalSettingsActive = fiscalSettingsNavItems.some(item => pathname.startsWith(item.href))
     const isSettingsActive = settingsNavItems.some(item => pathname.startsWith(item.href)) || isFiscalSettingsActive
     const effectiveCadastrosOpen = !collapsed && (cadastrosOpen || isCadastroActive || isProductCadastroActive)
@@ -149,6 +170,8 @@ export function AdminSidebar() {
     const effectiveFinanceiroOpen = !collapsed && (financeiroOpen || isFinanceiroActive)
     const effectiveLogisticaOpen = !collapsed && (logisticaOpen || isLogisticaActive)
     const effectiveFiscalDocumentsOpen = !collapsed && (fiscalDocumentsOpen || isFiscalDocumentsActive)
+    const effectiveOrdersOpen = !collapsed && (ordersOpen || isOrdersActive)
+    const effectiveReadyDeliveryOpen = !collapsed && (readyDeliveryOpen || isReadyDeliveryActive)
     const effectiveSettingsOpen = !collapsed && (settingsOpen || isSettingsActive)
     const effectiveFiscalSettingsOpen = !collapsed && (fiscalSettingsOpen || isFiscalSettingsActive)
 
@@ -760,6 +783,154 @@ export function AdminSidebar() {
 
                     {/* Bottom Items */}
                     <div className="pt-1">
+                        {collapsed ? (
+                            <DropdownMenu>
+                                <Tooltip>
+                                    <TooltipTrigger render={(
+                                        <DropdownMenuTrigger render={(
+                                            <Button
+                                                variant="ghost"
+                                                className={cn(
+                                                    'w-full justify-center px-2 gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                                    isOrdersActive && 'bg-sidebar-accent text-sidebar-primary font-medium'
+                                                )}
+                                            >
+                                                <ClipboardList className="h-5 w-5 shrink-0" />
+                                            </Button>
+                                        )} />
+                                    )} />
+                                    <TooltipContent side="right">
+                                        <p>Pedidos</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                                <DropdownMenuContent side="right" sideOffset={16} align="start" className="w-72">
+                                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                        Pedidos
+                                    </div>
+                                    {ordersNavItems.map((item) => {
+                                        const isActive = pathname.startsWith(item.href) && !pathname.startsWith('/admin/orders/pronta-entrega')
+                                        return (
+                                            <DropdownMenuItem key={item.href} render={(
+                                                <Link href={item.href} className={cn(
+                                                    'cursor-pointer flex items-center gap-2',
+                                                    isActive && 'bg-accent text-accent-foreground font-medium'
+                                                )}>
+                                                    <item.icon className="h-4 w-4 shrink-0" />
+                                                    {item.label}
+                                                </Link>
+                                            )} />
+                                        )
+                                    })}
+                                    <div className="px-2 pt-2 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                        Pronta Entrega
+                                    </div>
+                                    {readyDeliveryNavItems.map((item) => {
+                                        const isActive = pathname.startsWith(item.href)
+                                        return (
+                                            <DropdownMenuItem key={item.href} render={(
+                                                <Link href={item.href} className={cn(
+                                                    'cursor-pointer flex items-center gap-2',
+                                                    isActive && 'bg-accent text-accent-foreground font-medium'
+                                                )}>
+                                                    <item.icon className="h-4 w-4 shrink-0" />
+                                                    {item.label}
+                                                </Link>
+                                            )} />
+                                        )
+                                    })}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        ) : (
+                            <div className="space-y-1">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => setOrdersOpen(!ordersOpen)}
+                                    className={cn(
+                                        'w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                                        isOrdersActive && !ordersOpen && 'text-sidebar-foreground font-medium'
+                                    )}
+                                >
+                                    <ClipboardList className="h-5 w-5 shrink-0" />
+                                    <span className="flex-1 text-left truncate">Pedidos</span>
+                                    <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', effectiveOrdersOpen && 'rotate-180')} />
+                                </Button>
+                                <div className={cn(
+                                    'grid transition-all duration-200 ease-in-out',
+                                    effectiveOrdersOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                )}>
+                                    <div className="overflow-hidden">
+                                        <div className="pl-9 pr-2 py-1 space-y-1 relative before:absolute before:left-5 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border">
+                                            {ordersNavItems.map((item) => {
+                                                const isActive = pathname.startsWith(item.href) && !pathname.startsWith('/admin/orders/pronta-entrega')
+                                                return (
+                                                    <Link key={item.href} href={item.href} className="block relative">
+                                                        {isActive && (
+                                                            <div className="absolute -left-[17px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                        )}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className={cn(
+                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                            )}
+                                                        >
+                                                            <span className="truncate">{item.label}</span>
+                                                        </Button>
+                                                    </Link>
+                                                )
+                                            })}
+                                            <div className="space-y-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setReadyDeliveryOpen(!readyDeliveryOpen)}
+                                                    className={cn(
+                                                        'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                        isReadyDeliveryActive && !readyDeliveryOpen && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                    )}
+                                                >
+                                                    <PackageCheck className="h-4 w-4 shrink-0" />
+                                                    <span className="flex-1 text-left truncate">Pronta Entrega</span>
+                                                    <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', effectiveReadyDeliveryOpen && 'rotate-180')} />
+                                                </Button>
+                                                <div className={cn(
+                                                    'grid transition-all duration-200 ease-in-out',
+                                                    effectiveReadyDeliveryOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                                )}>
+                                                    <div className="overflow-hidden">
+                                                        <div className="pl-5 py-1 space-y-1 relative before:absolute before:left-1 before:top-2 before:bottom-2 before:w-px before:bg-sidebar-border/80">
+                                                            {readyDeliveryNavItems.map((item) => {
+                                                                const isActive = pathname.startsWith(item.href)
+                                                                return (
+                                                                    <Link key={item.href} href={item.href} className="block relative">
+                                                                        {isActive && (
+                                                                            <div className="absolute -left-[15px] top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-full" />
+                                                                        )}
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className={cn(
+                                                                                'w-full justify-start gap-3 h-8 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent shadow-none',
+                                                                                isActive && 'bg-sidebar-accent/50 text-sidebar-primary font-medium'
+                                                                            )}
+                                                                        >
+                                                                            <item.icon className="h-3.5 w-3.5 shrink-0" />
+                                                                            <span className="truncate">{item.label}</span>
+                                                                        </Button>
+                                                                    </Link>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {bottomNavItems.map((item) => {
                             const isActive = pathname.startsWith(item.href)
                             const button = (

@@ -78,6 +78,15 @@ type ReceiptOrder = {
         discount_percentage?: number | null
         surcharge_percentage?: number | null
     } | null
+    representative_receipts?: {
+        receipt_number?: string | null
+        status?: string | null
+        issued_at?: string | null
+    } | Array<{
+        receipt_number?: string | null
+        status?: string | null
+        issued_at?: string | null
+    }> | null
 }
 
 function buildItemVariantLine(item: OrderItem) {
@@ -126,6 +135,12 @@ function buildCustomerPhone(order: ReceiptOrder) {
 
 function buildRepresentative(order: ReceiptOrder) {
     return order.created_by_profile?.full_name || order.profile?.full_name || 'Nao informado'
+}
+
+function buildReceiptNumber(order: ReceiptOrder) {
+    const receipts = order.representative_receipts
+    const receipt = Array.isArray(receipts) ? receipts[0] : receipts
+    return receipt?.receipt_number || null
 }
 
 function createSectionTitle(title: string, options?: { lineWidth?: number; marginBottom?: number }): Content {
@@ -196,6 +211,7 @@ export async function generateOrderReceiptPDF(
     const paymentDisplay = getOrderPaymentDisplay(order)
     const orderTypeLabel = getOrderTypeLabel(order.order_type)
     const deliverySummary = getOrderDeliverySummary(order.order_type, order.shipping_address)
+    const receiptNumber = buildReceiptNumber(order)
     const couponDiscountAmount = Number(order.coupon_discount_amount || 0)
     const totalDiscountAmount = Number(order.discount_amount || 0)
     const paymentDiscountAmount = Math.max(0, totalDiscountAmount - couponDiscountAmount)
@@ -389,6 +405,7 @@ export async function generateOrderReceiptPDF(
                     stack: [
                         { text: 'COMPROVANTE DE PEDIDO', fontSize: 16, bold: true, color: '#0f172a' },
                         { text: `Numero ${order.order_number}`, fontSize: 10.5, bold: true, color: '#c2410c', margin: [0, 3, 0, 0] },
+                        receiptNumber ? { text: `Recibo ${receiptNumber}`, fontSize: 9, bold: true, color: '#047857', margin: [0, 3, 0, 0] } : { text: '', fontSize: 1 },
                     ],
                 },
                 {

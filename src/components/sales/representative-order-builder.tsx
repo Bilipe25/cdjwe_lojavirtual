@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import type { Category, CustomerType, OrderType, PriceTable } from '@/lib/types'
@@ -8,6 +8,8 @@ import {
   createCustomerAsRepresentativeTx,
   createRepresentativeOrderAction,
   getRepresentativeOrderCompletionData,
+  releaseRepresentativeStockReservationAction,
+  reserveRepresentativeStockAction,
   saveRepresentativeQuoteAction,
   updateCustomerAsRepresentativeTx,
 } from '@/app/sales/actions'
@@ -33,6 +35,7 @@ import type {
   OrderBuilderCompletionData,
   OrderBuilderMode,
   OrderBuilderSection,
+  RepresentativeStockPosition,
 } from '@/components/sales/order-builder/types'
 import { formatCurrency } from '@/components/sales/order-builder/utils'
 
@@ -61,6 +64,7 @@ export function RepresentativeOrderBuilder({
   categories,
   priceTables,
   customerTypes,
+  representativeStock = [],
 }: {
   mode: OrderBuilderMode
   initialCustomerId?: string
@@ -70,6 +74,7 @@ export function RepresentativeOrderBuilder({
   categories: Category[]
   priceTables: PriceTable[]
   customerTypes: CustomerType[]
+  representativeStock?: RepresentativeStockPosition[]
 }) {
   const router = useRouter()
   const [notes, setNotes] = useState(initialDraft?.notes || '')
@@ -90,6 +95,12 @@ export function RepresentativeOrderBuilder({
   const [completionShareLoading, setCompletionShareLoading] = useState(false)
   const [sourceVisitId, setSourceVisitId] = useState(initialDraft?.sourceVisitId || null)
   const [openSection, setOpenSection] = useState<OrderBuilderSection>(null)
+  const [stockPositions, setStockPositions] = useState<RepresentativeStockPosition[]>(representativeStock)
+  const [reservedByCurrentDraft, setReservedByCurrentDraft] = useState<Record<string, number>>({})
+  const [stockReservationPending, setStockReservationPending] = useState(false)
+  const [stockReservationError, setStockReservationError] = useState<string | null>(null)
+  const orderDraftIdRef = useRef(`rep-order-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  const hasActiveReservationRef = useRef(false)
 
   const {
     selectedStore,
@@ -115,12 +126,50 @@ export function RepresentativeOrderBuilder({
   const requiresDeliveryAddress = mode === 'order' && orderType === 'PRE_VENDA'
   const currentAddressTitle = selectedStore?.addresses?.find((address) => address.id === selectedAddressId)?.title
   const hasResolvableAddress = Boolean(selectedAddressId || selectedStore?.addresses?.length)
+  const readyDeliveryStockByKey = useMemo(() => {
+    return stockPositions.reduce<Record<string, number>>((acc, position) => {
+      acc[position.key] = position.quantity_available
+      return acc
+    }, {})
+  }, [stockPositions])
+  const itemQuantityByKey = useMemo(() => {
+    return items.reduce<Record<string, number>>((acc, item) => {
+      acc[item.cartKey] = (acc[item.cartKey] || 0) + item.quantity
+      return acc
+    }, {})
+  }, [items])
+  const readyDeliveryStockIssues = useMemo(() => {
+    if (mode !== 'order' || orderType !== 'PRONTA_ENTREGA') return []
+
+    return items
+      .map((item) => {
+        const availableForDraft = (readyDeliveryStockByKey[item.cartKey] || 0) + (reservedByCurrentDraft[item.cartKey] || 0)
+        if (item.quantity <= availableForDraft) return null
+
+        return {
+          key: item.cartKey,
+          productName: item.productName,
+          requested: item.quantity,
+          available: availableForDraft,
+        }
+      })
+      .filter((issue): issue is { key: string; productName: string; requested: number; available: number } => Boolean(issue))
+  }, [items, mode, orderType, readyDeliveryStockByKey, reservedByCurrentDraft])
   const canSubmitCurrentDocument = Boolean(
     selectedStoreId &&
       items.length > 0 &&
-      (!requiresDeliveryAddress || hasResolvableAddress)
+      (!requiresDeliveryAddress || hasResolvableAddress) &&
+      (mode !== 'order' || orderType !== 'PRONTA_ENTREGA' || (
+        readyDeliveryStockIssues.length === 0 &&
+        !stockReservationPending &&
+        !stockReservationError
+      ))
   )
   const canSubmitQuote = Boolean(selectedStoreId && items.length > 0)
+
+  useEffect(() => {
+    setStockPositions(representativeStock)
+  }, [representativeStock])
 
   useEffect(() => {
     if (!sourceVisitId) return
@@ -149,6 +198,93 @@ export function RepresentativeOrderBuilder({
     initialSelectedPaymentMethodId: initialDraft?.selectedPaymentMethodId,
     initialSelectedPaymentId: initialDraft?.selectedPaymentId,
   })
+
+  const releaseCurrentReservation = useCallback(async () => {
+    if (!hasActiveReservationRef.current) return
+    hasActiveReservationRef.current = false
+    setReservedByCurrentDraft({})
+    await releaseRepresentativeStockReservationAction(orderDraftIdRef.current)
+  }, [])
+
+  useEffect(() => {
+    const draftId = orderDraftIdRef.current
+    return () => {
+      if (hasActiveReservationRef.current) {
+        void releaseRepresentativeStockReservationAction(draftId)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (mode !== 'order' || orderType !== 'PRONTA_ENTREGA') {
+      setStockReservationPending(false)
+      setStockReservationError(null)
+      void releaseCurrentReservation()
+      return
+    }
+
+    if (items.length === 0) {
+      setStockReservationPending(false)
+      setStockReservationError(null)
+      void releaseCurrentReservation()
+      return
+    }
+
+    const timer = window.setTimeout(async () => {
+      setStockReservationPending(true)
+      setStockReservationError(null)
+
+      const response = await reserveRepresentativeStockAction({
+        orderDraftId: orderDraftIdRef.current,
+        items: items.map((item) => ({
+          cartKey: item.cartKey,
+          productVariantId: item.variantId,
+          sizeOptionId: item.sizeOptionId || null,
+          quantity: item.quantity,
+        })),
+      })
+
+      if (!response.success) {
+        hasActiveReservationRef.current = false
+        setReservedByCurrentDraft({})
+        setStockReservationError(response.error || 'Estoque indisponivel para pronta entrega.')
+        setStockReservationPending(false)
+        return
+      }
+
+      hasActiveReservationRef.current = items.length > 0
+      setReservedByCurrentDraft(itemQuantityByKey)
+      setStockPositions((current) => {
+        const next = new Map(current.map((position) => [position.key, position]))
+
+        ;(response.positions || []).forEach((position: {
+          product_variant_id: string
+          size_option_id: string | null
+          quantity_available: number
+          quantity_reserved: number
+        }) => {
+          const key = `${position.product_variant_id}::${position.size_option_id || 'legacy'}`
+          const existing = next.get(key)
+          next.set(key, {
+            key,
+            product_variant_id: position.product_variant_id,
+            product_id: existing?.product_id || null,
+            size_option_id: position.size_option_id || null,
+            quantity_available: Number(position.quantity_available || 0),
+            quantity_reserved: Number(position.quantity_reserved || 0),
+            quantity_sold: existing?.quantity_sold || 0,
+          })
+        })
+
+        return Array.from(next.values())
+      })
+      setStockReservationPending(false)
+    }, 650)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [itemQuantityByKey, items, mode, orderType, releaseCurrentReservation])
 
   const filteredCustomers = useMemo(() => customers.filter((customer) => {
     const term = customerSearch.trim().toLowerCase()
@@ -221,6 +357,33 @@ export function RepresentativeOrderBuilder({
       })
     }
 
+    if (mode === 'order' && orderType === 'PRONTA_ENTREGA' && stockReservationPending) {
+      messages.push({
+        id: 'stock-reservation',
+        tone: 'info',
+        title: 'Reservando estoque',
+        description: 'Validando disponibilidade no estoque do representante.',
+      })
+    }
+
+    if (mode === 'order' && orderType === 'PRONTA_ENTREGA' && stockReservationError) {
+      messages.push({
+        id: 'stock-reservation-error',
+        tone: 'warning',
+        title: 'Estoque indisponivel',
+        description: stockReservationError,
+      })
+    }
+
+    readyDeliveryStockIssues.slice(0, 3).forEach((issue) => {
+      messages.push({
+        id: `stock-${issue.key}`,
+        tone: 'warning',
+        title: 'Saldo insuficiente comigo',
+        description: `${issue.productName}: solicitado ${issue.requested}, disponivel ${issue.available}.`,
+      })
+    })
+
     if (messages.length === 0) {
       messages.push({
         id: 'ready',
@@ -233,7 +396,18 @@ export function RepresentativeOrderBuilder({
     }
 
     return messages
-  }, [hasResolvableAddress, items.length, mode, orderType, pricingPending, requiresDeliveryAddress, selectedStoreId])
+  }, [
+    hasResolvableAddress,
+    items.length,
+    mode,
+    orderType,
+    pricingPending,
+    readyDeliveryStockIssues,
+    requiresDeliveryAddress,
+    selectedStoreId,
+    stockReservationError,
+    stockReservationPending,
+  ])
 
   const openCustomerSheet = () => {
     setIsCustomerSearchActive(false)
@@ -328,6 +502,9 @@ export function RepresentativeOrderBuilder({
   const buildCompletionMessage = useCallback((data: OrderBuilderCompletionData) => {
     const paymentDisplay = getOrderPaymentDisplay(data.order)
     const createdAt = new Date(data.order.created_at).toLocaleString('pt-BR')
+    const receipt = Array.isArray(data.order.representative_receipts)
+      ? data.order.representative_receipts[0]
+      : data.order.representative_receipts
     const itemLines = data.items.map((item) => (
       `- ${item.product_name} (${item.fabric_name}/${item.color_name}${item.size ? `/${item.size}` : ''})\n  ${item.quantity}x ${formatCurrency(item.unit_price)} = ${formatCurrency(item.subtotal)}`
     )).join('\n')
@@ -335,6 +512,7 @@ export function RepresentativeOrderBuilder({
 
     return [
       `Pedido ${data.order.order_number} - ${data.settings?.system_name || 'CDJWE'}`,
+      receipt?.receipt_number ? `Recibo: ${receipt.receipt_number}` : null,
       `Data: ${createdAt}`,
       'Status: Em analise',
       `Tipo: ${getOrderTypeLabel(data.order.order_type || 'PRE_VENDA')}`,
@@ -434,6 +612,20 @@ export function RepresentativeOrderBuilder({
       toast.error('Pedido pre-venda exige endereco de entrega cadastrado para o cliente.')
       return
     }
+    if (target === 'order' && orderType === 'PRONTA_ENTREGA') {
+      if (stockReservationPending) {
+        toast.info('Aguarde a reserva de estoque antes de finalizar.')
+        return
+      }
+      if (stockReservationError) {
+        toast.error(stockReservationError)
+        return
+      }
+      if (readyDeliveryStockIssues.length > 0) {
+        toast.error('Revise os itens sem saldo no estoque do representante.')
+        return
+      }
+    }
 
     startSubmitting(async () => {
       try {
@@ -460,12 +652,19 @@ export function RepresentativeOrderBuilder({
 
         if (!response.success) {
           toast.error(response.error || 'Falha ao salvar.')
+          if (target === 'order' && orderType === 'PRONTA_ENTREGA') {
+            void releaseCurrentReservation()
+          }
           return
         }
 
         if (target === 'quote') {
           router.push(`/sales/quotes/${response.quoteId}`)
           return
+        }
+
+        if (orderType === 'PRONTA_ENTREGA') {
+          void releaseCurrentReservation()
         }
 
         const orderId = response.orderId
@@ -549,6 +748,8 @@ export function RepresentativeOrderBuilder({
         submitting={submitting}
         canSubmitCurrentDocument={canSubmitCurrentDocument}
         validationMessages={validationMessages}
+        readyDeliveryStockByKey={readyDeliveryStockByKey}
+        readyDeliveryReservedByKey={reservedByCurrentDraft}
         onOpenCustomerSheet={openCustomerSheet}
         onEditSelectedStore={openSelectedCustomerForm}
         onOpenProducts={() => setIsProductOverlayOpen(true)}
@@ -600,6 +801,8 @@ export function RepresentativeOrderBuilder({
         canSubmitCurrentDocument={canSubmitCurrentDocument}
         canSubmitQuote={canSubmitQuote}
         validationMessages={validationMessages}
+        readyDeliveryStockByKey={readyDeliveryStockByKey}
+        readyDeliveryReservedByKey={reservedByCurrentDraft}
         onOpenCustomerSheet={openCustomerSheet}
         onEditSelectedStore={openSelectedCustomerForm}
         onOpenProducts={() => setIsProductOverlayOpen(true)}
@@ -671,6 +874,8 @@ export function RepresentativeOrderBuilder({
         <RepresentativeProductCatalogOverlay
           products={products}
           categories={categories}
+          orderType={orderType}
+          representativeStock={stockPositions}
           onClose={() => setIsProductOverlayOpen(false)}
           onConfirm={handleCatalogConfirm}
         />

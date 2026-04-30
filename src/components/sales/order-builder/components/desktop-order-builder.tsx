@@ -69,6 +69,8 @@ export function DesktopOrderBuilder({
   canSubmitCurrentDocument,
   canSubmitQuote,
   validationMessages,
+  readyDeliveryStockByKey,
+  readyDeliveryReservedByKey,
   onOpenCustomerSheet,
   onEditSelectedStore,
   onOpenProducts,
@@ -119,6 +121,8 @@ export function DesktopOrderBuilder({
   canSubmitCurrentDocument: boolean
   canSubmitQuote: boolean
   validationMessages: BuilderValidationMessage[]
+  readyDeliveryStockByKey?: Record<string, number>
+  readyDeliveryReservedByKey?: Record<string, number>
   onOpenCustomerSheet: () => void
   onEditSelectedStore: () => void
   onOpenProducts: () => void
@@ -239,7 +243,14 @@ export function DesktopOrderBuilder({
             </Button>
           </div>
           <div className="p-4">
-            <ItemsList items={items} setItems={setItems} pricingPending={pricingPending} />
+            <ItemsList
+              items={items}
+              setItems={setItems}
+              pricingPending={pricingPending}
+              orderType={orderType}
+              readyDeliveryStockByKey={readyDeliveryStockByKey}
+              readyDeliveryReservedByKey={readyDeliveryReservedByKey}
+            />
           </div>
         </section>
 

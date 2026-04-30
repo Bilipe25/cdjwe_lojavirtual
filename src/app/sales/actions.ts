@@ -37,6 +37,13 @@ import {
   validateRepresentativeDraftPricingAction as validateRepresentativeDraftPricingActionByDomain,
 } from './actions/pricing'
 import {
+  getRepresentativeStockData as getRepresentativeStockDataByDomain,
+  releaseRepresentativeStockReservationAction as releaseRepresentativeStockReservationActionByDomain,
+  reserveRepresentativeStockAction as reserveRepresentativeStockActionByDomain,
+  submitRepresentativeDayClosingAction as submitRepresentativeDayClosingActionByDomain,
+  submitRepresentativeDayClosingFormAction as submitRepresentativeDayClosingFormActionByDomain,
+} from './actions/stock'
+import {
   createRepresentativeVisitAction as createRepresentativeVisitActionByDomain,
   deleteRepresentativeVisitAction as deleteRepresentativeVisitActionByDomain,
   getRepresentativeVisitsPageData as getRepresentativeVisitsPageDataByDomain,
@@ -142,6 +149,34 @@ export async function validateRepresentativeDraftPricingAction(
   ...args: Parameters<typeof validateRepresentativeDraftPricingActionByDomain>
 ) {
   return validateRepresentativeDraftPricingActionByDomain(...args)
+}
+
+export async function getRepresentativeStockData() {
+  return getRepresentativeStockDataByDomain()
+}
+
+export async function reserveRepresentativeStockAction(
+  ...args: Parameters<typeof reserveRepresentativeStockActionByDomain>
+) {
+  return reserveRepresentativeStockActionByDomain(...args)
+}
+
+export async function releaseRepresentativeStockReservationAction(
+  ...args: Parameters<typeof releaseRepresentativeStockReservationActionByDomain>
+) {
+  return releaseRepresentativeStockReservationActionByDomain(...args)
+}
+
+export async function submitRepresentativeDayClosingAction(
+  ...args: Parameters<typeof submitRepresentativeDayClosingActionByDomain>
+) {
+  return submitRepresentativeDayClosingActionByDomain(...args)
+}
+
+export async function submitRepresentativeDayClosingFormAction(
+  ...args: Parameters<typeof submitRepresentativeDayClosingFormActionByDomain>
+) {
+  return submitRepresentativeDayClosingFormActionByDomain(...args)
 }
 
 export async function createRepresentativeVisitAction(

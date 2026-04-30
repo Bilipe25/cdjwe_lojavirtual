@@ -21,6 +21,19 @@ export type BuilderCustomer = Store & {
 export type BuilderProduct = Product & {
   images?: { url: string; is_primary: boolean }[]
   category?: Category | null
+  representative_stock_available?: number
+  representative_stock_reserved?: number
+  representative_stock_sold?: number
+}
+
+export type RepresentativeStockPosition = {
+  key: string
+  product_variant_id: string
+  product_id: string | null
+  size_option_id: string | null
+  quantity_available: number
+  quantity_reserved: number
+  quantity_sold: number
 }
 
 export type DraftItem = {
