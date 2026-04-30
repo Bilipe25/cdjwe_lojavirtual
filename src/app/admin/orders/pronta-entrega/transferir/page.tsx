@@ -1,9 +1,10 @@
+import { getReadyDeliveryTransferOptions, transferRepresentativeStockFormAction } from '../actions'
+import { getRelation } from '../_components'
 import { AlertCircle, CheckCircle2, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { getReadyDeliveryTransferOptions, transferRepresentativeStockFormAction } from '../actions'
-import { getRelation, ReadyDeliveryHeader } from '../_components'
+import { SectionCard } from '../_components'
 
 function buildVariantOptions(variants: Awaited<ReturnType<typeof getReadyDeliveryTransferOptions>>['variants']) {
   return variants.flatMap((variant) => {
@@ -19,13 +20,13 @@ function buildVariantOptions(variants: Awaited<ReturnType<typeof getReadyDeliver
       fabric?.name,
       color?.name,
       variant.sku ? `SKU ${variant.sku}` : null,
-      `Estoque geral ${variant.stock_quantity || 0}`,
-    ].filter(Boolean).join(' / ')
+      `Estoque: ${variant.stock_quantity || 0}`,
+    ].filter(Boolean).join(' · ')
 
     if (product?.has_size_variants && sizeOptions.length > 0) {
       return sizeOptions.map((size) => ({
         value: `${variant.id}::${size.id}`,
-        label: `${baseLabel} / ${size.name}`,
+        label: `${baseLabel} · ${size.name}`,
       }))
     }
 
@@ -46,16 +47,11 @@ export default async function ReadyDeliveryTransferPage({
   const variantOptions = buildVariantOptions(data.variants)
 
   return (
-    <div className="space-y-6">
-      <ReadyDeliveryHeader
-        title="Transferir estoque"
-        description="Envie saldo do estoque geral para o estoque fisico do representante. A transferencia baixa o estoque geral e aumenta o saldo disponivel para pronta entrega."
-      />
-
+    <div className="space-y-5">
       {params.success ? (
-        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
           <CheckCircle2 className="h-4 w-4" />
-          Transferencia registrada com sucesso.
+          Transferência registrada com sucesso.
         </div>
       ) : null}
 
@@ -66,65 +62,65 @@ export default async function ReadyDeliveryTransferPage({
         </div>
       ) : null}
 
-      <form action={transferRepresentativeStockFormAction} className="rounded-lg border border-border/50 bg-card">
-        <div className="border-b border-border/50 px-4 py-3">
-          <h2 className="text-sm font-semibold text-foreground">Nova transferencia</h2>
-          <p className="text-xs text-muted-foreground">Registre um item por vez para manter rastreabilidade clara.</p>
-        </div>
+      <SectionCard
+        title="Nova transferência"
+        description="Registre um item por vez para manter rastreabilidade clara."
+      >
+        <form action={transferRepresentativeStockFormAction}>
+          <div className="grid gap-4 p-4 lg:grid-cols-[1fr_1.4fr_160px]">
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Representante</span>
+              <select
+                name="representativeId"
+                required
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/20"
+              >
+                <option value="">Selecione</option>
+                {data.representatives.map((representative) => (
+                  <option key={representative.id} value={representative.id}>
+                    {representative.full_name || representative.email}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <div className="grid gap-4 p-4 lg:grid-cols-[1fr_1.4fr_160px]">
-          <label className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Representante</span>
-            <select
-              name="representativeId"
-              required
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/20"
-            >
-              <option value="">Selecione</option>
-              {data.representatives.map((representative) => (
-                <option key={representative.id} value={representative.id}>
-                  {representative.full_name || representative.email}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Produto / variação / tamanho</span>
+              <select
+                name="variantChoice"
+                required
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/20"
+              >
+                <option value="">Selecione</option>
+                {variantOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Produto / variacao / tamanho</span>
-            <select
-              name="variantChoice"
-              required
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/20"
-            >
-              <option value="">Selecione</option>
-              {variantOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Quantidade</span>
-            <Input name="quantity" type="number" min={1} step={1} required placeholder="0" className="h-10" />
-          </label>
-        </div>
-
-        <div className="border-t border-border/50 p-4">
-          <label className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Observacao</span>
-            <Textarea name="notes" placeholder="Ex.: carga para roteiro de sexta-feira" className="min-h-20" />
-          </label>
-
-          <div className="mt-4 flex justify-end">
-            <Button type="submit" className="h-10 rounded-lg">
-              <Send className="mr-2 h-4 w-4" />
-              Registrar transferencia
-            </Button>
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Quantidade</span>
+              <Input name="quantity" type="number" min={1} step={1} required placeholder="0" className="h-10" />
+            </label>
           </div>
-        </div>
-      </form>
+
+          <div className="border-t border-border/50 p-4">
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Observação</span>
+              <Textarea name="notes" placeholder="Ex.: carga para roteiro de sexta-feira" className="min-h-20" />
+            </label>
+
+            <div className="mt-4 flex justify-end">
+              <Button type="submit" className="h-10 rounded-lg">
+                <Send className="mr-2 h-4 w-4" />
+                Registrar transferência
+              </Button>
+            </div>
+          </div>
+        </form>
+      </SectionCard>
     </div>
   )
 }

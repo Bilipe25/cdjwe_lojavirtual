@@ -72,7 +72,7 @@ export async function getRepresentativeStockData() {
           stock_quantity,
           product:products(id, name, slug, base_price, is_active),
           fabric:fabrics(id, name),
-          fabric_color:fabric_colors(id, name, hex_code, image_url)
+          fabric_color:fabric_colors!fabric_color_id(id, name, hex_code, image_url)
         ),
         size_option:product_size_options(id, name)
       `)

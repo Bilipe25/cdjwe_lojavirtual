@@ -42,6 +42,22 @@ function revalidateRepresentativeReadyDelivery(representativeId: string) {
   })
 }
 
+function revalidateReadyDeliveryPages() {
+  ;[
+    '/admin/orders/pronta-entrega/estoque',
+    '/admin/orders/pronta-entrega/transferir',
+    '/admin/orders/pronta-entrega/movimentacoes',
+    '/admin/orders/pronta-entrega/recebimentos',
+    '/admin/orders/pronta-entrega/fechamentos',
+  ].forEach((path) => {
+    try {
+      revalidatePath(path)
+    } catch {
+      // Best effort only.
+    }
+  })
+}
+
 export async function getReadyDeliveryRepresentatives() {
   const { admin } = await requireAdminContext()
   const { data, error } = await admin
@@ -78,7 +94,7 @@ export async function getReadyDeliveryStockOverview() {
         stock_quantity,
         product:products(id, name, slug, base_price),
         fabric:fabrics(id, name),
-        fabric_color:fabric_colors(id, name, hex_code, image_url)
+        fabric_color:fabric_colors!fabric_color_id(id, name, hex_code, image_url)
       ),
       size_option:product_size_options(id, name)
     `)
@@ -110,7 +126,7 @@ export async function getReadyDeliveryTransferOptions() {
         stock_quantity,
         product:products(id, name, has_size_variants, size_options:product_size_options(id, name, is_active, sort_order)),
         fabric:fabrics(id, name),
-        fabric_color:fabric_colors(id, name)
+        fabric_color:fabric_colors!fabric_color_id(id, name)
       `)
       .eq('is_active', true)
       .order('stock_quantity', { ascending: false })
@@ -163,9 +179,7 @@ export async function transferRepresentativeStockFormAction(formData: FormData) 
     redirect(`/admin/orders/pronta-entrega/transferir?error=${encodeURIComponent(error.message || 'transfer')}`)
   }
 
-  revalidatePath('/admin/orders/pronta-entrega/estoque')
-  revalidatePath('/admin/orders/pronta-entrega/transferir')
-  revalidatePath('/admin/orders/pronta-entrega/movimentacoes')
+  revalidateReadyDeliveryPages()
   revalidateRepresentativeReadyDelivery(representativeId)
   redirect('/admin/orders/pronta-entrega/transferir?success=1')
 }
@@ -189,13 +203,13 @@ export async function getReadyDeliveryMovements() {
       notes,
       metadata,
       created_at,
-      representative:profiles(id, full_name, email),
+      representative:profiles!representative_id(id, full_name, email),
       product_variant:product_variants(
         id,
         sku,
         product:products(id, name),
         fabric:fabrics(id, name),
-        fabric_color:fabric_colors(id, name)
+        fabric_color:fabric_colors!fabric_color_id(id, name)
       ),
       size_option:product_size_options(id, name),
       order:orders(id, order_number, total, status)
@@ -218,8 +232,9 @@ export async function getReadyDeliveryReceipts() {
       id,
       receipt_number,
       status,
+      pdf_url,
       issued_at,
-      representative:profiles(id, full_name, email),
+      representative:profiles!representative_id(id, full_name, email),
       order:orders(id, order_number, total, payment_status, status, created_at, store:stores(id, company_name, trade_name))
     `)
     .order('issued_at', { ascending: false })
@@ -249,7 +264,7 @@ export async function getReadyDeliveryClosings() {
       received_amount,
       submitted_at,
       approved_at,
-      representative:profiles(id, full_name, email)
+      representative:profiles!representative_id(id, full_name, email)
     `)
     .order('business_date', { ascending: false })
     .order('created_at', { ascending: false })
@@ -260,4 +275,36 @@ export async function getReadyDeliveryClosings() {
   }
 
   return data || []
+}
+
+// ─── Closing Approval Actions ───
+
+export async function approveReadyDeliveryClosing(closingId: string) {
+  const { supabase } = await requireAdminContext()
+
+  const { error } = await supabase.rpc('admin_approve_representative_day_closing', {
+    p_closing_id: closingId,
+  })
+
+  if (error) {
+    return { success: false as const, error: error.message || 'Nao foi possivel aprovar o fechamento.' }
+  }
+
+  revalidateReadyDeliveryPages()
+  return { success: true as const }
+}
+
+export async function reopenReadyDeliveryClosing(closingId: string) {
+  const { supabase } = await requireAdminContext()
+
+  const { error } = await supabase.rpc('admin_reopen_representative_day_closing', {
+    p_closing_id: closingId,
+  })
+
+  if (error) {
+    return { success: false as const, error: error.message || 'Nao foi possivel reabrir o fechamento.' }
+  }
+
+  revalidateReadyDeliveryPages()
+  return { success: true as const }
 }
