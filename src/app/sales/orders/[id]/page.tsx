@@ -5,13 +5,10 @@ import { getRepresentativeOrderDetail } from '@/app/sales/actions'
 import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
 import { SalesInfoPill, SalesPanel, SalesPanelHeader, SalesStatusBadge } from '@/components/sales/sales-ui'
 import { Button } from '@/components/ui/button'
+import { getOrderDeliverySummary, getOrderTypeLabel } from '@/lib/orders/order-type'
 
 function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-}
-
-function formatOrderType(value?: string | null) {
-  return value === 'PRONTA_ENTREGA' ? 'Pronta entrega' : 'Pre-venda'
 }
 
 export default async function SalesOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -27,7 +24,7 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
           <div className="flex flex-wrap items-center gap-2">
             <SalesStatusBadge>Pedido presencial</SalesStatusBadge>
             <SalesStatusBadge tone={order.order_type === 'PRONTA_ENTREGA' ? 'success' : 'neutral'}>
-              {formatOrderType(order.order_type)}
+              {getOrderTypeLabel(order.order_type)}
             </SalesStatusBadge>
             <SalesStatusBadge tone="navy">{order.status}</SalesStatusBadge>
           </div>
@@ -46,7 +43,7 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SalesInfoPill label="Cliente" value={order.store?.company_name || 'Nao informado'} />
         <SalesInfoPill label="Criado em" value={new Date(order.created_at).toLocaleString('pt-BR')} />
-        <SalesInfoPill label="Tipo" value={formatOrderType(order.order_type)} />
+        <SalesInfoPill label="Tipo" value={getOrderTypeLabel(order.order_type)} />
         <SalesInfoPill label="Pagamento" value={order.payment_method_name || 'Pendente'} />
         <SalesInfoPill label="Total" value={formatCurrency(order.total)} />
       </div>
@@ -84,7 +81,7 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
                     <MapPinned className="h-4 w-4" />
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em]">Pronta entrega</p>
                   </div>
-                  <p className="mt-2 text-sm font-medium leading-6 text-emerald-900">Pedido entregue diretamente pelo representante, sem endereco de entrega.</p>
+                  <p className="mt-2 text-sm font-medium leading-6 text-emerald-900">{getOrderDeliverySummary(order.order_type, order.shipping_address)}</p>
                 </div>
               ) : null}
               {order.notes ? (

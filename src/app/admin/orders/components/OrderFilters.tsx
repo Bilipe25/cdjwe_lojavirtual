@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import type { OrderStatus } from '@/lib/types'
+import type { OrderStatus, OrderType } from '@/lib/types'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -61,6 +61,8 @@ interface OrderFiltersProps {
     currentSearch: string
     onStatusChange: (status: string | null) => void
     currentStatus: string
+    onOrderTypeChange: (orderType: OrderType | 'all') => void
+    currentOrderType: OrderType | 'all'
     onArchiveVisibilityChange: (visibility: 'active' | 'archived' | 'all') => void
     currentArchiveVisibility: 'active' | 'archived' | 'all'
     onExport: () => void
@@ -73,6 +75,8 @@ export function OrderFilters({
     currentSearch,
     onStatusChange,
     currentStatus,
+    onOrderTypeChange,
+    currentOrderType,
     onArchiveVisibilityChange,
     currentArchiveVisibility,
     onExport,
@@ -115,6 +119,17 @@ export function OrderFilters({
                                 {statusConfig[status].label}
                             </SelectItem>
                         ))}
+                    </SelectContent>
+                </Select>
+
+                <Select value={currentOrderType} onValueChange={(value) => onOrderTypeChange(value as OrderType | 'all')}>
+                    <SelectTrigger className="h-11 w-full bg-white/60 sm:w-48">
+                        <SelectValue placeholder="Tipo de pedido" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Todos os tipos</SelectItem>
+                        <SelectItem value="PRE_VENDA">Pre-venda</SelectItem>
+                        <SelectItem value="PRONTA_ENTREGA">Pronta entrega</SelectItem>
                     </SelectContent>
                 </Select>
 

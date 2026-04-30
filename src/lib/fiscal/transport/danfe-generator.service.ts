@@ -293,7 +293,7 @@ export async function generateDanfePreviewPdf(
     ] = await Promise.all([
       supabase
         .from('orders')
-        .select('id, order_number, payment_method_code, payment_method_name, payment_installments, notes, shipping_address, total')
+        .select('id, order_number, payment_method_code, payment_method_name, payment_installments, order_type, notes, shipping_address, total')
         .eq('id', orderId)
         .maybeSingle(),
       supabase
@@ -347,6 +347,7 @@ export async function generateDanfePreviewPdf(
         orderNumber: order.order_number ?? null,
         paymentMethodName: order.payment_method_name ?? null,
         paymentInstallments: order.payment_installments ?? null,
+        orderType: order.order_type ?? null,
         fiscalObservation: (fiscalSettings?.fiscal_observation || '').trim() || null,
         shippingAddress: order.shipping_address ?? null,
       },
@@ -369,6 +370,7 @@ export async function generateDanfePreviewPdf(
         paymentMethodCode: order.payment_method_code ?? null,
         paymentMethodName: order.payment_method_name ?? null,
         paymentInstallments: order.payment_installments ?? null,
+        orderType: order.order_type ?? null,
         fiscalObservation: (fiscalSettings?.fiscal_observation || '').trim() || null,
         notes: order.notes ?? null,
         shippingAddress: order.shipping_address ?? null,

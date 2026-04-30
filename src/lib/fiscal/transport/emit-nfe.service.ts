@@ -56,6 +56,7 @@ interface OrderFiscalEmissionData {
   payment_method_code: string | null
   payment_method_name: string | null
   payment_installments: number | null
+  order_type: string | null
   fiscal_observation: string | null
   notes: string | null
   shipping_address: string | null
@@ -107,6 +108,7 @@ export async function emitNFe(
         orderNumber: orderData.order_number,
         paymentMethodName: orderData.payment_method_name,
         paymentInstallments: orderData.payment_installments,
+        orderType: orderData.order_type,
         fiscalObservation: orderData.fiscal_observation,
         shippingAddress: orderData.shipping_address,
       },
@@ -167,6 +169,7 @@ export async function emitNFe(
         paymentMethodCode: orderData.payment_method_code,
         paymentMethodName: orderData.payment_method_name,
         paymentInstallments: orderData.payment_installments,
+        orderType: orderData.order_type,
         fiscalObservation: orderData.fiscal_observation,
         notes: orderData.notes,
         shippingAddress: orderData.shipping_address,
@@ -431,7 +434,7 @@ async function loadOrderFiscalEmissionData(
   ] = await Promise.all([
     supabase
       .from('orders')
-      .select('order_number, payment_method_code, payment_method_name, payment_installments, notes, shipping_address')
+      .select('order_number, payment_method_code, payment_method_name, payment_installments, order_type, notes, shipping_address')
       .eq('id', orderId)
       .maybeSingle(),
     supabase
@@ -478,6 +481,7 @@ async function loadOrderFiscalEmissionData(
     payment_method_code: orderData.payment_method_code ?? null,
     payment_method_name: orderData.payment_method_name ?? null,
     payment_installments: orderData.payment_installments ?? null,
+    order_type: orderData.order_type ?? null,
     fiscal_observation: (fiscalSettings?.fiscal_observation || '').trim() || null,
     notes: orderData.notes ?? null,
     shipping_address: orderData.shipping_address ?? null,

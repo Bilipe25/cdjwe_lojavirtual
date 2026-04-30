@@ -15,6 +15,7 @@ import { RepresentativeProductCatalogOverlay, type CatalogOverlayConfirmPayload 
 import { RepresentativeCustomerForm, type RepCustomerFormData } from './representative-customer-form'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
+import { getOrderDeliverySummary, getOrderTypeLabel } from '@/lib/orders/order-type'
 import { getWhatsAppLink } from '@/lib/utils'
 import { useOrderDraft } from '@/components/sales/order-builder/hooks/use-order-draft'
 import { usePaymentSelection } from '@/components/sales/order-builder/hooks/use-payment-selection'
@@ -23,7 +24,6 @@ import { CustomerSelectionOverlay } from '@/components/sales/order-builder/compo
 import { DesktopOrderBuilder } from '@/components/sales/order-builder/components/desktop-order-builder'
 import { MobileOrderBuilder } from '@/components/sales/order-builder/components/mobile-order-builder'
 import { OrderCompletionOverlay } from '@/components/sales/order-builder/components/order-completion-overlay'
-import { getOrderTypeLabel } from '@/components/sales/order-builder/components/order-type-selector'
 import type { BuilderValidationMessage } from '@/components/sales/order-builder/components/builder-validation-panel'
 import type {
   BuilderCustomer,
@@ -338,6 +338,7 @@ export function RepresentativeOrderBuilder({
       `Data: ${createdAt}`,
       'Status: Em analise',
       `Tipo: ${getOrderTypeLabel(data.order.order_type || 'PRE_VENDA')}`,
+      `Entrega: ${getOrderDeliverySummary(data.order.order_type, data.order.shipping_address)}`,
       '',
       'Itens:',
       itemLines || '- Sem itens',

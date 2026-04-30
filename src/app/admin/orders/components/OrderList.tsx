@@ -39,8 +39,9 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { statusConfig } from './OrderFilters'
-import type { OrderStatus } from '@/lib/types'
+import type { OrderStatus, OrderType } from '@/lib/types'
 import { getAvailableOrderStatusTransitions } from '@/lib/orders/order-status-transition'
+import { getOrderTypeLabel, isReadyDeliveryOrderType } from '@/lib/orders/order-type'
 
 export interface OrderWithDetails {
     id: string
@@ -58,6 +59,7 @@ export interface OrderWithDetails {
     payment_condition?: { name: string }
     item_count?: number
     sales_channel?: 'customer_portal' | 'representative'
+    order_type?: OrderType | null
     fiscal_status?: string | null
     has_invoice?: boolean
     archived_at?: string | null
@@ -137,6 +139,7 @@ export function OrderList({
                 const nextTransitions = getAvailableOrderStatusTransitions(order.status)
                 const itemCount = Number(order.item_count || 0)
                 const isRepresentativeOrder = order.sales_channel === 'representative'
+                const isReadyDelivery = isReadyDeliveryOrderType(order.order_type)
                 const customerName =
                     order.customer_profile?.full_name || order.profile?.full_name || 'Cliente nao informado'
                 const representativeName =
@@ -204,6 +207,16 @@ export function OrderList({
                                                 }`}
                                             >
                                                 {isRepresentativeOrder ? 'Canal: Representante' : 'Canal: Cliente'}
+                                            </Badge>
+                                            <Badge
+                                                variant="outline"
+                                                className={`text-[10px] ${
+                                                    isReadyDelivery
+                                                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                                        : 'border-slate-300 bg-slate-50 text-slate-700'
+                                                }`}
+                                            >
+                                                Tipo: {getOrderTypeLabel(order.order_type)}
                                             </Badge>
                                             {order.has_invoice ? (
                                                 <Badge

@@ -2,6 +2,7 @@
 
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { getRemovedEntityLabel, isUuidLike } from '@/lib/logistics/filter-display'
+import type { OrderType } from '@/lib/types'
 
 // ==================== Types ====================
 
@@ -17,6 +18,7 @@ export interface RoutableOrder {
     region_label?: string | null
     total: number
     status: string
+    order_type: OrderType
     created_at: string
     shipping_address: string | null
     shipping_address_id: string | null
@@ -380,6 +382,7 @@ export async function getRoutableOrders(filters?: {
             store_id,
             status,
             total,
+            order_type,
             created_at,
                 shipping_address,
                 shipping_address_id,
@@ -395,6 +398,9 @@ export async function getRoutableOrders(filters?: {
                     longitude
                 )
         `, { count: 'exact' })
+
+        // Only pre-sale orders are eligible for delivery routing.
+        query = query.eq('order_type', 'PRE_VENDA').is('archived_at', null)
 
         // Only orders ready for routing (approved or in_production)
         if (filters?.status && filters.status !== 'all') {
@@ -467,6 +473,7 @@ export async function getRoutableOrders(filters?: {
                 region_label: resolveRegionLabel(rawRegion, deliveryRegionLabelById),
                 total: Number(row.total || 0),
                 status: row.status,
+                order_type: row.order_type === 'PRONTA_ENTREGA' ? 'PRONTA_ENTREGA' : 'PRE_VENDA',
                 created_at: row.created_at,
                 shipping_address: row.shipping_address,
                 shipping_address_id: row.shipping_address_id,

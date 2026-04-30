@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireAdminSession } from '@/lib/marketing/auth'
+import type { OrderType } from '@/lib/types'
+import { getOrderTypeLabel, normalizeOrderType } from '@/lib/orders/order-type'
 
 const PAGE_SIZE = 100
 
@@ -20,6 +22,7 @@ type AdminOrdersSearchRpcRow = {
     item_count: number | null
     total_count: number | null
     sales_channel?: string | null
+    order_type?: OrderType | string | null
     created_by_full_name?: string | null
     archived_at?: string | null
     archive_reason?: string | null
@@ -28,6 +31,7 @@ type AdminOrdersSearchRpcRow = {
 type AdminOrderExportEnrichmentRow = {
     id: string
     sales_channel: 'customer_portal' | 'representative' | null
+    order_type?: OrderType | null
     coupon_code?: string | null
     coupon_discount_type?: 'percentage' | 'fixed' | null
     coupon_discount_value?: number | null
@@ -86,6 +90,10 @@ export async function GET(request: Request) {
     const archiveVisibility = rawArchiveVisibility === 'all' || rawArchiveVisibility === 'archived'
         ? rawArchiveVisibility
         : 'active'
+    const rawOrderType = searchParams.get('order_type')?.trim().toUpperCase() || null
+    const orderType = rawOrderType === 'PRE_VENDA' || rawOrderType === 'PRONTA_ENTREGA'
+        ? rawOrderType
+        : null
 
     const allowedStatus = new Set([
         'pending',
@@ -100,6 +108,10 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Status invalido.' }, { status: 400 })
     }
 
+    if (rawOrderType && !orderType) {
+        return NextResponse.json({ error: 'Tipo de pedido invalido.' }, { status: 400 })
+    }
+
     const rows: AdminOrdersSearchRpcRow[] = []
     let page = 1
     let expectedTotal = Number.MAX_SAFE_INTEGER
@@ -111,6 +123,7 @@ export async function GET(request: Request) {
             p_page: page,
             p_page_size: PAGE_SIZE,
             p_archive_visibility: archiveVisibility,
+            p_order_type: orderType,
         })
 
         if (error) {
@@ -129,6 +142,7 @@ export async function GET(request: Request) {
 
     const enrichmentById = new Map<string, {
         salesChannel: 'customer_portal' | 'representative' | null
+        orderType: OrderType
         customerName: string
         representativeName: string
         itemCount: number
@@ -147,6 +161,7 @@ export async function GET(request: Request) {
             .select(`
                 id,
                 sales_channel,
+                order_type,
                 coupon_code,
                 coupon_discount_type,
                 coupon_discount_value,
@@ -161,6 +176,7 @@ export async function GET(request: Request) {
         ;((enrichmentData || []) as AdminOrderExportEnrichmentRow[]).forEach((row) => {
             enrichmentById.set(row.id, {
                 salesChannel: row.sales_channel || null,
+                orderType: normalizeOrderType(row.order_type),
                 customerName: row.customer_profile?.full_name || '',
                 representativeName: row.created_by_profile?.full_name || '',
                 itemCount: Number(row.items?.[0]?.count || 0),
@@ -178,6 +194,7 @@ export async function GET(request: Request) {
         'ID',
         'Pedido',
         'Canal',
+        'Tipo de pedido',
         'Representante',
         'Cliente',
         'Documento/Empresa',
@@ -200,6 +217,7 @@ export async function GET(request: Request) {
         const channel = (row.sales_channel || enrichment?.salesChannel || 'customer_portal') === 'representative'
             ? 'Representante'
             : 'Cliente'
+        const orderTypeLabel = getOrderTypeLabel(row.order_type || enrichment?.orderType)
         const representativeName = row.created_by_full_name
             || enrichment?.representativeName
             || (channel === 'Representante' ? 'Nao informado' : 'Portal do cliente')
@@ -227,6 +245,7 @@ export async function GET(request: Request) {
             escapeCsvValue(row.id),
             escapeCsvValue(row.order_number),
             escapeCsvValue(channel),
+            escapeCsvValue(orderTypeLabel),
             escapeCsvValue(representativeName),
             escapeCsvValue(customerName),
             escapeCsvValue(companyInfo),

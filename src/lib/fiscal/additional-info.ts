@@ -3,8 +3,10 @@ import type {
   CompanyFiscalEnvironmentParams,
   FiscalAdditionalInfoFlags,
   FiscalItemAdditionalInfoFlags,
+  OrderType,
 } from '@/lib/types'
 import { parseTechnicalResponsibleConfig } from '@/lib/fiscal/technical-responsible.shared'
+import { getOrderTypeLabel, isReadyDeliveryOrderType } from '@/lib/orders/order-type'
 
 export const DEFAULT_ADDITIONAL_INFO_FLAGS: FiscalAdditionalInfoFlags = {
   mostrar_numero_pedido: true,
@@ -28,6 +30,7 @@ export interface FiscalAdditionalInfoOrderData {
   orderNumber?: string | null
   paymentMethodName?: string | null
   paymentInstallments?: number | null
+  orderType?: OrderType | string | null
   fiscalObservation?: string | null
   shippingAddress?: string | null
 }
@@ -155,6 +158,10 @@ export function buildResolvedAdditionalInfo(input: FiscalAdditionalInfoBuildInpu
   const deliveryForm = humanizeDeliveryForm(payload.context.transport.delivery_form)
   if (additionalInfoFlags.mostrar_forma_entrega && deliveryForm) {
     parts.push(`Forma de entrega: ${deliveryForm}`)
+  }
+
+  if (isReadyDeliveryOrderType(order.orderType)) {
+    parts.push(`Tipo de pedido: ${getOrderTypeLabel(order.orderType)}`)
   }
 
   if (additionalInfoFlags.mostrar_frete_seguro_outras_despesas) {

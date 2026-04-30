@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { CompletionActionRow } from '@/components/sales/order-builder/components/completion-action-row'
 import type { OrderBuilderCompletionData } from '@/components/sales/order-builder/types'
 import { formatCurrency } from '@/components/sales/order-builder/utils'
+import { getOrderDeliverySummary, getOrderTypeLabel } from '@/lib/orders/order-type'
 
 type CompletionHandler = () => unknown | Promise<unknown>
 
@@ -57,11 +58,15 @@ export function OrderCompletionOverlay({
                 <p className="text-base font-bold font-heading">Atendimento finalizado</p>
                 <p className="mt-0.5 text-xs text-white/75">Pedido #{data.order.order_number}</p>
                 <p className="mt-1 text-[11px] text-white/70">Total {formatCurrency(data.order.total)}</p>
+                <p className="mt-1 text-[11px] font-semibold text-white/85">{getOrderTypeLabel(data.order.order_type)}</p>
               </div>
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 pb-24 pt-4">
+            <div className="mb-3 rounded-2xl border border-border/40 bg-muted/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
+              {getOrderDeliverySummary(data.order.order_type, data.order.shipping_address)}
+            </div>
             <div className="glass-card overflow-hidden rounded-2xl border border-border/40">
               <CompletionActionRow
                 icon={Share2}

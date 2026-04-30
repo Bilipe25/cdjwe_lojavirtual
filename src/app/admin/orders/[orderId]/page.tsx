@@ -49,6 +49,7 @@ import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummary
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 import { deleteOrderAction, hardDeleteArchivedOrderAction } from '@/app/admin/orders/actions'
 import { useAdminOrderDetail } from '@/app/admin/orders/hooks/use-admin-order-detail'
+import { getOrderDeliverySummary, getOrderTypeLabel, isReadyDeliveryOrderType } from '@/lib/orders/order-type'
 
 function formatCurrency(value: number | null | undefined) {
     return (Number(value || 0)).toLocaleString('pt-BR', {
@@ -60,10 +61,6 @@ function formatCurrency(value: number | null | undefined) {
 function formatDateTime(value: string | null | undefined) {
     if (!value) return 'Nao informado'
     return format(new Date(value), "dd 'de' MMMM, yyyy 'as' HH:mm", { locale: ptBR })
-}
-
-function formatOrderType(value?: string | null) {
-    return value === 'PRONTA_ENTREGA' ? 'Pronta entrega' : 'Pre-venda'
 }
 
 function SummaryCard({
@@ -179,7 +176,9 @@ export default function OrderDetailPage() {
         ? format(new Date(order.estimated_delivery), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })
         : 'Nao informado'
     const isArchived = Boolean(order?.archived_at)
-    const orderTypeLabel = formatOrderType(order?.order_type)
+    const isReadyDelivery = isReadyDeliveryOrderType(order?.order_type)
+    const orderTypeLabel = getOrderTypeLabel(order?.order_type)
+    const deliverySummary = getOrderDeliverySummary(order?.order_type, order?.shipping_address)
 
     const paymentStatusLabel = useMemo(() => {
         switch (order?.payment_status) {
@@ -361,6 +360,16 @@ export default function OrderDetailPage() {
                                     >
                                         {order.sales_channel === 'representative' ? 'Representante' : 'Cliente'}
                                     </Badge>
+                                    <Badge
+                                        variant="outline"
+                                        className={`text-xs ${
+                                            isReadyDelivery
+                                                ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                                : 'border-slate-300 bg-slate-50 text-slate-700'
+                                        }`}
+                                    >
+                                        {orderTypeLabel}
+                                    </Badge>
                                 </div>
                                 <p className="mt-1 text-sm text-muted-foreground">
                                     Criado em {formatDateTime(order.created_at)}
@@ -499,7 +508,7 @@ export default function OrderDetailPage() {
                                     <DetailRow label="Entrega estimada" value={estimatedDeliveryLabel} />
                                     <DetailRow
                                         label="Endereco"
-                                        value={order.shipping_address || (order.order_type === 'PRONTA_ENTREGA' ? 'Pronta entrega sem endereco' : 'Nao informado')}
+                                        value={deliverySummary}
                                         allowWrap
                                     />
                                     <Separator />

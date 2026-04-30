@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import type { OrderStatus } from '@/lib/types'
+import type { OrderStatus, OrderType } from '@/lib/types'
 import { buildOrderStatusAuditNote } from '@/lib/orders/order-communication'
 import { canTransitionOrderStatus } from '@/lib/orders/order-status-transition'
 import { Button } from '@/components/ui/button'
@@ -34,6 +34,7 @@ type AdminOrdersSearchRpcRow = {
     item_count: number | null
     total_count: number | null
     sales_channel?: string | null
+    order_type?: OrderType | string | null
     created_by_full_name?: string | null
     archived_at?: string | null
     archive_reason?: string | null
@@ -65,6 +66,7 @@ type AdminOrderBulkStatusUpdateRpcRow = {
 type AdminOrderListEnrichmentRow = {
     id: string
     sales_channel: 'customer_portal' | 'representative' | null
+    order_type?: OrderType | null
     customer_profile?: { full_name?: string | null } | null
     created_by_profile?: { full_name?: string | null; role?: string | null } | null
     items?: Array<{ count?: number | null }>
@@ -82,6 +84,7 @@ export default function AdminOrdersPage() {
     // Server-Side Search & Filters
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState('all')
+    const [orderTypeFilter, setOrderTypeFilter] = useState<OrderType | 'all'>('all')
     const [archiveVisibility, setArchiveVisibility] = useState<'active' | 'archived' | 'all'>('active')
     
     // Pagination
@@ -102,6 +105,7 @@ export default function AdminOrdersPage() {
             p_page: currentPage,
             p_page_size: ITEMS_PER_PAGE,
             p_archive_visibility: archiveVisibility,
+            p_order_type: orderTypeFilter === 'all' ? null : orderTypeFilter,
         })
 
         if (error) {
@@ -111,6 +115,7 @@ export default function AdminOrdersPage() {
             const orderIds = rows.map((row) => row.id)
             const enrichmentById = new Map<string, {
                 salesChannel: 'customer_portal' | 'representative' | null
+                orderType: OrderType
                 customerName: string
                 representativeName: string
                 itemCount: number
@@ -123,6 +128,7 @@ export default function AdminOrdersPage() {
                     .select(`
                         id,
                         sales_channel,
+                        order_type,
                         customer_profile:profiles!orders_profile_id_fkey(full_name),
                         created_by_profile:profiles!orders_created_by_profile_id_fkey(full_name, role),
                         items:order_items(count),
@@ -136,6 +142,7 @@ export default function AdminOrdersPage() {
                     ;((enrichmentData || []) as AdminOrderListEnrichmentRow[]).forEach((row) => {
                         enrichmentById.set(row.id, {
                             salesChannel: row.sales_channel || null,
+                            orderType: row.order_type === 'PRONTA_ENTREGA' ? 'PRONTA_ENTREGA' : 'PRE_VENDA',
                             customerName: row.customer_profile?.full_name || '',
                             representativeName: row.created_by_profile?.full_name || '',
                             itemCount: Number(row.items?.[0]?.count || 0),
@@ -169,6 +176,7 @@ export default function AdminOrdersPage() {
                 const customerName = order.profile_full_name || enrichment?.customerName || ''
                 const representativeName = order.created_by_full_name || enrichment?.representativeName || ''
                 const salesChannel = (order.sales_channel || enrichment?.salesChannel || 'customer_portal') as 'customer_portal' | 'representative'
+                const orderType = (order.order_type || enrichment?.orderType || 'PRE_VENDA') as OrderType
                 const itemCount = enrichment ? enrichment.itemCount : Number(order.item_count || 0)
 
                 return {
@@ -198,6 +206,7 @@ export default function AdminOrdersPage() {
                     },
                     item_count: itemCount,
                     sales_channel: salesChannel,
+                    order_type: orderType,
                     fiscal_status: fiscalStatusById.get(order.id) || null,
                     has_invoice: Boolean(enrichment?.hasInvoice),
                     archived_at: order.archived_at || null,
@@ -210,7 +219,7 @@ export default function AdminOrdersPage() {
         
         setLoading(false)
         setSelectedOrders([]) // Reset selection on page change
-    }, [archiveVisibility, currentPage, search, statusFilter])
+    }, [archiveVisibility, currentPage, orderTypeFilter, search, statusFilter])
 
     // Re-fetch when dependencies change
     useEffect(() => {
@@ -425,6 +434,7 @@ export default function AdminOrdersPage() {
         const searchTerm = search.trim()
         if (searchTerm) params.set('q', searchTerm)
         if (statusFilter !== 'all') params.set('status', statusFilter)
+        if (orderTypeFilter !== 'all') params.set('order_type', orderTypeFilter)
         if (archiveVisibility !== 'active') params.set('archive_visibility', archiveVisibility)
 
         try {
@@ -479,6 +489,8 @@ export default function AdminOrdersPage() {
                 onSearch={(term) => { setSearch(term); setCurrentPage(1); }}
                 currentStatus={statusFilter}
                 onStatusChange={(status) => { setStatusFilter(status || 'all'); setCurrentPage(1); }}
+                currentOrderType={orderTypeFilter}
+                onOrderTypeChange={(orderType) => { setOrderTypeFilter(orderType); setCurrentPage(1); }}
                 currentArchiveVisibility={archiveVisibility}
                 onArchiveVisibilityChange={(visibility) => { setArchiveVisibility(visibility); setCurrentPage(1); }}
                 onExport={exportCSV}

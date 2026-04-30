@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 import { OrderItemPriceDetails } from '@/components/orders/order-item-price-details'
 import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
+import { getOrderDeliverySummary, getOrderTypeLabel, isReadyDeliveryOrderType } from '@/lib/orders/order-type'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -28,7 +29,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import type { OrderStatus, OrderItem, SystemSettings } from '@/lib/types'
+import type { OrderStatus, OrderItem, OrderType, SystemSettings } from '@/lib/types'
 import { InvoiceOrderModal } from '@/app/admin/financeiro/contas-a-receber/components/InvoiceOrderModal'
 
 type AdminOrderHistoryRecord = {
@@ -88,6 +89,8 @@ export interface AdminOrderDetailRecord {
     items?: OrderItem[]
     archived_at?: string | null
     archive_reason?: string | null
+    order_type?: OrderType | null
+    shipping_address?: string | null
     fiscal_status?: string | null
 }
 
@@ -150,6 +153,8 @@ export function OrderDetailModal({
                 created_at,
                 notes,
                 sales_channel,
+                order_type,
+                shipping_address,
                 payment_method_name,
                 payment_method_code,
                 payment_condition_name,
@@ -318,6 +323,9 @@ export function OrderDetailModal({
     if (!order) return null;
     const resolvedOrder = orderData || order
     const isRepresentativeOrder = resolvedOrder.sales_channel === 'representative'
+    const isReadyDelivery = isReadyDeliveryOrderType(resolvedOrder.order_type)
+    const orderTypeLabel = getOrderTypeLabel(resolvedOrder.order_type)
+    const deliverySummary = getOrderDeliverySummary(resolvedOrder.order_type, resolvedOrder.shipping_address)
     const customerName = resolvedOrder.customer_profile?.full_name || resolvedOrder.profile?.full_name || 'N/A'
     const representativeName = resolvedOrder.created_by_profile?.full_name || (isRepresentativeOrder ? 'Nao informado' : 'Portal do cliente')
     const itemCount = resolvedOrder.items?.length || 0
@@ -346,6 +354,12 @@ export function OrderDetailModal({
                                     className={`text-[10px] sm:text-xs ${isRepresentativeOrder ? 'border-primary/30 bg-primary/5 text-primary' : 'border-emerald-300 bg-emerald-50 text-emerald-700'}`}
                                 >
                                     {isRepresentativeOrder ? 'Representante' : 'Cliente'}
+                                </Badge>
+                                <Badge
+                                    variant="outline"
+                                    className={`text-[10px] sm:text-xs ${isReadyDelivery ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-slate-50 text-slate-700'}`}
+                                >
+                                    {orderTypeLabel}
                                 </Badge>
                             </DialogTitle>
                             <p className="text-xs sm:text-sm text-muted-foreground mt-1 truncate">
@@ -457,6 +471,8 @@ export function OrderDetailModal({
                                 <p><span className="text-muted-foreground">CNPJ:</span> <span className="font-medium">{resolvedOrder.store?.cnpj || 'N/A'}</span></p>
                                 <p><span className="text-muted-foreground">Cliente:</span> <span className="font-medium">{customerName}</span></p>
                                 <p><span className="text-muted-foreground">Origem:</span> <span className="font-medium">{isRepresentativeOrder ? 'Pedido de representante' : 'Pedido portal cliente'}</span></p>
+                                <p><span className="text-muted-foreground">Tipo:</span> <span className="font-medium">{orderTypeLabel}</span></p>
+                                <p><span className="text-muted-foreground">Entrega:</span> <span className="font-medium">{deliverySummary}</span></p>
                                 <p><span className="text-muted-foreground">Representante:</span> <span className="font-medium">{representativeName}</span></p>
                             </div>
                         </div>

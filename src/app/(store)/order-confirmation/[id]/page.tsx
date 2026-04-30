@@ -28,6 +28,7 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getWhatsAppLink } from '@/lib/utils'
 import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
+import { getOrderDeliverySummary, getOrderTypeLabel, isReadyDeliveryOrderType } from '@/lib/orders/order-type'
 
 type OrderConfirmationRecord = Order & {
     store?: Record<string, unknown> | null
@@ -286,6 +287,8 @@ export default function OrderConfirmationPage() {
         const systemName = settings?.system_name || 'CDJWE'
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
         const paymentDisplay = getOrderPaymentDisplay(order)
+        const orderTypeLabel = getOrderTypeLabel(order.order_type)
+        const deliverySummary = getOrderDeliverySummary(order.order_type, order.shipping_address)
 
         const itemLines = items.map(item =>
             `• *${item.product_name}*\n  Tecido: ${item.fabric_name} | Cor: ${item.color_name}${item.size ? ` | Tam: ${item.size}` : ''}\n  ${item.quantity}x R$ ${item.unit_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} = *R$ ${item.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}*`
@@ -299,6 +302,8 @@ export default function OrderConfirmationPage() {
             `🛒 *PEDIDO #${order.order_number}* — ${systemName}`,
             `📅 ${format(new Date(order.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}`,
             `📌 Status: *Em Análise*`,
+            `📦 Tipo: *${orderTypeLabel}*`,
+            `🚚 Entrega: ${deliverySummary}`,
             ``,
             `━━━━━━━━━━━━━━━━━━━`,
             `*ITENS DO PEDIDO:*`,
@@ -347,6 +352,9 @@ export default function OrderConfirmationPage() {
     if (!order) return null
 
     const statusCfg = statusConfig[order.status as OrderStatus] ?? statusConfig.pending
+    const orderTypeLabel = getOrderTypeLabel(order.order_type)
+    const deliverySummary = getOrderDeliverySummary(order.order_type, order.shipping_address)
+    const isReadyDelivery = isReadyDeliveryOrderType(order.order_type)
 
     return (
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-10 lg:py-12 space-y-5">
@@ -409,7 +417,20 @@ export default function OrderConfirmationPage() {
                         <Clock className="h-3 w-3 mr-1" />
                         {statusCfg.label}
                     </Badge>
+                    <Badge className={`text-[11px] border px-2.5 py-1 ${isReadyDelivery ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                        {orderTypeLabel}
+                    </Badge>
                 </motion.div>
+            </motion.div>
+
+            <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.62 }}
+                className={`rounded-2xl border px-4 py-3 text-sm ${isReadyDelivery ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}
+            >
+                <p className="font-semibold">{orderTypeLabel}</p>
+                <p className="mt-1 text-xs leading-5 opacity-80">{deliverySummary}</p>
             </motion.div>
 
             {/* ── Quick Actions Grid ──────────────────────────────────── */}

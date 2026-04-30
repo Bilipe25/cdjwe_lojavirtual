@@ -2394,7 +2394,7 @@ export default function RouteDetailPage() {
                                 Adicionar parada por pedido
                             </DialogTitle>
                             <p className="text-xs text-slate-500">
-                                Selecione um pedido apto para inserir no fim da sequencia desta rota.
+                                Selecione um pedido Pre-venda apto para inserir no fim da sequencia desta rota. Pedidos Pronta entrega nao entram em rotas.
                             </p>
                         </DialogHeader>
 

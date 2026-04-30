@@ -2,6 +2,8 @@ import 'server-only'
 
 import type { FiscalDocumentPayload, ItemTaxBreakdown } from '../motor/types'
 import { normalizeAdditionalInfoPart, normalizeAdditionalInfoText } from '@/lib/fiscal/additional-info'
+import type { OrderType } from '@/lib/types'
+import { getOrderTypeLabel, isReadyDeliveryOrderType } from '@/lib/orders/order-type'
 
 export interface FiscalBillingDuplicateSnapshot {
   numero: string
@@ -36,6 +38,7 @@ export interface FiscalDocumentSnapshot extends FiscalDocumentPayload {
     paymentMethodCode?: string | null
     paymentMethodName?: string | null
     paymentInstallments?: number | null
+    orderType?: OrderType | string | null
     fiscalObservation?: string | null
     notes?: string | null
     shippingAddress?: string | null
@@ -69,6 +72,7 @@ export function buildFiscalDocumentSnapshot(params: {
     paymentMethodCode?: string | null
     paymentMethodName?: string | null
     paymentInstallments?: number | null
+    orderType?: OrderType | string | null
     fiscalObservation?: string | null
     notes?: string | null
     shippingAddress?: string | null
@@ -168,6 +172,9 @@ export function getSnapshotAdditionalInfo(snapshot: FiscalDocumentSnapshot | nul
       : null,
     snapshot.context.operation.natureza_operacao_descricao
       ? `Natureza: ${snapshot.context.operation.natureza_operacao_descricao}`
+      : null,
+    isReadyDeliveryOrderType(snapshot.order.orderType)
+      ? `Tipo de pedido: ${getOrderTypeLabel(snapshot.order.orderType)}`
       : null,
     snapshot.totals.vTotTrib > 0
       ? `Tributos aproximados (Lei 12.741): R$ ${Number(snapshot.totals.vTotTrib || 0).toFixed(2)}`

@@ -2,19 +2,24 @@
 
 import { CalendarClock, PackageCheck, type LucideIcon } from 'lucide-react'
 import type { OrderType } from '@/lib/types'
+import {
+  getOrderTypeDescription,
+  getOrderTypeFullLabel,
+  getOrderTypeLabel as getCentralOrderTypeLabel,
+} from '@/lib/orders/order-type'
 import { cn } from '@/lib/utils'
 
 const orderTypeOptions = [
   {
     value: 'PRE_VENDA',
-    label: 'Pedido Pre-venda',
-    description: 'Pedido com entrega futura. Requer endereco de entrega.',
+    label: getOrderTypeFullLabel('PRE_VENDA'),
+    description: getOrderTypeDescription('PRE_VENDA'),
     icon: CalendarClock,
   },
   {
     value: 'PRONTA_ENTREGA',
-    label: 'Pronta Entrega',
-    description: 'Pedido entregue diretamente pelo representante. Nao requer endereco de entrega.',
+    label: getOrderTypeFullLabel('PRONTA_ENTREGA'),
+    description: getOrderTypeDescription('PRONTA_ENTREGA'),
     icon: PackageCheck,
   },
 ] satisfies Array<{
@@ -25,7 +30,7 @@ const orderTypeOptions = [
 }>
 
 export function getOrderTypeLabel(value?: OrderType | null) {
-  return orderTypeOptions.find((option) => option.value === value)?.label || 'Pedido Pre-venda'
+  return getCentralOrderTypeLabel(value)
 }
 
 export function OrderTypeSelector({

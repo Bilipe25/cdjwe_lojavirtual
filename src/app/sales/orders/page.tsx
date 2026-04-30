@@ -8,6 +8,7 @@ import {
   SalesStatusBadge,
 } from '@/components/sales/sales-ui'
 import { Button } from '@/components/ui/button'
+import { getOrderTypeLabel } from '@/lib/orders/order-type'
 
 type OrdersSearchParams = {
   page?: string
@@ -15,10 +16,6 @@ type OrdersSearchParams = {
 
 function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-}
-
-function formatOrderType(value?: string | null) {
-  return value === 'PRONTA_ENTREGA' ? 'Pronta entrega' : 'Pre-venda'
 }
 
 function normalizePage(value?: string) {
@@ -71,7 +68,7 @@ export default async function SalesOrdersPage({
                     <>
                       <SalesStatusBadge>{order.status}</SalesStatusBadge>
                       <SalesStatusBadge tone={order.order_type === 'PRONTA_ENTREGA' ? 'success' : 'neutral'}>
-                        {formatOrderType(order.order_type)}
+                        {getOrderTypeLabel(order.order_type)}
                       </SalesStatusBadge>
                     </>
                   }

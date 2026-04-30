@@ -34,6 +34,7 @@ import { generateOrderReceiptPDF } from '@/lib/utils/pdf-order-generator'
 import { OrderItemPriceDetails } from '@/components/orders/order-item-price-details'
 import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
 import { OrderPaymentSummaryCard } from '@/components/orders/OrderPaymentSummaryCard'
+import { getOrderDeliverySummary, getOrderTypeLabel, isReadyDeliveryOrderType } from '@/lib/orders/order-type'
 
 type OrderDetailRecord = Order & {
     store?: Record<string, unknown> | null
@@ -192,6 +193,9 @@ export default function OrderDetailPage() {
     const currentStepIndex = statusOrder.indexOf(order.status as OrderStatus)
     const isCancelled = order.status === 'cancelled'
     const paymentDisplay = getOrderPaymentDisplay(order)
+    const orderTypeLabel = getOrderTypeLabel(order.order_type)
+    const deliverySummary = getOrderDeliverySummary(order.order_type, order.shipping_address)
+    const isReadyDelivery = isReadyDeliveryOrderType(order.order_type)
     const couponDiscountAmount = Number(order.coupon_discount_amount || 0)
     const paymentDiscountAmount = Math.max(0, Number(order.discount_amount || 0) - couponDiscountAmount)
 
@@ -302,10 +306,15 @@ export default function OrderDetailPage() {
                             Realizado em {format(new Date(order.created_at), "dd 'de' MMMM 'de' yyyy, HH:mm", { locale: ptBR })}
                         </p>
                     </div>
-                    <Badge className={`text-xs border ${config.color} w-fit`}>
-                        <StatusIcon className="h-3.5 w-3.5 mr-1" />
-                        {config.label}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge className={`text-xs border ${config.color} w-fit`}>
+                            <StatusIcon className="h-3.5 w-3.5 mr-1" />
+                            {config.label}
+                        </Badge>
+                        <Badge className={`text-xs border w-fit ${isReadyDelivery ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                            {orderTypeLabel}
+                        </Badge>
+                    </div>
                 </div>
             </motion.div>
 
@@ -486,6 +495,21 @@ export default function OrderDetailPage() {
                     {paymentDisplay.hasSnapshot && (
                         <OrderPaymentSummaryCard order={order} title="Pagamento" />
                     )}
+
+                    <Card className="glass-card border-0">
+                        <CardHeader className="pb-3">
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <Truck className="h-4 w-4 text-bronze" />
+                                Entrega
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <Badge className={`mb-3 text-[11px] border ${isReadyDelivery ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                                {orderTypeLabel}
+                            </Badge>
+                            <p className="text-sm leading-6 text-muted-foreground">{deliverySummary}</p>
+                        </CardContent>
+                    </Card>
 
                     {/* Notes */}
                     {order.notes && (

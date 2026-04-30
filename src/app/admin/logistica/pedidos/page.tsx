@@ -580,6 +580,10 @@ export default function PedidosParaRotaPage() {
                 </div>
             )}
 
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-xs leading-relaxed text-indigo-900">
+                Esta fila mostra apenas pedidos Pre-venda aprovados ou em producao. Pedidos Pronta entrega sao atendidos diretamente pelo representante e nao entram em roteirizacao.
+            </div>
+
             {loading ? (
                 <div className="space-y-2">
                     {[...Array(6)].map((_, index) => <Skeleton key={index} className="h-14 rounded-xl" />)}

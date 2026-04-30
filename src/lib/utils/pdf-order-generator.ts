@@ -1,7 +1,7 @@
 import pdfMake from 'pdfmake/build/pdfmake'
 import pdfFonts from 'pdfmake/build/vfs_fonts'
 import { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces'
-import type { OrderItem, OrderStatus, SystemSettings } from '@/lib/types'
+import type { OrderItem, OrderStatus, OrderType, SystemSettings } from '@/lib/types'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getBase64ImageFromURL } from '@/lib/utils'
@@ -10,6 +10,7 @@ import {
     getOrderItemCommunicationPricing,
 } from '@/lib/orders/order-communication'
 import { getOrderPaymentDisplay } from '@/lib/orders/order-payment-display'
+import { getOrderDeliverySummary, getOrderTypeLabel } from '@/lib/orders/order-type'
 
 const pdfFontsConfig = pdfFonts as unknown as { pdfMake?: { vfs?: unknown }; vfs?: unknown }
 const pdfMakeConfig = pdfMake as unknown as {
@@ -34,12 +35,14 @@ if (pdfFonts && pdfFontsConfig.pdfMake) {
 type ReceiptOrder = {
     id: string
     order_number: string
+    order_type?: OrderType | string | null
     status: OrderStatus
     created_at: string
     subtotal: number
     discount_amount: number
     total: number
     notes?: string | null
+    shipping_address?: string | null
     store?: {
         company_name?: string | null
         cnpj?: string | null
@@ -191,6 +194,8 @@ export async function generateOrderReceiptPDF(
 ) {
     const logoBase64 = settings?.logo_url ? await getBase64ImageFromURL(settings.logo_url) : null
     const paymentDisplay = getOrderPaymentDisplay(order)
+    const orderTypeLabel = getOrderTypeLabel(order.order_type)
+    const deliverySummary = getOrderDeliverySummary(order.order_type, order.shipping_address)
     const couponDiscountAmount = Number(order.coupon_discount_amount || 0)
     const totalDiscountAmount = Number(order.discount_amount || 0)
     const paymentDiscountAmount = Math.max(0, totalDiscountAmount - couponDiscountAmount)
@@ -423,9 +428,14 @@ export async function generateOrderReceiptPDF(
                         createInfoCell('Telefone', buildCustomerPhone(order)),
                     ],
                     [
-                        createInfoCell('Endereco', buildCustomerAddress(order), { colSpan: 2 }),
+                        createInfoCell('Endereco cadastral', buildCustomerAddress(order), { colSpan: 2 }),
                         {},
                         createInfoCell('Representante', buildRepresentative(order)),
+                    ],
+                    [
+                        createInfoCell('Tipo do pedido', orderTypeLabel),
+                        createInfoCell('Entrega', deliverySummary, { colSpan: 2 }),
+                        {},
                     ],
                 ],
             },
