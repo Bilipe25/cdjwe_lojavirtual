@@ -212,12 +212,41 @@ function formatIssues(error: z.ZodError) {
 
 
 export function getActionErrorMessage(error: unknown, fallback = 'Unexpected action validation error.') {
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return error
+  }
+
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message
   }
 
   return fallback
 }
+
+export function actionError(error: unknown, fallback: string, errorCode = 'ACTION_ERROR') {
+  return {
+    success: false as const,
+    error: getActionErrorMessage(error, fallback),
+    errorCode,
+  }
+}
+
+export function normalizeActionResult<T>(result: T): T {
+  if (
+    result &&
+    typeof result === 'object' &&
+    'error' in result &&
+    !('success' in result)
+  ) {
+    return {
+      success: false,
+      ...(result as Record<string, unknown>),
+    } as T
+  }
+
+  return result
+}
+
 export function parseWithSchema<T extends z.ZodTypeAny>(
   schema: T,
   input: unknown,

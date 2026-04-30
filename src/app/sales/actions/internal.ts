@@ -238,6 +238,157 @@ const DEFAULT_ORDERS_PAGE_SIZE = 20
 const DEFAULT_QUOTES_PAGE_SIZE = 20
 const DEFAULT_VISITS_PAGE_SIZE = 20
 const DEFAULT_PRODUCTS_PAGE_SIZE = 24
+const DASHBOARD_CACHE_REVALIDATE_SECONDS = 45
+const LIST_CACHE_REVALIDATE_SECONDS = 60
+const BOOTSTRAP_CACHE_REVALIDATE_SECONDS = 120
+
+const REPRESENTATIVE_STORE_BOOTSTRAP_SELECT = `
+            id,
+            profile_id,
+            customer_code,
+            company_name,
+            trade_name,
+            cnpj,
+            state_registration,
+            address,
+            city,
+            state,
+            zip_code,
+            region,
+            phone,
+            email,
+            notes,
+            customer_type_id,
+            representative_id,
+            is_active,
+            created_at,
+            updated_at,
+            customer_type:customer_types(id, name, is_active, sort_order),
+            profile:profiles!stores_profile_id_fkey(id, full_name, email, phone, role, status),
+            addresses:store_addresses(id, store_id, title, address, number, complement, neighborhood, city, state, zip_code, is_main),
+            price_table_links:store_price_tables(
+                price_table:price_tables(id, name, description, is_active)
+            )
+        `
+
+const REPRESENTATIVE_ORDER_LIST_SELECT = `
+            id,
+            order_number,
+            store_id,
+            profile_id,
+            created_by_profile_id,
+            sales_channel,
+            order_type,
+            status,
+            payment_status,
+            subtotal,
+            discount_amount,
+            total,
+            created_at,
+            updated_at,
+            store:stores(id, customer_code, company_name, trade_name)
+        `
+
+const REPRESENTATIVE_ORDER_DETAIL_SELECT = `
+            id,
+            order_number,
+            store_id,
+            profile_id,
+            created_by_profile_id,
+            sales_channel,
+            order_type,
+            status,
+            payment_status,
+            payment_method_id,
+            payment_condition_id,
+            payment_rule_id,
+            payment_method_condition_id,
+            payment_method_code,
+            payment_method_name,
+            payment_condition_name,
+            payment_condition_description,
+            payment_installments,
+            payment_discount_percentage,
+            payment_surcharge_percentage,
+            negotiation_discount_percentage,
+            negotiation_discount_amount,
+            negotiation_surcharge_amount,
+            negotiation_reason,
+            subtotal,
+            discount_amount,
+            coupon_id,
+            coupon_code,
+            coupon_discount_type,
+            coupon_discount_value,
+            coupon_discount_amount,
+            total,
+            notes,
+            shipping_address,
+            estimated_delivery,
+            created_at,
+            updated_at,
+            store:stores(id, customer_code, company_name, trade_name, cnpj),
+            payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage),
+            items:order_items(id, order_id, product_variant_id, size_option_id, product_name, fabric_name, color_name, size, size_name, quantity, unit_price, product_price, size_price, variation_price, final_price, subtotal)
+        `
+
+const REPRESENTATIVE_QUOTE_LIST_SELECT = `
+            id,
+            quote_number,
+            store_id,
+            customer_profile_id,
+            representative_id,
+            price_table_id,
+            status,
+            subtotal,
+            total,
+            converted_order_id,
+            company_name_snapshot,
+            created_at,
+            updated_at,
+            store:stores(id, customer_code, company_name, trade_name)
+        `
+
+const REPRESENTATIVE_QUOTE_DETAIL_SELECT = `
+            id,
+            quote_number,
+            store_id,
+            customer_profile_id,
+            representative_id,
+            price_table_id,
+            status,
+            payment_method_id,
+            payment_condition_id,
+            payment_rule_id,
+            payment_method_condition_id,
+            payment_method_code,
+            payment_method_name,
+            payment_condition_name,
+            payment_condition_description,
+            payment_installments,
+            payment_discount_percentage,
+            payment_surcharge_percentage,
+            subtotal,
+            payment_discount_amount,
+            negotiation_discount_percentage,
+            negotiation_discount_amount,
+            negotiation_surcharge_amount,
+            total,
+            notes,
+            shipping_address,
+            negotiation_reason,
+            converted_order_id,
+            customer_name_snapshot,
+            customer_code_snapshot,
+            company_name_snapshot,
+            price_table_name_snapshot,
+            created_at,
+            updated_at,
+            store:stores(id, customer_code, company_name, trade_name, cnpj),
+            customer_profile:profiles!sales_quotes_customer_profile_id_fkey(id, full_name, email, phone),
+            representative:profiles!sales_quotes_representative_id_fkey(id, full_name, email, phone),
+            items:sales_quote_items(id, quote_id, product_variant_id, size_option_id, product_name, fabric_name, color_name, size, size_name, quantity, unit_price, product_price, size_price, variation_price, final_price, subtotal, created_at, product_variant:product_variants(product_id, image_url))
+        `
 
 type RepresentativeCacheSegment =
     | 'customers'
@@ -504,7 +655,15 @@ function revalidateRepresentativeSegments(
     const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
     const dedupedSegments = Array.from(new Set(segments))
     dedupedSegments.forEach((segment) => {
-        revalidateTag(getRepresentativeCacheTag(scopeKey, segment), 'max')
+        const tag = getRepresentativeCacheTag(scopeKey, segment)
+        try {
+            revalidateTag(tag, 'max')
+        } catch (error) {
+            console.warn('[sales] Falha ao revalidar cache do representante.', {
+                tag,
+                error: error instanceof Error ? error.message : String(error),
+            })
+        }
     })
 }
 
@@ -537,7 +696,7 @@ async function requireRepresentativeContext() {
 
     const { data: profile } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, full_name, email, phone, role, status, created_at, updated_at')
         .eq('id', user.id)
         .single()
 
@@ -832,11 +991,15 @@ async function loadStoreWithinRepresentativeScope(
     storeId: string,
     representativeId?: string | null
 ) {
-    const { data: store } = await admin
+    const { data: store, error } = await admin
         .from('stores')
         .select('id, profile_id, representative_id, state, city')
         .eq('id', storeId)
         .maybeSingle()
+
+    if (error) {
+        throw new Error(error.message || 'Falha ao validar acesso ao cliente.')
+    }
 
     if (!store) return null
     if (!representativeId) return store
@@ -846,17 +1009,12 @@ async function loadStoreWithinRepresentativeScope(
         : null
 }
 
-async function getRepresentativeCustomersInternal(representativeId?: string | null) {
+async function getRepresentativeCustomersInternal(
+    representativeId?: string | null,
+    options: { includeLastOrder?: boolean } = {}
+) {
     const admin = getAdminClient()
-    const storeSelect = `
-            *,
-            customer_type:customer_types(*),
-            profile:profiles!stores_profile_id_fkey(*),
-            addresses:store_addresses(*),
-            price_table_links:store_price_tables(
-                price_table:price_tables(*)
-            )
-        `
+    const includeLastOrder = options.includeLastOrder ?? true
 
     let stores: Array<Store & {
         profile?: Profile | null
@@ -867,20 +1025,20 @@ async function getRepresentativeCustomersInternal(representativeId?: string | nu
     if (!representativeId) {
         const { data: allStores } = await admin
             .from('stores')
-            .select(storeSelect)
+            .select(REPRESENTATIVE_STORE_BOOTSTRAP_SELECT)
             .order('company_name')
-        stores = (allStores || []) as typeof stores
+        stores = (allStores || []) as unknown as typeof stores
     } else {
         const accessContext = await getRepresentativeCustomerAccessContext(admin, representativeId)
         const [assignedStoresRes, adminPortfolioStoresRes] = await Promise.all([
             admin
                 .from('stores')
-                .select(storeSelect)
+                .select(REPRESENTATIVE_STORE_BOOTSTRAP_SELECT)
                 .eq('representative_id', representativeId)
                 .order('company_name'),
             admin
                 .from('stores')
-                .select(storeSelect)
+                .select(REPRESENTATIVE_STORE_BOOTSTRAP_SELECT)
                 .is('representative_id', null)
                 .order('company_name'),
         ])
@@ -896,7 +1054,7 @@ async function getRepresentativeCustomersInternal(representativeId?: string | nu
         const storeMap = new Map<string, (typeof stores)[number]>()
 
         ;(assignedStoresRes.data || []).forEach((store) => {
-            storeMap.set(store.id, store as (typeof stores)[number])
+            storeMap.set(store.id, store as unknown as (typeof stores)[number])
         })
 
         ;(adminPortfolioStoresRes.data || []).forEach((store) => {
@@ -905,7 +1063,7 @@ async function getRepresentativeCustomersInternal(representativeId?: string | nu
                 !storeMap.has(store.id) &&
                 canRepresentativeAccessStore(storeRow, representativeId, accessContext)
             ) {
-                storeMap.set(store.id, store as (typeof stores)[number])
+                storeMap.set(store.id, store as unknown as (typeof stores)[number])
             }
         })
 
@@ -925,7 +1083,7 @@ async function getRepresentativeCustomersInternal(representativeId?: string | nu
     const storeIds = normalizedStores.map((store) => store.id)
     const lastOrders = new Map<string, RepresentativeBootstrapCustomer['last_order']>()
 
-    if (storeIds.length > 0) {
+    if (includeLastOrder && storeIds.length > 0) {
         const { data: orders } = await admin
             .from('orders')
             .select('id, order_number, created_at, total, status, store_id')
@@ -949,6 +1107,49 @@ async function getRepresentativeCustomersInternal(representativeId?: string | nu
         ...store,
         last_order: lastOrders.get(store.id) || null,
     })) as RepresentativeBootstrapCustomer[]
+}
+
+async function countRepresentativeCustomersInternal(
+    admin: ReturnType<typeof getAdminClient>,
+    representativeId?: string | null
+) {
+    if (!representativeId) {
+        const { count, error } = await admin
+            .from('stores')
+            .select('id', { count: 'exact', head: true })
+
+        if (error) {
+            throw new Error(error.message || 'Falha ao contar clientes do representante.')
+        }
+
+        return count || 0
+    }
+
+    const accessContext = await getRepresentativeCustomerAccessContext(admin, representativeId)
+    const [assignedCountRes, unassignedStoresRes] = await Promise.all([
+        admin
+            .from('stores')
+            .select('id', { count: 'exact', head: true })
+            .eq('representative_id', representativeId),
+        admin
+            .from('stores')
+            .select('id, representative_id, state, city')
+            .is('representative_id', null),
+    ])
+
+    if (assignedCountRes.error) {
+        throw new Error(assignedCountRes.error.message || 'Falha ao contar clientes vinculados ao representante.')
+    }
+
+    if (unassignedStoresRes.error) {
+        throw new Error(unassignedStoresRes.error.message || 'Falha ao contar carteira geral disponivel.')
+    }
+
+    const accessibleUnassignedCount = (unassignedStoresRes.data || []).filter((store) =>
+        canRepresentativeAccessStore(store as RepresentativeStoreAccessRow, representativeId, accessContext)
+    ).length
+
+    return (assignedCountRes.count || 0) + accessibleUnassignedCount
 }
 
 async function getRepresentativeCatalogProductsPageInternal(
@@ -1030,23 +1231,27 @@ export async function getRepresentativeShellData() {
 
 export async function getRepresentativeDashboardData() {
     const { profile, admin, scopeRepresentativeId } = await requireRepresentativeContext()
+    const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
 
-    const recentOrdersQuery = admin
-        .from('orders')
-        .select(`
+    const loadDashboard = unstable_cache(
+        async () => {
+            const recentOrdersQuery = admin
+                .from('orders')
+                .select(`
                 id,
                 order_number,
                 created_at,
                 total,
                 status,
+                order_type,
                 store:stores(id, customer_code, company_name, trade_name)
             `)
-        .order('created_at', { ascending: false })
-        .limit(5)
+                .order('created_at', { ascending: false })
+                .limit(5)
 
-    const recentQuotesQuery = admin
-        .from('sales_quotes')
-        .select(`
+            const recentQuotesQuery = admin
+                .from('sales_quotes')
+                .select(`
                 id,
                 quote_number,
                 created_at,
@@ -1054,41 +1259,60 @@ export async function getRepresentativeDashboardData() {
                 status,
                 store:stores(id, customer_code, company_name, trade_name)
             `)
-        .order('created_at', { ascending: false })
-        .limit(5)
+                .order('created_at', { ascending: false })
+                .limit(5)
 
-    const visitsCountQuery = admin.from('sales_visits').select('id', { count: 'exact', head: true })
-    const ordersCountQuery = admin.from('orders').select('id', { count: 'exact', head: true })
-    const quotesCountQuery = admin.from('sales_quotes').select('id', { count: 'exact', head: true })
+            const visitsCountQuery = admin.from('sales_visits').select('id', { count: 'exact', head: true })
+            const ordersCountQuery = admin.from('orders').select('id', { count: 'exact', head: true })
+            const quotesCountQuery = admin.from('sales_quotes').select('id', { count: 'exact', head: true })
 
-    if (scopeRepresentativeId) {
-        recentOrdersQuery.eq('created_by_profile_id', scopeRepresentativeId)
-        recentQuotesQuery.eq('representative_id', scopeRepresentativeId)
-        visitsCountQuery.eq('representative_id', scopeRepresentativeId)
-        ordersCountQuery.eq('created_by_profile_id', scopeRepresentativeId)
-        quotesCountQuery.eq('representative_id', scopeRepresentativeId)
-    }
+            if (scopeRepresentativeId) {
+                recentOrdersQuery.eq('created_by_profile_id', scopeRepresentativeId)
+                recentQuotesQuery.eq('representative_id', scopeRepresentativeId)
+                visitsCountQuery.eq('representative_id', scopeRepresentativeId)
+                ordersCountQuery.eq('created_by_profile_id', scopeRepresentativeId)
+                quotesCountQuery.eq('representative_id', scopeRepresentativeId)
+            }
 
-    const [customers, recentOrdersRes, recentQuotesRes, visitsRes, ordersCountRes, quotesCountRes] = await Promise.all([
-        getRepresentativeCustomersInternal(scopeRepresentativeId),
-        recentOrdersQuery,
-        recentQuotesQuery,
-        visitsCountQuery,
-        ordersCountQuery,
-        quotesCountQuery,
-    ])
+            const [
+                customersCount,
+                recentOrdersRes,
+                recentQuotesRes,
+                visitsRes,
+                ordersCountRes,
+                quotesCountRes,
+            ] = await Promise.all([
+                countRepresentativeCustomersInternal(admin, scopeRepresentativeId),
+                recentOrdersQuery,
+                recentQuotesQuery,
+                visitsCountQuery,
+                ordersCountQuery,
+                quotesCountQuery,
+            ])
+
+            return {
+                metrics: {
+                    customers: customersCount,
+                    orders: ordersCountRes.count || 0,
+                    quotes: quotesCountRes.count || 0,
+                    visits: visitsRes.count || 0,
+                },
+                recentOrders: recentOrdersRes.data || [],
+                recentQuotes: recentQuotesRes.data || [],
+            }
+        },
+        ['rep-dashboard-v2', scopeKey],
+        {
+            tags: [getRepresentativeCacheTag(scopeKey, 'dashboard')],
+            revalidate: DASHBOARD_CACHE_REVALIDATE_SECONDS,
+        }
+    )
+
+    const dashboard = await loadDashboard()
 
     return {
         profile,
-        metrics: {
-            customers: customers.length,
-            orders: ordersCountRes.count || 0,
-            quotes: quotesCountRes.count || 0,
-            visits: visitsRes.count || 0,
-        },
-        recentOrders: recentOrdersRes.data || [],
-        recentQuotes: recentQuotesRes.data || [],
-        customers,
+        ...dashboard,
     }
 }
 
@@ -1096,11 +1320,11 @@ export async function getRepresentativeCustomersData() {
     const { scopeRepresentativeId } = await requireRepresentativeContext()
     const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
     const loadCustomers = unstable_cache(
-        async () => getRepresentativeCustomersInternal(scopeRepresentativeId),
-        ['rep-customers-list-v1', scopeKey],
+        async () => getRepresentativeCustomersInternal(scopeRepresentativeId, { includeLastOrder: false }),
+        ['rep-customers-list-v2', scopeKey],
         {
             tags: [getRepresentativeCacheTag(scopeKey, 'customers')],
-            revalidate: 120,
+            revalidate: BOOTSTRAP_CACHE_REVALIDATE_SECONDS,
         }
     )
 
@@ -1360,7 +1584,7 @@ export async function getRepresentativeCustomersPageData(
         ],
         {
             tags: [getRepresentativeCacheTag(scopeKey, 'customers')],
-            revalidate: 120,
+            revalidate: BOOTSTRAP_CACHE_REVALIDATE_SECONDS,
         }
     )
 
@@ -1371,12 +1595,7 @@ export async function getRepresentativeOrdersData() {
     const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
     const query = admin
         .from('orders')
-        .select(`
-            *,
-            store:stores(*),
-            profile:profiles!orders_profile_id_fkey(*),
-            created_by_profile:profiles!orders_created_by_profile_id_fkey(id, full_name, role, email, phone, status, created_at, updated_at)
-        `)
+        .select(REPRESENTATIVE_ORDER_LIST_SELECT)
         .order('created_at', { ascending: false })
 
     if (scopeRepresentativeId) {
@@ -1384,7 +1603,7 @@ export async function getRepresentativeOrdersData() {
     }
 
     const { data } = await query
-    return (data || []) as Order[]
+    return (data || []) as unknown as Order[]
 }
 
 export async function getRepresentativeOrdersPageData(input: RepresentativeOrdersPageInput = {}) {
@@ -1399,12 +1618,7 @@ export async function getRepresentativeOrdersPageData(input: RepresentativeOrder
             const query = admin
                 .from('orders')
                 .select(
-                    `
-                        *,
-                        store:stores(*),
-                        profile:profiles!orders_profile_id_fkey(*),
-                        created_by_profile:profiles!orders_created_by_profile_id_fkey(id, full_name, role, email, phone, status, created_at, updated_at)
-                    `,
+                    REPRESENTATIVE_ORDER_LIST_SELECT,
                     { count: 'exact' }
                 )
                 .order('created_at', { ascending: false })
@@ -1422,17 +1636,17 @@ export async function getRepresentativeOrdersPageData(input: RepresentativeOrder
             const total = count || 0
             const totalPages = Math.max(1, Math.ceil(total / pageSize))
             return {
-                items: (data || []) as Order[],
+                items: (data || []) as unknown as Order[],
                 total,
                 page: Math.min(page, totalPages),
                 pageSize,
                 totalPages,
             } satisfies PaginatedResult<Order>
         },
-        ['rep-orders-page-v1', scopeKey, String(page), String(pageSize)],
+        ['rep-orders-page-v2', scopeKey, String(page), String(pageSize)],
         {
             tags: [getRepresentativeCacheTag(scopeKey, 'orders')],
-            revalidate: 60,
+            revalidate: LIST_CACHE_REVALIDATE_SECONDS,
         }
     )
 
@@ -1443,14 +1657,7 @@ export async function getRepresentativeOrderDetail(orderId: string) {
     const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
     const query = admin
         .from('orders')
-        .select(`
-            *,
-            store:stores(*),
-            profile:profiles!orders_profile_id_fkey(*),
-            created_by_profile:profiles!orders_created_by_profile_id_fkey(id, full_name, role, email, phone, status, created_at, updated_at),
-            items:order_items(*),
-            status_history:order_status_history(*, changed_by_profile:profiles!order_status_history_changed_by_fkey(id, full_name, role))
-        `)
+        .select(REPRESENTATIVE_ORDER_DETAIL_SELECT)
         .eq('id', orderId)
 
     if (scopeRepresentativeId) {
@@ -1458,7 +1665,7 @@ export async function getRepresentativeOrderDetail(orderId: string) {
     }
 
     const { data } = await query.single()
-    return (data || null) as Order | null
+    return (data || null) as unknown as Order | null
 }
 
 export async function getRepresentativeOrderCompletionData(orderId: string) {
@@ -1468,9 +1675,34 @@ export async function getRepresentativeOrderCompletionData(orderId: string) {
         const orderQuery = admin
             .from('orders')
             .select(`
-                *,
-                store:stores(*),
-                profile:profiles!orders_profile_id_fkey(*),
+                id,
+                order_number,
+                store_id,
+                profile_id,
+                created_by_profile_id,
+                sales_channel,
+                order_type,
+                status,
+                payment_status,
+                payment_method_code,
+                payment_method_name,
+                payment_condition_name,
+                payment_condition_description,
+                payment_installments,
+                payment_discount_percentage,
+                payment_surcharge_percentage,
+                subtotal,
+                discount_amount,
+                coupon_code,
+                coupon_discount_type,
+                coupon_discount_value,
+                coupon_discount_amount,
+                total,
+                notes,
+                shipping_address,
+                created_at,
+                updated_at,
+                store:stores(id, customer_code, company_name, trade_name),
                 payment_condition:payment_conditions(name, description, installments, discount_percentage, surcharge_percentage)
             `)
             .eq('id', orderId)
@@ -1486,7 +1718,7 @@ export async function getRepresentativeOrderCompletionData(orderId: string) {
 
         const { data: itemsData, error: itemsError } = await admin
             .from('order_items')
-            .select('*')
+            .select('id, order_id, product_variant_id, size_option_id, product_name, fabric_name, color_name, size, size_name, quantity, unit_price, subtotal')
             .eq('order_id', orderId)
             .order('created_at')
 
@@ -1502,7 +1734,7 @@ export async function getRepresentativeOrderCompletionData(orderId: string) {
 
         return {
             success: true,
-            order: orderData as Order,
+            order: orderData as unknown as Order,
             items: (itemsData || []) as OrderItem[],
             settings: (settingsData || null) as SystemSettings | null,
         }
@@ -1515,13 +1747,7 @@ export async function getRepresentativeQuotesData() {
     const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
     const query = admin
         .from('sales_quotes')
-        .select(`
-            *,
-            store:stores(*),
-            customer_profile:profiles!sales_quotes_customer_profile_id_fkey(*),
-            representative:profiles!sales_quotes_representative_id_fkey(*),
-            items:sales_quote_items(*, product_variant:product_variants(product_id, image_url))
-        `)
+        .select(REPRESENTATIVE_QUOTE_LIST_SELECT)
         .order('created_at', { ascending: false })
 
     if (scopeRepresentativeId) {
@@ -1529,7 +1755,7 @@ export async function getRepresentativeQuotesData() {
     }
 
     const { data } = await query
-    return (data || []) as SalesQuote[]
+    return (data || []) as unknown as SalesQuote[]
 }
 
 export async function getRepresentativeQuotesPageData(
@@ -1548,13 +1774,7 @@ export async function getRepresentativeQuotesPageData(
             const pageQuery = admin
                 .from('sales_quotes')
                 .select(
-                    `
-                        *,
-                        store:stores(*),
-                        customer_profile:profiles!sales_quotes_customer_profile_id_fkey(*),
-                        representative:profiles!sales_quotes_representative_id_fkey(*),
-                        items:sales_quote_items(*, product_variant:product_variants(product_id, image_url))
-                    `,
+                    REPRESENTATIVE_QUOTE_LIST_SELECT,
                     { count: 'exact' }
                 )
                 .order('created_at', { ascending: false })
@@ -1668,7 +1888,7 @@ export async function getRepresentativeQuotesPageData(
             }
 
             return {
-                items: (data || []) as SalesQuote[],
+                items: (data || []) as unknown as SalesQuote[],
                 total,
                 page: Math.min(page, totalPages),
                 pageSize,
@@ -1679,7 +1899,7 @@ export async function getRepresentativeQuotesPageData(
             } satisfies RepresentativeQuotesPageData
         },
         [
-            'rep-quotes-page-v1',
+            'rep-quotes-page-v2',
             scopeKey,
             String(page),
             String(pageSize),
@@ -1688,7 +1908,7 @@ export async function getRepresentativeQuotesPageData(
         ],
         {
             tags: [getRepresentativeCacheTag(scopeKey, 'quotes')],
-            revalidate: 60,
+            revalidate: LIST_CACHE_REVALIDATE_SECONDS,
         }
     )
 
@@ -1699,13 +1919,7 @@ export async function getRepresentativeQuoteDetail(quoteId: string) {
     const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
     const query = admin
         .from('sales_quotes')
-        .select(`
-            *,
-            store:stores(*),
-            customer_profile:profiles!sales_quotes_customer_profile_id_fkey(*),
-            representative:profiles!sales_quotes_representative_id_fkey(*),
-            items:sales_quote_items(*, product_variant:product_variants(product_id, image_url))
-        `)
+        .select(REPRESENTATIVE_QUOTE_DETAIL_SELECT)
         .eq('id', quoteId)
 
     if (scopeRepresentativeId) {
@@ -1713,7 +1927,7 @@ export async function getRepresentativeQuoteDetail(quoteId: string) {
     }
 
     const { data } = await query.single()
-    return (data || null) as SalesQuote | null
+    return (data || null) as unknown as SalesQuote | null
 }
 
 export async function getRepresentativeQuoteTimeline(quoteId: string) {
@@ -1843,16 +2057,22 @@ export async function updateRepresentativeQuoteStatusAction(
             return { success: true, status: targetStatus }
         }
 
-        const { error: updateError } = await admin
+        const updateStatusQuery = admin
             .from('sales_quotes')
             .update({ status: targetStatus })
             .eq('id', quoteId)
+
+        if (scopeRepresentativeId) {
+            updateStatusQuery.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { error: updateError } = await updateStatusQuery
 
         if (updateError) {
             return { error: updateError.message || 'Falha ao atualizar status do orcamento.' }
         }
 
-        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'dashboard'])
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'customers', 'dashboard'])
         return { success: true, status: targetStatus }
     } catch (error) {
         return { error: error instanceof Error ? error.message : 'Falha ao atualizar status do orcamento.' }
@@ -2013,7 +2233,7 @@ export async function getRepresentativeVisitsPageData(
         ],
         {
             tags: [getRepresentativeCacheTag(scopeKey, 'visits')],
-            revalidate: 60,
+            revalidate: LIST_CACHE_REVALIDATE_SECONDS,
         }
     )
 
@@ -2031,7 +2251,7 @@ export async function getRepresentativeOrderBuilderData() {
 
             const priceTablesQuery = admin
                 .from('price_tables')
-                .select('*')
+                .select('id, name, description, is_active')
                 .eq('is_active', true)
                 .order('name', { ascending: true })
 
@@ -2040,16 +2260,20 @@ export async function getRepresentativeOrderBuilderData() {
             }
 
             const [customers, initialProductsPage, categoriesRes, priceTablesRes, customerTypesRes] = await Promise.all([
-                getRepresentativeCustomersInternal(scopeRepresentativeId),
+                getRepresentativeCustomersInternal(scopeRepresentativeId, { includeLastOrder: false }),
                 getRepresentativeCatalogProductsPageInternal(admin, {
                     page: 1,
                     pageSize: DEFAULT_PRODUCTS_PAGE_SIZE,
                 }),
-                admin.from('categories').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+                admin
+                    .from('categories')
+                    .select('id, name, slug, description, image_url, parent_id, sort_order, is_active, created_at, updated_at')
+                    .eq('is_active', true)
+                    .order('sort_order', { ascending: true }),
                 priceTablesQuery,
                 admin
                     .from('customer_types')
-                    .select('*')
+                    .select('id, name, description, is_active, sort_order, created_at, updated_at')
                     .order('is_active', { ascending: false })
                     .order('sort_order', { ascending: true }),
             ])
@@ -2062,14 +2286,14 @@ export async function getRepresentativeOrderBuilderData() {
                 customerTypes: (customerTypesRes.data || []) as CustomerType[],
             }
         },
-        ['rep-builder-bootstrap-v1', scopeKey],
+        ['rep-builder-bootstrap-v2', scopeKey],
         {
             tags: [
                 getRepresentativeCacheTag(scopeKey, 'builder'),
                 getRepresentativeCacheTag(scopeKey, 'customers'),
                 getRepresentativeCacheTag(scopeKey, 'products'),
             ],
-            revalidate: 120,
+            revalidate: BOOTSTRAP_CACHE_REVALIDATE_SECONDS,
         }
     )
 
@@ -2096,7 +2320,7 @@ export async function getRepresentativeCatalogProductsPageAction(
         ['rep-products-page-v1', scopeKey, String(page), String(pageSize), search, categoryId || 'all'],
         {
             tags: [getRepresentativeCacheTag(scopeKey, 'products')],
-            revalidate: 60,
+            revalidate: LIST_CACHE_REVALIDATE_SECONDS,
         }
     )
 
@@ -2672,7 +2896,7 @@ async function persistRepresentativeDocument(
             if (payload.selectedAddressId) {
                 const { data: address } = await admin
                     .from('store_addresses')
-                    .select('*')
+                    .select('title, address, number, complement, neighborhood, city, state, zip_code')
                     .eq('id', payload.selectedAddressId)
                     .eq('store_id', store.id)
                     .maybeSingle()
@@ -2680,7 +2904,7 @@ async function persistRepresentativeDocument(
             } else {
                 const { data: address } = await admin
                     .from('store_addresses')
-                    .select('*')
+                    .select('title, address, number, complement, neighborhood, city, state, zip_code')
                     .eq('store_id', store.id)
                     .eq('is_main', true)
                     .maybeSingle()
@@ -2839,7 +3063,13 @@ async function persistRepresentativeDocument(
         if (payload.quoteId) {
             const quoteQuery = admin
                 .from('sales_quotes')
-                .select('id, quote_number, status, representative_id, items:sales_quote_items(*)')
+                .select(`
+                    id,
+                    quote_number,
+                    status,
+                    representative_id,
+                    items:sales_quote_items(product_variant_id, size_option_id, product_name, fabric_name, color_name, size, size_name, quantity, unit_price, product_price, size_price, variation_price, final_price, subtotal)
+                `)
                 .eq('id', payload.quoteId)
 
             if (scopeRepresentativeId) {
@@ -2890,7 +3120,7 @@ async function persistRepresentativeDocument(
                 return { error: priceTableRes.error.message || 'Falha ao carregar tabela de preco para atualizar o orcamento.' }
             }
 
-            const { error: updateQuoteError } = await admin
+            const updateQuoteQuery = admin
                 .from('sales_quotes')
                 .update({
                     store_id: store.id,
@@ -2925,6 +3155,12 @@ async function persistRepresentativeDocument(
                     price_table_name_snapshot: priceTableRes.data?.name || null,
                 })
                 .eq('id', payload.quoteId)
+
+            if (scopeRepresentativeId) {
+                updateQuoteQuery.eq('representative_id', scopeRepresentativeId)
+            }
+
+            const { error: updateQuoteError } = await updateQuoteQuery
 
             if (updateQuoteError) {
                 return { error: updateQuoteError.message || 'Falha ao atualizar orcamento.' }
@@ -2992,7 +3228,7 @@ async function persistRepresentativeDocument(
                 })
             }
 
-            revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'visits', 'dashboard'])
+            revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'customers', 'visits', 'dashboard'])
             return {
                 success: true,
                 quoteId: payload.quoteId,
@@ -3038,7 +3274,7 @@ async function persistRepresentativeDocument(
             })
         }
 
-        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'visits', 'dashboard'])
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'customers', 'visits', 'dashboard'])
         return { success: true, quoteId: result.quote_id, quoteNumber: result.quote_number }
     } catch (error) {
         return { error: error instanceof Error ? error.message : 'Falha ao salvar documento comercial.' }
@@ -3079,16 +3315,22 @@ export async function cancelRepresentativeQuoteAction(quoteId: string) {
             return { success: true }
         }
 
-        const { error: updateError } = await admin
+        const cancelQuery = admin
             .from('sales_quotes')
             .update({ status: 'cancelled' })
             .eq('id', quoteId)
+
+        if (scopeRepresentativeId) {
+            cancelQuery.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { error: updateError } = await cancelQuery
 
         if (updateError) {
             return { error: updateError.message || 'Falha ao cancelar orcamento.' }
         }
 
-        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'dashboard'])
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'customers', 'dashboard'])
         return { success: true }
     } catch (error) {
         return { error: error instanceof Error ? error.message : 'Falha ao cancelar orcamento.' }
@@ -3100,7 +3342,7 @@ export async function duplicateRepresentativeQuoteAction(quoteId: string) {
         const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
         const query = admin
             .from('sales_quotes')
-            .select('*, items:sales_quote_items(*, product_variant:product_variants(product_id, image_url))')
+            .select(REPRESENTATIVE_QUOTE_DETAIL_SELECT)
             .eq('id', quoteId)
 
         if (scopeRepresentativeId) {
@@ -3202,7 +3444,7 @@ export async function duplicateRepresentativeQuoteAction(quoteId: string) {
             }
         }
 
-        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'dashboard'])
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'customers', 'dashboard'])
         return {
             success: true,
             quoteId: duplicatedQuote.id as string,
@@ -3236,16 +3478,22 @@ export async function deleteRepresentativeQuoteAction(quoteId: string) {
             return { error: 'Nao e possivel excluir um orcamento convertido em pedido.' }
         }
 
-        const { error: deleteError } = await admin
+        const deleteQuoteQuery = admin
             .from('sales_quotes')
             .delete()
             .eq('id', quoteId)
+
+        if (scopeRepresentativeId) {
+            deleteQuoteQuery.eq('representative_id', scopeRepresentativeId)
+        }
+
+        const { error: deleteError } = await deleteQuoteQuery
 
         if (deleteError) {
             return { error: deleteError.message || 'Falha ao excluir orcamento.' }
         }
 
-        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'visits', 'dashboard'])
+        revalidateRepresentativeSegments(scopeRepresentativeId, ['quotes', 'customers', 'visits', 'dashboard'])
         return { success: true }
     } catch (error) {
         return { error: error instanceof Error ? error.message : 'Falha ao excluir orcamento.' }

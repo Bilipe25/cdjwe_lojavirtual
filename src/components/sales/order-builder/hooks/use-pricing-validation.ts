@@ -146,6 +146,12 @@ export function usePricingValidation({
           return
         }
 
+        if (!('paymentMethods' in payments)) {
+          resetPaymentState()
+          toast.error('Nao foi possivel carregar as opcoes de pagamento.')
+          return
+        }
+
         setPaymentGroups((payments.paymentMethods || []) as PaymentMethodGroup[])
       } catch {
         if (cancelled || sequence !== revalidationSequenceRef.current) return

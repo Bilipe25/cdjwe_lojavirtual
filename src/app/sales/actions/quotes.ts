@@ -2,8 +2,9 @@
 
 import * as internal from './internal'
 import {
-  getActionErrorMessage,
+  actionError,
   idSchema,
+  normalizeActionResult,
   parseWithSchema,
   quoteStatusSchema,
   quotesPageInputSchema,
@@ -38,9 +39,9 @@ export async function saveRepresentativeQuoteAction(
 ) {
   try {
     const parsed = parseWithSchema(representativeDocumentPayloadSchema, payload, 'save_quote_payload')
-    return internal.saveRepresentativeQuoteAction(parsed)
+    return normalizeActionResult(await internal.saveRepresentativeQuoteAction(parsed))
   } catch (error) {
-    return { error: getActionErrorMessage(error, 'Nao foi possivel validar os dados do orcamento.') }
+    return actionError(error, 'Nao foi possivel validar os dados do orcamento.', 'VALIDATION_ERROR')
   }
 }
 
@@ -49,9 +50,9 @@ export async function convertRepresentativeQuoteToOrderAction(
 ) {
   try {
     const parsedQuoteId = parseWithSchema(idSchema, quoteId, 'quote_id')
-    return internal.convertRepresentativeQuoteToOrderAction(parsedQuoteId)
+    return normalizeActionResult(await internal.convertRepresentativeQuoteToOrderAction(parsedQuoteId))
   } catch (error) {
-    return { error: getActionErrorMessage(error, 'Nao foi possivel validar o identificador do orcamento.') }
+    return actionError(error, 'Nao foi possivel validar o identificador do orcamento.', 'VALIDATION_ERROR')
   }
 }
 
@@ -60,9 +61,9 @@ export async function cancelRepresentativeQuoteAction(
 ) {
   try {
     const parsedQuoteId = parseWithSchema(idSchema, quoteId, 'quote_id')
-    return internal.cancelRepresentativeQuoteAction(parsedQuoteId)
+    return normalizeActionResult(await internal.cancelRepresentativeQuoteAction(parsedQuoteId))
   } catch (error) {
-    return { error: getActionErrorMessage(error, 'Nao foi possivel validar o identificador do orcamento.') }
+    return actionError(error, 'Nao foi possivel validar o identificador do orcamento.', 'VALIDATION_ERROR')
   }
 }
 
@@ -71,9 +72,9 @@ export async function duplicateRepresentativeQuoteAction(
 ) {
   try {
     const parsedQuoteId = parseWithSchema(idSchema, quoteId, 'quote_id')
-    return internal.duplicateRepresentativeQuoteAction(parsedQuoteId)
+    return normalizeActionResult(await internal.duplicateRepresentativeQuoteAction(parsedQuoteId))
   } catch (error) {
-    return { error: getActionErrorMessage(error, 'Nao foi possivel validar o identificador do orcamento.') }
+    return actionError(error, 'Nao foi possivel validar o identificador do orcamento.', 'VALIDATION_ERROR')
   }
 }
 
@@ -82,9 +83,9 @@ export async function deleteRepresentativeQuoteAction(
 ) {
   try {
     const parsedQuoteId = parseWithSchema(idSchema, quoteId, 'quote_id')
-    return internal.deleteRepresentativeQuoteAction(parsedQuoteId)
+    return normalizeActionResult(await internal.deleteRepresentativeQuoteAction(parsedQuoteId))
   } catch (error) {
-    return { error: getActionErrorMessage(error, 'Nao foi possivel validar o identificador do orcamento.') }
+    return actionError(error, 'Nao foi possivel validar o identificador do orcamento.', 'VALIDATION_ERROR')
   }
 }
 
@@ -96,10 +97,10 @@ export async function updateRepresentativeQuoteStatusAction(
     const parsedQuoteId = parseWithSchema(idSchema, quoteId, 'quote_id')
     const parsedStatus = parseWithSchema(quoteStatusSchema, targetStatus, 'quote_status')
     if (parsedStatus === 'converted') {
-      return { error: 'Status convertido nao pode ser aplicado manualmente.' }
+      return actionError('Status convertido nao pode ser aplicado manualmente.', 'Status convertido nao pode ser aplicado manualmente.', 'BUSINESS_RULE_ERROR')
     }
-    return internal.updateRepresentativeQuoteStatusAction(parsedQuoteId, parsedStatus)
+    return normalizeActionResult(await internal.updateRepresentativeQuoteStatusAction(parsedQuoteId, parsedStatus))
   } catch (error) {
-    return { error: getActionErrorMessage(error, 'Nao foi possivel validar status ou identificador do orcamento.') }
+    return actionError(error, 'Nao foi possivel validar status ou identificador do orcamento.', 'VALIDATION_ERROR')
   }
 }

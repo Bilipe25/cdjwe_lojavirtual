@@ -320,6 +320,15 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
 
         if (cancelled || sequence !== catalogRequestSequenceRef.current) return
 
+        if (!('items' in pageData)) {
+          setCatalogProducts([])
+          setCatalogPage(1)
+          setCatalogTotal(0)
+          setCatalogTotalPages(1)
+          setCatalogError(pageData.error || 'Não foi possível carregar o catálogo.')
+          return
+        }
+
         setCatalogProducts(pageData.items)
         setCatalogPage(pageData.page)
         setCatalogTotal(pageData.total)
@@ -367,6 +376,11 @@ export function RepresentativeProductCatalogOverlay({ products, categories, onCo
       })
 
       if (sequence !== catalogRequestSequenceRef.current) return
+
+      if (!('items' in pageData)) {
+        setCatalogError(pageData.error || 'Não foi possível carregar mais produtos.')
+        return
+      }
 
       setCatalogProducts((current) => {
         const nextItems = [...current]

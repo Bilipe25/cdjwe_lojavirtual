@@ -2,8 +2,9 @@
 
 import * as internal from './internal'
 import {
-  getActionErrorMessage,
+  actionError,
   idSchema,
+  normalizeActionResult,
   ordersPageInputSchema,
   parseWithSchema,
   representativeDocumentPayloadSchema,
@@ -28,8 +29,12 @@ export async function getRepresentativeOrderDetail(orderId: Parameters<typeof in
 export async function getRepresentativeOrderCompletionData(
   orderId: Parameters<typeof internal.getRepresentativeOrderCompletionData>[0]
 ) {
-  const parsedOrderId = parseWithSchema(idSchema, orderId, 'order_id')
-  return internal.getRepresentativeOrderCompletionData(parsedOrderId)
+  try {
+    const parsedOrderId = parseWithSchema(idSchema, orderId, 'order_id')
+    return normalizeActionResult(await internal.getRepresentativeOrderCompletionData(parsedOrderId))
+  } catch (error) {
+    return actionError(error, 'Nao foi possivel validar o identificador do pedido.', 'VALIDATION_ERROR')
+  }
 }
 
 export async function getRepresentativeOrderBuilderData() {
@@ -41,8 +46,8 @@ export async function createRepresentativeOrderAction(
 ) {
   try {
     const parsed = parseWithSchema(representativeDocumentPayloadSchema, payload, 'create_order_payload')
-    return internal.createRepresentativeOrderAction(parsed)
+    return normalizeActionResult(await internal.createRepresentativeOrderAction(parsed))
   } catch (error) {
-    return { error: getActionErrorMessage(error, 'Nao foi possivel validar os dados do pedido.') }
+    return actionError(error, 'Nao foi possivel validar os dados do pedido.', 'VALIDATION_ERROR')
   }
 }

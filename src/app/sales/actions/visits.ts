@@ -2,7 +2,9 @@
 
 import * as internal from './internal'
 import {
+  actionError,
   idSchema,
+  normalizeActionResult,
   parseWithSchema,
   representativeVisitPayloadSchema,
   representativeVisitUpdatePayloadSchema,
@@ -23,20 +25,32 @@ export async function getRepresentativeVisitsPageData(
 export async function createRepresentativeVisitAction(
   payload: Parameters<typeof internal.createRepresentativeVisitAction>[0]
 ) {
-  const parsed = parseWithSchema(representativeVisitPayloadSchema, payload, 'create_visit_payload')
-  return internal.createRepresentativeVisitAction(parsed)
+  try {
+    const parsed = parseWithSchema(representativeVisitPayloadSchema, payload, 'create_visit_payload')
+    return normalizeActionResult(await internal.createRepresentativeVisitAction(parsed))
+  } catch (error) {
+    return actionError(error, 'Nao foi possivel validar os dados da visita.', 'VALIDATION_ERROR')
+  }
 }
 
 export async function updateRepresentativeVisitAction(
   payload: Parameters<typeof internal.updateRepresentativeVisitAction>[0]
 ) {
-  const parsed = parseWithSchema(representativeVisitUpdatePayloadSchema, payload, 'update_visit_payload')
-  return internal.updateRepresentativeVisitAction(parsed)
+  try {
+    const parsed = parseWithSchema(representativeVisitUpdatePayloadSchema, payload, 'update_visit_payload')
+    return normalizeActionResult(await internal.updateRepresentativeVisitAction(parsed))
+  } catch (error) {
+    return actionError(error, 'Nao foi possivel validar os dados da visita.', 'VALIDATION_ERROR')
+  }
 }
 
 export async function deleteRepresentativeVisitAction(
   visitId: Parameters<typeof internal.deleteRepresentativeVisitAction>[0]
 ) {
-  const parsedVisitId = parseWithSchema(idSchema, visitId, 'visit_id')
-  return internal.deleteRepresentativeVisitAction(parsedVisitId)
+  try {
+    const parsedVisitId = parseWithSchema(idSchema, visitId, 'visit_id')
+    return normalizeActionResult(await internal.deleteRepresentativeVisitAction(parsedVisitId))
+  } catch (error) {
+    return actionError(error, 'Nao foi possivel validar o identificador da visita.', 'VALIDATION_ERROR')
+  }
 }
