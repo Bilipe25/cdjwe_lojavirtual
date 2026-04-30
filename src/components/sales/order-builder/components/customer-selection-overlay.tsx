@@ -254,6 +254,14 @@ export function CustomerSelectionOverlay({
                     {customer.trade_name && customer.trade_name !== customer.company_name ? (
                       <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{customer.trade_name}</p>
                     ) : null}
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      {(customer.city || customer.state) && (
+                        <span>{[customer.city, customer.state].filter(Boolean).join('/')}</span>
+                      )}
+                      {customer.customer_code && (
+                        <span>· #{customer.customer_code}</span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {selectedStoreId === customer.id ? (

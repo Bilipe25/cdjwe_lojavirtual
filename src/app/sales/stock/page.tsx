@@ -103,10 +103,10 @@ export default async function SalesRepresentativeStockPage({
           <CalendarCheck2 className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">Fechamento do dia</h2>
         </div>
-        <div className="grid gap-3 md:grid-cols-[180px_1fr_auto]">
-          <Input name="businessDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
-          <Input name="routeLabel" placeholder="Rota ou observacao do fechamento" />
-          <Button type="submit" className="h-10 rounded-lg">Enviar fechamento</Button>
+        <div className="grid gap-3">
+          <Input name="businessDate" type="date" className="h-10 rounded-xl" defaultValue={new Date().toISOString().slice(0, 10)} />
+          <Input name="routeLabel" className="h-10 rounded-xl" placeholder="Rota ou observacao do fechamento" />
+          <Button type="submit" className="h-11 w-full rounded-xl font-semibold">Enviar fechamento</Button>
         </div>
       </form>
 

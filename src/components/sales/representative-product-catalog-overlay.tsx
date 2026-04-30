@@ -1,6 +1,6 @@
 'use client'
 
-import { useDeferredValue, useState, useMemo, useRef, useEffect } from 'react'
+import { useDeferredValue, useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import {
   ChevronLeft,
@@ -87,6 +87,7 @@ function RepProductCard({
 }) {
   const img = getPrimaryImage(product)
   const available = Number(product.representative_stock_available || 0)
+  const variantCount = product.variants?.length || 0
   return (
     <button
       type="button"
@@ -111,6 +112,11 @@ function RepProductCard({
         <p className="text-sm font-semibold leading-tight line-clamp-2">{product.name}</p>
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
           <p className="text-xs text-muted-foreground">{fmt(product.base_price)}</p>
+          {variantCount > 1 && (
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+              {variantCount} vars.
+            </span>
+          )}
           {orderType === 'PRONTA_ENTREGA' ? (
             <span className={cn(
               'rounded-full px-2 py-0.5 text-[10px] font-semibold',
@@ -297,7 +303,7 @@ function RepBasket({
           className="w-full h-12 rounded-xl gradient-navy hover:opacity-90 text-white font-semibold text-base shadow-sm"
         >
           <Check className="h-5 w-5 mr-2" />
-          {hasStockIssue ? 'AJUSTE O SALDO PARA CONTINUAR' : 'CONFIRMAR E ADICIONAR AO PEDIDO'}
+          {hasStockIssue ? 'AJUSTE O SALDO' : `ADICIONAR (${items.reduce((s, i) => s + i.quantity, 0)})`}
         </Button>
       </div>
     </div>
@@ -457,6 +463,27 @@ export function RepresentativeProductCatalogOverlay({
     }
   }
 
+  // Infinite scroll: auto-load next page when sentinel is visible
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef(loadMoreProducts)
+  loadMoreRef.current = loadMoreProducts
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void loadMoreRef.current()
+        }
+      },
+      { rootMargin: '200px' }
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [catalogPage, catalogTotalPages, catalogLoading])
+
   // Compute staged qty per product for badge
   const stagedQtyByProductId = useMemo(() => {
     const map: Record<string, number> = {}
@@ -588,9 +615,9 @@ export function RepresentativeProductCatalogOverlay({
             )}
           </div>
 
-          {/* Category pills */}
+          {/* Unified filter bar: category + stock in one scrollable row */}
           <div className="bg-background border-b border-border/30 px-4 py-2 shrink-0 overflow-x-auto">
-            <div className="flex items-center gap-2 w-max">
+            <div className="flex items-center gap-1.5 w-max">
               <button
                 onClick={() => setSelectedCategory('all')}
                 className={cn(
@@ -616,24 +643,21 @@ export function RepresentativeProductCatalogOverlay({
                   {cat.name}
                 </button>
               ))}
-            </div>
-          </div>
-
-          <div className="bg-background border-b border-border/30 px-4 py-2 shrink-0 overflow-x-auto">
-            <div className="flex items-center gap-2 w-max">
+              {/* Separator */}
+              <div className="mx-1 h-4 w-px bg-border/60 shrink-0" />
               {[
                 ['all', 'Todos'],
-                ['available', 'Disponivel comigo'],
-                ['unavailable', 'Sem estoque'],
-                ['best_sellers', 'Mais vendidos'],
-                ['promotions', 'Promocoes'],
+                ['available', 'Comigo'],
+                ['unavailable', 'Sem est.'],
+                ['best_sellers', 'Top'],
+                ['promotions', 'Promo'],
               ].map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => setStockFilter(value as CatalogStockFilter)}
                   className={cn(
-                    'text-xs font-semibold rounded-full border px-3 py-1 shrink-0 transition-colors',
+                    'text-xs font-semibold rounded-full border px-2.5 py-1 shrink-0 transition-colors',
                     stockFilter === value
                       ? 'bg-emerald-600 text-white border-emerald-600'
                       : 'bg-card text-muted-foreground border-border/60 hover:bg-muted'
@@ -688,18 +712,13 @@ export function RepresentativeProductCatalogOverlay({
                 </div>
 
                 {catalogPage < catalogTotalPages && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 w-full rounded-xl border-border text-xs font-semibold"
-                    disabled={catalogLoadingMore}
-                    onClick={() => {
-                      void loadMoreProducts()
-                    }}
-                  >
-                    {catalogLoadingMore ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                    Carregar mais produtos
-                  </Button>
+                  <div ref={loadMoreSentinelRef} className="flex items-center justify-center py-4">
+                    {catalogLoadingMore ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Carregando mais...</span>
+                    )}
+                  </div>
                 )}
 
                 {catalogError ? <p className="text-center text-xs text-destructive">{catalogError}</p> : null}

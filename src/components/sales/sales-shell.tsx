@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { useMemo, useState, type ReactNode } from 'react'
@@ -113,6 +113,8 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
     if (href === '/sales/dashboard') return pathname === '/sales/dashboard'
     return pathname === href || pathname.startsWith(`${href}/`)
   }
+
+  const isOnMorePage = moreNavItems.some((item) => isActive(item.href))
 
   return (
     <div className="relative flex min-h-[100dvh] flex-col bg-background text-foreground">
@@ -328,11 +330,18 @@ export function SalesShell({ profile, isAdminPreview = false, children }: SalesS
                 aria-label="Mais opcoes"
               >
                 <motion.div whileTap={{ scale: 0.82 }} className="relative">
-                  <MoreHorizontal className={cn('h-5 w-5 transition-colors duration-200', moreOpen ? 'text-primary' : 'text-muted-foreground')} />
+                  <MoreHorizontal className={cn('h-5 w-5 transition-colors duration-200', (moreOpen || isOnMorePage) ? 'text-primary' : 'text-muted-foreground')} />
                 </motion.div>
-                <span className={cn('text-[10px] font-medium transition-colors duration-200', moreOpen ? 'text-primary' : 'text-muted-foreground')}>
+                <span className={cn('text-[10px] font-medium transition-colors duration-200', (moreOpen || isOnMorePage) ? 'text-primary' : 'text-muted-foreground')}>
                   Mais
                 </span>
+                {isOnMorePage && !moreOpen && (
+                  <motion.div
+                    layoutId="salesBottomNavIndicator"
+                    className="absolute top-0 left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full gradient-bronze"
+                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  />
+                )}
               </button>
             </SheetTrigger>
             <SheetContent side="bottom" className="rounded-t-3xl border-t border-border/30 bg-background p-0">

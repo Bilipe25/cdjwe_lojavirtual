@@ -1,19 +1,23 @@
 'use client'
 
-import { ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function SectionRow({
   label,
   value,
   highlight,
+  expanded,
   onClick,
 }: {
   label: string
   value?: string
   highlight?: boolean
+  expanded?: boolean
   onClick?: () => void
 }) {
+  const Chevron = expanded ? ChevronDown : ChevronRight
+
   return (
     <button
       type="button"
@@ -31,7 +35,12 @@ export function SectionRow({
           </p>
         ) : null}
       </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <Chevron
+        className={cn(
+          'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
+          expanded && 'text-primary'
+        )}
+      />
     </button>
   )
 }

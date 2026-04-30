@@ -119,6 +119,7 @@ type RepresentativeCustomersPageData = PaginatedResult<RepresentativeCustomerRow
 type RepresentativeOrdersPageInput = {
     page?: number
     pageSize?: number
+    search?: string
 }
 
 type RepresentativeQuotesPageInput = {
@@ -1755,6 +1756,7 @@ export async function getRepresentativeOrdersPageData(input: RepresentativeOrder
     const { admin, scopeRepresentativeId } = await requireRepresentativeContext()
     const page = normalizePage(input.page, 1)
     const pageSize = normalizePageSize(input.pageSize, DEFAULT_ORDERS_PAGE_SIZE, 80)
+    const searchTerm = normalizeSearchTerm(input.search)
     const offset = (page - 1) * pageSize
     const scopeKey = getRepresentativeScopeCacheKey(scopeRepresentativeId)
 
@@ -1773,6 +1775,11 @@ export async function getRepresentativeOrdersPageData(input: RepresentativeOrder
                 query.eq('created_by_profile_id', scopeRepresentativeId)
             }
 
+            if (searchTerm) {
+                const escaped = escapeIlike(searchTerm)
+                query.or(`order_number.ilike.%${escaped}%`)
+            }
+
             const { data, count, error } = await query
             if (error) {
                 throw new Error(error.message || 'Falha ao carregar pedidos paginados.')
@@ -1788,7 +1795,7 @@ export async function getRepresentativeOrdersPageData(input: RepresentativeOrder
                 totalPages,
             } satisfies PaginatedResult<Order>
         },
-        ['rep-orders-page-v2', scopeKey, String(page), String(pageSize)],
+        ['rep-orders-page-v2', scopeKey, String(page), String(pageSize), searchTerm],
         {
             tags: [getRepresentativeCacheTag(scopeKey, 'orders')],
             revalidate: LIST_CACHE_REVALIDATE_SECONDS,

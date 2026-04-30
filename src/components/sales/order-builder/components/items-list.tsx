@@ -73,7 +73,7 @@ export function ItemsList({
                   type="button"
                   variant="outline"
                   size="icon"
-                  className="h-7 w-7 rounded-lg border-border"
+                  className="h-9 w-9 rounded-lg border-border"
                   disabled={stockBlocked}
                   onClick={() =>
                     setItems((current) =>
@@ -87,12 +87,12 @@ export function ItemsList({
                 >
                   <Minus className="h-3.5 w-3.5" />
                 </Button>
-                <span className="min-w-[24px] text-center text-xs font-semibold">{item.quantity}</span>
+                <span className="min-w-[28px] text-center text-sm font-semibold tabular-nums">{item.quantity}</span>
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
-                  className="h-7 w-7 rounded-lg border-border"
+                  className="h-9 w-9 rounded-lg border-border"
                   onClick={() =>
                     setItems((current) =>
                       current.map((currentItem) =>

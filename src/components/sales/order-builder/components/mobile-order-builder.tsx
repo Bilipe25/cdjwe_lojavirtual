@@ -1,7 +1,7 @@
 'use client'
 
 import type { Dispatch, SetStateAction } from 'react'
-import { FileText, Loader2, Plus, ShoppingBag } from 'lucide-react'
+import { ChevronRight, FileText, Loader2, MapPin, Plus, ShoppingBag } from 'lucide-react'
 import type { OrderType, PriceTable } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -16,6 +16,7 @@ import {
   OrderBuilderValidationPanel,
   type BuilderValidationMessage,
 } from '@/components/sales/order-builder/components/builder-validation-panel'
+import { cn } from '@/lib/utils'
 import type {
   BuilderCustomer,
   DiscountType,
@@ -127,12 +128,35 @@ export function MobileOrderBuilder({
   return (
     <div className="flex min-h-[calc(100dvh-140px)] flex-col xl:hidden">
       <div className="flex-1 divide-y divide-border/30 rounded-2xl border border-border/40 bg-card">
-        <SectionRow
-          label="Cliente Selecionado"
-          value={selectedStore?.company_name || 'Tocar para selecionar...'}
-          highlight={!selectedStoreId}
+        <button
+          type="button"
           onClick={onOpenCustomerSheet}
-        />
+          className={cn(
+            'flex w-full items-center gap-3 border-b border-border/30 px-4 py-3.5 text-left transition-colors hover:bg-muted/40',
+            !selectedStoreId && 'bg-primary/5'
+          )}
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] text-muted-foreground">Cliente Selecionado</p>
+            <p className={cn('mt-0.5 text-sm font-semibold', !selectedStoreId ? 'text-primary' : 'text-foreground')}>
+              {selectedStore?.company_name || 'Tocar para selecionar...'}
+            </p>
+            {selectedStore && (
+              <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                {(selectedStore.city || selectedStore.state) && (
+                  <span className="flex items-center gap-0.5">
+                    <MapPin className="h-2.5 w-2.5" />
+                    {[selectedStore.city, selectedStore.state].filter(Boolean).join('/')}
+                  </span>
+                )}
+                {selectedStore.customer_code && (
+                  <span>· Cód. #{selectedStore.customer_code}</span>
+                )}
+              </div>
+            )}
+          </div>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </button>
 
         {selectedStoreId ? (
           <div className="space-y-3 border-b border-border/30 bg-muted/10 px-4 py-3">
@@ -201,7 +225,7 @@ export function MobileOrderBuilder({
 
         <SectionRow
           label="Itens do Carrinho"
-          value={items.length ? `${items.length} item(ns)` : 'Vazio'}
+          value={items.length ? `${items.length} item(ns) · ${formatCurrency(items.reduce((s, i) => s + i.quantity * i.unitPrice, 0))}` : 'Vazio'}
           highlight={items.length === 0 && Boolean(selectedStoreId)}
           onClick={onOpenProducts}
         />
@@ -233,6 +257,7 @@ export function MobileOrderBuilder({
               ? `${discountType === 'percent' ? `${discountValue}%` : formatCurrency(Number(discountValue || 0))} desc.`
               : undefined
           }
+          expanded={openSection === 'negotiation'}
           onClick={() => onOpenSectionChange(openSection === 'negotiation' ? null : 'negotiation')}
         />
         {openSection === 'negotiation' ? (
@@ -253,6 +278,7 @@ export function MobileOrderBuilder({
           label="Dados de pagamento"
           value={selectedPaymentOption?.label || 'Selecione'}
           highlight={Boolean(selectedPaymentOption?.discountPercentage)}
+          expanded={openSection === 'payment'}
           onClick={() => onOpenSectionChange(openSection === 'payment' ? null : 'payment')}
         />
         {openSection === 'payment' ? (
@@ -272,6 +298,7 @@ export function MobileOrderBuilder({
         <SectionRow
           label="Observacoes"
           value={notes ? notes.substring(0, 40) + (notes.length > 40 ? '...' : '') : undefined}
+          expanded={openSection === 'notes'}
           onClick={() => onOpenSectionChange(openSection === 'notes' ? null : 'notes')}
         />
         {openSection === 'notes' ? (
@@ -281,7 +308,7 @@ export function MobileOrderBuilder({
         ) : null}
       </div>
 
-      <div className="sticky bottom-[var(--bottom-nav-height)] z-10 border-t border-border/30 bg-card px-4 py-3 shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.06)]">
+      <div className="sticky bottom-[var(--bottom-nav-height)] z-10 border-t border-border/30 bg-card px-4 py-3 pb-safe shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.06)]" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)' }}>
         {mode === 'order' ? (
           <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">
             <span>Tipo de pedido</span>
