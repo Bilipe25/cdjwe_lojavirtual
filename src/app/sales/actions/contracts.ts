@@ -22,6 +22,7 @@ const emptyStringToNull = <T extends z.ZodTypeAny>(schema: T) =>
 export const idSchema = z.string().trim().min(1)
 
 export const quoteStatusSchema = z.enum(['draft', 'sent', 'approved', 'converted', 'cancelled'])
+export const orderTypeSchema = z.enum(['PRE_VENDA', 'PRONTA_ENTREGA'])
 
 export const customersPageInputSchema = z
   .object({
@@ -129,6 +130,7 @@ export const representativeDocumentPayloadSchema = z
   .object({
     quoteId: emptyStringToNull(idSchema.nullable()).optional(),
     sourceVisitId: emptyStringToNull(idSchema.nullable()).optional(),
+    orderType: orderTypeSchema.optional().default('PRE_VENDA'),
     storeId: idSchema,
     priceTableId: emptyStringToNull(idSchema.nullable()).optional(),
     selectedPaymentId: emptyStringToNull(idSchema.nullable()).optional(),

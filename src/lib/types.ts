@@ -634,6 +634,8 @@ export interface OrderFiscalWorkspace {
   naturezas: NaturezaOperacao[]
 }
 
+export type OrderType = 'PRE_VENDA' | 'PRONTA_ENTREGA'
+
 export interface Order {
   id: string
   order_number: string
@@ -641,6 +643,7 @@ export interface Order {
   profile_id: string
   created_by_profile_id?: string | null
   sales_channel?: 'customer_portal' | 'representative'
+  order_type?: OrderType
   status: OrderStatus
   payment_status: PaymentStatus
   payment_method_id?: string | null

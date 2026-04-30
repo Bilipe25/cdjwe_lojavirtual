@@ -11,6 +11,10 @@ function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
 
+function formatOrderType(value?: string | null) {
+  return value === 'PRONTA_ENTREGA' ? 'Pronta entrega' : 'Pre-venda'
+}
+
 export default async function SalesOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const order = await getRepresentativeOrderDetail(id)
@@ -24,6 +28,9 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
               Pedido presencial
+            </span>
+            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              {formatOrderType(order.order_type)}
             </span>
             <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
               {order.status}
@@ -41,9 +48,10 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
         </Button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SalesInfoPill label="Cliente" value={order.store?.company_name || 'Nao informado'} />
         <SalesInfoPill label="Criado em" value={new Date(order.created_at).toLocaleString('pt-BR')} />
+        <SalesInfoPill label="Tipo" value={formatOrderType(order.order_type)} />
         <SalesInfoPill label="Pagamento" value={order.payment_method_name || 'Pendente'} />
         <SalesInfoPill label="Total" value={formatCurrency(order.total)} />
       </div>
@@ -76,6 +84,14 @@ export default async function SalesOrderDetailPage({ params }: { params: Promise
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em]">Entrega</p>
                   </div>
                   <p className="mt-2 text-sm font-medium leading-6 text-slate-700">{order.shipping_address}</p>
+                </div>
+              ) : order.order_type === 'PRONTA_ENTREGA' ? (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 md:col-span-2">
+                  <div className="flex items-center gap-2 text-emerald-700">
+                    <MapPinned className="h-4 w-4" />
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em]">Pronta entrega</p>
+                  </div>
+                  <p className="mt-2 text-sm font-medium leading-6 text-emerald-900">Pedido entregue diretamente pelo representante, sem endereco de entrega.</p>
                 </div>
               ) : null}
               {order.notes ? (

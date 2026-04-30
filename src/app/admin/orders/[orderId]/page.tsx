@@ -62,6 +62,10 @@ function formatDateTime(value: string | null | undefined) {
     return format(new Date(value), "dd 'de' MMMM, yyyy 'as' HH:mm", { locale: ptBR })
 }
 
+function formatOrderType(value?: string | null) {
+    return value === 'PRONTA_ENTREGA' ? 'Pronta entrega' : 'Pre-venda'
+}
+
 function SummaryCard({
     icon: Icon,
     label,
@@ -175,6 +179,7 @@ export default function OrderDetailPage() {
         ? format(new Date(order.estimated_delivery), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })
         : 'Nao informado'
     const isArchived = Boolean(order?.archived_at)
+    const orderTypeLabel = formatOrderType(order?.order_type)
 
     const paymentStatusLabel = useMemo(() => {
         switch (order?.payment_status) {
@@ -474,6 +479,7 @@ export default function OrderDetailPage() {
                                     <DetailRow label="CNPJ" value={order.store?.cnpj || 'Nao informado'} />
                                     <DetailRow label="Cliente" value={customerName} />
                                     <DetailRow label="Canal" value={order.sales_channel === 'representative' ? 'Representante' : 'Portal do cliente'} />
+                                    <DetailRow label="Tipo" value={orderTypeLabel} />
                                     {order.sales_channel === 'representative' ? (
                                         <DetailRow label="Representante" value={representativeName} />
                                     ) : null}
@@ -491,7 +497,11 @@ export default function OrderDetailPage() {
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     <DetailRow label="Entrega estimada" value={estimatedDeliveryLabel} />
-                                    <DetailRow label="Endereco" value={order.shipping_address || 'Nao informado'} allowWrap />
+                                    <DetailRow
+                                        label="Endereco"
+                                        value={order.shipping_address || (order.order_type === 'PRONTA_ENTREGA' ? 'Pronta entrega sem endereco' : 'Nao informado')}
+                                        allowWrap
+                                    />
                                     <Separator />
                                     <DetailRow label="Observacoes" value={order.notes || 'Sem observacoes registradas'} allowWrap />
                                 </CardContent>

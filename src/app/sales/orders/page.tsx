@@ -12,6 +12,10 @@ function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
 
+function formatOrderType(value?: string | null) {
+  return value === 'PRONTA_ENTREGA' ? 'Pronta entrega' : 'Pre-venda'
+}
+
 function normalizePage(value?: string) {
   const parsed = Number(value || 1)
   if (!Number.isFinite(parsed)) return 1
@@ -60,6 +64,9 @@ export default async function SalesOrdersPage({
                     <span className="text-sm font-semibold text-foreground">{order.order_number}</span>
                     <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
                       {order.status}
+                    </span>
+                    <span className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      {formatOrderType(order.order_type)}
                     </span>
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">

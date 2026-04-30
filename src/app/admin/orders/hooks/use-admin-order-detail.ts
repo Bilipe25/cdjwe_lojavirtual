@@ -54,6 +54,7 @@ export interface AdminOrderDetailRecord {
     updated_at?: string
     notes: string | null
     shipping_address?: string | null
+    order_type?: 'PRE_VENDA' | 'PRONTA_ENTREGA' | null
     estimated_delivery?: string | null
     sales_channel?: 'customer_portal' | 'representative' | null
     payment_method_id?: string | null
@@ -109,6 +110,7 @@ const ORDER_DETAIL_SELECT = `
     updated_at,
     notes,
     shipping_address,
+    order_type,
     estimated_delivery,
     sales_channel,
     payment_method_id,

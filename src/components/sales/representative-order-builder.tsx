@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, ChevronLeft, ChevronRight, Copy, FileDown, FileText, Home, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Plus, Search, Share2, ShoppingBag, Users } from 'lucide-react'
+import { CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Copy, FileDown, FileText, Home, Loader2, Mail, MapPin, MessageCircle, PackageCheck, Pencil, Phone, Plus, Search, Share2, ShoppingBag, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
   Category,
   Order,
   OrderItem,
+  OrderType,
   PriceTable,
   CustomerType,
   SystemSettings,
@@ -52,6 +53,7 @@ export type RepresentativeOrderBuilderInitialDraft = {
   negotiationReason?: string
   selectedPaymentMethodId?: string | null
   selectedPaymentId?: string | null
+  orderType?: OrderType
 }
 
 type CompletionData = {
@@ -62,6 +64,75 @@ type CompletionData = {
 
 function formatCurrency(value: number) {
   return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+}
+
+const orderTypeOptions = [
+  {
+    value: 'PRE_VENDA',
+    label: 'Pedido Pre-venda',
+    description: 'Pedido com entrega futura. Requer endereco de entrega.',
+    icon: CalendarClock,
+  },
+  {
+    value: 'PRONTA_ENTREGA',
+    label: 'Pronta Entrega',
+    description: 'Pedido entregue diretamente pelo representante. Nao requer endereco de entrega.',
+    icon: PackageCheck,
+  },
+] satisfies Array<{
+  value: OrderType
+  label: string
+  description: string
+  icon: typeof CalendarClock
+}>
+
+function getOrderTypeLabel(value: OrderType) {
+  return orderTypeOptions.find((option) => option.value === value)?.label || 'Pedido Pre-venda'
+}
+
+function OrderTypeSelector({
+  value,
+  onChange,
+}: {
+  value: OrderType
+  onChange: (value: OrderType) => void
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {orderTypeOptions.map((option) => {
+        const selected = option.value === value
+        const Icon = option.icon
+
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              'flex min-h-[92px] items-start gap-3 rounded-xl border px-3 py-3 text-left transition',
+              selected
+                ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/20'
+                : 'border-border bg-card hover:border-primary/30 hover:bg-muted/30'
+            )}
+          >
+            <span
+              className={cn(
+                'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border',
+                selected ? 'border-primary/20 bg-primary/10 text-primary' : 'border-border bg-muted/40 text-muted-foreground'
+              )}
+            >
+              <Icon className="h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-foreground">{option.label}</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">{option.description}</span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 /* --- Section row (mobile native style - label + chevron) --- */
@@ -86,6 +157,7 @@ export function RepresentativeOrderBuilder({
 }) {
   const router = useRouter()
   const [notes, setNotes] = useState(initialDraft?.notes || '')
+  const [orderType, setOrderType] = useState<OrderType>(initialDraft?.orderType || 'PRE_VENDA')
   const [customerSearch, setCustomerSearch] = useState('')
   const [isCustomerSearchActive, setIsCustomerSearchActive] = useState(false)
   const [isCustomerSheetOpen, setIsCustomerSheetOpen] = useState(false)
@@ -125,6 +197,16 @@ export function RepresentativeOrderBuilder({
     initialAddressId: initialDraft?.selectedAddressId,
     initialPriceTableId: initialDraft?.selectedPriceTableId,
   })
+
+  const isPreSaleOrder = mode !== 'order' || orderType === 'PRE_VENDA'
+  const requiresDeliveryAddress = mode === 'order' && orderType === 'PRE_VENDA'
+  const currentAddressTitle = selectedStore?.addresses?.find((address) => address.id === selectedAddressId)?.title
+  const hasResolvableAddress = Boolean(selectedAddressId || selectedStore?.addresses?.length)
+  const canSubmitCurrentDocument = Boolean(
+    selectedStoreId &&
+    items.length > 0 &&
+    (!requiresDeliveryAddress || hasResolvableAddress)
+  )
 
   useEffect(() => {
     if (!sourceVisitId) return
@@ -260,6 +342,7 @@ export function RepresentativeOrderBuilder({
       `Pedido ${data.order.order_number} - ${data.settings?.system_name || 'CDJWE'}`,
       `Data: ${createdAt}`,
       `Status: Em analise`,
+      `Tipo: ${getOrderTypeLabel(data.order.order_type || 'PRE_VENDA')}`,
       '',
       'Itens:',
       itemLines || '- Sem itens',
@@ -342,17 +425,22 @@ export function RepresentativeOrderBuilder({
     if (!selectedStoreId) { toast.error('Selecione um cliente.'); return }
     if (items.length === 0) { toast.error('Adicione pelo menos um item.'); return }
     if (pricingPending) { toast.info('Aguarde a revalidacao de precos antes de finalizar.'); return }
+    if (target === 'order' && orderType === 'PRE_VENDA' && !hasResolvableAddress) {
+      toast.error('Pedido pre-venda exige endereco de entrega cadastrado para o cliente.')
+      return
+    }
 
     startSubmitting(async () => {
       try {
         const payload = {
           quoteId: target === 'quote' ? initialDraft?.quoteId || null : null,
           sourceVisitId,
+          orderType: target === 'order' ? orderType : 'PRE_VENDA',
           storeId: selectedStoreId,
           priceTableId: selectedPriceTableId || null,
           selectedPaymentId: effectivePaymentId || null,
           isTableRule: Boolean(selectedPaymentOption?.isTableRule),
-          selectedAddressId: selectedAddressId || null,
+          selectedAddressId: target === 'order' && orderType === 'PRONTA_ENTREGA' ? null : selectedAddressId || null,
           notes,
           negotiationDiscountType: discountType === 'none' ? null : discountType,
           negotiationDiscountValue: Number(discountValue || 0),
@@ -431,7 +519,31 @@ export function RepresentativeOrderBuilder({
               </div>
               <Button variant="outline" size="sm" onClick={() => { setEditingStore(selectedStore); setIsCustomerFormOpen(true) }} className="h-9 rounded-xl border-border bg-card text-primary font-semibold">Editar</Button>
             </div>
-            <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm"><SelectValue placeholder="Endereco">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select>
+            {mode === 'order' && (
+              <div className="space-y-2">
+                <Label className="text-[11px] font-semibold text-muted-foreground">Tipo de pedido</Label>
+                <OrderTypeSelector value={orderType} onChange={setOrderType} />
+              </div>
+            )}
+            {isPreSaleOrder ? (
+              <div className="space-y-2">
+                <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}>
+                  <SelectTrigger className="h-9 rounded-xl border-border text-sm bg-card shadow-sm">
+                    <SelectValue placeholder="Endereco">{currentAddressTitle}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent>
+                </Select>
+                {requiresDeliveryAddress && !hasResolvableAddress ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                    Cadastre um endereco para concluir um pedido pre-venda.
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+                Pronta entrega selecionada. O pedido sera criado sem endereco de entrega.
+              </div>
+            )}
           </div>
         )}
 
@@ -506,13 +618,19 @@ export function RepresentativeOrderBuilder({
 
       {/* Fixed bottom: total + CTA */}
       <div className="sticky bottom-[var(--bottom-nav-height)] z-10 border-t border-border/30 bg-card px-4 py-3 shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.06)]">
+        {mode === 'order' && (
+          <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Tipo de pedido</span>
+            <span className="font-semibold text-foreground">{getOrderTypeLabel(orderType)}</span>
+          </div>
+        )}
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
           <span>Total do atendimento</span>
           <span className="text-lg font-bold font-heading text-foreground">{formatCurrency(total)}</span>
         </div>
         <Button
           className="h-12 w-full rounded-xl border-0 text-sm font-bold gradient-navy text-white hover:opacity-90"
-          disabled={submitting || pricingPending || !selectedStoreId || items.length === 0}
+          disabled={submitting || pricingPending || !canSubmitCurrentDocument}
           onClick={() => handleSubmit(mode)}
         >
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'order' ? (
@@ -550,8 +668,28 @@ export function RepresentativeOrderBuilder({
             ) : (
                <div className="grid gap-4 md:grid-cols-2">
                  <div className="space-y-1.5 md:col-span-2"><Label className="text-xs text-muted-foreground">Cliente Vinculado</Label><div className="h-10 px-3 border border-border bg-muted/30 rounded-xl flex items-center cursor-pointer hover:bg-muted/50 transition"><span className="font-semibold text-foreground text-sm">{selectedStore?.company_name}</span></div></div>
+                 {mode === 'order' && (
+                   <div className="space-y-2 md:col-span-2">
+                     <Label className="text-xs">Tipo de pedido</Label>
+                     <OrderTypeSelector value={orderType} onChange={setOrderType} />
+                   </div>
+                 )}
                  <div className="space-y-1.5"><Label className="text-xs">Tabela de preco</Label><Select value={selectedPriceTableId} onValueChange={(v) => setSelectedPriceTableId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Tabela">{availablePriceTables.find(t => t.id === selectedPriceTableId)?.name}</SelectValue></SelectTrigger><SelectContent>{availablePriceTables.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
-                 <div className="space-y-1.5"><Label className="text-xs">Entrega</Label><Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Endereco">{selectedStore?.addresses?.find(a => a.id === selectedAddressId)?.title}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select></div>
+                 {isPreSaleOrder ? (
+                   <div className="space-y-1.5">
+                     <Label className="text-xs">Entrega</Label>
+                     <Select value={selectedAddressId} onValueChange={(v) => setSelectedAddressId(v || '')}><SelectTrigger className="h-10 rounded-xl border-border text-sm shadow-sm bg-card hover:bg-muted/30 transition"><SelectValue placeholder="Endereco">{currentAddressTitle}</SelectValue></SelectTrigger><SelectContent>{(selectedStore?.addresses || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}</SelectContent></Select>
+                     {requiresDeliveryAddress && !hasResolvableAddress ? (
+                       <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                         Cadastre um endereco para concluir um pedido pre-venda.
+                       </p>
+                     ) : null}
+                   </div>
+                 ) : (
+                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+                     Pronta entrega selecionada. Endereco de entrega nao sera solicitado.
+                   </div>
+                 )}
                </div>
             )}
           </div>
@@ -614,7 +752,13 @@ export function RepresentativeOrderBuilder({
               <p className="mt-1 text-xs text-white/60">{selectedPaymentOption?.label || 'Defina pagamento'}</p>
             </div>
             {mode === 'order' && (
-              <Button className="h-10 w-full rounded-xl border-0 text-sm font-bold gradient-bronze text-white hover:opacity-90" disabled={submitting || pricingPending || !selectedStoreId || items.length === 0} onClick={() => handleSubmit('order')}>
+              <div className="flex items-start justify-between gap-3 rounded-xl border border-border/40 bg-muted/30 px-3 py-2 text-xs">
+                <span className="text-muted-foreground">Tipo</span>
+                <span className="text-right font-semibold text-foreground">{getOrderTypeLabel(orderType)}</span>
+              </div>
+            )}
+            {mode === 'order' && (
+              <Button className="h-10 w-full rounded-xl border-0 text-sm font-bold gradient-bronze text-white hover:opacity-90" disabled={submitting || pricingPending || !canSubmitCurrentDocument} onClick={() => handleSubmit('order')}>
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ShoppingBag className="mr-2 h-4 w-4" />Confirmar pedido</>}
               </Button>
             )}

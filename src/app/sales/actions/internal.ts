@@ -28,6 +28,7 @@ import { isCheckoutV2Enabled } from '@/lib/flags/checkout'
 import type {
     Order,
     OrderItem,
+    OrderType,
     PriceTable,
     Product,
     Profile,
@@ -193,6 +194,7 @@ type RepresentativeDraftLine = {
 type RepresentativeDocumentPayload = {
     quoteId?: string | null
     sourceVisitId?: string | null
+    orderType?: OrderType
     storeId: string
     priceTableId?: string | null
     selectedPaymentId?: string | null
@@ -570,6 +572,10 @@ function formatAddress(address?: StoreAddress | null) {
     if (!address) return null
 
     return `${address.title ? `[${address.title}] ` : ''}${address.address}${address.number ? `, ${address.number}` : ''}${address.complement ? ` - ${address.complement}` : ''}, ${address.neighborhood ? `${address.neighborhood}, ` : ''}${address.city} - ${address.state}, CEP: ${address.zip_code}`
+}
+
+function normalizeOrderType(value?: OrderType | null): OrderType {
+    return value === 'PRONTA_ENTREGA' ? 'PRONTA_ENTREGA' : 'PRE_VENDA'
 }
 
 function computeNegotiation(
@@ -2658,23 +2664,32 @@ async function persistRepresentativeDocument(
             }
         }
 
+        const orderType = mode === 'order' ? normalizeOrderType(payload.orderType) : 'PRE_VENDA'
+        const shouldResolveShippingAddress = mode === 'quote' || orderType === 'PRE_VENDA'
+
         let shippingAddress: string | null = null
-        if (payload.selectedAddressId) {
-            const { data: address } = await admin
-                .from('store_addresses')
-                .select('*')
-                .eq('id', payload.selectedAddressId)
-                .eq('store_id', store.id)
-                .single()
-            shippingAddress = formatAddress(address as StoreAddress | null)
-        } else {
-            const { data: address } = await admin
-                .from('store_addresses')
-                .select('*')
-                .eq('store_id', store.id)
-                .eq('is_main', true)
-                .single()
-            shippingAddress = formatAddress(address as StoreAddress | null)
+        if (shouldResolveShippingAddress) {
+            if (payload.selectedAddressId) {
+                const { data: address } = await admin
+                    .from('store_addresses')
+                    .select('*')
+                    .eq('id', payload.selectedAddressId)
+                    .eq('store_id', store.id)
+                    .maybeSingle()
+                shippingAddress = formatAddress(address as StoreAddress | null)
+            } else {
+                const { data: address } = await admin
+                    .from('store_addresses')
+                    .select('*')
+                    .eq('store_id', store.id)
+                    .eq('is_main', true)
+                    .maybeSingle()
+                shippingAddress = formatAddress(address as StoreAddress | null)
+            }
+
+            if (mode === 'order' && !shippingAddress) {
+                return { error: 'Pedidos pre-venda exigem endereco de entrega cadastrado para o cliente.' }
+            }
         }
 
         const itemsPayload = validatedItems.map((item) => ({
@@ -2725,6 +2740,7 @@ async function persistRepresentativeDocument(
                 p_negotiation_surcharge_amount: negotiation.surchargeAmount,
                 p_total: total,
                 p_shipping_address: shippingAddress,
+                p_order_type: orderType,
                 p_notes: payload.notes || null,
                 p_negotiation_reason: payload.negotiationReason || null,
                 p_items: itemsPayload,
@@ -2750,6 +2766,7 @@ async function persistRepresentativeDocument(
                 p_negotiation_discount_amount: negotiation.discountAmount,
                 p_negotiation_surcharge_amount: negotiation.surchargeAmount,
                 p_shipping_address: shippingAddress,
+                p_order_type: orderType,
                 p_notes: payload.notes || null,
                 p_negotiation_reason: payload.negotiationReason || null,
                 p_items: orderItemsPayloadV2,

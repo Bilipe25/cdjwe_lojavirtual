@@ -1086,6 +1086,9 @@ export async function checkoutAction(
             `${addressData.neighborhood ? `${addressData.neighborhood}, ` : ''}` +
             `${addressData.city} - ${addressData.state}, CEP: ${addressData.zip_code}`
     }
+    if (!shippingAddressStr) {
+        return { error: 'Endereco de entrega obrigatorio para finalizar o pedido.' }
+    }
 
     const legacyOrderItemsPayload = validatedItems.map((item) => ({
         product_variant_id: item.variantId,
