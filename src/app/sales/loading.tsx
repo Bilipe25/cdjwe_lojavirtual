@@ -1,13 +1,5 @@
+import { SalesPageSkeleton } from '@/components/sales/sales-ui'
+
 export default function SalesLoading() {
-  return (
-    <div className="space-y-4" aria-busy="true" aria-live="polite">
-      <div className="h-8 w-48 animate-pulse rounded-xl bg-muted" />
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="h-24 animate-pulse rounded-2xl border border-border/40 bg-card" />
-        ))}
-      </div>
-      <div className="h-72 animate-pulse rounded-2xl border border-border/40 bg-card" />
-    </div>
-  )
+  return <SalesPageSkeleton />
 }

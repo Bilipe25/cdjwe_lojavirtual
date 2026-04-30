@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Loader2, MoreHorizontal, Search } from 'lucide-react'
+import { BarChart3, ChevronRight, Clock3, FileCheck2, FileText, Loader2, MoreHorizontal, Search } from 'lucide-react'
 import {
   cancelRepresentativeQuoteAction,
   convertRepresentativeQuoteToOrderAction,
@@ -11,7 +11,14 @@ import {
   duplicateRepresentativeQuoteAction,
   updateRepresentativeQuoteStatusAction,
 } from '@/app/sales/actions'
-import { SalesEmptyState } from '@/components/sales/sales-ui'
+import {
+  SalesEmptyState,
+  SalesMetricCard,
+  SalesPagination,
+  SalesPanel,
+  SalesPanelHeader,
+  SalesStatusBadge,
+} from '@/components/sales/sales-ui'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -269,31 +276,28 @@ export function RepresentativeQuotesPage({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
-        <div className="rounded-2xl border border-border/40 bg-card px-3 py-2 sm:px-4 sm:py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Orcamentos</p>
-          <p className="mt-1 text-lg font-bold font-heading text-foreground sm:text-xl">{indicators.totalQuotes}</p>
-        </div>
-        <div className="rounded-2xl border border-border/40 bg-card px-3 py-2 sm:px-4 sm:py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Valor em pipeline</p>
-          <p className="mt-1 text-lg font-bold font-heading text-foreground sm:text-xl">{formatCurrency(indicators.totalValue)}</p>
-        </div>
-        <div className="rounded-2xl border border-border/40 bg-card px-3 py-2 sm:px-4 sm:py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Conversao</p>
-          <p className="mt-1 text-lg font-bold font-heading text-foreground sm:text-xl">{indicators.conversionRate.toFixed(1)}%</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{indicators.convertedQuotes} convertido(s)</p>
-        </div>
-        <div className="rounded-2xl border border-border/40 bg-card px-3 py-2 sm:px-4 sm:py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Aging medio</p>
-          <p className="mt-1 text-lg font-bold font-heading text-foreground sm:text-xl">{indicators.avgAgingDays.toFixed(1)} dias</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">SLA sugerido: 7 dias</p>
-        </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SalesMetricCard icon={FileText} label="Orcamentos" value={indicators.totalQuotes} tone="navy" />
+        <SalesMetricCard icon={BarChart3} label="Valor em pipeline" value={formatCurrency(indicators.totalValue)} tone="bronze" />
+        <SalesMetricCard
+          icon={FileCheck2}
+          label="Conversao"
+          value={`${indicators.conversionRate.toFixed(1)}%`}
+          helper={`${indicators.convertedQuotes} convertido(s)`}
+          tone="success"
+        />
+        <SalesMetricCard
+          icon={Clock3}
+          label="Aging medio"
+          value={`${indicators.avgAgingDays.toFixed(1)} dias`}
+          helper="SLA sugerido: 7 dias"
+        />
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <div className="rounded-2xl border border-border/40 bg-card p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pipeline por status</p>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+        <SalesPanel>
+          <SalesPanelHeader title="Pipeline por status" />
+          <div className="grid grid-cols-2 gap-2 p-3 md:grid-cols-3">
             {pipeline.map((stage) => (
               <button
                 key={stage.status}
@@ -307,11 +311,11 @@ export function RepresentativeQuotesPage({
               </button>
             ))}
           </div>
-        </div>
+        </SalesPanel>
 
-        <div className="rounded-2xl border border-border/40 bg-card p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aging de oportunidades abertas</p>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+        <SalesPanel>
+          <SalesPanelHeader title="Aging de oportunidades abertas" />
+          <div className="grid grid-cols-2 gap-2 p-3 md:grid-cols-3">
             {aging.map((bucket) => (
               <div key={bucket.bucket} className="rounded-xl border border-border/40 bg-muted/20 px-3 py-2">
                 <p className="text-xs font-semibold text-foreground">{bucket.label}</p>
@@ -319,7 +323,7 @@ export function RepresentativeQuotesPage({
               </div>
             ))}
           </div>
-        </div>
+        </SalesPanel>
       </div>
 
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -364,139 +368,131 @@ export function RepresentativeQuotesPage({
         />
       ) : (
         <>
-          <div className="divide-y divide-border/30 rounded-2xl border border-border/40 bg-card">
-            {quotes.map((quote) => {
-              const canConvert = quote.status !== 'converted' && quote.status !== 'cancelled'
-              const canCancel = quote.status !== 'converted' && quote.status !== 'cancelled'
-              const canDelete = quote.status !== 'converted'
-              const agingDays = calculateAgingDays(quote.created_at)
+          <SalesPanel>
+            <div className="divide-y divide-border/30">
+              {quotes.map((quote) => {
+                const canConvert = quote.status !== 'converted' && quote.status !== 'cancelled'
+                const canCancel = quote.status !== 'converted' && quote.status !== 'cancelled'
+                const canDelete = quote.status !== 'converted'
+                const agingDays = calculateAgingDays(quote.created_at)
 
-              return (
-                <div key={quote.id} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold text-foreground">{quote.quote_number}</span>
-                      <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                        {statusLabel[quote.status]}
-                      </span>
-                      <span className={`text-[10px] font-semibold ${getSlaTone(agingDays)}`}>SLA {agingDays}d</span>
+                return (
+                  <div key={quote.id} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">{quote.quote_number}</span>
+                        <SalesStatusBadge tone={quote.status === 'converted' ? 'success' : quote.status === 'cancelled' ? 'danger' : 'neutral'}>
+                          {statusLabel[quote.status]}
+                        </SalesStatusBadge>
+                        <span className={`text-[10px] font-semibold ${getSlaTone(agingDays)}`}>SLA {agingDays}d</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                        <span>{quote.company_name_snapshot || quote.store?.company_name || 'Cliente sem nome'}</span>
+                        <span>{new Date(quote.created_at).toLocaleDateString('pt-BR')}</span>
+                      </div>
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                      <span>{quote.company_name_snapshot || quote.store?.company_name || 'Cliente sem nome'}</span>
-                      <span>{new Date(quote.created_at).toLocaleDateString('pt-BR')}</span>
-                    </div>
-                  </div>
 
-                  <span className="shrink-0 text-sm font-bold font-heading text-foreground">{formatCurrency(quote.total)}</span>
+                    <span className="shrink-0 text-sm font-bold font-heading text-foreground">{formatCurrency(quote.total)}</span>
 
-                  <div className="flex shrink-0 items-center gap-2">
-                    {canConvert && (
-                      <Button
-                        size="sm"
-                        className="h-8 rounded-lg border-0 px-3 text-xs font-semibold gradient-bronze text-white hover:opacity-90"
-                        disabled={hasPendingAction}
-                        onClick={() => {
-                          void handleQuoteAction('convert', quote)
-                        }}
-                      >
-                        {isBusy(quote.id, 'convert') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Converter'}
-                      </Button>
-                    )}
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background text-foreground transition-colors hover:bg-muted/60 disabled:pointer-events-none disabled:opacity-50"
-                        disabled={hasPendingAction}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem
+                    <div className="flex shrink-0 items-center gap-2">
+                      {canConvert && (
+                        <Button
+                          size="sm"
+                          className="h-8 rounded-lg border-0 px-3 text-xs font-semibold gradient-bronze text-white hover:opacity-90"
+                          disabled={hasPendingAction}
                           onClick={() => {
-                            router.push(`/sales/quotes/new?customer=${quote.store_id}&editQuote=${quote.id}`)
+                            void handleQuoteAction('convert', quote)
                           }}
                         >
-                          Editar
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            void handleQuoteAction('duplicate', quote)
-                          }}
+                          {isBusy(quote.id, 'convert') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Converter'}
+                        </Button>
+                      )}
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background text-foreground transition-colors hover:bg-muted/60 disabled:pointer-events-none disabled:opacity-50"
+                          disabled={hasPendingAction}
                         >
-                          {isBusy(quote.id, 'duplicate') ? 'Duplicando...' : 'Duplicar'}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            router.push(`/sales/quotes/${quote.id}`)
-                          }}
-                        >
-                          Ver detalhes
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {quote.status !== 'draft' && (
-                          <DropdownMenuItem onClick={() => { void handleStatusUpdate(quote.id, 'draft') }}>
-                            Marcar como Rascunho
-                          </DropdownMenuItem>
-                        )}
-                        {quote.status !== 'sent' && quote.status !== 'converted' && quote.status !== 'cancelled' && (
-                          <DropdownMenuItem onClick={() => { void handleStatusUpdate(quote.id, 'sent') }}>
-                            Marcar como Enviado
-                          </DropdownMenuItem>
-                        )}
-                        {quote.status !== 'approved' && quote.status !== 'converted' && quote.status !== 'cancelled' && (
-                          <DropdownMenuItem onClick={() => { void handleStatusUpdate(quote.id, 'approved') }}>
-                            Marcar como Aprovado
-                          </DropdownMenuItem>
-                        )}
-                        {(canCancel || canDelete) && <DropdownMenuSeparator />}
-                        {canCancel && (
+                          <MoreHorizontal className="h-4 w-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
                           <DropdownMenuItem
                             onClick={() => {
-                              void handleQuoteAction('cancel', quote)
+                              router.push(`/sales/quotes/new?customer=${quote.store_id}&editQuote=${quote.id}`)
                             }}
                           >
-                            {isBusy(quote.id, 'cancel') ? 'Cancelando...' : 'Cancelar'}
+                            Editar
                           </DropdownMenuItem>
-                        )}
-                        {canDelete && (
                           <DropdownMenuItem
-                            variant="destructive"
                             onClick={() => {
-                              void handleQuoteAction('delete', quote)
+                              void handleQuoteAction('duplicate', quote)
                             }}
                           >
-                            {isBusy(quote.id, 'delete') ? 'Excluindo...' : 'Excluir'}
+                            {isBusy(quote.id, 'duplicate') ? 'Duplicando...' : 'Duplicar'}
                           </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              router.push(`/sales/quotes/${quote.id}`)
+                            }}
+                          >
+                            Ver detalhes
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {quote.status !== 'draft' && (
+                            <DropdownMenuItem onClick={() => { void handleStatusUpdate(quote.id, 'draft') }}>
+                              Marcar como Rascunho
+                            </DropdownMenuItem>
+                          )}
+                          {quote.status !== 'sent' && quote.status !== 'converted' && quote.status !== 'cancelled' && (
+                            <DropdownMenuItem onClick={() => { void handleStatusUpdate(quote.id, 'sent') }}>
+                              Marcar como Enviado
+                            </DropdownMenuItem>
+                          )}
+                          {quote.status !== 'approved' && quote.status !== 'converted' && quote.status !== 'cancelled' && (
+                            <DropdownMenuItem onClick={() => { void handleStatusUpdate(quote.id, 'approved') }}>
+                              Marcar como Aprovado
+                            </DropdownMenuItem>
+                          )}
+                          {(canCancel || canDelete) && <DropdownMenuSeparator />}
+                          {canCancel && (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                void handleQuoteAction('cancel', quote)
+                              }}
+                            >
+                              {isBusy(quote.id, 'cancel') ? 'Cancelando...' : 'Cancelar'}
+                            </DropdownMenuItem>
+                          )}
+                          {canDelete && (
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => {
+                                void handleQuoteAction('delete', quote)
+                              }}
+                            >
+                              {isBusy(quote.id, 'delete') ? 'Excluindo...' : 'Excluir'}
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
 
-                    <Link href={`/sales/quotes/${quote.id}`} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground">
-                      <ChevronRight className="h-4 w-4" />
-                    </Link>
+                      <Link href={`/sales/quotes/${quote.id}`} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground">
+                        <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          </SalesPanel>
 
-          <div className="flex items-center justify-between rounded-2xl border border-border/40 bg-card p-3">
-            <Button asChild variant="outline" size="sm" className="h-8 rounded-lg border-border px-3 text-xs" disabled={pagination.page <= 1}>
-              <Link href={buildPageHref(Math.max(1, pagination.page - 1))} aria-disabled={pagination.page <= 1}>
-                <ChevronLeft className="mr-1 h-3.5 w-3.5" />
-                Anterior
-              </Link>
-            </Button>
-            <span className="text-xs font-medium text-muted-foreground">
-              Pagina {pagination.page} de {pagination.totalPages}
-            </span>
-            <Button asChild variant="outline" size="sm" className="h-8 rounded-lg border-border px-3 text-xs" disabled={pagination.page >= pagination.totalPages}>
-              <Link href={buildPageHref(Math.min(pagination.totalPages, pagination.page + 1))} aria-disabled={pagination.page >= pagination.totalPages}>
-                Proxima
-                <ChevronRight className="ml-1 h-3.5 w-3.5" />
-              </Link>
-            </Button>
-          </div>
+          <SalesPagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            previousHref={buildPageHref(Math.max(1, pagination.page - 1))}
+            nextHref={buildPageHref(Math.min(pagination.totalPages, pagination.page + 1))}
+            label={`Pagina ${pagination.page} de ${pagination.totalPages}`}
+          />
         </>
       )}
     </div>
