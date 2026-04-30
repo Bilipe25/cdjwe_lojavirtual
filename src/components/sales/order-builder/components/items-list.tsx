@@ -4,10 +4,7 @@ import Image from 'next/image'
 import { Minus, Package, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { DraftItem } from '@/components/sales/order-builder/types'
-
-function formatCurrency(value: number) {
-  return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-}
+import { formatCurrency } from '@/components/sales/order-builder/utils'
 
 export function ItemsList({
   items,

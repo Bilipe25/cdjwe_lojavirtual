@@ -1,5 +1,7 @@
 ﻿import type {
   Category,
+  Order,
+  OrderItem,
   PaymentMethod,
   PaymentMethodCondition,
   PriceTable,
@@ -7,6 +9,7 @@
   Product,
   Store,
   StoreAddress,
+  SystemSettings,
 } from '@/lib/types'
 import type { PriceSnapshot } from '@/lib/pricing/server-pricing'
 
@@ -60,4 +63,14 @@ export type NegotiationSummary = {
   discountAmount: number
   discountPercentage: number
   surchargeAmount: number
+}
+
+export type OrderBuilderMode = 'order' | 'quote'
+
+export type OrderBuilderSection = 'customer' | 'products' | 'negotiation' | 'payment' | 'notes' | null
+
+export type OrderBuilderCompletionData = {
+  order: Order
+  items: OrderItem[]
+  settings: SystemSettings | null
 }
