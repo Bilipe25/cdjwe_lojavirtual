@@ -184,6 +184,64 @@ export async function transferRepresentativeStockFormAction(formData: FormData) 
   redirect('/admin/orders/pronta-entrega/transferir?success=1')
 }
 
+export type TransferItemPayload = {
+  variantChoice: string
+  quantity: number
+}
+
+export async function transferRepresentativeStockMultiAction(payload: {
+  representativeId: string
+  items: TransferItemPayload[]
+  notes: string
+}): Promise<{ success: boolean; error?: string; transferNumber?: string }> {
+  const { supabase } = await requireAdminContext()
+  const representativeId = (payload.representativeId || '').trim()
+  const notes = (payload.notes || '').trim() || null
+
+  if (!representativeId) {
+    return { success: false, error: 'Selecione um representante.' }
+  }
+
+  if (!payload.items || payload.items.length === 0) {
+    return { success: false, error: 'Adicione ao menos um produto à lista.' }
+  }
+
+  const rpcItems = payload.items.map((item) => {
+    const [variantId, sizeRaw] = (item.variantChoice || '').split('::')
+    const sizeOptionId = sizeRaw && sizeRaw !== 'legacy' ? sizeRaw : null
+    const quantity = Math.floor(Number(item.quantity) || 0)
+
+    if (!variantId || quantity <= 0) {
+      throw new Error('Item de transferência inválido.')
+    }
+
+    return {
+      product_variant_id: variantId,
+      size_option_id: sizeOptionId,
+      quantity,
+    }
+  })
+
+  const { data, error } = await supabase.rpc('admin_transfer_representative_stock_atomic', {
+    p_representative_id: representativeId,
+    p_items: rpcItems,
+    p_notes: notes,
+  })
+
+  if (error) {
+    return { success: false, error: error.message || 'Erro ao registrar transferência.' }
+  }
+
+  revalidateReadyDeliveryPages()
+  revalidateRepresentativeReadyDelivery(representativeId)
+
+  const transferNumber = Array.isArray(data) && data[0]?.transfer_number
+    ? String(data[0].transfer_number)
+    : undefined
+
+  return { success: true, transferNumber }
+}
+
 export async function getReadyDeliveryMovements() {
   const { admin } = await requireAdminContext()
   const { data, error } = await admin
