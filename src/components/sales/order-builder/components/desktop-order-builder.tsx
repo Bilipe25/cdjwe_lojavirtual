@@ -129,12 +129,27 @@ export function DesktopOrderBuilder({
   onSubmitOrder: () => void
   onSubmitQuote: () => void
 }) {
+  const customerStepNumber = mode === 'order' ? 2 : 1
+  const productsStepNumber = mode === 'order' ? 3 : 2
+  const paymentStepNumber = mode === 'order' ? 4 : 3
+
   return (
     <div className="hidden xl:grid xl:grid-cols-[minmax(0,1fr)_340px] xl:gap-5">
       <div className="space-y-5">
+        {mode === 'order' ? (
+          <section className="rounded-2xl border border-border/40 bg-card">
+            <div className="border-b border-border/30 px-4 py-3">
+              <h2 className="text-sm font-semibold font-heading text-foreground">1. Tipo de pedido</h2>
+            </div>
+            <div className="p-4">
+              <OrderTypeSelector value={orderType} onChange={onOrderTypeChange} />
+            </div>
+          </section>
+        ) : null}
+
         <section className="rounded-2xl border border-border/40 bg-card">
           <div className="flex items-center justify-between border-b border-border/30 px-4 py-3">
-            <h2 className="text-sm font-semibold font-heading text-foreground">1. Cliente e contexto</h2>
+            <h2 className="text-sm font-semibold font-heading text-foreground">{customerStepNumber}. Cliente e contexto</h2>
             {selectedStoreId ? (
               <div className="flex gap-2">
                 <Button variant="ghost" size="sm" onClick={onEditSelectedStore} className="h-7 px-2 text-xs text-primary">
@@ -167,13 +182,6 @@ export function DesktopOrderBuilder({
                     <span className="text-sm font-semibold text-foreground">{selectedStore?.company_name}</span>
                   </div>
                 </div>
-
-                {mode === 'order' ? (
-                  <div className="space-y-2 md:col-span-2">
-                    <Label className="text-xs">Tipo de pedido</Label>
-                    <OrderTypeSelector value={orderType} onChange={onOrderTypeChange} />
-                  </div>
-                ) : null}
 
                 <div className="space-y-1.5">
                   <Label className="text-xs">Tabela de preco</Label>
@@ -232,7 +240,7 @@ export function DesktopOrderBuilder({
           )}
         >
           <div className="flex items-center justify-between border-b border-border/30 px-4 py-3">
-            <h2 className="text-sm font-semibold font-heading text-foreground">2. Produtos do Pedido</h2>
+            <h2 className="text-sm font-semibold font-heading text-foreground">{productsStepNumber}. Produtos do Pedido</h2>
             <Button
               size="sm"
               onClick={onOpenProducts}
@@ -256,7 +264,7 @@ export function DesktopOrderBuilder({
 
         <section className="rounded-2xl border border-border/40 bg-card">
           <div className="border-b border-border/30 px-4 py-3">
-            <h2 className="text-sm font-semibold font-heading text-foreground">3. Pagamento</h2>
+            <h2 className="text-sm font-semibold font-heading text-foreground">{paymentStepNumber}. Pagamento</h2>
           </div>
           <div className="space-y-3 p-4">
             <PaymentFields

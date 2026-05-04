@@ -1,7 +1,7 @@
 'use client'
 
 import type { Dispatch, SetStateAction } from 'react'
-import { ChevronRight, FileText, Loader2, MapPin, Plus, ShoppingBag } from 'lucide-react'
+import { ChevronRight, FileText, Loader2, Plus, ShoppingBag } from 'lucide-react'
 import type { OrderType, PriceTable } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -9,14 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ItemsList } from '@/components/sales/order-builder/components/items-list'
 import { NegotiationFields } from '@/components/sales/order-builder/components/negotiation-fields'
 import { OrderNotesField } from '@/components/sales/order-builder/components/order-notes-field'
-import { OrderTypeSelector, getOrderTypeLabel } from '@/components/sales/order-builder/components/order-type-selector'
+import { OrderTypeSelector } from '@/components/sales/order-builder/components/order-type-selector'
 import { PaymentFields } from '@/components/sales/order-builder/components/payment-fields'
 import { SectionRow } from '@/components/sales/order-builder/components/section-row'
 import {
   OrderBuilderValidationPanel,
   type BuilderValidationMessage,
 } from '@/components/sales/order-builder/components/builder-validation-panel'
-import { cn } from '@/lib/utils'
 import type {
   BuilderCustomer,
   DiscountType,
@@ -27,6 +26,35 @@ import type {
   PaymentOption,
 } from '@/components/sales/order-builder/types'
 import { formatCurrency } from '@/components/sales/order-builder/utils'
+
+function OrderInfoPickerRow({
+  label,
+  value,
+  placeholder,
+  ariaLabel,
+}: {
+  label: string
+  value?: string
+  placeholder: string
+  ariaLabel: string
+}) {
+  return (
+    <SelectTrigger
+      aria-label={ariaLabel}
+      className="h-12 w-full rounded-xl border-border/70 bg-background px-3.5 py-0 text-sm shadow-sm transition hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring/35 [&>svg]:hidden"
+    >
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+        <span className="shrink-0 font-medium text-muted-foreground">{label}:</span>
+        <SelectValue className="min-w-0 flex-1 truncate font-semibold text-foreground" placeholder={placeholder}>
+          {value}
+        </SelectValue>
+      </span>
+      <span className="ml-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground">
+        <ChevronRight className="h-4 w-4" />
+      </span>
+    </SelectTrigger>
+  )
+}
 
 export function MobileOrderBuilder({
   mode,
@@ -125,49 +153,70 @@ export function MobileOrderBuilder({
   onOpenProducts: () => void
   onSubmit: () => void
 }) {
+  const selectedPriceTableName = availablePriceTables.find((table) => table.id === selectedPriceTableId)?.name
+  const customerLocation = [selectedStore?.city, selectedStore?.state].filter(Boolean).join('/')
+  const customerMeta = [
+    customerLocation,
+    selectedStore?.customer_code ? `Cod. #${selectedStore.customer_code}` : null,
+  ].filter(Boolean).join(' • ')
+
   return (
     <div className="flex min-h-[calc(100dvh-140px)] flex-col xl:hidden">
       <div className="flex-1 divide-y divide-border/30 rounded-2xl border border-border/40 bg-card">
-        <button
-          type="button"
-          onClick={onOpenCustomerSheet}
-          className={cn(
-            'flex w-full items-center gap-3 border-b border-border/30 px-4 py-3.5 text-left transition-colors hover:bg-muted/40',
-            !selectedStoreId && 'bg-primary/5'
-          )}
-        >
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] text-muted-foreground">Cliente Selecionado</p>
-            <p className={cn('mt-0.5 text-sm font-semibold', !selectedStoreId ? 'text-primary' : 'text-foreground')}>
-              {selectedStore?.company_name || 'Tocar para selecionar...'}
-            </p>
-            {selectedStore && (
-              <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                {(selectedStore.city || selectedStore.state) && (
-                  <span className="flex items-center gap-0.5">
-                    <MapPin className="h-2.5 w-2.5" />
-                    {[selectedStore.city, selectedStore.state].filter(Boolean).join('/')}
-                  </span>
-                )}
-                {selectedStore.customer_code && (
-                  <span>· Cód. #{selectedStore.customer_code}</span>
-                )}
-              </div>
-            )}
+        {mode === 'order' ? (
+          <div className="border-b border-border/30 bg-muted/10 px-4 py-3">
+            <Label className="mb-2 block text-[11px] font-semibold text-muted-foreground">Tipo de pedido</Label>
+            <OrderTypeSelector value={orderType} onChange={onOrderTypeChange} />
           </div>
-          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-        </button>
+        ) : null}
 
-        {selectedStoreId ? (
-          <div className="space-y-3 border-b border-border/30 bg-muted/10 px-4 py-3">
-            <div className="flex gap-2">
-              <div className="flex-1">
+        <div className="border-b border-border/30 bg-muted/10 px-4 py-3">
+          {!selectedStoreId ? (
+            <button
+              type="button"
+              onClick={onOpenCustomerSheet}
+              className="flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-card p-4 text-left shadow-sm transition hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              aria-label="Selecionar cliente do pedido"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-medium text-muted-foreground">Cliente do pedido</p>
+                <p className="mt-1 text-sm font-bold text-primary">Tocar para selecionar...</p>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </button>
+          ) : (
+            <div className="space-y-3 rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  onClick={onOpenCustomerSheet}
+                  className="min-w-0 flex-1 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  aria-label="Trocar cliente do pedido"
+                >
+                  <p className="text-[11px] font-medium text-muted-foreground">Cliente do pedido</p>
+                  <p className="mt-1 truncate text-sm font-bold text-foreground">{selectedStore?.company_name}</p>
+                  {customerMeta ? (
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{customerMeta}</p>
+                  ) : null}
+                </button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onEditSelectedStore}
+                  className="h-8 shrink-0 rounded-lg px-2.5 text-xs font-semibold text-primary hover:bg-primary/5"
+                >
+                  Editar
+                </Button>
+              </div>
+
+              <div className="space-y-2">
                 <Select value={selectedPriceTableId} onValueChange={(value) => onPriceTableChange(value || '')}>
-                  <SelectTrigger className="h-9 rounded-xl border-border bg-card text-sm shadow-sm">
-                    <SelectValue placeholder="Tabela">
-                      {availablePriceTables.find((table) => table.id === selectedPriceTableId)?.name}
-                    </SelectValue>
-                  </SelectTrigger>
+                  <OrderInfoPickerRow
+                    label="Tabela"
+                    value={selectedPriceTableName}
+                    placeholder="Selecionar"
+                    ariaLabel="Selecionar tabela de preco"
+                  />
                   <SelectContent>
                     {availablePriceTables.map((table) => (
                       <SelectItem key={table.id} value={table.id}>
@@ -176,38 +225,28 @@ export function MobileOrderBuilder({
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onEditSelectedStore}
-                className="h-9 rounded-xl border-border bg-card font-semibold text-primary"
-              >
-                Editar
-              </Button>
-            </div>
 
-            {mode === 'order' ? (
-              <div className="space-y-2">
-                <Label className="text-[11px] font-semibold text-muted-foreground">Tipo de pedido</Label>
-                <OrderTypeSelector value={orderType} onChange={onOrderTypeChange} />
-              </div>
-            ) : null}
-
-            {isPreSaleOrder ? (
-              <div className="space-y-2">
-                <Select value={selectedAddressId} onValueChange={(value) => onAddressChange(value || '')}>
-                  <SelectTrigger className="h-9 rounded-xl border-border bg-card text-sm shadow-sm">
-                    <SelectValue placeholder="Endereco">{currentAddressTitle}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(selectedStore?.addresses || []).map((address) => (
-                      <SelectItem key={address.id} value={address.id}>
-                        {address.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {isPreSaleOrder ? (
+                  <Select value={selectedAddressId} onValueChange={(value) => onAddressChange(value || '')}>
+                    <OrderInfoPickerRow
+                      label="Endereco"
+                      value={currentAddressTitle}
+                      placeholder="Selecionar"
+                      ariaLabel="Selecionar endereco de entrega"
+                    />
+                    <SelectContent>
+                      {(selectedStore?.addresses || []).map((address) => (
+                        <SelectItem key={address.id} value={address.id}>
+                          {address.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+                    Pronta entrega nao requer endereco de entrega.
+                  </p>
+                )}
 
                 {requiresDeliveryAddress && !hasResolvableAddress ? (
                   <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
@@ -215,13 +254,9 @@ export function MobileOrderBuilder({
                   </p>
                 ) : null}
               </div>
-            ) : (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
-                Pronta entrega selecionada. O pedido sera criado sem endereco de entrega.
-              </div>
-            )}
-          </div>
-        ) : null}
+            </div>
+          )}
+        </div>
 
         <SectionRow
           label="Itens do Carrinho"
@@ -309,13 +344,6 @@ export function MobileOrderBuilder({
       </div>
 
       <div className="sticky bottom-[var(--bottom-nav-height)] z-10 border-t border-border/30 bg-card px-4 py-3 pb-safe shadow-[0_-4px_20px_-2px_rgba(0,0,0,0.06)]" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)' }}>
-        {mode === 'order' ? (
-          <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Tipo de pedido</span>
-            <span className="font-semibold text-foreground">{getOrderTypeLabel(orderType)}</span>
-          </div>
-        ) : null}
-
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
           <span>Total do atendimento</span>
           <span className="text-lg font-bold font-heading text-foreground">{formatCurrency(total)}</span>
@@ -323,7 +351,7 @@ export function MobileOrderBuilder({
 
         {!canSubmitCurrentDocument ? (
           <div className="mb-2">
-            <OrderBuilderValidationPanel messages={validationMessages} compact />
+            <OrderBuilderValidationPanel messages={validationMessages} compact maxMessages={1} />
           </div>
         ) : null}
 

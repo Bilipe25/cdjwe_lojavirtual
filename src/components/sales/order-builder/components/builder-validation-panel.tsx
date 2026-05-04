@@ -31,15 +31,20 @@ function ValidationIcon({ tone }: { tone: BuilderValidationMessage['tone'] }) {
 export function OrderBuilderValidationPanel({
   messages,
   compact,
+  maxMessages,
 }: {
   messages: BuilderValidationMessage[]
   compact?: boolean
+  maxMessages?: number
 }) {
   if (messages.length === 0) return null
 
+  const visibleMessages = typeof maxMessages === 'number' ? messages.slice(0, maxMessages) : messages
+  const hiddenCount = messages.length - visibleMessages.length
+
   return (
     <div className={cn('space-y-2', compact && 'space-y-1.5')}>
-      {messages.map((message) => (
+      {visibleMessages.map((message) => (
         <div
           key={message.id}
           className={cn(
@@ -56,6 +61,11 @@ export function OrderBuilderValidationPanel({
           </span>
         </div>
       ))}
+      {hiddenCount > 0 ? (
+        <p className="px-1 text-[11px] font-medium text-muted-foreground">
+          + {hiddenCount} pendencia{hiddenCount > 1 ? 's' : ''} para finalizar
+        </p>
+      ) : null}
     </div>
   )
 }

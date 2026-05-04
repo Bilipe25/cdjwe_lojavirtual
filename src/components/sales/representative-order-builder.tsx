@@ -339,7 +339,7 @@ export function RepresentativeOrderBuilder({
       })
     }
 
-    if (requiresDeliveryAddress && !hasResolvableAddress) {
+    if (selectedStoreId && requiresDeliveryAddress && !hasResolvableAddress) {
       messages.push({
         id: 'address',
         tone: 'warning',
