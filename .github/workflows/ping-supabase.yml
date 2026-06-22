@@ -2,8 +2,8 @@ name: Ping Supabase - Evitar pausa
 
 on:
   schedule:
-    - cron: '0 12 * * 1,4'  # Toda segunda e quinta às 12h UTC (9h Brasília)
-  workflow_dispatch:          # Permite rodar manualmente também
+    - cron: '0 12 * * 1,4'
+  workflow_dispatch:
 
 jobs:
   ping:
@@ -16,8 +16,14 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           echo "Fazendo ping no Supabase..."
+
+          # Mostra quantos caracteres tem a URL (sem revelar o valor)
+          echo "Tamanho da SUPABASE_URL: ${#SUPABASE_URL} caracteres"
+          echo "Tamanho da SUPABASE_ANON_KEY: ${#SUPABASE_ANON_KEY} caracteres"
+
           curl -s \
-            "$SUPABASE_URL/rest/v1/fabrics?select=id&limit=1" \
-            -H "apikey: $SUPABASE_ANON_KEY" \
-            -H "Authorization: Bearer $SUPABASE_ANON_KEY"
+            "${SUPABASE_URL}/rest/v1/fabrics?select=id&limit=1" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}"
+
           echo "Ping enviado com sucesso!"
