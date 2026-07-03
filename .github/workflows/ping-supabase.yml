@@ -2,28 +2,57 @@ name: Ping Supabase - Evitar pausa
 
 on:
   schedule:
-    - cron: '0 12 * * 1,4'
+    - cron: '17 12 * * *' # Todo dia às 12:17 UTC, 09:17 em Brasília
   workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
-      - name: Fazer ping no Supabase
+      - name: Fazer ping real no Supabase
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "Erro: SUPABASE_URL está vazio"
+            exit 1
+          fi
+
+          if [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "Erro: SUPABASE_ANON_KEY está vazio"
+            exit 1
+          fi
+
           echo "Fazendo ping no Supabase..."
 
-          # Mostra quantos caracteres tem a URL (sem revelar o valor)
-          echo "Tamanho da SUPABASE_URL: ${#SUPABASE_URL} caracteres"
-          echo "Tamanho da SUPABASE_ANON_KEY: ${#SUPABASE_ANON_KEY} caracteres"
+          for i in 1 2 3; do
+            echo "Tentativa $i..."
 
-          curl -s \
-            "${SUPABASE_URL}/rest/v1/fabrics?select=id&limit=1" \
-            -H "apikey: ${SUPABASE_ANON_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}"
+            HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+              -X POST "$SUPABASE_URL/rest/v1/rpc/keepalive_ping" \
+              -H "apikey: $SUPABASE_ANON_KEY" \
+              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{}')
 
-          echo "Ping enviado com sucesso!"
+            echo "Resposta:"
+            cat response.json || true
+            echo ""
+            echo "HTTP_CODE=$HTTP_CODE"
+
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "Ping enviado com sucesso!"
+              exit 0
+            fi
+
+            echo "Falhou. Tentando novamente em 20 segundos..."
+            sleep 20
+          done
+
+          echo "Erro: ping falhou após 3 tentativas."
+          exit 1
