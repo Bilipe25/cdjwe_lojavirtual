@@ -4,8 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 export default async function OrderRedirectPage({
   params,
 }: {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }) {
+  const { id } = await params
   const supabase = await createClient()
 
   // Verify auth
@@ -30,8 +31,8 @@ export default async function OrderRedirectPage({
     // or if we have a specific /admin/orders/[id] route, we use that.
     redirect('/admin/orders')
   } else if (role === 'representative') {
-    redirect(`/sales/orders/${params.id}`)
+    redirect(`/sales/orders/${id}`)
   } else {
-    redirect(`/orders/${params.id}`)
+    redirect(`/orders/${id}`)
   }
 }
